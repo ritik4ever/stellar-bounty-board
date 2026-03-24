@@ -1,6 +1,8 @@
 import "dotenv/config";
 import cors from "cors";
 import express, { Request, Response } from "express";
+import swaggerUi from "swagger-ui-express";
+import { generateOpenApiDocument } from "./docs/openapi";
 import {
   createBounty,
   listBounties,
@@ -25,6 +27,10 @@ const port = Number(process.env.PORT ?? 3001);
 
 app.use(cors());
 app.use(express.json());
+
+const apiSpec = generateOpenApiDocument();
+app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(apiSpec));
+app.get("/api/docs.json", (_req: Request, res: Response) => res.json(apiSpec));
 
 function parseId(raw: string | string[] | undefined): string {
   return bountyIdSchema.parse(Array.isArray(raw) ? raw[0] : raw);
