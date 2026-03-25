@@ -69,6 +69,28 @@ Build:
 npm run build
 ```
 
+## Testing
+
+Backend tests cover the JSON-backed bounty lifecycle (create, reserve, submit, release, refund, expiration) and the main HTTP routes. They use a temporary store file via `BOUNTY_STORE_PATH` and disable strict rate limiting when `NODE_ENV=test`.
+
+From the repository root (after `npm run install:all`):
+
+```bash
+npm test
+```
+
+Watch mode during development:
+
+```bash
+npm run test:watch
+```
+
+Coverage report (Istanbul via Vitest):
+
+```bash
+npm run test:coverage
+```
+
 ## Contract Notes
 
 The Soroban contract models the escrow lifecycle:
