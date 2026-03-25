@@ -412,6 +412,93 @@ textarea:focus {
   margin-top: 4px;
 }
 
+/* ---- Skeleton loading cards ---- */
+
+@keyframes shimmer {
+  0% {
+    background-position: -400px 0;
+  }
+  100% {
+    background-position: 400px 0;
+  }
+}
+
+.skeleton-card {
+  pointer-events: none;
+}
+
+.skeleton-block {
+  display: block;
+  border-radius: 12px;
+  background: linear-gradient(
+    90deg,
+    rgba(54, 63, 59, 0.06) 25%,
+    rgba(54, 63, 59, 0.12) 37%,
+    rgba(54, 63, 59, 0.06) 63%
+  );
+  background-size: 800px 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+.skeleton-pill {
+  width: 72px;
+  height: 30px;
+  border-radius: 999px;
+}
+
+.skeleton-title {
+  width: 60%;
+  height: 22px;
+  margin-top: 10px;
+}
+
+.skeleton-amount {
+  width: 80px;
+  height: 30px;
+  border-radius: 999px;
+}
+
+.skeleton-text {
+  width: 100%;
+  height: 14px;
+  margin-top: 6px;
+}
+
+.skeleton-text--short {
+  width: 70%;
+}
+
+.skeleton-meta-label {
+  width: 52px;
+  height: 10px;
+  border-radius: 6px;
+}
+
+.skeleton-meta-value {
+  width: 90px;
+  height: 14px;
+  margin-top: 6px;
+  border-radius: 8px;
+}
+
+.skeleton-chip {
+  width: 80px;
+  height: 28px;
+  border-radius: 999px;
+}
+
+.skeleton-button {
+  width: 100px;
+  height: 40px;
+  border-radius: 999px;
+}
+
+.skeleton-button--small {
+  width: 76px;
+}
+
+/* ---- End skeleton loading cards ---- */
+
 @keyframes rise {
   from {
     opacity: 0;

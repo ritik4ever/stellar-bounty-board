@@ -1,5 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
+import {
+  getNotificationService,
+  createNotificationPayload,
+  type NotificationEvent,
+} from "./notificationService";
 
 export type BountyStatus =
   | "open"
@@ -43,7 +48,12 @@ export interface CreateBountyInput {
   labels: string[];
 }
 
-const storePath = path.resolve(__dirname, "../../data/bounties.json");
+function getStorePath(): string {
+  if (process.env.BOUNTY_STORE_PATH?.trim()) {
+    return path.resolve(process.env.BOUNTY_STORE_PATH.trim());
+  }
+  return path.resolve(__dirname, "../../data/bounties.json");
+}
 
 const sampleBounties: BountyRecord[] = [
   {
@@ -85,6 +95,7 @@ function nowInSeconds(): number {
 }
 
 function ensureStore(): void {
+  const storePath = getStorePath();
   fs.mkdirSync(path.dirname(storePath), { recursive: true });
   if (!fs.existsSync(storePath)) {
     fs.writeFileSync(storePath, JSON.stringify(sampleBounties, null, 2));
@@ -99,11 +110,12 @@ function ensureStore(): void {
 
 function readStore(): BountyRecord[] {
   ensureStore();
+  const storePath = getStorePath();
   return JSON.parse(fs.readFileSync(storePath, "utf8")) as BountyRecord[];
 }
 
 function writeStore(records: BountyRecord[]): void {
-  fs.writeFileSync(storePath, JSON.stringify(records, null, 2));
+  fs.writeFileSync(getStorePath(), JSON.stringify(records, null, 2));
 }
 
 function normalizeRecords(records: BountyRecord[]): BountyRecord[] {
@@ -191,7 +203,17 @@ export function reserveBounty(id: string, contributor: string): BountyRecord {
     reservedAt: nowInSeconds(),
   };
 
-  return persistUpdated(records, updated);
+  const result = persistUpdated(records, updated);
+
+  // Trigger notification (fire and forget)
+  const notificationService = getNotificationService();
+  notificationService.send(
+    createNotificationPayload("bounty_reserved", result, { contributor })
+  ).catch(() => {
+    // Fail silently - notifications should not break core functionality
+  });
+
+  return result;
 }
 
 export function submitBounty(
@@ -218,7 +240,17 @@ export function submitBounty(
     notes,
   };
 
-  return persistUpdated(records, updated);
+  const result = persistUpdated(records, updated);
+
+  // Trigger notification (fire and forget)
+  const notificationService = getNotificationService();
+  notificationService.send(
+    createNotificationPayload("bounty_submitted", result, { submissionUrl, notes })
+  ).catch(() => {
+    // Fail silently - notifications should not break core functionality
+  });
+
+  return result;
 }
 
 export function releaseBounty(id: string, maintainer: string): BountyRecord {
@@ -238,7 +270,17 @@ export function releaseBounty(id: string, maintainer: string): BountyRecord {
     releasedAt: nowInSeconds(),
   };
 
-  return persistUpdated(records, updated);
+  const result = persistUpdated(records, updated);
+
+  // Trigger notification (fire and forget)
+  const notificationService = getNotificationService();
+  notificationService.send(
+    createNotificationPayload("bounty_released", result)
+  ).catch(() => {
+    // Fail silently - notifications should not break core functionality
+  });
+
+  return result;
 }
 
 export function refundBounty(id: string, maintainer: string): BountyRecord {
@@ -261,6 +303,16 @@ export function refundBounty(id: string, maintainer: string): BountyRecord {
     refundedAt: nowInSeconds(),
   };
 
-  return persistUpdated(records, updated);
+  const result = persistUpdated(records, updated);
+
+  // Trigger notification (fire and forget)
+  const notificationService = getNotificationService();
+  notificationService.send(
+    createNotificationPayload("bounty_refunded", result)
+  ).catch(() => {
+    // Fail silently - notifications should not break core functionality
+  });
+
+  return result;
 }
 

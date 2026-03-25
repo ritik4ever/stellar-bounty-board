@@ -35,6 +35,8 @@ Contract (`contracts`)
 - Soroban Rust contract scaffold
 - Escrow-style bounty lifecycle methods
 
+For detailed architecture diagrams and data flow documentation, see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
 ## API Overview
 
 Base URL:
@@ -67,6 +69,28 @@ Build:
 
 ```bash
 npm run build
+```
+
+## Testing
+
+Backend tests cover the JSON-backed bounty lifecycle (create, reserve, submit, release, refund, expiration) and the main HTTP routes. They use a temporary store file via `BOUNTY_STORE_PATH` and disable strict rate limiting when `NODE_ENV=test`.
+
+From the repository root (after `npm run install:all`):
+
+```bash
+npm test
+```
+
+Watch mode during development:
+
+```bash
+npm run test:watch
+```
+
+Coverage report (Istanbul via Vitest):
+
+```bash
+npm run test:coverage
 ```
 
 ## Contract Notes

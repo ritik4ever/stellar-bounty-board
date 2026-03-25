@@ -17,6 +17,7 @@ import {
   submitBounty,
 } from "./api";
 import { Bounty, CreateBountyPayload, OpenIssue } from "./types";
+import SkeletonBountyCard from "./SkeletonBountyCard";
 
 const initialForm: CreateBountyPayload = {
   repo: "ritik4ever/stellar-stream",
@@ -360,7 +361,11 @@ function App() {
           </div>
 
           {loading ? (
-            <div className="empty-state">Loading bounties...</div>
+            <div className="board-list">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <SkeletonBountyCard key={i} />
+              ))}
+            </div>
           ) : (
             <div className="board-list">
               {bounties.map((bounty) => (
