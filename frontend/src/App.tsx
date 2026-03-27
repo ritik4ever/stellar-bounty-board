@@ -3,6 +3,7 @@ import {
   ArrowUpRight,
   Coins,
   FolderGit2,
+  UserRound,
   HandCoins,
   Rocket,
   ShieldCheck,
@@ -17,7 +18,7 @@ import {
   reserveBounty,
   submitBounty,
 } from "./api";
-import { Bounty, CreateBountyPayload, OpenIssue } from "./types";
+import { Bounty, BountyStatus, CreateBountyPayload, OpenIssue } from "./types";
 import GitHubIssuePreviewCard from "./GitHubIssuePreviewCard";
 import SkeletonBountyCard from "./SkeletonBountyCard";
 
@@ -33,6 +34,9 @@ const initialForm: CreateBountyPayload = {
   labels: ["help wanted"],
 };
 
+const STELLAR_PUBLIC_KEY_REGEX = /^G[A-Z2-7]{55}$/;
+const STELLAR_PUBLIC_KEY_HINT = "Stellar public key: starts with G, 56 chars (A–Z, 2–7).";
+
 function formatRelativeDeadline(deadlineAt: number): string {
   const now = Math.floor(Date.now() / 1000);
   const diff = deadlineAt - now;
@@ -47,6 +51,22 @@ function shortAddress(value: string): string {
   return `${value.slice(0, 6)}...${value.slice(-4)}`;
 }
 
+function validateStellarPublicKey(input: string): string | null {
+  const value = input.trim();
+  if (!value) return "Address is required.";
+  if (!STELLAR_PUBLIC_KEY_REGEX.test(value)) return STELLAR_PUBLIC_KEY_HINT;
+  return null;
+}
+
+const contributorStatuses: Array<BountyStatus | "all"> = [
+  "all",
+  "reserved",
+  "submitted",
+  "released",
+  "refunded",
+  "expired",
+];
+
 function App() {
   const [form, setForm] = useState<CreateBountyPayload>(initialForm);
   const [bounties, setBounties] = useState<Bounty[]>([]);
@@ -55,6 +75,8 @@ function App() {
   const [submitting, setSubmitting] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [profileContributor, setProfileContributor] = useState("");
+  const [profileStatus, setProfileStatus] = useState<(typeof contributorStatuses)[number]>("all");
 
   async function refresh(): Promise<void> {
     const [bountyData, issueData] = await Promise.all([listBounties(), listOpenIssues()]);
@@ -102,13 +124,66 @@ function App() {
     };
   }, [bounties]);
 
+  const contributorMetrics = useMemo(() => {
+    const contributor = profileContributor.trim();
+    if (!contributor) {
+      return {
+        contributor: "",
+        countsByStatus: new Map<BountyStatus, number>(),
+        releasedTotalsByAsset: new Map<string, number>(),
+        filtered: [] as Bounty[],
+      };
+    }
+
+    const mine = bounties.filter((bounty) => bounty.contributor?.trim() === contributor);
+    const countsByStatus = new Map<BountyStatus, number>();
+    const releasedTotalsByAsset = new Map<string, number>();
+
+    for (const bounty of mine) {
+      countsByStatus.set(bounty.status, (countsByStatus.get(bounty.status) ?? 0) + 1);
+      if (bounty.status === "released") {
+        releasedTotalsByAsset.set(
+          bounty.tokenSymbol,
+          (releasedTotalsByAsset.get(bounty.tokenSymbol) ?? 0) + bounty.amount,
+        );
+      }
+    }
+
+    const filtered =
+      profileStatus === "all" ? mine : mine.filter((bounty) => bounty.status === profileStatus);
+
+    const statusRank: Record<BountyStatus, number> = {
+      open: 6,
+      reserved: 5,
+      submitted: 4,
+      released: 3,
+      refunded: 2,
+      expired: 1,
+    };
+
+    filtered.sort((a, b) => {
+      const rankDiff = statusRank[b.status] - statusRank[a.status];
+      if (rankDiff !== 0) return rankDiff;
+      return (b.releasedAt ?? b.refundedAt ?? b.submittedAt ?? b.reservedAt ?? b.createdAt) -
+        (a.releasedAt ?? a.refundedAt ?? a.submittedAt ?? a.reservedAt ?? a.createdAt);
+    });
+
+    return { contributor, countsByStatus, releasedTotalsByAsset, filtered };
+  }, [bounties, profileContributor, profileStatus]);
+
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
     setError(null);
     try {
+      const maintainerError = validateStellarPublicKey(form.maintainer);
+      if (maintainerError) {
+        setError(`Maintainer address: ${maintainerError}`);
+        return;
+      }
       await createBounty({
         ...form,
+        maintainer: form.maintainer.trim(),
         labels: form.labels.filter(Boolean),
       });
       setForm({
@@ -126,9 +201,14 @@ function App() {
   async function handleReserve(bounty: Bounty) {
     const contributor = window.prompt("Contributor Stellar address", bounty.contributor ?? "");
     if (!contributor) return;
+    const contributorError = validateStellarPublicKey(contributor);
+    if (contributorError) {
+      window.alert(contributorError);
+      return;
+    }
     try {
       setError(null);
-      await reserveBounty(bounty.id, contributor);
+      await reserveBounty(bounty.id, contributor.trim());
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to reserve bounty.");
@@ -138,13 +218,18 @@ function App() {
   async function handleSubmit(bounty: Bounty) {
     const contributor = window.prompt("Contributor Stellar address", bounty.contributor ?? "");
     if (!contributor) return;
+    const contributorError = validateStellarPublicKey(contributor);
+    if (contributorError) {
+      window.alert(contributorError);
+      return;
+    }
     const submissionUrl = window.prompt("Pull request or demo URL");
     if (!submissionUrl) return;
     const notes = window.prompt("Optional notes for the maintainer") ?? undefined;
 
     try {
       setError(null);
-      await submitBounty(bounty.id, contributor, submissionUrl, notes);
+      await submitBounty(bounty.id, contributor.trim(), submissionUrl, notes);
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit bounty.");
@@ -154,10 +239,15 @@ function App() {
   async function handleRelease(bounty: Bounty) {
     const maintainer = window.prompt("Maintainer Stellar address", bounty.maintainer);
     if (!maintainer) return;
+    const maintainerError = validateStellarPublicKey(maintainer);
+    if (maintainerError) {
+      window.alert(maintainerError);
+      return;
+    }
     const transactionHash = window.prompt("Transaction hash (64 hex chars, optional)") ?? undefined;
     try {
       setError(null);
-      await releaseBounty(bounty.id, maintainer, transactionHash || undefined);
+      await releaseBounty(bounty.id, maintainer.trim(), transactionHash || undefined);
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to release bounty.");
@@ -167,10 +257,15 @@ function App() {
   async function handleRefund(bounty: Bounty) {
     const maintainer = window.prompt("Maintainer Stellar address", bounty.maintainer);
     if (!maintainer) return;
+    const maintainerError = validateStellarPublicKey(maintainer);
+    if (maintainerError) {
+      window.alert(maintainerError);
+      return;
+    }
     const transactionHash = window.prompt("Transaction hash (64 hex chars, optional)") ?? undefined;
     try {
       setError(null);
-      await refundBounty(bounty.id, maintainer, transactionHash || undefined);
+      await refundBounty(bounty.id, maintainer.trim(), transactionHash || undefined);
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to refund bounty.");
@@ -332,7 +427,15 @@ function App() {
                 <input
                   value={form.maintainer}
                   onChange={(event) => setForm({ ...form, maintainer: event.target.value })}
+                  placeholder="G... (56 chars)"
+                  inputMode="text"
+                  autoComplete="off"
+                  aria-invalid={Boolean(form.maintainer.trim() && validateStellarPublicKey(form.maintainer))}
                 />
+                <small className="field-hint">{STELLAR_PUBLIC_KEY_HINT}</small>
+                {form.maintainer.trim() && validateStellarPublicKey(form.maintainer) && (
+                  <small className="field-error">{validateStellarPublicKey(form.maintainer)}</small>
+                )}
               </label>
 
               <label>
@@ -533,6 +636,165 @@ function App() {
             </article>
           ))}
         </div>
+      </section>
+
+      <section className="panel profile-panel" id="profile">
+        <div className="panel-header">
+          <div>
+            <span className="panel-kicker">Contributor angle</span>
+            <h2>Contributor profile</h2>
+          </div>
+          <UserRound size={18} />
+        </div>
+
+        <div className="profile-controls">
+          <label>
+            Contributor address
+            <input
+              value={profileContributor}
+              onChange={(event) => setProfileContributor(event.target.value)}
+              placeholder="G... (Stellar address)"
+              inputMode="text"
+              autoComplete="off"
+              aria-invalid={Boolean(profileContributor.trim() && validateStellarPublicKey(profileContributor))}
+            />
+            <small className="field-hint">{STELLAR_PUBLIC_KEY_HINT}</small>
+            {profileContributor.trim() && validateStellarPublicKey(profileContributor) && (
+              <small className="field-error">{validateStellarPublicKey(profileContributor)}</small>
+            )}
+          </label>
+
+          <div className="filter-row" role="tablist" aria-label="Filter by bounty status">
+            {contributorStatuses.map((status) => (
+              <button
+                key={status}
+                type="button"
+                role="tab"
+                aria-selected={profileStatus === status}
+                className={`filter-chip ${profileStatus === status ? "filter-chip--active" : ""}`}
+                onClick={() => setProfileStatus(status)}
+                disabled={!contributorMetrics.contributor && status !== "all"}
+              >
+                {status}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="empty-state">Loading contributor history...</div>
+        ) : !contributorMetrics.contributor ? (
+          <div className="empty-state">
+            Enter a contributor address to see reserved, submitted, and released bounties plus total
+            earnings.
+          </div>
+        ) : contributorMetrics.filtered.length === 0 ? (
+          <div className="empty-state">
+            No bounties found for <strong>{shortAddress(contributorMetrics.contributor)}</strong>
+            {profileStatus === "all" ? "." : ` in "${profileStatus}" status.`}
+          </div>
+        ) : (
+          <div className="profile-grid">
+            <div className="profile-metrics">
+              <div className="profile-metric">
+                <span className="meta-label">Reserved</span>
+                <strong>{contributorMetrics.countsByStatus.get("reserved") ?? 0}</strong>
+              </div>
+              <div className="profile-metric">
+                <span className="meta-label">Submitted</span>
+                <strong>{contributorMetrics.countsByStatus.get("submitted") ?? 0}</strong>
+              </div>
+              <div className="profile-metric">
+                <span className="meta-label">Released</span>
+                <strong>{contributorMetrics.countsByStatus.get("released") ?? 0}</strong>
+              </div>
+              <div className="profile-metric">
+                <span className="meta-label">Refunded</span>
+                <strong>{contributorMetrics.countsByStatus.get("refunded") ?? 0}</strong>
+              </div>
+              <div className="profile-metric">
+                <span className="meta-label">Expired</span>
+                <strong>{contributorMetrics.countsByStatus.get("expired") ?? 0}</strong>
+              </div>
+            </div>
+
+            <div className="profile-earnings">
+              <span className="meta-label">Total earnings (released)</span>
+              <div className="earnings-row">
+                {Array.from(contributorMetrics.releasedTotalsByAsset.entries()).length === 0 ? (
+                  <strong>0</strong>
+                ) : (
+                  Array.from(contributorMetrics.releasedTotalsByAsset.entries()).map(([asset, total]) => (
+                    <div className="earnings-chip" key={asset}>
+                      <strong>{total}</strong>
+                      <span>{asset}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="profile-list">
+              {contributorMetrics.filtered.map((bounty) => (
+                <article className="bounty-card" key={bounty.id}>
+                  <div className="bounty-card__top">
+                    <div>
+                      <span className={`status-pill status-pill--${bounty.status}`}>{bounty.status}</span>
+                      <h3>{bounty.title}</h3>
+                    </div>
+                    <div className="amount-chip">
+                      {bounty.amount} {bounty.tokenSymbol}
+                    </div>
+                  </div>
+
+                  <p className="bounty-summary">{bounty.summary}</p>
+
+                  <div className="meta-grid">
+                    <div>
+                      <span className="meta-label">Issue</span>
+                      <strong>
+                        <a
+                          className="inline-link"
+                          href={`https://github.com/${bounty.repo}/issues/${bounty.issueNumber}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {bounty.repo} #{bounty.issueNumber}
+                        </a>
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="meta-label">Maintainer</span>
+                      <strong>{shortAddress(bounty.maintainer)}</strong>
+                    </div>
+                    {bounty.submissionUrl && (
+                      <div>
+                        <span className="meta-label">Submission</span>
+                        <strong>
+                          <a className="inline-link" href={bounty.submissionUrl} target="_blank" rel="noreferrer">
+                            View link
+                          </a>
+                        </strong>
+                      </div>
+                    )}
+                    {bounty.status === "released" && bounty.releasedTxHash && (
+                      <div>
+                        <span className="meta-label">Release tx</span>
+                        <strong>{`${bounty.releasedTxHash.slice(0, 10)}...`}</strong>
+                      </div>
+                    )}
+                    {bounty.status === "refunded" && bounty.refundedTxHash && (
+                      <div>
+                        <span className="meta-label">Refund tx</span>
+                        <strong>{`${bounty.refundedTxHash.slice(0, 10)}...`}</strong>
+                      </div>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
     </div>
   );
