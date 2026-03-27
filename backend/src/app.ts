@@ -169,7 +169,11 @@ app.post("/api/bounties/:id/release", limiter, (req: Request, res: Response) => 
   }
 
   try {
-    const bounty = releaseBounty(parseId(req.params.id), parsedBody.data.maintainer);
+    const bounty = releaseBounty(
+      parseId(req.params.id),
+      parsedBody.data.maintainer,
+      parsedBody.data.transactionHash,
+    );
     res.json({ data: bounty });
   } catch (error) {
     sendError(res, error);
@@ -184,7 +188,11 @@ app.post("/api/bounties/:id/refund", limiter, (req: Request, res: Response) => {
   }
 
   try {
-    const bounty = refundBounty(parseId(req.params.id), parsedBody.data.maintainer);
+    const bounty = refundBounty(
+      parseId(req.params.id),
+      parsedBody.data.maintainer,
+      parsedBody.data.transactionHash,
+    );
     res.json({ data: bounty });
   } catch (error) {
     sendError(res, error);

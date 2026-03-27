@@ -69,9 +69,11 @@ describe("bountyStore lifecycle — happy paths", () => {
     expect(submitted.submissionUrl).toContain("pull");
     expect(submitted.submittedAt).toBeDefined();
 
-    const released = releaseBounty(created.id, MAINTAINER);
+    const txHash = "c".repeat(64);
+    const released = releaseBounty(created.id, MAINTAINER, txHash);
     expect(released.status).toBe("released");
     expect(released.releasedAt).toBeDefined();
+    expect(released.releasedTxHash).toBe(txHash);
 
     const listed = listBounties();
     expect(listed.find((b) => b.id === created.id)?.status).toBe("released");
@@ -91,9 +93,11 @@ describe("bountyStore lifecycle — happy paths", () => {
       labels: [],
     });
 
-    const refunded = refundBounty(created.id, MAINTAINER);
+    const txHash = "d".repeat(64);
+    const refunded = refundBounty(created.id, MAINTAINER, txHash);
     expect(refunded.status).toBe("refunded");
     expect(refunded.refundedAt).toBeDefined();
+    expect(refunded.refundedTxHash).toBe(txHash);
   });
 
   it("create → reserve → refund", async () => {

@@ -8,6 +8,7 @@ const REPO_REGEX = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 const TOKEN_REGEX = /^[A-Za-z0-9]{1,12}$/;
 
 const STELLAR_EXAMPLE = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+const TX_HASH_REGEX = /^[0-9a-fA-F]{64}$/;
 
 export const bountyIdSchema = z
   .string()
@@ -110,6 +111,15 @@ export const maintainerActionSchema = z
     maintainer: stellarAccountSchema.openapi({
       description: "Must match the maintainer address on the bounty.",
     }),
+    transactionHash: z
+      .string()
+      .trim()
+      .regex(TX_HASH_REGEX, "Transaction hash must be a 64 character hex string.")
+      .optional()
+      .openapi({
+        example: "0".repeat(64),
+        description: "Optional transaction hash for the release/refund action (64-char hex).",
+      }),
   })
   .openapi("MaintainerActionRequest");
 
@@ -143,7 +153,9 @@ export const bountyRecordSchema = z
     reservedAt: z.number().optional().openapi({ example: 1710003600 }),
     submittedAt: z.number().optional(),
     releasedAt: z.number().optional(),
+    releasedTxHash: z.string().optional().openapi({ example: "0".repeat(64) }),
     refundedAt: z.number().optional(),
+    refundedTxHash: z.string().optional().openapi({ example: "0".repeat(64) }),
     submissionUrl: z.string().optional().openapi({ example: "https://github.com/owner/repo/pull/99" }),
     notes: z.string().optional(),
   })
