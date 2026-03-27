@@ -148,20 +148,28 @@ export async function submitBounty(
   return body.data;
 }
 
-export async function releaseBounty(id: string, maintainer: string): Promise<Bounty> {
+export async function releaseBounty(
+  id: string,
+  maintainer: string,
+  transactionHash?: string,
+): Promise<Bounty> {
   const body = await requestJson<{ data: Bounty }>(`/bounties/${id}/release`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ maintainer }),
+    body: JSON.stringify({ maintainer, transactionHash }),
   });
   return body.data;
 }
 
-export async function refundBounty(id: string, maintainer: string): Promise<Bounty> {
+export async function refundBounty(
+  id: string,
+  maintainer: string,
+  transactionHash?: string,
+): Promise<Bounty> {
   const body = await requestJson<{ data: Bounty }>(`/bounties/${id}/refund`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ maintainer }),
+    body: JSON.stringify({ maintainer, transactionHash }),
   });
   return body.data;
 }

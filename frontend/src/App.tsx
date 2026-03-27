@@ -153,9 +153,10 @@ function App() {
   async function handleRelease(bounty: Bounty) {
     const maintainer = window.prompt("Maintainer Stellar address", bounty.maintainer);
     if (!maintainer) return;
+    const transactionHash = window.prompt("Transaction hash (64 hex chars, optional)") ?? undefined;
     try {
       setError(null);
-      await releaseBounty(bounty.id, maintainer);
+      await releaseBounty(bounty.id, maintainer, transactionHash || undefined);
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to release bounty.");
@@ -165,9 +166,10 @@ function App() {
   async function handleRefund(bounty: Bounty) {
     const maintainer = window.prompt("Maintainer Stellar address", bounty.maintainer);
     if (!maintainer) return;
+    const transactionHash = window.prompt("Transaction hash (64 hex chars, optional)") ?? undefined;
     try {
       setError(null);
-      await refundBounty(bounty.id, maintainer);
+      await refundBounty(bounty.id, maintainer, transactionHash || undefined);
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to refund bounty.");
@@ -431,6 +433,18 @@ function App() {
                       <span className="meta-label">Contributor</span>
                       <strong>{bounty.contributor ? shortAddress(bounty.contributor) : "Open"}</strong>
                     </div>
+                    {bounty.status === "released" && bounty.releasedTxHash && (
+                      <div>
+                        <span className="meta-label">Release tx</span>
+                        <strong>{`${bounty.releasedTxHash.slice(0, 10)}...`}</strong>
+                      </div>
+                    )}
+                    {bounty.status === "refunded" && bounty.refundedTxHash && (
+                      <div>
+                        <span className="meta-label">Refund tx</span>
+                        <strong>{`${bounty.refundedTxHash.slice(0, 10)}...`}</strong>
+                      </div>
+                    )}
                   </div>
 
                   <div className="chip-row">

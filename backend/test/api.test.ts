@@ -75,6 +75,8 @@ describe("API — bounty lifecycle routes", () => {
     const { body: created } = await request(app).post("/api/bounties").send(validCreateBody).expect(201);
     const id = created.data.id as string;
 
+    const txHash = "a".repeat(64);
+
     await request(app)
       .post(`/api/bounties/${id}/reserve`)
       .send({ contributor: CONTRIBUTOR })
@@ -90,9 +92,10 @@ describe("API — bounty lifecycle routes", () => {
 
     const rel = await request(app)
       .post(`/api/bounties/${id}/release`)
-      .send({ maintainer: MAINTAINER })
+      .send({ maintainer: MAINTAINER, transactionHash: txHash })
       .expect(200);
     expect(rel.body.data.status).toBe("released");
+    expect(rel.body.data.releasedTxHash).toBe(txHash);
   });
 
   it("GET /api/bounties/released/export.csv returns CSV export", async () => {
@@ -131,9 +134,10 @@ describe("API — bounty lifecycle routes", () => {
 
     const ref = await request(app)
       .post(`/api/bounties/${id}/refund`)
-      .send({ maintainer: MAINTAINER })
+      .send({ maintainer: MAINTAINER, transactionHash: "b".repeat(64) })
       .expect(200);
     expect(ref.body.data.status).toBe("refunded");
+    expect(ref.body.data.refundedTxHash).toBe("b".repeat(64));
   });
 
   it("invalid reserve body returns 400", async () => {

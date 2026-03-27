@@ -31,7 +31,9 @@ export interface BountyRecord {
   reservedAt?: number;
   submittedAt?: number;
   releasedAt?: number;
+  releasedTxHash?: string;
   refundedAt?: number;
+  refundedTxHash?: string;
   submissionUrl?: string;
   notes?: string;
 }
@@ -253,7 +255,7 @@ export function submitBounty(
   return result;
 }
 
-export function releaseBounty(id: string, maintainer: string): BountyRecord {
+export function releaseBounty(id: string, maintainer: string, transactionHash?: string): BountyRecord {
   const records = listBounties();
   const bounty = findBounty(records, id);
 
@@ -268,6 +270,7 @@ export function releaseBounty(id: string, maintainer: string): BountyRecord {
     ...bounty,
     status: "released",
     releasedAt: nowInSeconds(),
+    releasedTxHash: transactionHash?.trim() ? transactionHash.trim() : bounty.releasedTxHash,
   };
 
   const result = persistUpdated(records, updated);
@@ -283,7 +286,7 @@ export function releaseBounty(id: string, maintainer: string): BountyRecord {
   return result;
 }
 
-export function refundBounty(id: string, maintainer: string): BountyRecord {
+export function refundBounty(id: string, maintainer: string, transactionHash?: string): BountyRecord {
   const records = listBounties();
   const bounty = findBounty(records, id);
 
@@ -301,6 +304,7 @@ export function refundBounty(id: string, maintainer: string): BountyRecord {
     ...bounty,
     status: "refunded",
     refundedAt: nowInSeconds(),
+    refundedTxHash: transactionHash?.trim() ? transactionHash.trim() : bounty.refundedTxHash,
   };
 
   const result = persistUpdated(records, updated);

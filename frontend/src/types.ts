@@ -23,7 +23,9 @@ export interface Bounty {
   reservedAt?: number;
   submittedAt?: number;
   releasedAt?: number;
+  releasedTxHash?: string;
   refundedAt?: number;
+  refundedTxHash?: string;
   submissionUrl?: string;
   notes?: string;
 }
