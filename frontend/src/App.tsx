@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import {
   createBounty,
+  exportReleasedPayoutsCsv,
   listBounties,
   listOpenIssues,
   refundBounty,
@@ -179,6 +180,7 @@ function App() {
   const [issues, setIssues] = useState<OpenIssue[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState(initialFilters.searchQuery);
   const [statusFilter, setStatusFilter] = useState<"all" | BountyStatus>(initialFilters.statusFilter);
@@ -399,47 +401,7 @@ function App() {
     }
   }
 
-  function clearFilters() {
-    setSearchQuery("");
-    setStatusFilter("all");
-    setMinReward("");
-    setMaxReward("");
-  }
 
-  function renderActionButton(bounty: Bounty, action: { label: string; tone: string; tooltip: string }): ReactNode {
-    const sharedProps = {
-      className: action.tone,
-      title: action.tooltip,
-      "aria-label": `${action.label}: ${action.tooltip}`,
-    };
-
-    switch (action.label) {
-      case "Reserve":
-        return (
-          <button key={action.label} {...sharedProps} onClick={() => void handleReserve(bounty)}>
-            {action.label}
-          </button>
-        );
-      case "Submit PR":
-        return (
-          <button key={action.label} {...sharedProps} onClick={() => void handleSubmit(bounty)}>
-            {action.label}
-          </button>
-        );
-      case "Release payout":
-        return (
-          <button key={action.label} {...sharedProps} onClick={() => void handleRelease(bounty)}>
-            {action.label}
-          </button>
-        );
-      case "Refund":
-        return (
-          <button key={action.label} {...sharedProps} onClick={() => void handleRefund(bounty)}>
-            {action.label}
-          </button>
-        );
-      default:
-        return null;
     }
   }
 
@@ -464,6 +426,14 @@ function App() {
             <a href="#issues" className="secondary-link">
               Contribution backlog
             </a>
+            <button
+              type="button"
+              className="secondary-link"
+              disabled={exporting}
+              onClick={() => void handleExportReleasedPayouts()}
+            >
+              {exporting ? "Exporting..." : "Export released payouts (CSV)"}
+            </button>
           </div>
         </div>
 

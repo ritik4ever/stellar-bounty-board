@@ -95,6 +95,35 @@ describe("API — bounty lifecycle routes", () => {
     expect(rel.body.data.status).toBe("released");
   });
 
+  it("GET /api/bounties/released/export.csv returns CSV export", async () => {
+    const app = await getApp();
+    const { body: created } = await request(app).post("/api/bounties").send(validCreateBody).expect(201);
+    const id = created.data.id as string;
+
+    await request(app)
+      .post(`/api/bounties/${id}/reserve`)
+      .send({ contributor: CONTRIBUTOR })
+      .expect(200);
+
+    await request(app)
+      .post(`/api/bounties/${id}/submit`)
+      .send({
+        contributor: CONTRIBUTOR,
+        submissionUrl: "https://github.com/owner/repo-name/pull/1",
+      })
+      .expect(200);
+
+    await request(app)
+      .post(`/api/bounties/${id}/release`)
+      .send({ maintainer: MAINTAINER })
+      .expect(200);
+
+    const res = await request(app).get("/api/bounties/released/export.csv").expect(200);
+    expect(res.headers["content-type"]).toMatch(/text\/csv/);
+    expect(res.text).toContain("repo,issue_number,contributor,asset,amount,released_at");
+    expect(res.text).toContain(CONTRIBUTOR);
+  });
+
   it("POST /api/bounties/:id/refund returns refunded bounty", async () => {
     const app = await getApp();
     const { body: created } = await request(app).post("/api/bounties").send(validCreateBody).expect(201);
