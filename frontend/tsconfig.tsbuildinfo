@@ -1,1 +1,1 @@
-{"root":["./src/App.tsx","./src/api.ts","./src/main.tsx","./src/types.ts","./src/vite-env.d.ts"],"version":"5.9.3"}
+{"root":["./src/App.tsx","./src/GitHubIssuePreviewCard.tsx","./src/RecommendedBounties.tsx","./src/SkeletonBountyCard.tsx","./src/api.ts","./src/constants.ts","./src/main.tsx","./src/recommendations.ts","./src/types.ts","./src/utils.ts","./src/vite-env.d.ts"],"version":"5.9.3"}

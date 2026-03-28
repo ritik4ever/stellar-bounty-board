@@ -20,8 +20,14 @@ import {
   reserveBounty,
   submitBounty,
 } from "./api";
+import { BountyRecommendation, ContributorProfile, createDefaultProfile, generateRecommendations, updateProfileFromBounties } from "./recommendations";
+import RecommendedBounties from "./RecommendedBounties";
+import { statusCopy, actionCopy, readInitialFilters, FilterState, statusOptions, statusGlossary } from "./constants";
+import { filterBounties, getRewardBounds, getActiveRewardLabel, getContributorMetrics } from "./utils";
+import { Bounty, CreateBountyPayload, OpenIssue, BountyStatus } from "./types";
 
 import SkeletonBountyCard from "./SkeletonBountyCard";
+import GitHubIssuePreviewCard from "./GitHubIssuePreviewCard";
 
 const initialForm: CreateBountyPayload = {
   repo: "ritik4ever/stellar-stream",
@@ -54,7 +60,7 @@ function shortAddress(value: string): string {
 function validateStellarPublicKey(input: string): string | null {
   const value = input.trim();
   if (!value) return "Address is required.";
-  if (!STELLAR_PUBLIC_KEY_REGEX.test(value)) return STELLAR_PUBLIC_KEY_HINT;
+  if (!/^G[A-Z0-9]{55}$/.test(value)) return "Enter a Stellar public key (starts with 'G', 56 characters)";
   return null;
 }
 
@@ -76,6 +82,19 @@ function App() {
   const [submitting, setSubmitting] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Filter states
+  const [searchQuery, setSearchQuery] = useState(initialFilters.searchQuery);
+  const [statusFilter, setStatusFilter] = useState<"all" | BountyStatus>(initialFilters.statusFilter);
+  const [minReward, setMinReward] = useState(initialFilters.minReward);
+  const [maxReward, setMaxReward] = useState(initialFilters.maxReward);
+  
+  // Profile states
+  const [profileContributor, setProfileContributor] = useState("");
+  const [profileStatus, setProfileStatus] = useState<BountyStatus | "all">("all");
+  
+  // Recommendation states
+  const [contributorProfile, setContributorProfile] = useState<ContributorProfile>(createDefaultProfile());
 
 
   async function refresh(): Promise<void> {
@@ -150,16 +169,63 @@ function App() {
   }, []);
 
   const metrics = useMemo(() => {
-    const activePool = bounties.filter((bounty) =>
+    const activePool = bounties.filter((bounty: Bounty) =>
       ["open", "reserved", "submitted"].includes(bounty.status),
     );
     return {
       liveBounties: activePool.length,
-      fundedVolume: bounties.reduce((sum, bounty) => sum + bounty.amount, 0),
-      openIssues: bounties.filter((bounty) => bounty.status === "open").length,
-      shippedRewards: bounties.filter((bounty) => bounty.status === "released").length,
+      fundedVolume: bounties.reduce((sum: number, bounty: Bounty) => sum + bounty.amount, 0),
+      openIssues: bounties.filter((bounty: Bounty) => bounty.status === "open").length,
+      shippedRewards: bounties.filter((bounty: Bounty) => bounty.status === "released").length,
     };
   }, [bounties]);
+
+  // Filter and computed values
+  const filteredBounties = useMemo(() => 
+    filterBounties(bounties, { searchQuery, statusFilter, minReward, maxReward }), 
+    [bounties, searchQuery, statusFilter, minReward, maxReward]
+  );
+  
+  const rewardBounds = useMemo(() => getRewardBounds(bounties), [bounties]);
+  
+  const activeRewardLabel = useMemo(() => 
+    getActiveRewardLabel(minReward, maxReward, rewardBounds), 
+    [minReward, maxReward, rewardBounds]
+  );
+  
+  const contributorMetrics = useMemo(() => 
+    getContributorMetrics(bounties, profileContributor), 
+    [bounties, profileContributor]
+  );
+  
+  // Recommendations
+  const recommendations = useMemo(() => {
+    if (!profileContributor) return [];
+    return generateRecommendations(bounties, contributorProfile, 3);
+  }, [bounties, contributorProfile, profileContributor]);
+
+  // Update contributor profile when bounties or profile contributor changes
+  useEffect(() => {
+    if (profileContributor) {
+      const completedBounties = bounties.filter(bounty => 
+        bounty.contributor === profileContributor && bounty.status === "released"
+      );
+      const updatedProfile = updateProfileFromBounties(contributorProfile, completedBounties);
+      setContributorProfile(updatedProfile);
+    }
+  }, [bounties, profileContributor, contributorProfile]);
+
+  const clearFilters = () => {
+    setSearchQuery("");
+    setStatusFilter("all");
+    setMinReward("");
+    setMaxReward("");
+  };
+
+  const renderActionButton = (bounty: Bounty, action: any) => {
+    // This would need to be implemented based on the action type
+    return null;
+  };
 
 
 
@@ -264,7 +330,23 @@ function App() {
     }
   }
 
-
+  async function handleExportReleasedPayouts() {
+    setExporting(true);
+    setError(null);
+    try {
+      const { blob, filename } = await exportReleasedPayoutsCsv();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to export payouts.");
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -336,6 +418,13 @@ function App() {
       </section>
 
       {error && <div className="error-banner">{error}</div>}
+
+      {profileContributor && (
+        <RecommendedBounties 
+          recommendations={recommendations} 
+          loading={loading} 
+        />
+      )}
 
       <main className="content-grid">
         <section className="panel form-panel" id="create">
@@ -410,7 +499,7 @@ function App() {
                   autoComplete="off"
                   aria-invalid={Boolean(form.maintainer.trim() && validateStellarPublicKey(form.maintainer))}
                 />
-                <small className="field-hint">{STELLAR_PUBLIC_KEY_HINT}</small>
+                <small className="field-hint">Enter a Stellar public key (starts with 'G', 56 characters)</small>
                 {form.maintainer.trim() && validateStellarPublicKey(form.maintainer) && (
                   <small className="field-error">{validateStellarPublicKey(form.maintainer)}</small>
                 )}
@@ -724,7 +813,7 @@ function App() {
               autoComplete="off"
               aria-invalid={Boolean(profileContributor.trim() && validateStellarPublicKey(profileContributor))}
             />
-            <small className="field-hint">{STELLAR_PUBLIC_KEY_HINT}</small>
+            <small className="field-hint">Enter a Stellar public key (starts with 'G', 56 characters)</small>
             {profileContributor.trim() && validateStellarPublicKey(profileContributor) && (
               <small className="field-error">{validateStellarPublicKey(profileContributor)}</small>
             )}
