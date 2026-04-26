@@ -1,6 +1,8 @@
 import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
 
+import { githubPrUrlSchema } from "./prUrl";
+
 extendZodWithOpenApi(z);
 
 const STELLAR_ACCOUNT_REGEX = /^G[A-Z2-7]{55}$/;
@@ -106,14 +108,10 @@ export const submitBountySchema = z
     contributor: stellarAccountSchema.openapi({
       description: "Must match the contributor who reserved the bounty.",
     }),
-    submissionUrl: z
-      .string()
-      .trim()
-      .url("Submission URL must be a valid URL.")
-      .openapi({
-        example: "https://github.com/owner/repo/pull/99",
-        description: "Link to the pull request or deliverable.",
-      }),
+    submissionUrl: githubPrUrlSchema.openapi({
+      example: "https://github.com/owner/repo/pull/99",
+      description: "Link to the pull request or deliverable.",
+    }),
     notes: z
       .string()
       .trim()
