@@ -363,3 +363,9 @@ Issue drafts ready to be opened live in [`docs/issues/`](./docs/issues/). If you
 We want contributing here to feel approachable. If this guide is missing something that tripped you up, a PR to improve it is one of the most valuable contributions you can make.
 
 Happy building! 🚀
+
+---
+
+## Auto-generated contribution
+
+Added by bounty bot.
