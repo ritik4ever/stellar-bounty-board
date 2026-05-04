@@ -3,7 +3,7 @@
 This worker polls Soroban contract events and normalizes them for backend use. It is isolated from the main API server and can be run as a separate process.
 
 ## How It Works
-- Polls the Soroban RPC endpoint for contract events (create, reserve, release, refund)
+- Polls the Soroban RPC endpoint for contract events (bounty_created, bounty_reserved, bounty_submitted, bounty_released, bounty_refunded)
 - Normalizes events into backend-friendly records
 - Appends new events to a local file (`indexed-events.json`) for demonstration (replace with DB logic as needed)
 - Handles errors gracefully so failures do not affect the main API server
@@ -28,10 +28,35 @@ node indexer.js
 - Events are normalized using a mapping function and stored for backend consumption.
 - Extend the normalization logic as the contract evolves.
 
+## Event Details
+
+The contract emits the following events with their respective topics and data structures:
+
+### BountyCreated
+- **Topics**: `("Bounty", "Create")`
+- **Data**: Contains `bounty_id`, `maintainer`, `token`, `amount`, `repo`, `issue_number`, `protocol_fee_bps`
+
+### BountyReserved
+- **Topics**: `("Bounty", "Reserv")`
+- **Data**: Contains `bounty_id`, `contributor`
+
+### BountySubmitted
+- **Topics**: `("Bounty", "Submit")`
+- **Data**: Contains `bounty_id`, `contributor`
+
+### BountyReleased
+- **Topics**: `("Bounty", "Releas")`
+- **Data**: Contains `bounty_id`, `contributor`, `amount` (net payout), `fee_amount`
+
+### BountyRefunded
+- **Topics**: `("Bounty", "Refund")`
+- **Data**: Contains `bounty_id`, `maintainer`, `amount` (full refund)
+
 ## Extending
 - Replace file storage with a database for production use.
 - Add more robust error handling and alerting as needed.
 - Integrate with backend API or event consumers if required.
+- Update event parsing logic when new events are added to the contract.
 
 ---
 
