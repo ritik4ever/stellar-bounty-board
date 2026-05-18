@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { sendNotification, type NotificationRecipient } from "./notificationService";
 import { logStructured } from "../logger";
+import { expireStaleReservations as expireJob } from "./reservationExpirationJob";
 
 export type BountyStatus =
   | "open"
@@ -716,5 +717,42 @@ export interface LeaderboardEntry {
   bountiesCompleted: number;
 }
 
+/**
+ * getLeaderboard
+ * Aggregates and returns the top contributors by total XLM earned from released bounties.
+ * 
+ * @param limit Optional maximum number of entries to return (default: 10).
+ * @returns An array of LeaderboardEntry items sorted by total XLM descending.
+ */
+export function getLeaderboard(limit = 10): LeaderboardEntry[] {
+  const bounties = listBounties().filter((b) => b.status === "released" && b.contributor);
+  const aggregates: Record<string, { totalXlm: number; bountiesCompleted: number }> = {};
 
+  for (const b of bounties) {
+    const addr = b.contributor!;
+    if (!aggregates[addr]) {
+      aggregates[addr] = { totalXlm: 0, bountiesCompleted: 0 };
+    }
+    aggregates[addr].totalXlm += b.amount;
+    aggregates[addr].bountiesCompleted += 1;
+  }
+
+  const entries = Object.entries(aggregates).map(([address, data]) => ({
+    address,
+    totalXlm: Number(data.totalXlm.toFixed(2)),
+    bountiesCompleted: data.bountiesCompleted,
+  }));
+
+  return entries.sort((a, b) => b.totalXlm - a.totalXlm).slice(0, limit);
+}
+
+/**
+ * expireStaleReservations
+ * Wrapper that runs the reservation expiration job and returns the count of expired reservations.
+ * 
+ * @param ttlSeconds Optional custom TTL in seconds.
+ * @returns The number of expired reservations.
+ */
+export function expireStaleReservations(ttlSeconds?: number): number {
+  return expireJob(ttlSeconds).expiredCount;
 }

@@ -1,10 +1,13 @@
 import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
+import { StrKey } from "@stellar/stellar-sdk";
 
 import { githubPrUrlSchema } from "./prUrl";
 
 extendZodWithOpenApi(z);
 
+const SOROBAN_ADDRESS_REGEX = /^C[A-Z2-7]{55}$/;
+const isValidStellarAddress = (val: string): boolean => StrKey.isValidEd25519PublicKey(val);
 
 const REPO_REGEX = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 const TOKEN_REGEX = /^[A-Za-z0-9]{1,12}$/;
@@ -75,6 +78,14 @@ export const createBountySchema = z
     amount: z.coerce
       .number()
       .min(1, "Amount must be at least 1 XLM.")
+      .max(10000, "Amount must not exceed 10000 XLM.")
+      .refine(
+        (val) => {
+          const parts = String(val).split(".");
+          return parts.length < 2 || parts[1].length <= 7;
+        },
+        { message: "Amount can have at most 7 decimal places." }
+      ),
 
     deadlineDays: z.coerce
       .number()
@@ -122,7 +133,10 @@ export const submitBountySchema = z
     contributor: stellarAccountSchema.openapi({
       description: "Must match the contributor who reserved the bounty.",
     }),
-
+    submissionUrl: githubPrUrlSchema.openapi({
+      example: "https://github.com/owner/repo/pull/42",
+      description: "Link to the GitHub Pull Request containing the work.",
+    }),
     notes: z
       .string()
       .trim()

@@ -13,7 +13,3 @@ export const limiter: RequestHandler =
         legacyHeaders: false,
         ipv6Subnet: 56,
       });
-
-/**
-
-}
