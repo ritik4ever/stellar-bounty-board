@@ -40,6 +40,7 @@ import RecommendedBounties from "./RecommendedBounties";
 import { statusCopy, actionCopy, readInitialFilters, FilterState, statusOptions, statusGlossary, sortOptions } from "./constants";
 import { filterBounties, getRewardBounds, getActiveRewardLabel, getContributorMetrics, getUniqueRepos, getRepoMetrics, sortBounties, debounce, SortOption, SortState, xlmToUsd } from "./utils";
 import { Bounty, CreateBountyPayload, OpenIssue, BountyStatus } from "./types";
+import { connectFreighterPublicKey, signMaintainerPayload } from "./wallet";
 
 import GitHubIssuePreviewCard from "./GitHubIssuePreviewCard";
 import BountyDetailPage from "./BountyDetailPage";
@@ -572,17 +573,28 @@ function App() {
   }
 
   async function handleRelease(bounty: Bounty) {
-    const maintainer = window.prompt("Maintainer Stellar address", bounty.maintainer);
-    if (!maintainer) return;
+    let maintainer: string;
+    try {
+      maintainer = await connectFreighterPublicKey();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to connect Freighter.");
+      return;
+    }
     const maintainerError = validateStellarPublicKey(maintainer);
     if (maintainerError) {
-      window.alert(maintainerError);
+      setError(maintainerError);
+      return;
+    }
+    if (maintainer !== bounty.maintainer) {
+      setError("Connected Freighter account does not match the bounty maintainer.");
       return;
     }
     const transactionHash = window.prompt("Transaction hash (64 hex chars, optional)") ?? undefined;
+    const payload = { maintainer, transactionHash: transactionHash || undefined };
     try {
       setError(null);
-      await releaseBounty(bounty.id, maintainer.trim(), transactionHash || undefined);
+      const signature = await signMaintainerPayload(payload);
+      await releaseBounty(bounty.id, maintainer, payload.transactionHash, signature);
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to release bounty.");
@@ -590,17 +602,28 @@ function App() {
   }
 
   async function handleRefund(bounty: Bounty) {
-    const maintainer = window.prompt("Maintainer Stellar address", bounty.maintainer);
-    if (!maintainer) return;
+    let maintainer: string;
+    try {
+      maintainer = await connectFreighterPublicKey();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to connect Freighter.");
+      return;
+    }
     const maintainerError = validateStellarPublicKey(maintainer);
     if (maintainerError) {
-      window.alert(maintainerError);
+      setError(maintainerError);
+      return;
+    }
+    if (maintainer !== bounty.maintainer) {
+      setError("Connected Freighter account does not match the bounty maintainer.");
       return;
     }
     const transactionHash = window.prompt("Transaction hash (64 hex chars, optional)") ?? undefined;
+    const payload = { maintainer, transactionHash: transactionHash || undefined };
     try {
       setError(null);
-      await refundBounty(bounty.id, maintainer.trim(), transactionHash || undefined);
+      const signature = await signMaintainerPayload(payload);
+      await refundBounty(bounty.id, maintainer, payload.transactionHash, signature);
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to refund bounty.");

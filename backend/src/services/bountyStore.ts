@@ -716,5 +716,25 @@ export interface LeaderboardEntry {
   bountiesCompleted: number;
 }
 
+export function getLeaderboard(limit = 10): LeaderboardEntry[] {
+  const records = listBounties().filter((b) => b.status === "released" && b.contributor);
+  const map = new Map<string, { totalXlm: number; bountiesCompleted: number }>();
+  
+  for (const b of records) {
+    const address = b.contributor!;
+    const entry = map.get(address) || { totalXlm: 0, bountiesCompleted: 0 };
+    entry.totalXlm += b.amount;
+    entry.bountiesCompleted += 1;
+    map.set(address, entry);
+  }
 
+  const entries = Array.from(map.entries()).map(([address, data]) => ({
+    address,
+    totalXlm: Number(data.totalXlm.toFixed(2)),
+    bountiesCompleted: data.bountiesCompleted,
+  }));
+
+  entries.sort((a, b) => b.totalXlm - a.totalXlm || b.bountiesCompleted - a.bountiesCompleted);
+
+  return entries.slice(0, limit);
 }

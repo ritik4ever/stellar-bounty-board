@@ -34,6 +34,7 @@ import {
   createGitHubWebhookSignatureMiddleware,
 } from "./webhooks/signatureVerification";
 import { handleGitHubPrEvent } from "./webhooks/githubPrHandler";
+import { createStellarSignatureAuthMiddleware } from "./middleware/auth";
 
 const INCOMING_REQUEST_ID = /^[a-zA-Z0-9-]{1,128}$/;
 
@@ -73,6 +74,7 @@ function requestContextMiddleware(req: Request, res: Response, next: NextFunctio
 }
 
 export const app = express();
+const authMiddleware = createStellarSignatureAuthMiddleware();
 
 app.use(cors(buildCorsOptions()));
 
@@ -281,7 +283,7 @@ app.post("/api/bounties/:id/submit", limiter, async (req: Request, res: Response
   }
 });
 
-app.post("/api/bounties/:id/release", limiter, async (req: Request, res: Response) => {
+app.post("/api/bounties/:id/release", limiter, authMiddleware, async (req: Request, res: Response) => {
   const parsedBody = maintainerActionSchema.safeParse(req.body);
   if (!parsedBody.success) {
     jsonError(res, req, 400, zodErrorMessage(parsedBody.error));
@@ -300,7 +302,7 @@ app.post("/api/bounties/:id/release", limiter, async (req: Request, res: Respons
   }
 });
 
-app.post("/api/bounties/:id/refund", limiter, async (req: Request, res: Response) => {
+app.post("/api/bounties/:id/refund", limiter, authMiddleware, async (req: Request, res: Response) => {
   const parsedBody = maintainerActionSchema.safeParse(req.body);
   if (!parsedBody.success) {
     jsonError(res, req, 400, zodErrorMessage(parsedBody.error));

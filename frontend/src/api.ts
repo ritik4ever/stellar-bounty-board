@@ -1,4 +1,5 @@
 import { Bounty, BountyEvent, CreateBountyPayload, GlobalMetrics, MaintainerMetrics, OpenIssue } from "./types";
+import type { StellarActionSignature } from "./wallet";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "/api";
 const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
@@ -147,8 +148,7 @@ async function requestBlob(path: string, options: RequestOptions = {}): Promise<
   const message = lastError instanceof Error ? lastError.message : undefined;
   throw formatRetryError(retryLabel, retryAttempts, message);
 }
-
-
+export async function listBounties(signal?: AbortSignal): Promise<Bounty[]> {
   const body = await requestJson<{ data: Bounty[] }>("/bounties", {
     retry: true,
     retryLabel: "Loading bounties",
@@ -193,11 +193,21 @@ export async function releaseBounty(
   id: string,
   maintainer: string,
   transactionHash?: string,
+  signature?: StellarActionSignature,
 ): Promise<Bounty> {
+  const payload = { maintainer, transactionHash };
   const body = await requestJson<{ data: Bounty }>(`/bounties/${id}/release`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ maintainer, transactionHash }),
+    headers: {
+      "Content-Type": "application/json",
+      ...(signature
+        ? {
+            "X-Stellar-Public-Key": signature.publicKey,
+            "X-Stellar-Signature": signature.signature,
+          }
+        : {}),
+    },
+    body: JSON.stringify(payload),
   });
   return body.data;
 }
@@ -206,11 +216,21 @@ export async function refundBounty(
   id: string,
   maintainer: string,
   transactionHash?: string,
+  signature?: StellarActionSignature,
 ): Promise<Bounty> {
+  const payload = { maintainer, transactionHash };
   const body = await requestJson<{ data: Bounty }>(`/bounties/${id}/refund`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ maintainer, transactionHash }),
+    headers: {
+      "Content-Type": "application/json",
+      ...(signature
+        ? {
+            "X-Stellar-Public-Key": signature.publicKey,
+            "X-Stellar-Signature": signature.signature,
+          }
+        : {}),
+    },
+    body: JSON.stringify(payload),
   });
   return body.data;
 }
@@ -232,7 +252,13 @@ export async function exportReleasedPayoutsCsv(): Promise<{ blob: Blob; filename
   };
 }
 
-
+export async function getBounty(id: string): Promise<Bounty> {
+  const body = await requestJson<{ data: Bounty }>(`/bounties/${id}`, {
+    retry: true,
+    retryLabel: "Loading bounty",
+  });
+  return body.data;
+}
 
 export async function getBountyEvents(id: string): Promise<BountyEvent[]> {
   const body = await requestJson<{ data: BountyEvent[] }>(`/bounties/${id}/events`, {

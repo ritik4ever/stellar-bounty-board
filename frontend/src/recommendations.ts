@@ -34,8 +34,8 @@ export function scoreMatch(bounty: Bounty, skills: string[]): number {
   const bountyTokens: string[] = bounty.labels.map((l) => l.name.toLowerCase());
 
   // Also include bounty.tags if present (used in RecommendedBounties.tsx)
-  if (Array.isArray((bounty as Record<string, unknown>).tags)) {
-    const tags = (bounty as Record<string, unknown>).tags as string[];
+  if (Array.isArray((bounty as unknown as Record<string, unknown>).tags)) {
+    const tags = (bounty as unknown as Record<string, unknown>).tags as string[];
     bountyTokens.push(...tags.map((t: string) => t.toLowerCase()));
   }
 
@@ -116,28 +116,6 @@ function getBountySkillTerms(bounty: Bounty): string[] {
   return normalizeTerms(bounty.labels.map((label) => label.name));
 }
 
-export function scoreMatch(bounty: Bounty, skills: string[]): number {
-  const bountySkills = getBountySkillTerms(bounty);
-  const contributorSkills = normalizeTerms(skills);
-
-  if (bountySkills.length === 0 || contributorSkills.length === 0) {
-    return 0;
-  }
-
-  const bountySkillSet = new Set(bountySkills);
-  const contributorSkillSet = new Set(contributorSkills);
-  let overlap = 0;
-
-  for (const skill of bountySkillSet) {
-    if (contributorSkillSet.has(skill)) {
-      overlap += 1;
-    }
-  }
-
-  const unionSize = new Set([...bountySkillSet, ...contributorSkillSet]).size;
-
-  return unionSize > 0 ? Math.round((overlap / unionSize) * 100) / 100 : 0;
-}
 
 export function calculateRecommendationScore(
   bounty: Bounty,

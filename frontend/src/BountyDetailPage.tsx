@@ -1,3 +1,7 @@
+import { useState, useCallback, ReactNode } from "react";
+import { Check, Copy, Clock, ArrowUpRight } from "lucide-react";
+import { Bounty, BountyStatus, BountyEvent, GithubLabel } from "./types";
+import UsdAmount from "./UsdAmount";
 
 type BountyAction = "reserve" | "submit" | "release" | "refund";
 
@@ -44,13 +48,13 @@ function CopyButton({ text, label }: { text: string; label: string }) {
       <button
         type="button"
         className="copy-button"
-        aria-label={copied ? "Copied!" : `Copy ${label}`}
-        title={copied ? "Copied!" : `Copy ${label}`}
+        aria-label={copied ? "Copied" : `Copy ${label}`}
+        title={copied ? "Copied" : `Copy ${label}`}
         onClick={() => copy(text, label)}
       >
         {copied ? <Check size={14} /> : <Copy size={14} />}
       </button>
-      {copied && <span className="copy-tooltip">Copied!</span>}
+      {copied && <span className="copy-tooltip">Copied</span>}
     </span>
   );
 }
@@ -165,7 +169,10 @@ export default function BountyDetailPage({
             <div className="meta-grid meta-grid--detail">
               <div>
                 <span className="meta-label">Bounty ID</span>
-
+                <strong className="copy-row">
+                  {bounty.id}
+                  <CopyButton text={bounty.id} label="bounty ID" />
+                </strong>
               </div>
               <div>
                 <span className="meta-label">Issue</span>
@@ -190,7 +197,10 @@ export default function BountyDetailPage({
               </div>
               <div>
                 <span className="meta-label">Maintainer</span>
-
+                <strong className="copy-row">
+                  {bounty.maintainer}
+                  <CopyButton text={bounty.maintainer} label="maintainer wallet address" />
+                </strong>
               </div>
               <div>
                 <span className="meta-label">Contributor</span>
@@ -247,7 +257,7 @@ export default function BountyDetailPage({
 
             {bounty.labels.length > 0 && (
               <div className="chip-row chip-row--spaced">
-                {bounty.labels.map((label) => (
+                {bounty.labels.map((label: GithubLabel) => (
                   <span className="chip" key={label.name}>
   {label.name}
 </span>
