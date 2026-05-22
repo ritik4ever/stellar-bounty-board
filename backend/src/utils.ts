@@ -14,6 +14,10 @@ export const limiter: RequestHandler =
         ipv6Subnet: 56,
       });
 
-/**
-
+export function isValidStellarAddress(address: string): boolean {
+  try {
+    return StrKey.isValidEd25519PublicKey(address);
+  } catch {
+    return false;
+  }
 }

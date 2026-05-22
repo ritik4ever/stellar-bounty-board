@@ -1,10 +1,12 @@
 import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
+import { isValidStellarAddress } from "../utils";
 
 import { githubPrUrlSchema } from "./prUrl";
 
 extendZodWithOpenApi(z);
 
+const SOROBAN_ADDRESS_REGEX = /^C[A-Z2-7]{55}$/;
 
 const REPO_REGEX = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 const TOKEN_REGEX = /^[A-Za-z0-9]{1,12}$/;
@@ -75,6 +77,14 @@ export const createBountySchema = z
     amount: z.coerce
       .number()
       .min(1, "Amount must be at least 1 XLM.")
+      .max(10000, "Amount cannot exceed 10000 XLM.")
+      .refine(
+        (val) => {
+          const parts = val.toString().split(".");
+          return !parts[1] || parts[1].length <= 7;
+        },
+        { message: "Amount must have at most 7 decimal places." }
+      ),
 
     deadlineDays: z.coerce
       .number()
