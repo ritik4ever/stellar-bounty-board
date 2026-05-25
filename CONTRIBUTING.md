@@ -91,6 +91,7 @@ Before submitting a PR, verify:
 ## Getting Help
 
 - **New to the project?** Start with [ONBOARDING.md](./ONBOARDING.md)
+- **Common maintainer/contributor questions?** Check [FAQ.md](./FAQ.md)
 - **Stuck on a specific feature?** [Read the architecture docs](./docs/ARCHITECTURE.md)
 - **Local webhook testing?** [ngrok setup guide](./docs/webhook-signatures.md)
 - **Can't figure something out?** Open a Discussion or comment on the issue you're working on
