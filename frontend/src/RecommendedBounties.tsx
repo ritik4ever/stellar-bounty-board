@@ -69,9 +69,7 @@ function BountyRecommendationCard({ recommendation }: { recommendation: BountyRe
         </div>
         <div className="amount-chip">
           {bounty.amount} {bounty.tokenSymbol}
-          {bounty.tokenSymbol === "XLM" && (
-            <UsdAmount amount={bounty.amount} />
-          )}
+          <UsdAmount amount={bounty.amount} tokenSymbol={bounty.tokenSymbol} />
         </div>
       </div>
 
@@ -135,7 +133,7 @@ export default function RecommendedBounties({ recommendations, loading }: Recomm
       ? recommendations
       : recommendations.filter(({ bounty }) => {
           const haystack = [
-            ...bounty.labels,
+            ...bounty.labels.map((label) => label.name),
             ...(bounty.tags ?? []),
           ].map((t) => t.toLowerCase());
           return haystack.some((t) => t.includes(activeTag.toLowerCase()));
