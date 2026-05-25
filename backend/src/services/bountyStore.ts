@@ -738,6 +738,6 @@ export function getLeaderboard(limit = 10): LeaderboardEntry[] {
   }
 
   return [...entries.values()]
-    .sort((a, b) => b.totalXlm - a.totalXlm || b.bountiesCompleted - a.bountiesCompleted)
+    .sort((a, b) => b.totalXlm - a.totalXlm || a.bountiesCompleted - b.bountiesCompleted)
     .slice(0, limit);
 }

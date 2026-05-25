@@ -89,6 +89,18 @@ describe("API — bounty lifecycle routes", () => {
     expect(res.body.data.tokenSymbol).toBe("AQUA");
   });
 
+  it("POST create normalizes accepted token symbols before persistence", async () => {
+    process.env.ALLOWED_TOKEN_SYMBOLS = "XLM,USDC,AQUA";
+    const app = await getApp();
+
+    const res = await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, tokenSymbol: "aqua" })
+      .expect(201);
+
+    expect(res.body.data.tokenSymbol).toBe("AQUA");
+  });
+
   it("POST create rejects token symbols outside ALLOWED_TOKEN_SYMBOLS", async () => {
     process.env.ALLOWED_TOKEN_SYMBOLS = "XLM,USDC,AQUA";
     const app = await getApp();
@@ -119,22 +131,24 @@ describe("API — bounty lifecycle routes", () => {
     expect(res.body.error).toMatch(/Allowed values: XLM, USDC/i);
   });
 
-  it("POST create with amount below 1 XLM returns 400", async () => {
+  it("POST create with amount below 1 returns 400", async () => {
     const app = await getApp();
     const res = await request(app)
       .post("/api/bounties")
       .send({ ...validCreateBody, amount: 0.5 })
       .expect(400);
-    expect(res.body.error).toMatch(/at least 1 XLM/i);
+    expect(res.body.error).toMatch(/at least 1/i);
+    expect(res.body.error).not.toMatch(/XLM/i);
   });
 
-  it("POST create with amount above 10000 XLM returns 400", async () => {
+  it("POST create with amount above 10000 returns 400", async () => {
     const app = await getApp();
     const res = await request(app)
       .post("/api/bounties")
       .send({ ...validCreateBody, amount: 10001 })
       .expect(400);
-    expect(res.body.error).toMatch(/exceed 10000 XLM/i);
+    expect(res.body.error).toMatch(/exceed 10000/i);
+    expect(res.body.error).not.toMatch(/XLM/i);
   });
 
   it("POST create with more than 7 decimal places returns 400", async () => {
@@ -415,6 +429,42 @@ describe("GET /api/leaderboard", () => {
     const res = await request(app).get("/api/leaderboard").expect(200);
     expect(res.body.data[0].address).toBe(OTHER_ACCOUNT);
     expect(res.body.data[1].address).toBe(CONTRIBUTOR);
+  });
+
+  it("uses fewer completed bounties as ascending tie-break for equal total XLM", async () => {
+    const app = await getApp();
+
+    const { body: oneBounty } = await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, amount: 20 })
+      .expect(201);
+    await request(app).post(`/api/bounties/${oneBounty.data.id}/reserve`).send({ contributor: CONTRIBUTOR }).expect(200);
+    await request(app)
+      .post(`/api/bounties/${oneBounty.data.id}/submit`)
+      .send({ contributor: CONTRIBUTOR, submissionUrl: "https://github.com/o/r/pull/1" })
+      .expect(200);
+    await request(app).post(`/api/bounties/${oneBounty.data.id}/release`).send({ maintainer: MAINTAINER }).expect(200);
+
+    for (let i = 0; i < 2; i++) {
+      const { body: twoBounties } = await request(app)
+        .post("/api/bounties")
+        .send({ ...validCreateBody, amount: 10 })
+        .expect(201);
+      await request(app).post(`/api/bounties/${twoBounties.data.id}/reserve`).send({ contributor: OTHER_ACCOUNT }).expect(200);
+      await request(app)
+        .post(`/api/bounties/${twoBounties.data.id}/submit`)
+        .send({ contributor: OTHER_ACCOUNT, submissionUrl: `https://github.com/o/r/pull/${i + 2}` })
+        .expect(200);
+      await request(app).post(`/api/bounties/${twoBounties.data.id}/release`).send({ maintainer: MAINTAINER }).expect(200);
+    }
+
+    const res = await request(app).get("/api/leaderboard").expect(200);
+    expect(res.body.data[0].address).toBe(CONTRIBUTOR);
+    expect(res.body.data[0].totalXlm).toBe(20);
+    expect(res.body.data[0].bountiesCompleted).toBe(1);
+    expect(res.body.data[1].address).toBe(OTHER_ACCOUNT);
+    expect(res.body.data[1].totalXlm).toBe(20);
+    expect(res.body.data[1].bountiesCompleted).toBe(2);
   });
 
   it("each entry has address, totalXlm, and bountiesCompleted fields", async () => {

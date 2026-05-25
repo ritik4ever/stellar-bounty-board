@@ -98,14 +98,15 @@ export const createBountySchema = z
       .string()
       .trim()
       .regex(TOKEN_REGEX, "Token symbol must be 1-12 letters or numbers.")
-      .refine((symbol) => allowedTokenSymbols().includes(symbol.toUpperCase()), () => ({
+      .transform((symbol) => symbol.toUpperCase())
+      .refine((symbol) => allowedTokenSymbols().includes(symbol), () => ({
         message: `Unsupported token symbol. Allowed values: ${allowedTokenSymbols().join(", ")}.`,
       }))
       .openapi({ example: "XLM", description: "Stellar token symbol for payout (1–12 alphanumeric chars)." }),
     amount: z.coerce
       .number()
-      .min(1, "Amount must be at least 1 XLM.")
-      .max(10000, "Amount cannot exceed 10000 XLM.")
+      .min(1, "Amount must be at least 1.")
+      .max(10000, "Amount cannot exceed 10000.")
       .refine(hasAtMostSevenDecimalPlaces, "Amount can have at most 7 decimal places."),
 
     deadlineDays: z.coerce
