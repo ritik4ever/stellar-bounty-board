@@ -1,6 +1,7 @@
 import { Bounty, BountyStatus } from "./types";
 import { FilterState } from "./constants";
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 // Simple debounce function for search
 export function debounce<T extends (...args: any[]) => any>(
@@ -89,6 +90,27 @@ export function getRewardBounds(bounties: Bounty[]): { lowest: number; highest: 
     lowest: Math.min(...amounts),
     highest: Math.max(...amounts),
   };
+}
+
+export function calculateDeadlineAt(startedAtMs: number, deadlineDays: number): number {
+  return startedAtMs + Math.max(0, deadlineDays) * MS_PER_DAY;
+}
+
+export function getStatusAtDeadline(
+  status: BountyStatus,
+  deadlineAtMs: number,
+  nowMs = Date.now()
+): BountyStatus {
+  if ((status === "open" || status === "reserved") && nowMs >= deadlineAtMs) {
+    return "expired";
+  }
+
+  return status;
+}
+
+export function formatAmount(amount: number, tokenSymbol: string): string {
+  const symbol = tokenSymbol.trim() || "XLM";
+  return `${amount.toFixed(7)} ${symbol}`;
 }
 
 export type SortOption = "reward-high" | "reward-low" | "deadline-soonest" | "deadline-latest" | "newest" | "oldest";
