@@ -1058,6 +1058,31 @@ select {
   color: #8b4035;
 }
 
+.status-pill--expiration-green {
+  background: #e4f6ec;
+  color: #25634b;
+}
+
+.status-pill--expiration-yellow {
+  background: #fff0d8;
+  color: #8a5219;
+}
+
+.status-pill--expiration-red {
+  background: #f7e5e2;
+  color: #893f36;
+}
+
+.status-pill--expiration-grey {
+  background: rgba(54, 63, 59, 0.08);
+  color: var(--muted);
+}
+
+.status-pill--expiration-blue {
+  background: #e4eefb;
+  color: #234a7c;
+}
+
 .amount-chip {
   background: var(--ink);
   color: #fff7ef;
