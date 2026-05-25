@@ -11,9 +11,14 @@
     "test": "npm --prefix backend test",
     "test:watch": "npm --prefix backend run test:watch",
     "test:coverage": "npm --prefix backend run test:coverage",
-    "prepare": "husky"
+    "prepare": "husky",
+    "format": "prettier --write \"**/*.{ts,tsx,json}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,json}\""
   },
   "lint-staged": {
+    "**/*.{ts,tsx,json}": [
+      "prettier --write"
+    ],
     "frontend/src/**/*.{ts,tsx}": [
       "tsc --noEmit -p frontend/tsconfig.json",
       "eslint --fix"
@@ -39,5 +44,19 @@
     "@types/yaml": "^1.9.6",
     "husky": "^9.0.0",
     "prettier": "^3.8.3"
-  }
+  },
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HirenGajjar/stellar-bounty-board.git"
+  },
+  "keywords": [],
+  "author": "",
+  "bugs": {
+    "url": "https://github.com/HirenGajjar/stellar-bounty-board/issues"
+  },
+  "homepage": "https://github.com/HirenGajjar/stellar-bounty-board#readme"
 }

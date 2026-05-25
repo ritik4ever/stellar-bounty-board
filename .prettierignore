@@ -1,0 +1,13 @@
+node_modules
+dist
+build
+.next
+coverage
+*.env
+**/package-lock.json
+
+# Pre-existing syntax errors — cannot be parsed by Prettier
+backend/src/services/bountyStore.ts
+backend/src/utils.ts
+backend/src/validation/schemas.ts
+frontend/src/api.ts

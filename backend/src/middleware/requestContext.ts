@@ -1,12 +1,12 @@
-import { randomUUID } from "node:crypto";
-import type { NextFunction, Request, Response } from "express";
-import { logStructured } from "../logger";
+import { randomUUID } from 'node:crypto';
+import type { NextFunction, Request, Response } from 'express';
+import { logStructured } from '../logger';
 
 const INCOMING_REQUEST_ID = /^[a-zA-Z0-9-]{1,128}$/;
 
 function resolveRequestId(req: Request): string {
-  const raw = req.headers["x-request-id"];
-  if (typeof raw === "string") {
+  const raw = req.headers['x-request-id'];
+  if (typeof raw === 'string') {
     const trimmed = raw.trim();
     if (INCOMING_REQUEST_ID.test(trimmed)) {
       return trimmed;
@@ -23,17 +23,17 @@ function resolveRequestId(req: Request): string {
 export function requestContextMiddleware(req: Request, res: Response, next: NextFunction): void {
   const requestId = resolveRequestId(req);
   req.requestId = requestId;
-  res.setHeader("X-Request-ID", requestId);
+  res.setHeader('X-Request-ID', requestId);
 
   const start = process.hrtime.bigint();
 
-  res.on("finish", () => {
+  res.on('finish', () => {
     const durationNs = process.hrtime.bigint() - start;
     const durationMs = Number(durationNs) / 1e6;
-    logStructured("info", "http_request", {
+    logStructured('info', 'http_request', {
       requestId,
       method: req.method,
-      path: req.path || "/",
+      path: req.path || '/',
       status: res.statusCode,
       durationMs: Math.round(durationMs * 1000) / 1000,
     });

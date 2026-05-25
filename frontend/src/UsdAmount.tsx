@@ -1,12 +1,12 @@
-import { useEffect, useState } from "react";
-import { xlmToUsd } from "./utils";
+import { useEffect, useState } from 'react';
+import { xlmToUsd } from './utils';
 
 interface UsdAmountProps {
   amount: number;
 }
 
 export default function UsdAmount({ amount }: UsdAmountProps) {
-  const [usdValue, setUsdValue] = useState<string>("");
+  const [usdValue, setUsdValue] = useState<string>('');
 
   useEffect(() => {
     let active = true;

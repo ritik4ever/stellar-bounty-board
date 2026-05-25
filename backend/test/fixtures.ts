@@ -4,13 +4,13 @@ export const CONTRIBUTOR = `GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCO
 export const OTHER_ACCOUNT = `GAFQ647SLVQP5J3EIJGY4XARG4SPK2RMRNYPV7YYEIEUPGBMP6467B6E`;
 
 export const validCreateBody = {
-  repo: "owner/repo-name",
+  repo: 'owner/repo-name',
   issueNumber: 99,
-  title: "Implement the feature for the dashboard UI",
-  summary: "Add a clear contributor flow with validation and error handling for users.",
+  title: 'Implement the feature for the dashboard UI',
+  summary: 'Add a clear contributor flow with validation and error handling for users.',
   maintainer: MAINTAINER,
-  tokenSymbol: "XLM",
+  tokenSymbol: 'XLM',
   amount: 42.5,
   deadlineDays: 30,
-  labels: ["bug"],
+  labels: ['bug'],
 };

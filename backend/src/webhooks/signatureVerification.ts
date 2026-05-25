@@ -1,7 +1,7 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
-import type { Request, RequestHandler } from "express";
+import { createHmac, timingSafeEqual } from 'node:crypto';
+import type { Request, RequestHandler } from 'express';
 
-type HmacAlgorithm = "sha1" | "sha256" | "sha512";
+type HmacAlgorithm = 'sha1' | 'sha256' | 'sha512';
 type SecretResolver = string | (() => string | undefined);
 
 export interface WebhookSignatureProfile {
@@ -31,19 +31,19 @@ export class WebhookSignatureError extends Error {
     readonly statusCode: number,
   ) {
     super(message);
-    this.name = "WebhookSignatureError";
+    this.name = 'WebhookSignatureError';
   }
 }
 
 export const githubWebhookSignatureProfile: WebhookSignatureProfile = {
-  algorithm: "sha256",
-  headerName: "x-hub-signature-256",
-  prefix: "sha256=",
-  providerName: "GitHub",
+  algorithm: 'sha256',
+  headerName: 'x-hub-signature-256',
+  prefix: 'sha256=',
+  providerName: 'GitHub',
 };
 
 function resolveSecret(secret: SecretResolver): string | undefined {
-  return typeof secret === "function" ? secret() : secret;
+  return typeof secret === 'function' ? secret() : secret;
 }
 
 function normalizeSignature(signatureHeader: string | string[] | undefined): string | undefined {
@@ -55,12 +55,12 @@ export function signWebhookPayload({
   secret,
   algorithm,
   prefix,
-}: Pick<VerifyWebhookSignatureInput, "payload" | "secret" | "algorithm" | "prefix">): string {
+}: Pick<VerifyWebhookSignatureInput, 'payload' | 'secret' | 'algorithm' | 'prefix'>): string {
   if (!secret) {
-    throw new WebhookSignatureError("Webhook secret is not configured.", 500);
+    throw new WebhookSignatureError('Webhook secret is not configured.', 500);
   }
 
-  return `${prefix}${createHmac(algorithm, secret).update(payload).digest("hex")}`;
+  return `${prefix}${createHmac(algorithm, secret).update(payload).digest('hex')}`;
 }
 
 export function verifyWebhookSignature({
@@ -78,7 +78,10 @@ export function verifyWebhookSignature({
 
   const signature = normalizeSignature(signatureHeader);
   if (!signature) {
-    throw new WebhookSignatureError(`Missing ${providerName} webhook signature in ${headerName}.`, 401);
+    throw new WebhookSignatureError(
+      `Missing ${providerName} webhook signature in ${headerName}.`,
+      401,
+    );
   }
 
   if (!signature.startsWith(prefix)) {
