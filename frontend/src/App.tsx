@@ -51,6 +51,7 @@ const STELLAR_PUBLIC_KEY_HINT = "Expected Stellar public key (starts with G and 
 const STELLAR_PUBLIC_KEY_REGEX = /^G[A-Z2-7]{55}$/;
 
 const DARK_MODE_KEY = "stellar-bounty-board:theme";
+const TOKEN_OPTIONS = ["XLM", "USDC"];
 
 function useDarkMode() {
   const [dark, setDark] = useState<boolean>(() => {
@@ -809,10 +810,16 @@ function App() {
 
               <label>
                 Token
-                <input
+                <select
                   value={form.tokenSymbol}
                   onChange={(event) => setForm({ ...form, tokenSymbol: event.target.value })}
-                />
+                >
+                  {TOKEN_OPTIONS.map((token) => (
+                    <option key={token} value={token}>
+                      {token}
+                    </option>
+                  ))}
+                </select>
               </label>
             </div>
 

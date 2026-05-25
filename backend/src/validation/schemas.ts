@@ -2,6 +2,7 @@ import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
 
 import { githubPrUrlSchema } from "./prUrl";
+import { isValidStellarAddress, SOROBAN_ADDRESS_REGEX } from "../utils";
 
 extendZodWithOpenApi(z);
 
@@ -71,10 +72,13 @@ export const createBountySchema = z
       .string()
       .trim()
       .regex(TOKEN_REGEX, "Token symbol must be 1-12 letters or numbers.")
-      .openapi({ example: "XLM", description: "Stellar token symbol for payout (1–12 alphanumeric chars)." }),
+      .openapi({
+        example: "XLM",
+        description: "Stellar token symbol for payout. The backend resolves it through TOKEN_ADDRESS_MAP.",
+      }),
     amount: z.coerce
       .number()
-      .min(1, "Amount must be at least 1 XLM.")
+      .min(1, "Amount must be at least 1 XLM."),
 
     deadlineDays: z.coerce
       .number()
@@ -122,6 +126,14 @@ export const submitBountySchema = z
     contributor: stellarAccountSchema.openapi({
       description: "Must match the contributor who reserved the bounty.",
     }),
+    submissionUrl: z
+      .string()
+      .trim()
+      .url()
+      .openapi({
+        example: "https://github.com/owner/repo/pull/99",
+        description: "Pull request URL submitted for this bounty.",
+      }),
 
     notes: z
       .string()
@@ -169,6 +181,7 @@ export const bountyRecordSchema = z
     maintainer: z.string().openapi({ example: STELLAR_EXAMPLE }),
     contributor: z.string().optional().openapi({ example: STELLAR_EXAMPLE }),
     tokenSymbol: z.string().openapi({ example: "XLM" }),
+    tokenAddress: z.string().optional().openapi({ example: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }),
     amount: z.number().openapi({ example: 100 }),
     labels: z.array(z.string()).openapi({ example: ["bug", "help wanted"] }),
     status: z
