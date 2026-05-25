@@ -6,11 +6,38 @@ import { githubPrUrlSchema } from "./prUrl";
 extendZodWithOpenApi(z);
 
 
+const STELLAR_ACCOUNT_REGEX = /^G[A-Z2-7]{55}$/;
+const SOROBAN_ADDRESS_REGEX = /^C[A-Z2-7]{55}$/;
 const REPO_REGEX = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 const TOKEN_REGEX = /^[A-Za-z0-9]{1,12}$/;
+const DEFAULT_ALLOWED_TOKEN_SYMBOLS = ["XLM", "USDC"];
+const AMOUNT_DECIMAL_SCALE = 10_000_000;
 
 const STELLAR_EXAMPLE = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 const TX_HASH_REGEX = /^[0-9a-fA-F]{64}$/;
+
+function allowedTokenSymbols(): string[] {
+  const raw = process.env.ALLOWED_TOKEN_SYMBOLS?.trim();
+  if (!raw) {
+    return DEFAULT_ALLOWED_TOKEN_SYMBOLS;
+  }
+
+  const symbols = raw
+    .split(",")
+    .map((symbol) => symbol.trim().toUpperCase())
+    .filter((symbol) => TOKEN_REGEX.test(symbol));
+
+  return symbols.length > 0 ? [...new Set(symbols)] : DEFAULT_ALLOWED_TOKEN_SYMBOLS;
+}
+
+function hasAtMostSevenDecimalPlaces(amount: number): boolean {
+  const scaled = amount * AMOUNT_DECIMAL_SCALE;
+  return Math.abs(scaled - Math.round(scaled)) <= Number.EPSILON * Math.max(1, Math.abs(scaled));
+}
+
+function isValidStellarAddress(address: string): boolean {
+  return STELLAR_ACCOUNT_REGEX.test(address.trim());
+}
 
 export const bountyIdSchema = z
   .string()
@@ -71,10 +98,15 @@ export const createBountySchema = z
       .string()
       .trim()
       .regex(TOKEN_REGEX, "Token symbol must be 1-12 letters or numbers.")
+      .refine((symbol) => allowedTokenSymbols().includes(symbol.toUpperCase()), () => ({
+        message: `Unsupported token symbol. Allowed values: ${allowedTokenSymbols().join(", ")}.`,
+      }))
       .openapi({ example: "XLM", description: "Stellar token symbol for payout (1–12 alphanumeric chars)." }),
     amount: z.coerce
       .number()
       .min(1, "Amount must be at least 1 XLM.")
+      .max(10000, "Amount cannot exceed 10000 XLM.")
+      .refine(hasAtMostSevenDecimalPlaces, "Amount can have at most 7 decimal places."),
 
     deadlineDays: z.coerce
       .number()
@@ -121,6 +153,10 @@ export const submitBountySchema = z
   .object({
     contributor: stellarAccountSchema.openapi({
       description: "Must match the contributor who reserved the bounty.",
+    }),
+    submissionUrl: githubPrUrlSchema.openapi({
+      example: "https://github.com/owner/repo/pull/99",
+      description: "Link to the GitHub pull request that completes the bounty.",
     }),
 
     notes: z

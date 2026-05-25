@@ -17,6 +17,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   delete process.env.BOUNTY_STORE_PATH;
+  delete process.env.ALLOWED_TOKEN_SYMBOLS;
   try {
     fs.unlinkSync(storeFile);
   } catch {
@@ -74,6 +75,48 @@ describe("API — bounty lifecycle routes", () => {
       .send({ repo: "bad", issueNumber: 0 })
       .expect(400);
     expect(res.body.error).toBeDefined();
+  });
+
+  it("POST create accepts token symbols from ALLOWED_TOKEN_SYMBOLS", async () => {
+    process.env.ALLOWED_TOKEN_SYMBOLS = "XLM,USDC,AQUA";
+    const app = await getApp();
+
+    const res = await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, tokenSymbol: "AQUA" })
+      .expect(201);
+
+    expect(res.body.data.tokenSymbol).toBe("AQUA");
+  });
+
+  it("POST create rejects token symbols outside ALLOWED_TOKEN_SYMBOLS", async () => {
+    process.env.ALLOWED_TOKEN_SYMBOLS = "XLM,USDC,AQUA";
+    const app = await getApp();
+
+    const res = await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, tokenSymbol: "XLN" })
+      .expect(400);
+
+    expect(res.body.error).toMatch(/Unsupported token symbol/i);
+    expect(res.body.error).toMatch(/Allowed values: XLM, USDC, AQUA/i);
+  });
+
+  it("POST create uses the default token allowlist when ALLOWED_TOKEN_SYMBOLS is empty", async () => {
+    process.env.ALLOWED_TOKEN_SYMBOLS = "";
+    const app = await getApp();
+
+    await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, tokenSymbol: "USDC" })
+      .expect(201);
+
+    const res = await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, tokenSymbol: "AQUA" })
+      .expect(400);
+
+    expect(res.body.error).toMatch(/Allowed values: XLM, USDC/i);
   });
 
   it("POST create with amount below 1 XLM returns 400", async () => {
