@@ -1,10 +1,10 @@
-import type { Request, RequestHandler } from "express";
-import { Keypair } from "stellar-sdk";
+import type { Request, RequestHandler } from 'express';
+import { Keypair } from 'stellar-sdk';
 
-const HEADER_SIGNATURE = "x-stellar-signature";
-const HEADER_PUBLIC_KEY = "x-stellar-public-key";
-const ENV_PUBLIC_KEY = "MAINTAINER_PUBLIC_KEY";
-const ENV_PUBLIC_KEYS = "MAINTAINER_PUBLIC_KEYS";
+const HEADER_SIGNATURE = 'x-stellar-signature';
+const HEADER_PUBLIC_KEY = 'x-stellar-public-key';
+const ENV_PUBLIC_KEY = 'MAINTAINER_PUBLIC_KEY';
+const ENV_PUBLIC_KEYS = 'MAINTAINER_PUBLIC_KEYS';
 
 interface RawBodyRequest extends Request {
   rawBody?: Buffer;
@@ -18,9 +18,9 @@ function normalizeHeaderValue(headerValue: string | string[] | undefined): strin
 }
 
 function getMaintainerPublicKeys(): string[] {
-  const rawKeys = process.env[ENV_PUBLIC_KEYS] ?? process.env[ENV_PUBLIC_KEY] ?? "";
+  const rawKeys = process.env[ENV_PUBLIC_KEYS] ?? process.env[ENV_PUBLIC_KEY] ?? '';
   return rawKeys
-    .split(",")
+    .split(',')
     .map((value) => value.trim())
     .filter(Boolean);
 }
@@ -32,25 +32,32 @@ function getRequestPayload(req: Request): Buffer {
   }
 
   if (req.body !== undefined && req.body !== null) {
-    return Buffer.from(JSON.stringify(req.body), "utf8");
+    return Buffer.from(JSON.stringify(req.body), 'utf8');
   }
 
-  return Buffer.from(`${req.method} ${req.originalUrl}`, "utf8");
+  return Buffer.from(`${req.method} ${req.originalUrl}`, 'utf8');
 }
 
 function decodeSignatureVariants(signatureHeader: string): Buffer[] {
-  const normalized = signatureHeader.trim().replace(/^(?:0x|sig=|signature=)/i, "").trim();
+  const normalized = signatureHeader
+    .trim()
+    .replace(/^(?:0x|sig=|signature=)/i, '')
+    .trim();
   const candidates: Buffer[] = [];
 
   if (/^[0-9a-fA-F]+$/.test(normalized) && normalized.length % 2 === 0) {
-    candidates.push(Buffer.from(normalized, "hex"));
+    candidates.push(Buffer.from(normalized, 'hex'));
   }
 
-  candidates.push(Buffer.from(normalized, "base64"));
+  candidates.push(Buffer.from(normalized, 'base64'));
   return candidates;
 }
 
-function verifyStellarSignature(publicKey: string, payload: Buffer, signatureHeader: string): boolean {
+function verifyStellarSignature(
+  publicKey: string,
+  payload: Buffer,
+  signatureHeader: string,
+): boolean {
   let keypair: Keypair;
   try {
     keypair = Keypair.fromPublicKey(publicKey);
@@ -74,14 +81,14 @@ function verifyStellarSignature(publicKey: string, payload: Buffer, signatureHea
 
 export function createStellarSignatureAuthMiddleware(): RequestHandler {
   return (req, res, next) => {
-    if (process.env.NODE_ENV === "test") {
+    if (process.env.NODE_ENV === 'test') {
       next();
       return;
     }
 
     const allowedMaintainerKeys = getMaintainerPublicKeys();
     if (allowedMaintainerKeys.length === 0) {
-      res.status(500).json({ error: "Server maintainer public key configuration is missing." });
+      res.status(500).json({ error: 'Server maintainer public key configuration is missing.' });
       return;
     }
 
@@ -99,19 +106,19 @@ export function createStellarSignatureAuthMiddleware(): RequestHandler {
     }
 
     if (!allowedMaintainerKeys.includes(publicKeyHeader)) {
-      res.status(401).json({ error: "Unauthorized Stellar public key." });
+      res.status(401).json({ error: 'Unauthorized Stellar public key.' });
       return;
     }
 
     const payload = getRequestPayload(req);
     if (!verifyStellarSignature(publicKeyHeader, payload, signatureHeader)) {
-      res.status(401).json({ error: "Invalid Stellar signature." });
+      res.status(401).json({ error: 'Invalid Stellar signature.' });
       return;
     }
 
-    const maintainer = typeof req.body?.maintainer === "string" ? req.body.maintainer : undefined;
+    const maintainer = typeof req.body?.maintainer === 'string' ? req.body.maintainer : undefined;
     if (maintainer && maintainer !== publicKeyHeader) {
-      res.status(401).json({ error: "Request maintainer does not match signer public key." });
+      res.status(401).json({ error: 'Request maintainer does not match signer public key.' });
       return;
     }
 

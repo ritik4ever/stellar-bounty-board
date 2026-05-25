@@ -1,6 +1,6 @@
-import pino from "pino";
+import pino from 'pino';
 
-const isDev = process.env.NODE_ENV !== "production";
+const isDev = process.env.NODE_ENV !== 'production';
 
 /**
  * Pino logger instance.
@@ -13,25 +13,25 @@ const isDev = process.env.NODE_ENV !== "production";
  */
 export const logger = pino(
   {
-    level: process.env.LOG_LEVEL ?? "info",
+    level: process.env.LOG_LEVEL ?? 'info',
     redact: {
       paths: [
-        "req.headers.authorization",
-        "req.headers.cookie",
-        "*.password",
-        "*.secret",
-        "*.token",
-        "*.apiKey",
-        "*.api_key",
-        "*.Authorization",
+        'req.headers.authorization',
+        'req.headers.cookie',
+        '*.password',
+        '*.secret',
+        '*.token',
+        '*.apiKey',
+        '*.api_key',
+        '*.Authorization',
       ],
-      censor: "[redacted]",
+      censor: '[redacted]',
     },
   },
   isDev
     ? pino.transport({
-        target: "pino-pretty",
-        options: { colorize: true, translateTime: "SYS:standard", ignore: "pid,hostname" },
+        target: 'pino-pretty',
+        options: { colorize: true, translateTime: 'SYS:standard', ignore: 'pid,hostname' },
       })
     : undefined,
 );
@@ -42,7 +42,7 @@ export const logger = pino(
 export type LogFields = Record<string, string | number | boolean | null | undefined>;
 
 export function logStructured(
-  level: "info" | "warn" | "error",
+  level: 'info' | 'warn' | 'error',
   msg: string,
   fields: LogFields = {},
 ): void {

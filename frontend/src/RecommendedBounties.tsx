@@ -1,8 +1,8 @@
-import { useState } from "react";
-import { ArrowUpRight, Star, TrendingUp } from "lucide-react";
-import { BountyRecommendation } from "./recommendations";
-import { statusCopy } from "./constants";
-import UsdAmount from "./UsdAmount";
+import { useState } from 'react';
+import { ArrowUpRight, Star, TrendingUp } from 'lucide-react';
+import { BountyRecommendation } from './recommendations';
+import { statusCopy } from './constants';
+import UsdAmount from './UsdAmount';
 
 interface RecommendedBountiesProps {
   recommendations: BountyRecommendation[];
@@ -11,16 +11,16 @@ interface RecommendedBountiesProps {
 
 // Known skill/tech tags used for filtering
 const KNOWN_TAGS = [
-  "Rust",
-  "React",
-  "TypeScript",
-  "Python",
-  "Docs",
-  "Solidity",
-  "Stellar",
-  "Backend",
-  "Frontend",
-  "Testing",
+  'Rust',
+  'React',
+  'TypeScript',
+  'Python',
+  'Docs',
+  'Solidity',
+  'Stellar',
+  'Backend',
+  'Frontend',
+  'Testing',
 ];
 
 function formatRelativeDeadline(deadlineAt: number): string {
@@ -28,9 +28,9 @@ function formatRelativeDeadline(deadlineAt: number): string {
   const diff = deadlineAt - now;
   const days = Math.ceil(Math.abs(diff) / (24 * 60 * 60));
   if (diff >= 0) {
-    return `${days} day${days === 1 ? "" : "s"} left`;
+    return `${days} day${days === 1 ? '' : 's'} left`;
   }
-  return `${days} day${days === 1 ? "" : "s"} overdue`;
+  return `${days} day${days === 1 ? '' : 's'} overdue`;
 }
 
 function shortAddress(value: string): string {
@@ -69,9 +69,7 @@ function BountyRecommendationCard({ recommendation }: { recommendation: BountyRe
         </div>
         <div className="amount-chip">
           {bounty.amount} {bounty.tokenSymbol}
-          {bounty.tokenSymbol === "XLM" && (
-            <UsdAmount amount={bounty.amount} />
-          )}
+          {bounty.tokenSymbol === 'XLM' && <UsdAmount amount={bounty.amount} />}
         </div>
       </div>
 
@@ -104,8 +102,8 @@ function BountyRecommendationCard({ recommendation }: { recommendation: BountyRe
       <div className="chip-row">
         {bounty.labels.map((label) => (
           <span className="chip" key={label.name}>
-  {label.name}
-</span>
+            {label.name}
+          </span>
         ))}
       </div>
 
@@ -127,17 +125,17 @@ function BountyRecommendationCard({ recommendation }: { recommendation: BountyRe
   );
 }
 
-export default function RecommendedBounties({ recommendations, loading }: RecommendedBountiesProps) {
-  const [activeTag, setActiveTag] = useState<string>("All");
+export default function RecommendedBounties({
+  recommendations,
+  loading,
+}: RecommendedBountiesProps) {
+  const [activeTag, setActiveTag] = useState<string>('All');
 
   const filteredRecommendations =
-    activeTag === "All"
+    activeTag === 'All'
       ? recommendations
       : recommendations.filter(({ bounty }) => {
-          const haystack = [
-            ...bounty.labels,
-            ...(bounty.tags ?? []),
-          ].map((t) => t.toLowerCase());
+          const haystack = [...bounty.labels, ...(bounty.tags ?? [])].map((t) => t.toLowerCase());
           return haystack.some((t) => t.includes(activeTag.toLowerCase()));
         });
 
@@ -154,9 +152,9 @@ export default function RecommendedBounties({ recommendations, loading }: Recomm
         <div className="board-list">
           {Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="bounty-card bounty-card--skeleton">
-              <div className="skeleton-line" style={{ width: "60%", height: "20px" }} />
-              <div className="skeleton-line" style={{ width: "40%", height: "16px" }} />
-              <div className="skeleton-line" style={{ width: "80%", height: "14px" }} />
+              <div className="skeleton-line" style={{ width: '60%', height: '20px' }} />
+              <div className="skeleton-line" style={{ width: '40%', height: '16px' }} />
+              <div className="skeleton-line" style={{ width: '80%', height: '14px' }} />
             </div>
           ))}
         </div>
@@ -175,7 +173,10 @@ export default function RecommendedBounties({ recommendations, loading }: Recomm
           <Star size={18} />
         </div>
         <div className="empty-state">
-          <p>No recommendations available yet. Complete some bounties to get personalized suggestions!</p>
+          <p>
+            No recommendations available yet. Complete some bounties to get personalized
+            suggestions!
+          </p>
         </div>
       </section>
     );
@@ -187,24 +188,18 @@ export default function RecommendedBounties({ recommendations, loading }: Recomm
         <div>
           <span className="panel-kicker">Personalized for you</span>
           <h2>Recommended bounties</h2>
-          <p className="panel-description">
-            Based on your contribution history and preferences
-          </p>
+          <p className="panel-description">Based on your contribution history and preferences</p>
         </div>
         <Star size={18} />
       </div>
 
       {/* Skill-tag filter chips (#75) */}
-      <div
-        className="tag-filter-row"
-        role="group"
-        aria-label="Filter recommendations by skill tag"
-      >
-        {["All", ...KNOWN_TAGS].map((tag) => (
+      <div className="tag-filter-row" role="group" aria-label="Filter recommendations by skill tag">
+        {['All', ...KNOWN_TAGS].map((tag) => (
           <button
             key={tag}
             type="button"
-            className={`filter-chip${activeTag === tag ? " filter-chip--active" : ""}`}
+            className={`filter-chip${activeTag === tag ? ' filter-chip--active' : ''}`}
             onClick={() => setActiveTag(tag)}
             aria-pressed={activeTag === tag}
           >
@@ -216,12 +211,8 @@ export default function RecommendedBounties({ recommendations, loading }: Recomm
       {filteredRecommendations.length === 0 ? (
         <div className="empty-state">
           <p>
-            No recommended bounties match the <strong>{activeTag}</strong> tag.{" "}
-            <button
-              type="button"
-              className="ghost-button"
-              onClick={() => setActiveTag("All")}
-            >
+            No recommended bounties match the <strong>{activeTag}</strong> tag.{' '}
+            <button type="button" className="ghost-button" onClick={() => setActiveTag('All')}>
               Show all
             </button>
           </p>
@@ -229,7 +220,10 @@ export default function RecommendedBounties({ recommendations, loading }: Recomm
       ) : (
         <div className="board-list">
           {filteredRecommendations.map((recommendation) => (
-            <BountyRecommendationCard key={recommendation.bounty.id} recommendation={recommendation} />
+            <BountyRecommendationCard
+              key={recommendation.bounty.id}
+              recommendation={recommendation}
+            />
           ))}
         </div>
       )}

@@ -1,5 +1,5 @@
-import { listBounties, releaseBounty } from "../services/bountyStore";
-import { logStructured } from "../logger";
+import { listBounties, releaseBounty } from '../services/bountyStore';
+import { logStructured } from '../logger';
 
 /**
  * Shape of a GitHub pull_request webhook payload (the fields we care about).
@@ -14,10 +14,10 @@ interface GitHubPrPayload {
 
 function isPrPayload(body: unknown): body is GitHubPrPayload {
   return (
-    typeof body === "object" &&
+    typeof body === 'object' &&
     body !== null &&
-    "action" in body &&
-    typeof (body as Record<string, unknown>).action === "string"
+    'action' in body &&
+    typeof (body as Record<string, unknown>).action === 'string'
   );
 }
 
@@ -39,38 +39,36 @@ export async function handleGitHubPrEvent(body: unknown): Promise<void> {
   const { action, pull_request } = body;
 
   // Only process closed + merged events
-  if (action !== "closed" || !pull_request?.merged) {
-    logStructured("info", "github_webhook_pr_skipped", {
+  if (action !== 'closed' || !pull_request?.merged) {
+    logStructured('info', 'github_webhook_pr_skipped', {
       action,
       merged: pull_request?.merged ?? false,
-      reason: action !== "closed" ? "not_closed" : "not_merged",
+      reason: action !== 'closed' ? 'not_closed' : 'not_merged',
     });
     return;
   }
 
   const prUrl = pull_request.html_url;
   if (!prUrl) {
-    logStructured("warn", "github_webhook_pr_missing_url", {
-      reason: "pull_request.html_url is empty",
+    logStructured('warn', 'github_webhook_pr_missing_url', {
+      reason: 'pull_request.html_url is empty',
     });
     return;
   }
 
   // Find a submitted bounty whose submissionUrl exactly matches the merged PR URL
   const bounties = listBounties();
-  const matching = bounties.find(
-    (b) => b.status === "submitted" && b.submissionUrl === prUrl,
-  );
+  const matching = bounties.find((b) => b.status === 'submitted' && b.submissionUrl === prUrl);
 
   if (!matching) {
-    logStructured("info", "github_webhook_pr_no_matching_bounty", {
+    logStructured('info', 'github_webhook_pr_no_matching_bounty', {
       prUrl,
-      reason: "no submitted bounty with matching submissionUrl",
+      reason: 'no submitted bounty with matching submissionUrl',
     });
     return;
   }
 
-  logStructured("info", "github_webhook_pr_auto_releasing", {
+  logStructured('info', 'github_webhook_pr_auto_releasing', {
     bountyId: matching.id,
     prUrl,
     maintainer: matching.maintainer,
@@ -78,7 +76,7 @@ export async function handleGitHubPrEvent(body: unknown): Promise<void> {
 
   await releaseBounty(matching.id, matching.maintainer);
 
-  logStructured("info", "github_webhook_pr_auto_released", {
+  logStructured('info', 'github_webhook_pr_auto_released', {
     bountyId: matching.id,
     prUrl,
   });
