@@ -120,6 +120,23 @@ function parsePaginationValue(
   return parsed;
 }
 
+function parseAmountFilterValue(raw: unknown, field: string): number | undefined {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(`${field} must be a number.`);
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`${field} must be a number.`);
+  }
+
+  return parsed;
+}
+
 function jsonError(res: Response, req: Request, statusCode: number, message: string) {
   res.status(statusCode).json({ error: message, requestId: req.requestId });
 }
@@ -155,8 +172,14 @@ app.get("/worker/health", (_req: Request, res: Response) => {
 });
 
 app.get("/api/bounties", (req: Request, res: Response) => {
-  const q = typeof req.query.q === "string" ? req.query.q : undefined;
-  res.json({ data: listBounties({ q }) });
+  try {
+    const q = typeof req.query.q === "string" ? req.query.q : undefined;
+    const minAmount = parseAmountFilterValue(req.query.minAmount, "minAmount");
+    const maxAmount = parseAmountFilterValue(req.query.maxAmount, "maxAmount");
+    res.json({ data: listBounties({ q, minAmount, maxAmount }) });
+  } catch (error) {
+    sendError(res, req, error);
+  }
 });
 
 app.get("/api/leaderboard", (_req: Request, res: Response) => {

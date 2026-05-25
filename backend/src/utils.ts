@@ -14,6 +14,12 @@ export const limiter: RequestHandler =
         ipv6Subnet: 56,
       });
 
-/**
+export const SOROBAN_ADDRESS_REGEX = /^C[A-Z2-7]{55}$/;
 
+export function isValidStellarAddress(value: string): boolean {
+  try {
+    return StrKey.isValidEd25519PublicKey(value);
+  } catch {
+    return false;
+  }
 }

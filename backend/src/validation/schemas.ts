@@ -2,6 +2,7 @@ import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
 
 import { githubPrUrlSchema } from "./prUrl";
+import { isValidStellarAddress, SOROBAN_ADDRESS_REGEX } from "../utils";
 
 extendZodWithOpenApi(z);
 
@@ -75,6 +76,11 @@ export const createBountySchema = z
     amount: z.coerce
       .number()
       .min(1, "Amount must be at least 1 XLM.")
+      .max(10000, "Amount must not exceed 10000 XLM.")
+      .refine((amount) => {
+        const [, decimals = ""] = amount.toString().split(".");
+        return decimals.length <= 7;
+      }, "Amount must have at most 7 decimal places."),
 
     deadlineDays: z.coerce
       .number()
@@ -121,6 +127,10 @@ export const submitBountySchema = z
   .object({
     contributor: stellarAccountSchema.openapi({
       description: "Must match the contributor who reserved the bounty.",
+    }),
+    submissionUrl: z.string().trim().url().openapi({
+      example: "https://github.com/owner/repo/pull/99",
+      description: "Submission URL for the completed work.",
     }),
 
     notes: z

@@ -169,6 +169,79 @@ describe("bountyStore lifecycle — happy paths", () => {
   });
 });
 
+describe("bountyStore listing filters", () => {
+  it("applies min and max amount filters inclusively", async () => {
+    const { createBounty, listBounties } = await loadStore();
+
+    await createBounty({
+      repo: "acme/widget",
+      issueNumber: 50,
+      title: "Small bounty title with enough chars",
+      summary: "Summary with enough length for the small bounty.",
+      maintainer: MAINTAINER,
+      tokenSymbol: "XLM",
+      amount: 50,
+      deadlineDays: 30,
+      labels: ["api"],
+    });
+    await createBounty({
+      repo: "acme/widget",
+      issueNumber: 100,
+      title: "Middle bounty title with enough chars",
+      summary: "Summary with enough length for the middle bounty.",
+      maintainer: MAINTAINER,
+      tokenSymbol: "XLM",
+      amount: 100,
+      deadlineDays: 30,
+      labels: ["api"],
+    });
+    await createBounty({
+      repo: "acme/widget",
+      issueNumber: 500,
+      title: "Large bounty title with enough chars",
+      summary: "Summary with enough length for the large bounty.",
+      maintainer: MAINTAINER,
+      tokenSymbol: "XLM",
+      amount: 500,
+      deadlineDays: 30,
+      labels: ["api"],
+    });
+
+    const listed = listBounties({ minAmount: 100, maxAmount: 500 });
+    expect(listed.map((bounty) => bounty.amount).sort((a, b) => a - b)).toEqual([100, 500]);
+  });
+
+  it("combines text and amount filters with AND logic", async () => {
+    const { createBounty, listBounties } = await loadStore();
+
+    await createBounty({
+      repo: "acme/widget",
+      issueNumber: 60,
+      title: "Backend API filter task",
+      summary: "Summary with enough length for the backend task.",
+      maintainer: MAINTAINER,
+      tokenSymbol: "XLM",
+      amount: 75,
+      deadlineDays: 30,
+      labels: ["api"],
+    });
+    await createBounty({
+      repo: "acme/widget",
+      issueNumber: 61,
+      title: "Frontend API label task",
+      summary: "Summary with enough length for the frontend task.",
+      maintainer: MAINTAINER,
+      tokenSymbol: "XLM",
+      amount: 175,
+      deadlineDays: 30,
+      labels: ["api"],
+    });
+
+    const listed = listBounties({ q: "api", minAmount: 100 });
+    expect(listed.map((bounty) => bounty.issueNumber)).toEqual([61]);
+  });
+});
+
 describe("bountyStore — expiration via normalizeRecords", () => {
   it("marks open bounties past deadline as expired when listed", async () => {
     const record: BountyRecord = {

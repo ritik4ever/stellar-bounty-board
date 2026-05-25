@@ -49,6 +49,50 @@ describe("API — health and listing", () => {
     expect(Array.isArray(res.body.data)).toBe(true);
   });
 
+  it("GET /api/bounties filters by min, max, and combined amount range with existing filters", async () => {
+    const app = await getApp();
+    await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, issueNumber: 101, amount: 50, labels: ["docs"] })
+      .expect(201);
+    await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, issueNumber: 102, amount: 250, labels: ["bug"] })
+      .expect(201);
+    await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, issueNumber: 103, amount: 750, labels: ["bug"] })
+      .expect(201);
+
+    const minOnly = await request(app)
+      .get("/api/bounties")
+      .query({ minAmount: "100" })
+      .expect(200);
+    expect(minOnly.body.data.map((bounty: { issueNumber: number }) => bounty.issueNumber).sort()).toEqual([102, 103]);
+
+    const maxOnly = await request(app)
+      .get("/api/bounties")
+      .query({ maxAmount: "500" })
+      .expect(200);
+    expect(maxOnly.body.data.map((bounty: { issueNumber: number }) => bounty.issueNumber).sort()).toEqual([101, 102]);
+
+    const combined = await request(app)
+      .get("/api/bounties")
+      .query({ q: "bug", minAmount: "100", maxAmount: "500" })
+      .expect(200);
+
+    expect(combined.body.data.map((bounty: { issueNumber: number }) => bounty.issueNumber)).toEqual([102]);
+  });
+
+  it("GET /api/bounties rejects non-numeric amount filters", async () => {
+    const app = await getApp();
+    const res = await request(app)
+      .get("/api/bounties")
+      .query({ minAmount: "cheap" })
+      .expect(400);
+    expect(res.body.error).toMatch(/minAmount must be a number/i);
+  });
+
   it("GET /api/open-issues returns data", async () => {
     const app = await getApp();
     const res = await request(app).get("/api/open-issues").expect(200);
