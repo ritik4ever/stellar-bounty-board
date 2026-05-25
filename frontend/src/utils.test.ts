@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { xlmToUsd, resetXlmToUsdCache } from "./utils";
+import { tokenAmountToUsd, xlmToUsd, resetXlmToUsdCache } from "./utils";
 
 describe("xlmToUsd", () => {
   const fetchMock = vi.fn();
@@ -43,5 +43,28 @@ describe("xlmToUsd", () => {
     fetchMock.mockRejectedValue(new Error("network unavailable"));
 
     await expect(xlmToUsd(100)).resolves.toBe("USD unavailable");
+  });
+
+  it("falls back to the last known XLM/USD rate when refresh fails", async () => {
+    vi.useFakeTimers();
+    try {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ stellar: { usd: 0.1 } }),
+      });
+      await expect(xlmToUsd(100)).resolves.toBe("$10.00");
+
+      vi.advanceTimersByTime(5 * 60 * 1000 + 1);
+      fetchMock.mockRejectedValueOnce(new Error("network unavailable"));
+
+      await expect(xlmToUsd(50)).resolves.toBe("$5.00");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("converts USDC amounts at a 1:1 USD rate without fetching XLM prices", async () => {
+    await expect(tokenAmountToUsd(21.8, "USDC")).resolves.toBe("$21.80");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
