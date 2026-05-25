@@ -160,6 +160,7 @@ describe("API — bounty lifecycle routes", () => {
       .send({ ...validCreateBody, amount: 100.1234567 })
       .expect(201);
     expect(res.body.data.id).toMatch(/^BNT-\d{4}$/);
+    expect(res.body.data.amount).toBe(100.1234567);
   });
 
   it("POST create with 1 XLM succeeds", async () => {

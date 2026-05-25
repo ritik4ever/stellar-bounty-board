@@ -407,7 +407,7 @@ export async function createBounty(input: CreateBountyInput): Promise<BountyReco
       summary: input.summary,
       maintainer: input.maintainer,
       tokenSymbol: input.tokenSymbol.toUpperCase(),
-      amount: Number(input.amount.toFixed(2)),
+      amount: Number(input.amount.toFixed(7)),
       labels: input.labels,
       status: "open",
       createdAt,
