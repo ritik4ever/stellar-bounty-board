@@ -716,5 +716,28 @@ export interface LeaderboardEntry {
   bountiesCompleted: number;
 }
 
+export function getLeaderboard(limit = 10): LeaderboardEntry[] {
+  const entries = new Map<string, LeaderboardEntry>();
 
+  for (const bounty of listBounties()) {
+    if (bounty.status !== "released" || !bounty.contributor || bounty.tokenSymbol !== "XLM") {
+      continue;
+    }
+
+    const existing = entries.get(bounty.contributor) ?? {
+      address: bounty.contributor,
+      totalXlm: 0,
+      bountiesCompleted: 0,
+    };
+
+    entries.set(bounty.contributor, {
+      address: bounty.contributor,
+      totalXlm: Number((existing.totalXlm + bounty.amount).toFixed(7)),
+      bountiesCompleted: existing.bountiesCompleted + 1,
+    });
+  }
+
+  return [...entries.values()]
+    .sort((a, b) => b.totalXlm - a.totalXlm || a.bountiesCompleted - b.bountiesCompleted)
+    .slice(0, limit);
 }
