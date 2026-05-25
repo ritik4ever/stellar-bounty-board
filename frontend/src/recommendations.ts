@@ -18,67 +18,6 @@ export interface ContributorProfile {
   skills: string[];
 }
 
-/**
- * Score how well a bounty matches a contributor's declared skill tags.
- * Compares the contributor's skills against the bounty's labels and (optionally) tags.
- * Returns a normalized score between 0 and 1.
- *
- * @param bounty - The bounty to evaluate
- * @param skills - Array of contributor skill strings (case-insensitive)
- * @returns Normalized match score 0-1
- */
-export function scoreMatch(bounty: Bounty, skills: string[]): number {
-  if (!skills || skills.length === 0) return 0;
-
-  // Collect all text tokens from the bounty that could indicate skill relevance
-  const bountyTokens: string[] = bounty.labels.map((l) => l.name.toLowerCase());
-
-  // Also include bounty.tags if present (used in RecommendedBounties.tsx)
-  if (Array.isArray((bounty as Record<string, unknown>).tags)) {
-    const tags = (bounty as Record<string, unknown>).tags as string[];
-    bountyTokens.push(...tags.map((t: string) => t.toLowerCase()));
-  }
-
-  // Include title and summary for broader matching
-  bountyTokens.push(bounty.title.toLowerCase());
-  bountyTokens.push(bounty.summary.toLowerCase());
-
-  // Also split multi-word tokens for partial matching
-  const expandedTokens = new Set<string>();
-  for (const token of bountyTokens) {
-    if (token.length === 0) continue;
-    expandedTokens.add(token);
-    // Split on non-alphanumeric boundaries to catch e.g. "react" in "react-native"
-    for (const part of token.split(/[^a-z0-9#+.]+/)) {
-      if (part.length >= 2) expandedTokens.add(part);
-    }
-  }
-
-  // Normalize skills to lower case
-  const normalizedSkills = skills.map((s) => s.toLowerCase().trim()).filter(Boolean);
-
-  if (normalizedSkills.length === 0) return 0;
-
-  // Count matching skills
-  let matchCount = 0;
-  for (const skill of normalizedSkills) {
-    // Check exact match in any token
-    if (expandedTokens.has(skill)) {
-      matchCount++;
-      continue;
-    }
-    // Check if skill is contained within any token (e.g. skill "js" in "node.js")
-    for (const token of expandedTokens) {
-      if (token.includes(skill) || skill.includes(token)) {
-        matchCount++;
-        break;
-      }
-    }
-  }
-
-  return normalizedSkills.length > 0 ? matchCount / normalizedSkills.length : 0;
-}
-
 const LABEL_WEIGHTS: Record<string, number> = {
   "help wanted": 0.8,
   "good first issue": 0.9,

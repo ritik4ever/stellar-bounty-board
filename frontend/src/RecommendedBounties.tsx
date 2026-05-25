@@ -134,10 +134,11 @@ export default function RecommendedBounties({ recommendations, loading }: Recomm
     activeTag === "All"
       ? recommendations
       : recommendations.filter(({ bounty }) => {
+          const legacyTags = (bounty as unknown as { tags?: string[] }).tags ?? [];
           const haystack = [
-            ...bounty.labels,
-            ...(bounty.tags ?? []),
-          ].map((t) => t.toLowerCase());
+            ...bounty.labels.map((label) => label.name),
+            ...legacyTags,
+          ].map((tag) => tag.toLowerCase());
           return haystack.some((t) => t.includes(activeTag.toLowerCase()));
         });
 

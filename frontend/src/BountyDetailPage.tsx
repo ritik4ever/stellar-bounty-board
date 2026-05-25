@@ -1,4 +1,10 @@
 
+import { ArrowUpRight, Check, Clock, Copy } from "lucide-react";
+import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
+
+import UsdAmount from "./UsdAmount";
+import { Bounty, BountyEvent, BountyStatus } from "./types";
+
 type BountyAction = "reserve" | "submit" | "release" | "refund";
 
 type Props = {
@@ -21,13 +27,32 @@ type Props = {
 
 function useCopyToClipboard(timeout = 2000) {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const timerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current);
+      }
+    };
+  }, []);
 
   const copy = useCallback(
     (text: string, key: string) => {
-      void navigator.clipboard.writeText(text).then(() => {
-        setCopiedKey(key);
-        setTimeout(() => setCopiedKey(null), timeout);
-      });
+      void navigator.clipboard.writeText(text)
+        .then(() => {
+          if (timerRef.current !== null) {
+            window.clearTimeout(timerRef.current);
+          }
+          setCopiedKey(key);
+          timerRef.current = window.setTimeout(() => {
+            setCopiedKey(null);
+            timerRef.current = null;
+          }, timeout);
+        })
+        .catch(() => {
+          setCopiedKey(null);
+        });
     },
     [timeout],
   );
@@ -44,13 +69,13 @@ function CopyButton({ text, label }: { text: string; label: string }) {
       <button
         type="button"
         className="copy-button"
-        aria-label={copied ? "Copied!" : `Copy ${label}`}
-        title={copied ? "Copied!" : `Copy ${label}`}
+        aria-label={copied ? "Copied" : `Copy ${label}`}
+        title={copied ? "Copied" : `Copy ${label}`}
         onClick={() => copy(text, label)}
       >
         {copied ? <Check size={14} /> : <Copy size={14} />}
       </button>
-      {copied && <span className="copy-tooltip">Copied!</span>}
+      {copied && <span className="copy-tooltip">Copied</span>}
     </span>
   );
 }
@@ -165,7 +190,10 @@ export default function BountyDetailPage({
             <div className="meta-grid meta-grid--detail">
               <div>
                 <span className="meta-label">Bounty ID</span>
-
+                <strong className="copy-row">
+                  {bounty.id}
+                  <CopyButton text={bounty.id} label="bounty id" />
+                </strong>
               </div>
               <div>
                 <span className="meta-label">Issue</span>
@@ -190,7 +218,10 @@ export default function BountyDetailPage({
               </div>
               <div>
                 <span className="meta-label">Maintainer</span>
-
+                <strong className="copy-row">
+                  {bounty.maintainer}
+                  <CopyButton text={bounty.maintainer} label="maintainer wallet address" />
+                </strong>
               </div>
               <div>
                 <span className="meta-label">Contributor</span>
