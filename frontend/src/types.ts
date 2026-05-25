@@ -2,21 +2,9 @@ export interface GithubLabel {
   name: string;
   color: string; // hex without '#', e.g. "e4e669"
 }
-export type BountyStatus =
-  | "open"
-  | "reserved"
-  | "submitted"
-  | "released"
-  | "refunded"
-  | "expired";
+export type BountyStatus = 'open' | 'reserved' | 'submitted' | 'released' | 'refunded' | 'expired';
 
-export type EventType =
-  | "created"
-  | "reserved"
-  | "submitted"
-  | "released"
-  | "refunded"
-  | "expired";
+export type EventType = 'created' | 'reserved' | 'submitted' | 'released' | 'refunded' | 'expired';
 
 export interface BountyEvent {
   type: EventType;
@@ -72,10 +60,8 @@ export interface OpenIssue {
   title: string;
   labels: GithubLabel[];
   summary: string;
-  impact: "starter" | "core" | "advanced";
+  impact: 'starter' | 'core' | 'advanced';
 }
-
-
 
 export interface MaintainerMetrics {
   maintainer: string;

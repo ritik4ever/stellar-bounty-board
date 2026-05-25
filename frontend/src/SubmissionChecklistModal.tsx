@@ -1,6 +1,6 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
-import { CheckSquare, Square, X } from "lucide-react";
-import type { Bounty } from "./types";
+import { FormEvent, useEffect, useRef, useState } from 'react';
+import { CheckSquare, Square, X } from 'lucide-react';
+import type { Bounty } from './types';
 
 export interface SubmissionFormData {
   contributor: string;
@@ -23,12 +23,12 @@ const STELLAR_PUBLIC_KEY_REGEX = /^G[A-Z0-9]{55}$/;
 function validateUrl(value: string): string | null {
   try {
     const url = new URL(value.trim());
-    if (url.protocol !== "https:" && url.protocol !== "http:") {
-      return "URL must start with http:// or https://";
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+      return 'URL must start with http:// or https://';
     }
     return null;
   } catch {
-    return "Enter a valid URL (e.g. https://github.com/owner/repo/pull/1)";
+    return 'Enter a valid URL (e.g. https://github.com/owner/repo/pull/1)';
   }
 }
 
@@ -40,10 +40,12 @@ export default function SubmissionChecklistModal({
   onSubmit,
   onClose,
 }: Props) {
-  const [contributor, setContributor] = useState(initialData?.contributor ?? bounty.contributor ?? "");
-  const [prLink, setPrLink] = useState(initialData?.prLink ?? "");
+  const [contributor, setContributor] = useState(
+    initialData?.contributor ?? bounty.contributor ?? '',
+  );
+  const [prLink, setPrLink] = useState(initialData?.prLink ?? '');
   const [testsWritten, setTestsWritten] = useState(initialData?.testsWritten ?? false);
-  const [notes, setNotes] = useState(initialData?.notes ?? "");
+  const [notes, setNotes] = useState(initialData?.notes ?? '');
   const [touched, setTouched] = useState({ contributor: false, prLink: false });
 
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -69,19 +71,19 @@ export default function SubmissionChecklistModal({
     touched.contributor && contributor.trim() && !STELLAR_PUBLIC_KEY_REGEX.test(contributor.trim())
       ? "Enter a Stellar public key (starts with 'G', 56 characters)"
       : touched.contributor && !contributor.trim()
-        ? "Contributor address is required"
+        ? 'Contributor address is required'
         : null;
 
   const prLinkError =
     touched.prLink && !prLink.trim()
-      ? "PR or demo link is required"
+      ? 'PR or demo link is required'
       : touched.prLink && prLink.trim()
         ? validateUrl(prLink)
         : null;
 
   const isValid =
     STELLAR_PUBLIC_KEY_REGEX.test(contributor.trim()) &&
-    prLink.trim() !== "" &&
+    prLink.trim() !== '' &&
     validateUrl(prLink) === null;
 
   function handleSubmit(e: FormEvent) {
@@ -123,11 +125,15 @@ export default function SubmissionChecklistModal({
         </div>
 
         <p className="submission-modal__intro">
-          Review the checklist below before submitting{" "}
-          <strong>{bounty.title}</strong>. Required fields are marked with *.
+          Review the checklist below before submitting <strong>{bounty.title}</strong>. Required
+          fields are marked with *.
         </p>
 
-        {error && <div className="error-banner" role="alert">{error}</div>}
+        {error && (
+          <div className="error-banner" role="alert">
+            {error}
+          </div>
+        )}
 
         <form className="submission-modal__form" onSubmit={handleSubmit} noValidate>
           {/* Contributor address */}
@@ -142,12 +148,16 @@ export default function SubmissionChecklistModal({
               placeholder="G... (56 chars)"
               autoComplete="off"
               aria-invalid={Boolean(contributorError)}
-              aria-describedby={contributorError ? "contributor-error" : undefined}
+              aria-describedby={contributorError ? 'contributor-error' : undefined}
               disabled={submitting}
             />
-            <small className="field-hint">Your Stellar public key (starts with 'G', 56 characters)</small>
+            <small className="field-hint">
+              Your Stellar public key (starts with 'G', 56 characters)
+            </small>
             {contributorError && (
-              <small className="field-error" id="contributor-error">{contributorError}</small>
+              <small className="field-error" id="contributor-error">
+                {contributorError}
+              </small>
             )}
           </label>
 
@@ -161,12 +171,14 @@ export default function SubmissionChecklistModal({
               onBlur={() => setTouched((t) => ({ ...t, prLink: true }))}
               placeholder="https://github.com/owner/repo/pull/123"
               aria-invalid={Boolean(prLinkError)}
-              aria-describedby={prLinkError ? "prlink-error" : undefined}
+              aria-describedby={prLinkError ? 'prlink-error' : undefined}
               disabled={submitting}
             />
             <small className="field-hint">Link to your PR, branch, or live demo</small>
             {prLinkError && (
-              <small className="field-error" id="prlink-error">{prLinkError}</small>
+              <small className="field-error" id="prlink-error">
+                {prLinkError}
+              </small>
             )}
           </label>
 
@@ -215,20 +227,11 @@ export default function SubmissionChecklistModal({
           </label>
 
           <div className="submission-modal__actions">
-            <button
-              type="button"
-              className="ghost-button"
-              onClick={onClose}
-              disabled={submitting}
-            >
+            <button type="button" className="ghost-button" onClick={onClose} disabled={submitting}>
               Cancel
             </button>
-            <button
-              type="submit"
-              className="primary-button"
-              disabled={submitting}
-            >
-              {submitting ? "Submitting..." : "Submit work"}
+            <button type="submit" className="primary-button" disabled={submitting}>
+              {submitting ? 'Submitting...' : 'Submit work'}
             </button>
           </div>
         </form>
@@ -259,7 +262,7 @@ function ChecklistItem({
         id={id}
         role="checkbox"
         aria-checked={checked}
-        className={`checklist-item__toggle ${checked ? "checklist-item__toggle--checked" : ""}`}
+        className={`checklist-item__toggle ${checked ? 'checklist-item__toggle--checked' : ''}`}
         onClick={() => onChange(!checked)}
         disabled={disabled}
         aria-label={label}
@@ -267,7 +270,7 @@ function ChecklistItem({
         {checked ? <CheckSquare size={18} /> : <Square size={18} />}
       </button>
       <div className="checklist-item__text">
-        <label htmlFor={id} className={checked ? "checklist-item__label--done" : ""}>
+        <label htmlFor={id} className={checked ? 'checklist-item__label--done' : ''}>
           {label}
         </label>
         <small className="field-hint">{hint}</small>

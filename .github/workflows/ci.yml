@@ -49,3 +49,11 @@ jobs:
 
       - name: Build Soroban contract
         run: cd contracts && cargo build --target wasm32-unknown-unknown --release
+
+      - name: Install dependencies
+        run: npm run install:all
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: TypeScript type-check frontend
