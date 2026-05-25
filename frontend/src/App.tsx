@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUpRight,
   Coins,
@@ -46,6 +46,7 @@ import BountyDetailPage from "./BountyDetailPage";
 import UsdAmount from "./UsdAmount";
 
 import SkeletonBountyCard from "./SkeletonBountyCard";
+import { usePolling } from "./usePolling";
 
 const STELLAR_PUBLIC_KEY_HINT = "Expected Stellar public key (starts with G and is 56 characters).";
 const STELLAR_PUBLIC_KEY_REGEX = /^G[A-Z2-7]{55}$/;
@@ -208,17 +209,18 @@ function App() {
   const [submissionModalSubmitting, setSubmissionModalSubmitting] = useState(false);
   const [submissionModalError, setSubmissionModalError] = useState<string | null>(null);
   const [submissionModalData, setSubmissionModalData] = useState<Partial<SubmissionFormData> | undefined>(undefined);
+  const pollControllerRef = useRef<AbortController | null>(null);
 
 
 
-  async function refresh(signal?: AbortSignal): Promise<void> {
+  const refresh = useCallback(async (signal?: AbortSignal): Promise<void> => {
     const [bountyData, issueData] = await Promise.all([
       listBounties(signal),
       listOpenIssues(signal),
     ]);
     setBounties(bountyData);
     setIssues(issueData);
-  }
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -239,18 +241,30 @@ function App() {
 
     void bootstrap();
 
-    const timer = window.setInterval(() => {
-      const pollController = new AbortController();
-      void refresh(pollController.signal).catch((err) => {
-        if (!(err instanceof DOMException && err.name === "AbortError")) {
-          // Silent poll failure — do not surface to user
-        }
-      });
-    }, 7000);
-
     return () => {
       controller.abort();
-      window.clearInterval(timer);
+    };
+  }, [refresh]);
+
+  usePolling(() => {
+    pollControllerRef.current?.abort();
+    const pollController = new AbortController();
+    pollControllerRef.current = pollController;
+
+    return refresh(pollController.signal).catch((err) => {
+      if (!(err instanceof DOMException && err.name === "AbortError")) {
+        // Silent poll failure — do not surface to user
+      }
+    }).finally(() => {
+      if (pollControllerRef.current === pollController) {
+        pollControllerRef.current = null;
+      }
+    });
+  });
+
+  useEffect(() => {
+    return () => {
+      pollControllerRef.current?.abort();
     };
   }, []);
 
