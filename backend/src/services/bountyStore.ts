@@ -42,6 +42,7 @@ export interface BountyRecord {
   maintainer: string;
   contributor?: string;
   tokenSymbol: string;
+  tokenAddress?: string;
   amount: number;
   labels: string[];
   status: BountyStatus;
@@ -113,6 +114,7 @@ const sampleBounties: BountyRecord[] = [
     maintainer: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
     contributor: "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
     tokenSymbol: "XLM",
+    tokenAddress: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
     amount: 150,
     labels: ["help wanted", "realtime"],
     status: "reserved",
@@ -135,6 +137,7 @@ const sampleBounties: BountyRecord[] = [
       "Create a contributor-facing export view for released payouts with CSV download and per-asset grouping.",
     maintainer: "GCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
     tokenSymbol: "USDC",
+    tokenAddress: "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
     amount: 220,
     labels: ["frontend", "analytics"],
     status: "open",
@@ -148,6 +151,35 @@ const sampleBounties: BountyRecord[] = [
 
 function nowInSeconds(): number {
   return Math.floor(Date.now() / 1000);
+}
+
+const DEFAULT_TOKEN_ADDRESS_MAP: Record<string, string> = {
+  XLM: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  USDC: "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+};
+
+function getTokenAddressMap(): Record<string, string> {
+  const configured = process.env.TOKEN_ADDRESS_MAP?.trim();
+  if (!configured) {
+    return DEFAULT_TOKEN_ADDRESS_MAP;
+  }
+
+  const parsed = JSON.parse(configured) as Record<string, string>;
+  return {
+    ...DEFAULT_TOKEN_ADDRESS_MAP,
+    ...Object.fromEntries(Object.entries(parsed).map(([symbol, address]) => [symbol.toUpperCase(), address])),
+  };
+}
+
+export function resolveTokenAddress(tokenSymbol: string): { tokenSymbol: string; tokenAddress: string } {
+  const normalizedSymbol = tokenSymbol.trim().toUpperCase();
+  const tokenAddress = getTokenAddressMap()[normalizedSymbol];
+
+  if (!tokenAddress) {
+    throw new Error(`Unsupported token symbol "${normalizedSymbol}". Configure TOKEN_ADDRESS_MAP to add it.`);
+  }
+
+  return { tokenSymbol: normalizedSymbol, tokenAddress };
 }
 
 function ensureStore(): void {
@@ -301,13 +333,17 @@ function normalizeRecords(records: BountyRecord[]): BountyRecord[] {
       };
     }
 
-    // Ensure version and events exist for backward compatibility
-    if (!record.version || !record.events) {
+    // Ensure version, events, and token address exist for backward compatibility
+    if (!record.version || !record.events || !record.tokenAddress) {
+      const resolvedToken = record.tokenAddress
+        ? { tokenAddress: record.tokenAddress }
+        : resolveTokenAddress(record.tokenSymbol);
       changed = true;
       return {
         ...record,
         version: record.version || 1,
         events,
+        tokenAddress: resolvedToken.tokenAddress,
         reservationTimeoutSeconds: record.reservationTimeoutSeconds || 604800,
       };
     }
@@ -386,6 +422,7 @@ export async function createBounty(input: CreateBountyInput): Promise<BountyReco
   return withGlobalLock(() => {
     const records = listBounties();
     const createdAt = nowInSeconds();
+    const token = resolveTokenAddress(input.tokenSymbol);
     const bounty: BountyRecord = {
       id: nextId(records),
       repo: input.repo,
@@ -393,7 +430,8 @@ export async function createBounty(input: CreateBountyInput): Promise<BountyReco
       title: input.title,
       summary: input.summary,
       maintainer: input.maintainer,
-      tokenSymbol: input.tokenSymbol.toUpperCase(),
+      tokenSymbol: token.tokenSymbol,
+      tokenAddress: token.tokenAddress,
       amount: Number(input.amount.toFixed(2)),
       labels: input.labels,
       status: "open",
@@ -716,5 +754,26 @@ export interface LeaderboardEntry {
   bountiesCompleted: number;
 }
 
+export function getLeaderboard(limit = 10): LeaderboardEntry[] {
+  const entriesByContributor = new Map<string, LeaderboardEntry>();
 
+  for (const bounty of listBounties()) {
+    if (bounty.status !== "released" || !bounty.contributor) {
+      continue;
+    }
+
+    const entry = entriesByContributor.get(bounty.contributor) ?? {
+      address: bounty.contributor,
+      totalXlm: 0,
+      bountiesCompleted: 0,
+    };
+
+    entry.totalXlm += bounty.amount;
+    entry.bountiesCompleted += 1;
+    entriesByContributor.set(bounty.contributor, entry);
+  }
+
+  return [...entriesByContributor.values()]
+    .sort((left, right) => right.totalXlm - left.totalXlm || right.bountiesCompleted - left.bountiesCompleted)
+    .slice(0, limit);
 }
