@@ -2,7 +2,7 @@ import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
 
 import { githubPrUrlSchema } from "./prUrl";
-import { isValidStellarAddress, SOROBAN_ADDRESS_REGEX } from "../utils";
+import { isValidSorobanContractAddress, isValidStellarAddress } from "../utils";
 
 extendZodWithOpenApi(z);
 
@@ -34,7 +34,9 @@ const stellarAccountSchema = z
 const sorobanAddressSchema = z
   .string()
   .trim()
-  .regex(SOROBAN_ADDRESS_REGEX, "Must be a valid Soroban contract address.")
+  .refine(isValidSorobanContractAddress, {
+    message: "Invalid Soroban contract address",
+  })
   .openapi({
     example: "CCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
     description: "A valid Soroban contract address (starts with C, 56 characters).",

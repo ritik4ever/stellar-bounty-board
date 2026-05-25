@@ -86,11 +86,17 @@ describe("API — health and listing", () => {
 
   it("GET /api/bounties rejects non-numeric amount filters", async () => {
     const app = await getApp();
-    const res = await request(app)
+    const minAmountRes = await request(app)
       .get("/api/bounties")
       .query({ minAmount: "cheap" })
       .expect(400);
-    expect(res.body.error).toMatch(/minAmount must be a number/i);
+    expect(minAmountRes.body.error).toMatch(/minAmount must be a number/i);
+
+    const maxAmountRes = await request(app)
+      .get("/api/bounties")
+      .query({ maxAmount: "expensive" })
+      .expect(400);
+    expect(maxAmountRes.body.error).toMatch(/maxAmount must be a number/i);
   });
 
   it("GET /api/open-issues returns data", async () => {
