@@ -1,5 +1,4 @@
-
-type BountyAction = "reserve" | "submit" | "release" | "refund";
+type BountyAction = 'reserve' | 'submit' | 'release' | 'refund';
 
 type Props = {
   bounty: Bounty | null;
@@ -8,10 +7,7 @@ type Props = {
   owner: string;
   avatarUrl: string;
   statusCopy: Record<BountyStatus, { label: string; description: string }>;
-  actionCopy: Record<
-    BountyStatus,
-    Array<{ action: BountyAction; label: string; title: string }>
-  >;
+  actionCopy: Record<BountyStatus, Array<{ action: BountyAction; label: string; title: string }>>;
   renderActionButton: (
     bounty: Bounty,
     action: { action: BountyAction; label: string; title: string },
@@ -44,8 +40,8 @@ function CopyButton({ text, label }: { text: string; label: string }) {
       <button
         type="button"
         className="copy-button"
-        aria-label={copied ? "Copied!" : `Copy ${label}`}
-        title={copied ? "Copied!" : `Copy ${label}`}
+        aria-label={copied ? 'Copied!' : `Copy ${label}`}
+        title={copied ? 'Copied!' : `Copy ${label}`}
         onClick={() => copy(text, label)}
       >
         {copied ? <Check size={14} /> : <Copy size={14} />}
@@ -56,15 +52,21 @@ function CopyButton({ text, label }: { text: string; label: string }) {
 }
 
 const EVENT_LABELS: Record<string, string> = {
-  created: "Bounty created",
-  reserved: "Bounty reserved",
-  submitted: "Work submitted",
-  released: "Payment released",
-  refunded: "Bounty refunded",
-  expired: "Bounty expired",
+  created: 'Bounty created',
+  reserved: 'Bounty reserved',
+  submitted: 'Work submitted',
+  released: 'Payment released',
+  refunded: 'Bounty refunded',
+  expired: 'Bounty expired',
 };
 
-function BountyTimeline({ events, formatTimestamp }: { events: BountyEvent[]; formatTimestamp: (v?: number) => string }) {
+function BountyTimeline({
+  events,
+  formatTimestamp,
+}: {
+  events: BountyEvent[];
+  formatTimestamp: (v?: number) => string;
+}) {
   if (!events || events.length === 0) return null;
 
   const sorted = [...events].sort((a, b) => a.timestamp - b.timestamp);
@@ -83,12 +85,13 @@ function BountyTimeline({ events, formatTimestamp }: { events: BountyEvent[]; fo
               <strong className="bounty-timeline__event">
                 {EVENT_LABELS[event.type] ?? event.type}
               </strong>
-              <time className="bounty-timeline__time" dateTime={new Date(event.timestamp * 1000).toISOString()}>
+              <time
+                className="bounty-timeline__time"
+                dateTime={new Date(event.timestamp * 1000).toISOString()}
+              >
                 {formatTimestamp(event.timestamp)}
               </time>
-              {event.actor && (
-                <span className="bounty-timeline__actor">by {event.actor}</span>
-              )}
+              {event.actor && <span className="bounty-timeline__actor">by {event.actor}</span>}
             </div>
           </li>
         ))}
@@ -108,7 +111,6 @@ export default function BountyDetailPage({
   renderActionButton,
   formatTimestamp,
 }: Props) {
-
   return (
     <div className="page-shell">
       <div className="glow glow-left" />
@@ -118,14 +120,9 @@ export default function BountyDetailPage({
         <div className="panel-header">
           <div>
             <span className="panel-kicker">Bounty</span>
-            <h2>{bounty ? bounty.title : "Bounty"}</h2>
+            <h2>{bounty ? bounty.title : 'Bounty'}</h2>
           </div>
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={onBack}
-            disabled={loading}
-          >
+          <button type="button" className="secondary-button" onClick={onBack} disabled={loading}>
             Back
           </button>
         </div>
@@ -138,12 +135,7 @@ export default function BountyDetailPage({
           <div className="bounty-detail__content">
             <div className="bounty-detail__hero">
               {avatarUrl && (
-                <img
-                  className="repo-avatar"
-                  src={avatarUrl}
-                  alt={owner}
-                  loading="lazy"
-                />
+                <img className="repo-avatar" src={avatarUrl} alt={owner} loading="lazy" />
               )}
               <div>
                 <span
@@ -156,16 +148,13 @@ export default function BountyDetailPage({
               </div>
               <div className="amount-chip">
                 {bounty.amount} {bounty.tokenSymbol}
-                {bounty.tokenSymbol === "XLM" && (
-                  <UsdAmount amount={bounty.amount} />
-                )}
+                {bounty.tokenSymbol === 'XLM' && <UsdAmount amount={bounty.amount} />}
               </div>
             </div>
 
             <div className="meta-grid meta-grid--detail">
               <div>
                 <span className="meta-label">Bounty ID</span>
-
               </div>
               <div>
                 <span className="meta-label">Issue</span>
@@ -190,12 +179,11 @@ export default function BountyDetailPage({
               </div>
               <div>
                 <span className="meta-label">Maintainer</span>
-
               </div>
               <div>
                 <span className="meta-label">Contributor</span>
                 <strong className="copy-row">
-                  {bounty.contributor ?? "Open"}
+                  {bounty.contributor ?? 'Open'}
                   {bounty.contributor && (
                     <CopyButton text={bounty.contributor} label="contributor address" />
                   )}
@@ -249,8 +237,8 @@ export default function BountyDetailPage({
               <div className="chip-row chip-row--spaced">
                 {bounty.labels.map((label) => (
                   <span className="chip" key={label.name}>
-  {label.name}
-</span>
+                    {label.name}
+                  </span>
                 ))}
               </div>
             )}
@@ -273,7 +261,7 @@ export default function BountyDetailPage({
             )}
 
             <p className="status-helper">
-              <strong>{statusCopy[bounty.status].label}:</strong>{" "}
+              <strong>{statusCopy[bounty.status].label}:</strong>{' '}
               {statusCopy[bounty.status].description}
             </p>
 

@@ -1,4 +1,4 @@
-import { ArrowUpRight, FolderGit2 } from "lucide-react";
+import { ArrowUpRight, FolderGit2 } from 'lucide-react';
 
 interface GithubLabel {
   name: string;
@@ -43,27 +43,29 @@ export default function GitHubIssuePreviewCard({ repo, issueNumber, title, label
         <div className="github-issue-card__heading">
           <FolderGit2 size={16} />
           <span className="github-issue-card__repo">
-            {isValidRepo(normalizedRepo) ? normalizedRepo : "owner/repo"}
+            {isValidRepo(normalizedRepo) ? normalizedRepo : 'owner/repo'}
           </span>
-          <span className="github-issue-card__number">{canLink ? `#${issueNumber}` : "#—"}</span>
+          <span className="github-issue-card__number">{canLink ? `#${issueNumber}` : '#—'}</span>
         </div>
         <span className="github-issue-card__cta">
           View on GitHub <ArrowUpRight size={16} />
         </span>
       </div>
 
-      <strong className="github-issue-card__title">{title?.trim() ? title : "Issue title preview"}</strong>
+      <strong className="github-issue-card__title">
+        {title?.trim() ? title : 'Issue title preview'}
+      </strong>
 
       {safeLabels.length > 0 ? (
         <div className="chip-row" aria-label="Issue labels">
           {visibleLabels.map((label) => {
             const bg = `#${label.color}`;
-            const color = useDarkText(label.color) ? "#1a1a1a" : "#ffffff";
+            const color = useDarkText(label.color) ? '#1a1a1a' : '#ffffff';
             return (
               <span
                 key={label.name}
                 className="chip"
-                style={{ backgroundColor: bg, color, border: "none" }}
+                style={{ backgroundColor: bg, color, border: 'none' }}
               >
                 {label.name}
               </span>
