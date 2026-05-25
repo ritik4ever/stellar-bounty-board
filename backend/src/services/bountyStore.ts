@@ -347,6 +347,10 @@ function persistUpdated(records: BountyRecord[], updated: BountyRecord): BountyR
 export interface ListBountiesOptions {
   /** Case-insensitive substring filter applied to title, summary, and labels. */
   q?: string;
+  /** Inclusive lower bound for bounty amount filtering. */
+  minAmount?: number;
+  /** Inclusive upper bound for bounty amount filtering. */
+  maxAmount?: number;
 }
 
 export function listBounties(options: ListBountiesOptions = {}): BountyRecord[] {
@@ -361,6 +365,15 @@ export function listBounties(options: ListBountiesOptions = {}): BountyRecord[] 
         b.summary.toLowerCase().includes(q) ||
         b.labels.some((l) => l.toLowerCase().includes(q)),
     );
+  }
+
+  const { minAmount, maxAmount } = options;
+  if (minAmount !== undefined) {
+    sorted = sorted.filter((bounty) => bounty.amount >= minAmount);
+  }
+
+  if (maxAmount !== undefined) {
+    sorted = sorted.filter((bounty) => bounty.amount <= maxAmount);
   }
 
   return sorted;
@@ -394,7 +407,7 @@ export async function createBounty(input: CreateBountyInput): Promise<BountyReco
       summary: input.summary,
       maintainer: input.maintainer,
       tokenSymbol: input.tokenSymbol.toUpperCase(),
-      amount: Number(input.amount.toFixed(2)),
+      amount: Number(input.amount.toFixed(7)),
       labels: input.labels,
       status: "open",
       createdAt,
@@ -716,5 +729,25 @@ export interface LeaderboardEntry {
   bountiesCompleted: number;
 }
 
+export function getLeaderboard(limit = 10): LeaderboardEntry[] {
+  const byContributor = new Map<string, LeaderboardEntry>();
 
+  for (const bounty of listBounties()) {
+    if (bounty.status !== "released" || !bounty.contributor || bounty.tokenSymbol.toUpperCase() !== "XLM") {
+      continue;
+    }
+
+    const entry = byContributor.get(bounty.contributor) ?? {
+      address: bounty.contributor,
+      totalXlm: 0,
+      bountiesCompleted: 0,
+    };
+    entry.totalXlm += bounty.amount;
+    entry.bountiesCompleted += 1;
+    byContributor.set(bounty.contributor, entry);
+  }
+
+  return [...byContributor.values()]
+    .sort((a, b) => b.totalXlm - a.totalXlm || a.address.localeCompare(b.address))
+    .slice(0, limit);
 }
