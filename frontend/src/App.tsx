@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUpRight,
   Coins,
@@ -44,6 +44,11 @@ import { Bounty, CreateBountyPayload, OpenIssue, BountyStatus } from "./types";
 import GitHubIssuePreviewCard from "./GitHubIssuePreviewCard";
 import BountyDetailPage from "./BountyDetailPage";
 import UsdAmount from "./UsdAmount";
+import {
+  getBountyStatusAnnouncement,
+  StatusAnnouncement,
+  useStatusAnnouncement,
+} from "./statusAnnouncements";
 
 import SkeletonBountyCard from "./SkeletonBountyCard";
 
@@ -178,6 +183,8 @@ function App() {
   const initialFilters = useMemo(() => readInitialFilters(), []);
   const [form, setForm] = useState<CreateBountyPayload>(initialForm);
   const [bounties, setBounties] = useState<Bounty[]>([]);
+  const bountiesRef = useRef<Bounty[]>([]);
+  const { announcement: statusAnnouncement, announceStatus } = useStatusAnnouncement();
   const [issues, setIssues] = useState<OpenIssue[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -216,8 +223,13 @@ function App() {
       listBounties(signal),
       listOpenIssues(signal),
     ]);
+    const statusMessage = getBountyStatusAnnouncement(bountiesRef.current, bountyData);
     setBounties(bountyData);
+    bountiesRef.current = bountyData;
     setIssues(issueData);
+    if (statusMessage) {
+      announceStatus(statusMessage);
+    }
   }
 
   useEffect(() => {
@@ -612,6 +624,7 @@ function App() {
     <div className="page-shell">
       <div className="glow glow-left" />
       <div className="glow glow-right" />
+      <StatusAnnouncement announcement={statusAnnouncement} />
 
       <header className="hero">
         <button
