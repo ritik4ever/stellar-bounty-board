@@ -1,2 +1,20 @@
 frontend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "frontend/**"
 
+backend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "backend/**"
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/*.md"
+          - ".env.example"
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/**"
