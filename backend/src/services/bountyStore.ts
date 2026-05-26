@@ -47,6 +47,8 @@ function cacheGet(key: string): BountyRecord[] | null {
   if (!entry) return null;
   if (Date.now() - entry.at > getCacheTTL()) {
     bountyListCache.delete(key);
+    const idx = cacheInsertionOrder.indexOf(key);
+    if (idx !== -1) cacheInsertionOrder.splice(idx, 1);
     return null;
   }
   return entry.records;
@@ -793,6 +795,9 @@ export interface LeaderboardEntry {
 }
 
 export function getLeaderboard(limit = 10): LeaderboardEntry[] {
+  if (!Number.isInteger(limit) || limit <= 0) {
+    return [];
+  }
   const bounties = listBounties();
   const released = bounties.filter((b) => b.status === "released" && b.contributor);
 
