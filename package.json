@@ -7,6 +7,7 @@
     "install:all": "npm --prefix backend install && npm --prefix frontend install",
     "dev:backend": "npm --prefix backend run dev",
     "dev:frontend": "npm --prefix frontend run dev",
+    "gen:openapi": "npm --prefix backend run gen:openapi",
     "build": "npm --prefix backend run build && npm --prefix frontend run build",
     "test": "npm --prefix backend test",
     "test:watch": "npm --prefix backend run test:watch",
