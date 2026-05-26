@@ -7,6 +7,28 @@ If you want to seed good open-source work quickly:
 2. Open it as a GitHub issue with the suggested labels.
 3. Tag whether it is `good first issue`, `enhancement`, or `help wanted`.
 
+To create issue drafts in bulk, use the importer:
+
+```bash
+GITHUB_TOKEN=ghp_your_token npm run issues:create
+```
+
+The script reads every `.md` file in `docs/issues/`, uses the first `#` heading
+as the issue title, parses labels from frontmatter or a `Labels:` line, and
+skips drafts whose title already exists as a GitHub issue. Check what would be
+created without calling the GitHub API:
+
+```bash
+npm run issues:create -- --dry-run
+```
+
+By default the target repository is inferred from `GITHUB_REPOSITORY` or the
+`origin` remote. Override it when needed:
+
+```bash
+npm run issues:create -- --owner ritik4ever --repo stellar-bounty-board
+```
+
 High-value contribution areas:
 - Wallet-authenticated payout flow
 - GitHub App or webhook integration
