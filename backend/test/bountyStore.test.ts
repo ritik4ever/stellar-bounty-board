@@ -169,6 +169,54 @@ describe("bountyStore lifecycle — happy paths", () => {
   });
 });
 
+describe("bountyStore — list cache", () => {
+  it("serves repeated list calls from cache without rereading the store file", async () => {
+    const record: BountyRecord = {
+      id: "BNT-0001",
+      repo: "acme/widget",
+      issueNumber: 1,
+      title: "Cached bounty title length ok",
+      summary: "Summary text with at least twenty characters.",
+      maintainer: MAINTAINER,
+      tokenSymbol: "XLM",
+      amount: 10,
+      labels: ["cache"],
+      status: "open",
+      createdAt: 100,
+      deadlineAt: 1910000000,
+      version: 1,
+      events: [{ type: "created", timestamp: 100 }],
+    };
+    fs.writeFileSync(storeFile, JSON.stringify([record]), "utf8");
+
+    const { listBounties } = await loadStore();
+    expect(listBounties()).toHaveLength(1);
+
+    fs.writeFileSync(storeFile, "[]", "utf8");
+
+    expect(listBounties()).toHaveLength(1);
+  });
+
+  it("invalidates cached lists after store writes", async () => {
+    const { createBounty, listBounties } = await loadStore();
+
+    expect(listBounties()).toHaveLength(0);
+    await createBounty({
+      repo: "acme/widget",
+      issueNumber: 5,
+      title: "Cache invalidation bounty title ok",
+      summary: "Summary with enough length to satisfy schema validation.",
+      maintainer: MAINTAINER,
+      tokenSymbol: "XLM",
+      amount: 5,
+      deadlineDays: 7,
+      labels: ["cache"],
+    });
+
+    expect(listBounties()).toHaveLength(1);
+  });
+});
+
 describe("bountyStore — expiration via normalizeRecords", () => {
   it("marks open bounties past deadline as expired when listed", async () => {
     const record: BountyRecord = {

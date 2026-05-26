@@ -49,6 +49,12 @@ describe("API — health and listing", () => {
     expect(Array.isArray(res.body.data)).toBe(true);
   });
 
+  it("GET /api/bounties advertises the 5 second response cache", async () => {
+    const app = await getApp();
+    const res = await request(app).get("/api/bounties").expect(200);
+    expect(res.headers["cache-control"]).toBe("public, max-age=5");
+  });
+
   it("GET /api/open-issues returns data", async () => {
     const app = await getApp();
     const res = await request(app).get("/api/open-issues").expect(200);
