@@ -86,6 +86,79 @@ interface CreateAuditLogInput {
   metadata?: Record<string, AuditMetadataValue | undefined>;
 }
 
+const BOUNTY_LIST_CACHE_TTL_MS = 5_000;
+const DEFAULT_BOUNTY_LIST_CACHE_MAX_ENTRIES = 50;
+
+interface BountyListCacheEntry {
+  expiresAt: number;
+  records: BountyRecord[];
+}
+
+const bountyListCache = new Map<string, BountyListCacheEntry>();
+
+function bountyListCacheMaxEntries(): number {
+  const raw = process.env.BOUNTY_LIST_CACHE_MAX_ENTRIES;
+  if (!raw) {
+    return DEFAULT_BOUNTY_LIST_CACHE_MAX_ENTRIES;
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    return DEFAULT_BOUNTY_LIST_CACHE_MAX_ENTRIES;
+  }
+
+  return parsed;
+}
+
+function bountyListCacheKey(options: ListBountiesOptions): string {
+  return JSON.stringify({ q: options.q?.trim().toLowerCase() ?? "" });
+}
+
+function cloneBountyRecords(records: BountyRecord[]): BountyRecord[] {
+  return records.map((record) => ({
+    ...record,
+    labels: [...record.labels],
+    events: record.events.map((event) => ({
+      ...event,
+      details: event.details ? { ...event.details } : undefined,
+    })),
+  }));
+}
+
+function getCachedBountyList(key: string): BountyRecord[] | undefined {
+  const entry = bountyListCache.get(key);
+  if (!entry) {
+    return undefined;
+  }
+
+  if (Date.now() >= entry.expiresAt) {
+    bountyListCache.delete(key);
+    return undefined;
+  }
+
+  return cloneBountyRecords(entry.records);
+}
+
+function setCachedBountyList(key: string, records: BountyRecord[]): void {
+  const maxEntries = bountyListCacheMaxEntries();
+  while (bountyListCache.size >= maxEntries) {
+    const oldestKey = bountyListCache.keys().next().value as string | undefined;
+    if (!oldestKey) {
+      break;
+    }
+    bountyListCache.delete(oldestKey);
+  }
+
+  bountyListCache.set(key, {
+    expiresAt: Date.now() + BOUNTY_LIST_CACHE_TTL_MS,
+    records: cloneBountyRecords(records),
+  });
+}
+
+function invalidateBountyListCache(): void {
+  bountyListCache.clear();
+}
+
 function getStorePath(): string {
   if (process.env.BOUNTY_STORE_PATH?.trim()) {
     return path.resolve(process.env.BOUNTY_STORE_PATH.trim());
@@ -189,6 +262,7 @@ function readStore(): BountyRecord[] {
 
 function writeStore(records: BountyRecord[]): void {
   fs.writeFileSync(getStorePath(), JSON.stringify(records, null, 2));
+  invalidateBountyListCache();
 }
 
 function readAuditStore(): BountyAuditLogRecord[] {
@@ -350,6 +424,12 @@ export interface ListBountiesOptions {
 }
 
 export function listBounties(options: ListBountiesOptions = {}): BountyRecord[] {
+  const cacheKey = bountyListCacheKey(options);
+  const cached = getCachedBountyList(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const records = normalizeRecords(readStore());
   let sorted = [...records].sort((a, b) => b.createdAt - a.createdAt);
 
@@ -363,6 +443,7 @@ export function listBounties(options: ListBountiesOptions = {}): BountyRecord[] 
     );
   }
 
+  setCachedBountyList(cacheKey, sorted);
   return sorted;
 }
 
@@ -716,5 +797,25 @@ export interface LeaderboardEntry {
   bountiesCompleted: number;
 }
 
+export function getLeaderboard(limit = 10): LeaderboardEntry[] {
+  const entries = new Map<string, LeaderboardEntry>();
 
+  for (const bounty of listBounties()) {
+    if (bounty.status !== "released" || !bounty.contributor) {
+      continue;
+    }
+
+    const current = entries.get(bounty.contributor) ?? {
+      address: bounty.contributor,
+      totalXlm: 0,
+      bountiesCompleted: 0,
+    };
+    current.totalXlm += bounty.tokenSymbol.toUpperCase() === "XLM" ? bounty.amount : 0;
+    current.bountiesCompleted += 1;
+    entries.set(bounty.contributor, current);
+  }
+
+  return [...entries.values()]
+    .sort((a, b) => b.totalXlm - a.totalXlm || b.bountiesCompleted - a.bountiesCompleted)
+    .slice(0, limit);
 }

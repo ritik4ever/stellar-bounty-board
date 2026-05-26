@@ -156,11 +156,8 @@ app.get("/worker/health", (_req: Request, res: Response) => {
 
 app.get("/api/bounties", (req: Request, res: Response) => {
   const q = typeof req.query.q === "string" ? req.query.q : undefined;
+  res.setHeader("Cache-Control", "public, max-age=5");
   res.json({ data: listBounties({ q }) });
-});
-
-app.get("/api/leaderboard", (_req: Request, res: Response) => {
-  res.json({ data: getLeaderboard() });
 });
 
 app.get("/api/bounties/:id/audit-logs", (req: Request, res: Response) => {
