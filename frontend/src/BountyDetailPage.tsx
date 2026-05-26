@@ -1,4 +1,9 @@
 
+import { ReactNode, useCallback, useState } from "react";
+import { ArrowUpRight, Check, Clock, Copy } from "lucide-react";
+import type { Bounty, BountyEvent, BountyStatus } from "./types";
+import UsdAmount from "./UsdAmount";
+
 type BountyAction = "reserve" | "submit" | "release" | "refund";
 
 type Props = {
@@ -50,7 +55,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
       >
         {copied ? <Check size={14} /> : <Copy size={14} />}
       </button>
-      {copied && <span className="copy-tooltip">Copied!</span>}
+      {copied && <span className="copy-tooltip">Copied</span>}
     </span>
   );
 }
@@ -165,7 +170,10 @@ export default function BountyDetailPage({
             <div className="meta-grid meta-grid--detail">
               <div>
                 <span className="meta-label">Bounty ID</span>
-
+                <strong className="copy-row">
+                  {bounty.id}
+                  <CopyButton text={bounty.id} label="bounty ID" />
+                </strong>
               </div>
               <div>
                 <span className="meta-label">Issue</span>
@@ -190,7 +198,10 @@ export default function BountyDetailPage({
               </div>
               <div>
                 <span className="meta-label">Maintainer</span>
-
+                <strong className="copy-row">
+                  {bounty.maintainer}
+                  <CopyButton text={bounty.maintainer} label="maintainer wallet address" />
+                </strong>
               </div>
               <div>
                 <span className="meta-label">Contributor</span>
