@@ -136,8 +136,6 @@ function getCachedBountyList(key: string): BountyRecord[] | undefined {
     return undefined;
   }
 
-  bountyListCache.delete(key);
-  bountyListCache.set(key, entry);
   return cloneBountyRecords(entry.records);
 }
 

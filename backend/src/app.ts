@@ -160,10 +160,6 @@ app.get("/api/bounties", (req: Request, res: Response) => {
   res.json({ data: listBounties({ q }) });
 });
 
-app.get("/api/leaderboard", (_req: Request, res: Response) => {
-  res.json({ data: getLeaderboard() });
-});
-
 app.get("/api/bounties/:id/audit-logs", (req: Request, res: Response) => {
   try {
     const limit = parsePaginationValue(req.query.limit, "limit", 20, 1, 100);
