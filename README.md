@@ -70,6 +70,8 @@ Routes:
 - `POST /api/bounties/:id/refund`
 - `GET /api/open-issues`
 
+Create bounty requests require `amount` to be between `1` and `1_000_000` tokens, with at most 7 decimal places.
+
 ## Run Locally
 
 ```bash

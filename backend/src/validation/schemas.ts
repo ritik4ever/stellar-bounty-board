@@ -10,9 +10,15 @@ extendZodWithOpenApi(z);
 const REPO_REGEX = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 const TOKEN_REGEX = /^[A-Za-z0-9]{1,12}$/;
 const SOROBAN_ADDRESS_REGEX = /^C[A-Z2-7]{55}$/;
+export const MAX_BOUNTY_AMOUNT = 1_000_000;
 
 const STELLAR_EXAMPLE = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 const TX_HASH_REGEX = /^[0-9a-fA-F]{64}$/;
+
+function hasAtMostSevenDecimals(value: number): boolean {
+  const scaled = value * 10_000_000;
+  return Math.abs(scaled - Math.round(scaled)) < Number.EPSILON * 10_000_000;
+}
 
 export const bountyIdSchema = z
   .string()
@@ -76,7 +82,13 @@ export const createBountySchema = z
       .openapi({ example: "XLM", description: "Stellar token symbol for payout (1–12 alphanumeric chars)." }),
     amount: z.coerce
       .number()
-      .min(1, "Amount must be at least 1 XLM."),
+      .min(1, "Amount must be at least 1 XLM.")
+      .max(MAX_BOUNTY_AMOUNT, `Amount must not exceed ${MAX_BOUNTY_AMOUNT} XLM.`)
+      .refine(hasAtMostSevenDecimals, "Amount can have at most 7 decimal places.")
+      .openapi({
+        example: 100,
+        description: `Bounty amount, from 1 to ${MAX_BOUNTY_AMOUNT} tokens, with at most 7 decimal places.`,
+      }),
 
     deadlineDays: z.coerce
       .number()
@@ -171,7 +183,10 @@ export const bountyRecordSchema = z
     maintainer: z.string().openapi({ example: STELLAR_EXAMPLE }),
     contributor: z.string().optional().openapi({ example: STELLAR_EXAMPLE }),
     tokenSymbol: z.string().openapi({ example: "XLM" }),
-    amount: z.number().openapi({ example: 100 }),
+    amount: z.number().max(MAX_BOUNTY_AMOUNT).openapi({
+      example: 100,
+      description: `Bounty amount, capped at ${MAX_BOUNTY_AMOUNT} tokens.`,
+    }),
     labels: z.array(z.string()).openapi({ example: ["bug", "help wanted"] }),
     status: z
       .enum(["open", "reserved", "submitted", "released", "refunded", "expired"])
