@@ -38,7 +38,7 @@ import SubmissionChecklistModal, { type SubmissionFormData } from "./SubmissionC
 import { BountyRecommendation, ContributorProfile, createDefaultProfile, generateRecommendations, updateProfileFromBounties } from "./recommendations";
 import RecommendedBounties from "./RecommendedBounties";
 import { statusCopy, actionCopy, readInitialFilters, FilterState, statusOptions, statusGlossary, sortOptions } from "./constants";
-import { filterBounties, getRewardBounds, getActiveRewardLabel, getContributorMetrics, getUniqueRepos, getRepoMetrics, sortBounties, debounce, SortOption, SortState, xlmToUsd } from "./utils";
+import { filterBounties, getRewardBounds, getActiveRewardLabel, getContributorMetrics, getUniqueRepos, getRepoMetrics, sortBounties, debounce, SortOption, SortState, xlmToUsd, txHashLink } from "./utils";
 import { Bounty, CreateBountyPayload, OpenIssue, BountyStatus } from "./types";
 
 import GitHubIssuePreviewCard from "./GitHubIssuePreviewCard";
@@ -1148,18 +1148,32 @@ placeholder="help wanted, backend"
                       <span className="meta-label">Contributor</span>
                       <strong>{bounty.contributor ? shortAddress(bounty.contributor) : "Open"}</strong>
                     </div>
-                    {bounty.status === "released" && bounty.releasedTxHash && (
+                    {bounty.status === "released" && bounty.releasedTxHash && (() => {
+                      const { href, display } = txHashLink(bounty.releasedTxHash!);
+                      return (
                       <div>
                         <span className="meta-label">Release tx</span>
-                        <strong>{`${bounty.releasedTxHash.slice(0, 10)}...`}</strong>
+                        <strong>
+                          <a className="inline-link" href={href} target="_blank" rel="noopener noreferrer" title={bounty.releasedTxHash}>
+                            {display}
+                          </a>
+                        </strong>
                       </div>
-                    )}
-                    {bounty.status === "refunded" && bounty.refundedTxHash && (
+                      );
+                    })()}
+                    {bounty.status === "refunded" && bounty.refundedTxHash && (() => {
+                      const { href, display } = txHashLink(bounty.refundedTxHash!);
+                      return (
                       <div>
                         <span className="meta-label">Refund tx</span>
-                        <strong>{`${bounty.refundedTxHash.slice(0, 10)}...`}</strong>
+                        <strong>
+                          <a className="inline-link" href={href} target="_blank" rel="noopener noreferrer" title={bounty.refundedTxHash}>
+                            {display}
+                          </a>
+                        </strong>
                       </div>
-                    )}
+                      );
+                    })()}
                   </div>
 
                   <div className="chip-row">
@@ -1383,18 +1397,32 @@ placeholder="help wanted, backend"
                         </strong>
                       </div>
                     )}
-                    {bounty.status === "released" && bounty.releasedTxHash && (
+                    {bounty.status === "released" && bounty.releasedTxHash && (() => {
+                      const { href, display } = txHashLink(bounty.releasedTxHash!);
+                      return (
                       <div>
                         <span className="meta-label">Release tx</span>
-                        <strong>{`${bounty.releasedTxHash.slice(0, 10)}...`}</strong>
+                        <strong>
+                          <a className="inline-link" href={href} target="_blank" rel="noopener noreferrer" title={bounty.releasedTxHash}>
+                            {display}
+                          </a>
+                        </strong>
                       </div>
-                    )}
-                    {bounty.status === "refunded" && bounty.refundedTxHash && (
+                      );
+                    })()}
+                    {bounty.status === "refunded" && bounty.refundedTxHash && (() => {
+                      const { href, display } = txHashLink(bounty.refundedTxHash!);
+                      return (
                       <div>
                         <span className="meta-label">Refund tx</span>
-                        <strong>{`${bounty.refundedTxHash.slice(0, 10)}...`}</strong>
+                        <strong>
+                          <a className="inline-link" href={href} target="_blank" rel="noopener noreferrer" title={bounty.refundedTxHash}>
+                            {display}
+                          </a>
+                        </strong>
                       </div>
-                    )}
+                      );
+                    })()}
                   </div>
                 </article>
               ))}

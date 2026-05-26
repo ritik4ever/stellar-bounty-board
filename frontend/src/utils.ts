@@ -205,6 +205,14 @@ export function resetXlmToUsdCache(): void {
   cachedXlmUsdRate = null;
 }
 
+/** Build a Stellar Expert testnet link and truncated display for a transaction hash. */
+export function txHashLink(hash: string): { href: string; display: string } {
+  return {
+    href: `https://stellar.expert/explorer/testnet/tx/${hash}`,
+    display: `${hash.slice(0, 8)}...${hash.slice(-8)}`,
+  };
+}
+
 export function getContributorMetrics(bounties: Bounty[], contributorAddress?: string) {
   if (!contributorAddress) {
     return {
