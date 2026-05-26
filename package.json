@@ -9,6 +9,7 @@
     "dev:frontend": "npm --prefix frontend run dev",
     "build": "npm --prefix backend run build && npm --prefix frontend run build",
     "test": "npm --prefix backend test",
+    "load:test": "node scripts/load-test.js",
     "test:watch": "npm --prefix backend run test:watch",
     "test:coverage": "npm --prefix backend run test:coverage",
     "prepare": "husky"
@@ -37,6 +38,7 @@
     "@types/express-rate-limit": "^5.1.3",
     "@types/swagger-ui-express": "^4.1.8",
     "@types/yaml": "^1.9.6",
+    "autocannon": "^8.0.0",
     "husky": "^9.0.0",
     "prettier": "^3.8.3"
   }

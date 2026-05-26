@@ -111,6 +111,25 @@ Coverage report (Istanbul via Vitest):
 npm run test:coverage
 ```
 
+Backend load test (starts the backend, seeds 20 synthetic bounties, then runs a
+mixed read/write workload with 20 concurrent connections for 30 seconds):
+
+```bash
+npm run load:test
+```
+
+Tune the run with CLI flags:
+
+```bash
+npm run load:test -- --connections 50 --duration 60 --bounties 100
+```
+
+If the backend is already running, reuse it instead of starting a dev server:
+
+```bash
+npm run load:test -- --no-start-server --url http://localhost:3001
+```
+
 ## Contract Notes
 
 The Soroban contract models the escrow lifecycle:
