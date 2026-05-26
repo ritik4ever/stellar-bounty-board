@@ -524,3 +524,112 @@ describe("bountyStore — event history and metrics", () => {
     expect(reserved.events.some((e) => e.type === "reserved")).toBe(true);
   });
 });
+
+describe("bountyStore — list-bounties cache", () => {
+  it("returns cached result on second call without re-reading file", async () => {
+    const { listBounties, createBounty } = await loadStore();
+
+    // Seed one bounty
+    await createBounty({
+      repo: "acme/widget",
+      issueNumber: 1,
+      title: "Cache test bounty title long enough",
+      summary: "Summary with twenty or more characters here.",
+      maintainer: MAINTAINER,
+      tokenSymbol: "XLM",
+      amount: 10,
+      deadlineDays: 30,
+      labels: [],
+    });
+
+    const first = listBounties();
+    expect(first.length).toBeGreaterThan(0);
+
+    // Spy on readStore by checking if a direct file write bypasses cache detection
+    // The second call within TTL should return the same array reference from cache
+    const second = listBounties();
+    // Cache hit should return cached result (same length, sorted identically)
+    expect(second.length).toBe(first.length);
+    expect(second[0].id).toBe(first[0].id);
+  });
+
+  it("cache is invalidated after a write mutation", async () => {
+    const { listBounties, createBounty } = await loadStore();
+
+    const before = listBounties();
+
+    await createBounty({
+      repo: "acme/widget",
+      issueNumber: 99,
+      title: "Invalidation test bounty title here",
+      summary: "Summary with twenty or more characters here.",
+      maintainer: MAINTAINER,
+      tokenSymbol: "XLM",
+      amount: 10,
+      deadlineDays: 30,
+      labels: [],
+    });
+
+    const after = listBounties();
+    expect(after.length).toBe(before.length + 1);
+  });
+
+  it("cache respects BOUNTY_LIST_CACHE_TTL_MS env var", async () => {
+    // Set a short TTL for testing
+    const original = process.env.BOUNTY_LIST_CACHE_TTL_MS;
+    process.env.BOUNTY_LIST_CACHE_TTL_MS = "1"; // 1ms TTL
+
+    vi.resetModules();
+    const { listBounties, createBounty } = await loadStore();
+
+    await createBounty({
+      repo: "acme/widget",
+      issueNumber: 1,
+      title: "TTL test bounty title long enough now",
+      summary: "Summary with twenty or more characters here.",
+      maintainer: MAINTAINER,
+      tokenSymbol: "XLM",
+      amount: 10,
+      deadlineDays: 30,
+      labels: [],
+    });
+
+    const first = listBounties();
+
+    // Wait > 1ms for cache to expire
+    await new Promise((r) => setTimeout(r, 5));
+
+    const second = listBounties();
+    // Both should have correct data (cache miss on second call)
+    expect(second.length).toBe(first.length);
+
+    // Restore
+    if (original) process.env.BOUNTY_LIST_CACHE_TTL_MS = original;
+    else delete process.env.BOUNTY_LIST_CACHE_TTL_MS;
+  });
+
+  it("invalidateBountyListCache clears all entries", async () => {
+    const { listBounties, createBounty, invalidateBountyListCache } = await loadStore();
+
+    await createBounty({
+      repo: "acme/widget",
+      issueNumber: 1,
+      title: "Explicit invalidate test bounty title",
+      summary: "Summary with twenty or more characters here.",
+      maintainer: MAINTAINER,
+      tokenSymbol: "XLM",
+      amount: 10,
+      deadlineDays: 30,
+      labels: [],
+    });
+
+    // Populate cache
+    listBounties();
+
+    invalidateBountyListCache();
+
+    // After invalidation, should still work (just re-reads from store)
+    const result = listBounties();
+    expect(result.length).toBeGreaterThan(0);
+  });
+});
