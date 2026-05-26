@@ -3,6 +3,7 @@ dist/
 .env
 *.log
 backend/data/*.local.json
+backend/data/load-test-bounties*.json
 contracts/target/
 contracts/.stellar/
 
