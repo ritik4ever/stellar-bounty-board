@@ -1,6 +1,19 @@
 import { Bounty, BountyStatus } from "./types";
 import { FilterState } from "./constants";
 
+const SECONDS_PER_DAY = 24 * 60 * 60;
+
+export function computeDeadlineAt(createdAt: number, deadlineDays: number): number {
+  return createdAt + deadlineDays * SECONDS_PER_DAY;
+}
+
+export function isExpiredAt(deadlineAt: number, now: number): boolean {
+  return now >= deadlineAt;
+}
+
+export function formatAmount(amount: number, tokenSymbol: string): string {
+  return `${amount.toFixed(7)} ${tokenSymbol}`;
+}
 
 // Simple debounce function for search
 export function debounce<T extends (...args: any[]) => any>(

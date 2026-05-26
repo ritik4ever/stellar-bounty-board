@@ -1,5 +1,44 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { xlmToUsd, resetXlmToUsdCache } from "./utils";
+import {
+  computeDeadlineAt,
+  formatAmount,
+  isExpiredAt,
+  xlmToUsd,
+  resetXlmToUsdCache,
+} from "./utils";
+
+describe("deadline helpers", () => {
+  it("computes a Feb 29 leap-year deadline correctly", () => {
+    const createdAt = Date.UTC(2024, 1, 28, 12, 0, 0) / 1000;
+    const expectedDeadline = Date.UTC(2024, 1, 29, 12, 0, 0) / 1000;
+
+    expect(computeDeadlineAt(createdAt, 1)).toBe(expectedDeadline);
+  });
+
+  it("keeps zero-day deadlines within the same day", () => {
+    const createdAt = Date.UTC(2026, 4, 25, 9, 30, 0) / 1000;
+
+    const deadlineAt = computeDeadlineAt(createdAt, 0);
+
+    expect(deadlineAt).toBe(createdAt);
+    expect(new Date(deadlineAt * 1000).toDateString()).toBe(
+      new Date(createdAt * 1000).toDateString()
+    );
+  });
+
+  it("treats the exact deadline timestamp as expired", () => {
+    const deadlineAt = 1_800_000_000;
+
+    expect(isExpiredAt(deadlineAt, deadlineAt - 0.001)).toBe(false);
+    expect(isExpiredAt(deadlineAt, deadlineAt)).toBe(true);
+  });
+});
+
+describe("formatAmount", () => {
+  it("formats zero amounts with seven decimal places", () => {
+    expect(formatAmount(0, "XLM")).toBe("0.0000000 XLM");
+  });
+});
 
 describe("xlmToUsd", () => {
   const fetchMock = vi.fn();
