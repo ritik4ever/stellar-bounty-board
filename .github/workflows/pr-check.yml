@@ -31,5 +31,13 @@ jobs:
       - name: Type check
         run: npm --prefix backend run build
 
+      - name: Check generated OpenAPI spec
+        run: |
+          npm run gen:openapi
+          git diff --exit-code -- docs/openapi.generated.json || (
+            echo "::error::OpenAPI spec is out of date. Run npm run gen:openapi and commit docs/openapi.generated.json."
+            exit 1
+          )
+
       - name: Run tests
         run: npm test
