@@ -31,5 +31,8 @@ jobs:
       - name: Type check
         run: npm --prefix backend run build
 
+      - name: Lint backend
+        run: npm --prefix backend run lint
+
       - name: Run tests
         run: npm test

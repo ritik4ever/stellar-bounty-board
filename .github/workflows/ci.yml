@@ -20,13 +20,22 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm run install:all
+        run: |
+          npm ci --ignore-scripts
+          npm --prefix backend ci --ignore-scripts
+          npm --prefix frontend ci --ignore-scripts
 
       - name: TypeScript type-check frontend
         run: npx tsc --noEmit -p frontend/tsconfig.json
 
       - name: TypeScript type-check backend
         run: npx tsc --noEmit -p backend/tsconfig.json
+
+      - name: Lint frontend
+        run: npm --prefix frontend run lint
+
+      - name: Lint backend
+        run: npm --prefix backend run lint
 
       - name: Run backend tests
         run: npm test

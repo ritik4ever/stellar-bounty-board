@@ -1,0 +1,82 @@
+{
+  "root": true,
+  "ignorePatterns": [
+    "backend/dist/**",
+    "backend/coverage/**",
+    "frontend/dist/**",
+    "node_modules/**"
+  ],
+  "plugins": ["@typescript-eslint", "import"],
+  "extends": [
+    "eslint:recommended",
+    "plugin:@typescript-eslint/recommended",
+    "plugin:import/recommended",
+    "plugin:import/typescript"
+  ],
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "project": ["./backend/tsconfig.json", "./frontend/tsconfig.json"],
+    "sourceType": "module",
+    "ecmaVersion": "latest",
+    "ecmaFeatures": {
+      "jsx": true
+    }
+  },
+  "env": {
+    "es2021": true
+  },
+  "rules": {
+    "@typescript-eslint/no-explicit-any": "off",
+    "@typescript-eslint/no-namespace": "off",
+    "@typescript-eslint/no-unused-vars": [
+      "error",
+      {
+        "argsIgnorePattern": "^_",
+        "caughtErrorsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_"
+      }
+    ],
+    "import/extensions": [
+      "error",
+      "ignorePackages",
+      {
+        "js": "never",
+        "jsx": "never",
+        "ts": "never",
+        "tsx": "never"
+      }
+    ],
+    "import/default": "off",
+    "import/no-named-as-default": "off",
+    "import/no-named-as-default-member": "off",
+    "import/no-unresolved": "error",
+    "no-console": "error",
+    "no-empty": ["error", { "allowEmptyCatch": true }]
+  },
+  "settings": {
+    "import/resolver": {
+      "typescript": {
+        "project": ["backend/tsconfig.json", "frontend/tsconfig.json"]
+      },
+      "node": {
+        "extensions": [".js", ".jsx", ".ts", ".tsx"]
+      }
+    }
+  },
+  "overrides": [
+    {
+      "files": ["backend/src/**/*.ts"],
+      "env": {
+        "es2021": true,
+        "node": true
+      }
+    },
+    {
+      "files": ["frontend/src/**/*.{ts,tsx}"],
+      "env": {
+        "browser": true,
+        "es2021": true
+      }
+    }
+  ]
+}
