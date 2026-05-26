@@ -46,6 +46,7 @@ import BountyDetailPage from "./BountyDetailPage";
 import UsdAmount from "./UsdAmount";
 
 import SkeletonBountyCard from "./SkeletonBountyCard";
+import { getExpirationStatusBadge } from "./expirationStatus";
 
 const STELLAR_PUBLIC_KEY_HINT = "Expected Stellar public key (starts with G and is 56 characters).";
 const STELLAR_PUBLIC_KEY_REGEX = /^G[A-Z2-7]{55}$/;
@@ -170,6 +171,16 @@ function BountyAmount({ bounty }: { bounty: Bounty }) {
       <strong>{bounty.amount} {bounty.tokenSymbol}</strong>
       {usdAmount && <span>{usdAmount}</span>}
     </div>
+  );
+}
+
+function ExpirationStatusPill({ bounty }: { bounty: Bounty }) {
+  const badge = getExpirationStatusBadge(bounty.status, bounty.deadlineAt);
+
+  return (
+    <span className={badge.className} title={badge.title} aria-label={badge.ariaLabel}>
+      {badge.label}
+    </span>
   );
 }
 
@@ -1119,13 +1130,7 @@ placeholder="help wanted, backend"
                 >
                   <div className="bounty-card__top">
                     <div>
-                      <span
-                        className={`status-pill status-pill--${bounty.status}`}
-                        title={statusCopy[bounty.status].description}
-                        aria-label={`${statusCopy[bounty.status].label}: ${statusCopy[bounty.status].description}`}
-                      >
-                        {statusCopy[bounty.status].label}
-                      </span>
+                      <ExpirationStatusPill bounty={bounty} />
                       <h3>{bounty.title}</h3>
                     </div>
 
@@ -1358,7 +1363,7 @@ placeholder="help wanted, backend"
                 <article className="bounty-card" key={bounty.id}>
                   <div className="bounty-card__top">
                     <div>
-                      <span className={`status-pill status-pill--${bounty.status}`}>{bounty.status}</span>
+                      <ExpirationStatusPill bounty={bounty} />
                       <h3>{bounty.title}</h3>
                     </div>
                     <BountyAmount bounty={bounty} />
