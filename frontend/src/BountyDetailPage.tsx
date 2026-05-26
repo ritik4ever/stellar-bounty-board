@@ -1,4 +1,6 @@
 
+import { txHashLink } from "./utils";
+
 type BountyAction = "reserve" | "submit" | "release" | "refund";
 
 type Props = {
@@ -225,24 +227,34 @@ export default function BountyDetailPage({
                   <strong>{formatTimestamp(bounty.refundedAt)}</strong>
                 </div>
               )}
-              {bounty.releasedTxHash && (
+              {bounty.releasedTxHash && (() => {
+                const { href, display } = txHashLink(bounty.releasedTxHash!);
+                return (
                 <div>
                   <span className="meta-label">Release tx</span>
                   <strong className="copy-row">
-                    {bounty.releasedTxHash}
-                    <CopyButton text={bounty.releasedTxHash} label="release transaction hash" />
+                    <a className="inline-link" href={href} target="_blank" rel="noopener noreferrer" title={bounty.releasedTxHash}>
+                      {display}
+                    </a>
+                    <CopyButton text={bounty.releasedTxHash!} label="release transaction hash" />
                   </strong>
                 </div>
-              )}
-              {bounty.refundedTxHash && (
+                );
+              })()}
+              {bounty.refundedTxHash && (() => {
+                const { href, display } = txHashLink(bounty.refundedTxHash!);
+                return (
                 <div>
                   <span className="meta-label">Refund tx</span>
                   <strong className="copy-row">
-                    {bounty.refundedTxHash}
-                    <CopyButton text={bounty.refundedTxHash} label="refund transaction hash" />
+                    <a className="inline-link" href={href} target="_blank" rel="noopener noreferrer" title={bounty.refundedTxHash}>
+                      {display}
+                    </a>
+                    <CopyButton text={bounty.refundedTxHash!} label="refund transaction hash" />
                   </strong>
                 </div>
-              )}
+                );
+              })()}
             </div>
 
             {bounty.labels.length > 0 && (
