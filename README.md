@@ -70,6 +70,27 @@ Routes:
 - `POST /api/bounties/:id/refund`
 - `GET /api/open-issues`
 
+## Reservation Expiration
+
+Reserved bounties can be returned to the open pool when the contributor does not submit work before the reservation timeout.
+
+New bounties support an optional `reservationTimeoutSeconds` field. When omitted, the backend stores a default value of `604800` seconds, which is 7 days. This per-bounty value is used when bounty records are normalized during normal store reads.
+
+The backend also includes a scheduled expiration job in `backend/src/services/reservationExpirationJob.ts`. When started, it:
+
+- checks reserved bounties immediately and then on a timer
+- returns stale reserved bounties to `open`
+- clears `contributor` and `reservedAt`
+- increments the bounty `version`
+- appends an `expired` event with the reason `reservation_ttl_exceeded`
+
+The scheduled job can be tuned with these environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RESERVATION_TTL_DAYS` | `7` | Number of days a reservation may remain stale before the scheduled job expires it. Invalid or non-positive values fall back to 7 days. |
+| `EXPIRATION_CRON_INTERVAL_MS` | `3600000` | How often the scheduled job checks for stale reservations, in milliseconds. Invalid or non-positive values fall back to 1 hour. |
+
 ## Run Locally
 
 ```bash
