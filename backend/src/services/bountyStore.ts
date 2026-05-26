@@ -3,6 +3,75 @@ import path from "node:path";
 import { sendNotification, type NotificationRecipient } from "./notificationService";
 import { logStructured } from "../logger";
 
+// ---------------------------------------------------------------------------
+// In-memory list-bounties cache
+// ---------------------------------------------------------------------------
+
+const DEFAULT_CACHE_TTL_MS = 5_000; // 5 seconds
+const DEFAULT_CACHE_MAX_SIZE = 100;
+
+function getCacheTTL(): number {
+  const raw = process.env.BOUNTY_LIST_CACHE_TTL_MS;
+  if (raw) {
+    const ms = Number(raw);
+    if (Number.isFinite(ms) && ms > 0) return ms;
+  }
+  return DEFAULT_CACHE_TTL_MS;
+}
+
+function getCacheMaxSize(): number {
+  const raw = process.env.BOUNTY_LIST_CACHE_SIZE;
+  if (raw) {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 1) return n;
+  }
+  return DEFAULT_CACHE_MAX_SIZE;
+}
+
+interface CacheEntry {
+  records: BountyRecord[];
+  at: number; // Date.now()
+}
+
+const bountyListCache = new Map<string, CacheEntry>();
+// Simple LRU eviction: store keys in insertion order, evict oldest when over limit
+const cacheInsertionOrder: string[] = [];
+
+function cacheKey(options?: { q?: string }): string {
+  const q = options?.q?.trim().toLowerCase() ?? "";
+  return q ? `q:${q}` : "__default__";
+}
+
+function cacheGet(key: string): BountyRecord[] | null {
+  const entry = bountyListCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.at > getCacheTTL()) {
+    bountyListCache.delete(key);
+    const idx = cacheInsertionOrder.indexOf(key);
+    if (idx !== -1) cacheInsertionOrder.splice(idx, 1);
+    return null;
+  }
+  return entry.records;
+}
+
+function cacheSet(key: string, records: BountyRecord[]): void {
+  // Evict oldest entry if at capacity
+  if (bountyListCache.size >= getCacheMaxSize() && !bountyListCache.has(key)) {
+    const oldest = cacheInsertionOrder.shift();
+    if (oldest) bountyListCache.delete(oldest);
+  }
+  // Remove previous position if re-inserting
+  const idx = cacheInsertionOrder.indexOf(key);
+  if (idx !== -1) cacheInsertionOrder.splice(idx, 1);
+  cacheInsertionOrder.push(key);
+  bountyListCache.set(key, { records, at: Date.now() });
+}
+
+export function invalidateBountyListCache(): void {
+  bountyListCache.clear();
+  cacheInsertionOrder.length = 0;
+}
+
 export type BountyStatus =
   | "open"
   | "reserved"
@@ -189,6 +258,7 @@ function readStore(): BountyRecord[] {
 
 function writeStore(records: BountyRecord[]): void {
   fs.writeFileSync(getStorePath(), JSON.stringify(records, null, 2));
+  invalidateBountyListCache();
 }
 
 function readAuditStore(): BountyAuditLogRecord[] {
@@ -350,6 +420,13 @@ export interface ListBountiesOptions {
 }
 
 export function listBounties(options: ListBountiesOptions = {}): BountyRecord[] {
+  const key = cacheKey(options);
+
+  const cached = cacheGet(key);
+  if (cached) {
+    return cached;
+  }
+
   const records = normalizeRecords(readStore());
   let sorted = [...records].sort((a, b) => b.createdAt - a.createdAt);
 
@@ -363,6 +440,7 @@ export function listBounties(options: ListBountiesOptions = {}): BountyRecord[] 
     );
   }
 
+  cacheSet(key, sorted);
   return sorted;
 }
 
@@ -716,5 +794,28 @@ export interface LeaderboardEntry {
   bountiesCompleted: number;
 }
 
+export function getLeaderboard(limit = 10): LeaderboardEntry[] {
+  if (!Number.isInteger(limit) || limit <= 0) {
+    return [];
+  }
+  const bounties = listBounties();
+  const released = bounties.filter((b) => b.status === "released" && b.contributor);
 
+  const byContributor = new Map<string, { totalXlm: number; bountiesCompleted: number }>();
+  for (const bounty of released) {
+    const contributor = bounty.contributor!;
+    const entry = byContributor.get(contributor) || { totalXlm: 0, bountiesCompleted: 0 };
+    entry.totalXlm += bounty.tokenSymbol.toUpperCase() === "XLM" ? bounty.amount : 0;
+    entry.bountiesCompleted += 1;
+    byContributor.set(contributor, entry);
+  }
+
+  return Array.from(byContributor.entries())
+    .map(([address, stats]) => ({
+      address,
+      totalXlm: stats.totalXlm,
+      bountiesCompleted: stats.bountiesCompleted,
+    }))
+    .sort((a, b) => b.totalXlm - a.totalXlm)
+    .slice(0, limit);
 }
