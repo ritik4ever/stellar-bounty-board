@@ -15,6 +15,18 @@ describe("txHashLink", () => {
     expect(result.display).toBe("abcdef01...23456789");
     expect(result.display.length).toBe(19); // 8 + 3 dots + 8
   });
+
+  it("returns full hash when 16 chars or shorter and trims whitespace", () => {
+    const result = txHashLink("  abcd1234  ");
+    expect(result.display).toBe("abcd1234");
+    expect(result.href).toBe("https://stellar.expert/explorer/testnet/tx/abcd1234");
+  });
+
+  it("URL-encodes special characters in the hash", () => {
+    const result = txHashLink("hash with spaces");
+    expect(result.href).toBe("https://stellar.expert/explorer/testnet/tx/hash%20with%20spaces");
+    expect(result.display).toBe("hash with spaces");
+  });
 });
 
 describe("xlmToUsd", () => {

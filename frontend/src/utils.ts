@@ -207,9 +207,13 @@ export function resetXlmToUsdCache(): void {
 
 /** Build a Stellar Expert testnet link and truncated display for a transaction hash. */
 export function txHashLink(hash: string): { href: string; display: string } {
+  const normalizedHash = hash.trim();
+  const display = normalizedHash.length > 16
+    ? `${normalizedHash.slice(0, 8)}...${normalizedHash.slice(-8)}`
+    : normalizedHash;
   return {
-    href: `https://stellar.expert/explorer/testnet/tx/${hash}`,
-    display: `${hash.slice(0, 8)}...${hash.slice(-8)}`,
+    href: `https://stellar.expert/explorer/testnet/tx/${encodeURIComponent(normalizedHash)}`,
+    display,
   };
 }
 
