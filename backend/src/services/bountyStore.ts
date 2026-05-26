@@ -419,7 +419,12 @@ export async function createBounty(input: CreateBountyInput): Promise<BountyReco
       maintainer: input.maintainer,
       amount: bounty.amount,
       tokenSymbol: bounty.tokenSymbol,
-    }).catch((err) => console.warn("[createBounty] Notification failed (non-blocking):", err));
+    }).catch((err) => {
+      logStructured("warn", "Notification failed during bounty creation", {
+        error: err instanceof Error ? err.message : String(err),
+        bountyId: bounty.id,
+      });
+    });
 
     return bounty;
   });

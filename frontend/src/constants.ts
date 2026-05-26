@@ -1,5 +1,5 @@
 import { BountyStatus } from "./types";
-import { SortOption, SortState } from "./utils";
+import { SortOption } from "./utils";
 
 export const STELLAR_PUBLIC_KEY_REGEX = /^G[A-Z0-9]{55}$/;
 export const STELLAR_PUBLIC_KEY_HINT = "Enter a Stellar public key (starts with 'G', 56 characters)";

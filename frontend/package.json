@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "lint": "cd .. && eslint \"frontend/src/**/*.{ts,tsx}\"",
     "preview": "vite preview",
     "test": "vitest run"
   },

@@ -4,10 +4,11 @@
   "private": true,
   "description": "GitHub issue bounty escrow MVP built on Stellar",
   "scripts": {
-    "install:all": "npm --prefix backend install && npm --prefix frontend install",
+    "install:all": "npm install && npm --prefix backend install && npm --prefix frontend install",
     "dev:backend": "npm --prefix backend run dev",
     "dev:frontend": "npm --prefix frontend run dev",
     "build": "npm --prefix backend run build && npm --prefix frontend run build",
+    "lint": "eslint \"backend/src/**/*.ts\" \"frontend/src/**/*.{ts,tsx}\"",
     "test": "npm --prefix backend test",
     "test:watch": "npm --prefix backend run test:watch",
     "test:coverage": "npm --prefix backend run test:coverage",
@@ -37,7 +38,13 @@
     "@types/express-rate-limit": "^5.1.3",
     "@types/swagger-ui-express": "^4.1.8",
     "@types/yaml": "^1.9.6",
+    "@typescript-eslint/eslint-plugin": "^8.60.0",
+    "@typescript-eslint/parser": "^8.60.0",
+    "eslint": "^8.57.1",
+    "eslint-import-resolver-typescript": "^3.10.1",
+    "eslint-plugin-import": "^2.32.0",
     "husky": "^9.0.0",
-    "prettier": "^3.8.3"
+    "prettier": "^3.8.3",
+    "typescript": "^5.9.3"
   }
 }

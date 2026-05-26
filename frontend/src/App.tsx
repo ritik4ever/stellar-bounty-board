@@ -2,25 +2,17 @@ import { FormEvent, ReactNode, memo, useCallback, useEffect, useMemo, useRef, us
 import {
   ArrowUpRight,
   Coins,
-  Download,
   ExternalLink,
-  FileText,
-  Filter,
   FolderGit2,
   GitBranch,
   HandCoins,
   Moon,
-  Plus,
   Rocket,
   Search,
   ShieldCheck,
   SlidersHorizontal,
-  Star,
   Sun,
-  Trash2,
-  Upload,
   UserRound,
-  X,
   ArrowUpDown,
 } from "lucide-react";
 import {
@@ -35,20 +27,16 @@ import {
   submitBounty,
 } from "./api";
 import SubmissionChecklistModal, { type SubmissionFormData } from "./SubmissionChecklistModal";
-import { BountyRecommendation, ContributorProfile, createDefaultProfile, generateRecommendations, updateProfileFromBounties } from "./recommendations";
+import { createDefaultProfile, generateRecommendations } from "./recommendations";
 import RecommendedBounties from "./RecommendedBounties";
-import { statusCopy, actionCopy, readInitialFilters, FilterState, statusOptions, statusGlossary, sortOptions } from "./constants";
-import { filterBounties, getRewardBounds, getActiveRewardLabel, getContributorMetrics, getUniqueRepos, getRepoMetrics, sortBounties, debounce, SortOption, SortState, xlmToUsd } from "./utils";
+import { statusCopy, actionCopy, readInitialFilters, statusOptions, statusGlossary, sortOptions } from "./constants";
+import { filterBounties, getRewardBounds, getActiveRewardLabel, getContributorMetrics, getUniqueRepos, sortBounties, debounce, SortOption, xlmToUsd } from "./utils";
 import { Bounty, CreateBountyPayload, OpenIssue, BountyStatus } from "./types";
 
 import GitHubIssuePreviewCard from "./GitHubIssuePreviewCard";
 import BountyDetailPage from "./BountyDetailPage";
-import UsdAmount from "./UsdAmount";
 
 import SkeletonBountyCard from "./SkeletonBountyCard";
-
-const STELLAR_PUBLIC_KEY_HINT = "Expected Stellar public key (starts with G and is 56 characters).";
-const STELLAR_PUBLIC_KEY_REGEX = /^G[A-Z2-7]{55}$/;
 
 const DARK_MODE_KEY = "stellar-bounty-board:theme";
 
@@ -487,7 +475,7 @@ function App() {
     return getContributorMetrics(bounties, profileContributor);
   }, [bounties, profileContributor]);
 
-  const [profile, setProfile] = useState(() => createDefaultProfile());
+  const [profile] = useState(() => createDefaultProfile());
   const recommendations = useMemo(() => {
     return generateRecommendations(bounties, profile);
   }, [bounties, profile]);
@@ -1290,7 +1278,7 @@ placeholder="help wanted, backend"
                 <span className={`impact-chip impact-chip--${issue.impact}`}>{issue.impact}</span>
               </div>
               <h3>{issue.title}</h3>
-              <p> className="items-center text-center"{issue.summary}</p>
+              <p className="items-center text-center">{issue.summary}</p>
               <div className="chip-row">
                 {issue.labels.map((label) => (
                   <span className="chip" key={label.name}>
