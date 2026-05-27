@@ -36,6 +36,7 @@ Backend (`backend`, default port `3001`)
 - Express REST API
 - File-backed JSON persistence in `backend/data/bounties.json`
 - Validation with Zod
+- Bounty titles and summaries are HTML-encoded before storage; the React frontend renders them through JSX so React's built-in escaping remains the primary XSS defense.
 
 Contract (`contracts`)
 

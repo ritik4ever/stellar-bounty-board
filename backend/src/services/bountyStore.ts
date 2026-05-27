@@ -150,6 +150,36 @@ function nowInSeconds(): number {
   return Math.floor(Date.now() / 1000);
 }
 
+const HTML_ESCAPE_MAP: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+};
+
+function sanitizeBountyText(value: string): string {
+  return value
+    .trim()
+    .replace(/&(?!(?:amp|lt|gt|quot|#39|#[0-9]+|#x[0-9a-fA-F]+);)/g, HTML_ESCAPE_MAP["&"])
+    .replace(/[<>"']/g, (char) => HTML_ESCAPE_MAP[char]);
+}
+
+function sanitizeBountyRecord(record: BountyRecord): BountyRecord {
+  const title = sanitizeBountyText(record.title);
+  const summary = sanitizeBountyText(record.summary);
+
+  if (title === record.title && summary === record.summary) {
+    return record;
+  }
+
+  return {
+    ...record,
+    title,
+    summary,
+  };
+}
+
 function ensureStore(): void {
   const storePath = getStorePath();
   fs.mkdirSync(path.dirname(storePath), { recursive: true });
@@ -253,26 +283,31 @@ function normalizeRecords(records: BountyRecord[]): BountyRecord[] {
   const auditEntries: CreateAuditLogInput[] = [];
 
   const next = records.map((record) => {
+    const sanitized = sanitizeBountyRecord(record);
+    if (sanitized !== record) {
+      changed = true;
+    }
+
     // Ensure events array exists (for backward compatibility)
-    const events: BountyEvent[] = record.events || [{ type: "created" as const, timestamp: record.createdAt }];
+    const events: BountyEvent[] = sanitized.events || [{ type: "created" as const, timestamp: sanitized.createdAt }];
 
     // Check for expired deadline
-    if ((record.status === "open" || record.status === "reserved") && now > record.deadlineAt) {
+    if ((sanitized.status === "open" || sanitized.status === "reserved") && now > sanitized.deadlineAt) {
       changed = true;
       auditEntries.push({
-        bountyId: record.id,
-        fromStatus: record.status,
+        bountyId: sanitized.id,
+        fromStatus: sanitized.status,
         toStatus: "expired",
         transition: "expire",
         actor: "system",
         timestamp: now,
         metadata: {
           reason: "deadline_passed",
-          deadlineAt: record.deadlineAt,
+          deadlineAt: sanitized.deadlineAt,
         },
       });
       return {
-        ...record,
+        ...sanitized,
         status: "expired" as const,
         events: [
           ...events,
@@ -283,14 +318,14 @@ function normalizeRecords(records: BountyRecord[]): BountyRecord[] {
 
     // Check for expired reservation (timeout without submission)
     if (
-      record.status === "reserved" &&
-      record.reservedAt &&
-      record.reservationTimeoutSeconds &&
-      now > record.reservedAt + record.reservationTimeoutSeconds
+      sanitized.status === "reserved" &&
+      sanitized.reservedAt &&
+      sanitized.reservationTimeoutSeconds &&
+      now > sanitized.reservedAt + sanitized.reservationTimeoutSeconds
     ) {
       changed = true;
       return {
-        ...record,
+        ...sanitized,
         status: "open" as const,
         contributor: undefined,
         reservedAt: undefined,
@@ -302,17 +337,17 @@ function normalizeRecords(records: BountyRecord[]): BountyRecord[] {
     }
 
     // Ensure version and events exist for backward compatibility
-    if (!record.version || !record.events) {
+    if (!sanitized.version || !sanitized.events) {
       changed = true;
       return {
-        ...record,
-        version: record.version || 1,
+        ...sanitized,
+        version: sanitized.version || 1,
         events,
-        reservationTimeoutSeconds: record.reservationTimeoutSeconds || 604800,
+        reservationTimeoutSeconds: sanitized.reservationTimeoutSeconds || 604800,
       };
     }
 
-    return record;
+    return sanitized;
   });
 
   if (changed) {
@@ -390,8 +425,8 @@ export async function createBounty(input: CreateBountyInput): Promise<BountyReco
       id: nextId(records),
       repo: input.repo,
       issueNumber: input.issueNumber,
-      title: input.title,
-      summary: input.summary,
+      title: sanitizeBountyText(input.title),
+      summary: sanitizeBountyText(input.summary),
       maintainer: input.maintainer,
       tokenSymbol: input.tokenSymbol.toUpperCase(),
       amount: Number(input.amount.toFixed(2)),
