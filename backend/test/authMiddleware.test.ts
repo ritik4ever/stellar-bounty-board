@@ -47,6 +47,41 @@ function signJsonPayload(payload: unknown): string {
   return signature.toString("base64");
 }
 
+function signedMaintainerPayload(id: string, overrides: Record<string, unknown> = {}) {
+  return {
+    maintainer: validMaintainerPublicKey,
+    transactionHash: "a".repeat(64),
+    action: "release",
+    bountyId: id,
+    timestamp: Math.floor(Date.now() / 1000),
+    nonce: randomUUID(),
+    ...overrides,
+  };
+}
+
+async function createSubmittedBounty(app: Awaited<ReturnType<typeof getApp>>): Promise<string> {
+  const { body: created } = await request(app).post("/api/bounties").send({
+    repo: "owner/repo",
+    issueNumber: 123,
+    title: "Test bounty",
+    summary: "Confirm signed release payload passes auth middleware.",
+    maintainer: validMaintainerPublicKey,
+    tokenSymbol: "XLM",
+    amount: 10,
+    deadlineDays: 14,
+  }).expect(201);
+
+  const id = created.data.id as string;
+
+  await request(app).post(`/api/bounties/${id}/reserve`).send({ contributor: validMaintainerPublicKey }).expect(200);
+  await request(app)
+    .post(`/api/bounties/${id}/submit`)
+    .send({ contributor: validMaintainerPublicKey, submissionUrl: "https://github.com/owner/repo/pull/1" })
+    .expect(200);
+
+  return id;
+}
+
 describe("Stellar auth middleware", () => {
   it("returns 401 when Stellar signature headers are missing", async () => {
     const app = await getApp();
@@ -73,26 +108,8 @@ describe("Stellar auth middleware", () => {
 
   it("allows release when Stellar payload is signed by the configured maintainer key", async () => {
     const app = await getApp();
-    const { body: created } = await request(app).post("/api/bounties").send({
-      repo: "owner/repo",
-      issueNumber: 123,
-      title: "Test bounty",
-      summary: "Confirm signed release payload passes auth middleware.",
-      maintainer: validMaintainerPublicKey,
-      tokenSymbol: "XLM",
-      amount: 10,
-      deadlineDays: 14,
-    }).expect(201);
-
-    const id = created.data.id as string;
-
-    await request(app).post(`/api/bounties/${id}/reserve`).send({ contributor: validMaintainerPublicKey }).expect(200);
-    await request(app)
-      .post(`/api/bounties/${id}/submit`)
-      .send({ contributor: validMaintainerPublicKey, submissionUrl: "https://example.com/pr/1" })
-      .expect(200);
-
-    const payload = { maintainer: validMaintainerPublicKey, transactionHash: "a".repeat(64) };
+    const id = await createSubmittedBounty(app);
+    const payload = signedMaintainerPayload(id);
     const signature = signJsonPayload(payload);
 
     const res = await request(app)
@@ -103,5 +120,76 @@ describe("Stellar auth middleware", () => {
       .expect(200);
 
     expect(res.body.data.status).toBe("released");
+  });
+
+  it("rejects a signed release payload with a stale timestamp", async () => {
+    const app = await getApp();
+    const id = await createSubmittedBounty(app);
+    const payload = signedMaintainerPayload(id, { timestamp: Math.floor(Date.now() / 1000) - 61 });
+    const signature = signJsonPayload(payload);
+
+    const res = await request(app)
+      .post(`/api/bounties/${id}/release`)
+      .set("X-Stellar-Public-Key", validMaintainerPublicKey)
+      .set("X-Stellar-Signature", signature)
+      .send(payload)
+      .expect(401);
+
+    expect(res.body.error).toMatch(/timestamp/i);
+  });
+
+  it("rejects a signed release payload with the wrong action", async () => {
+    const app = await getApp();
+    const id = await createSubmittedBounty(app);
+    const payload = signedMaintainerPayload(id, { action: "refund" });
+    const signature = signJsonPayload(payload);
+
+    const res = await request(app)
+      .post(`/api/bounties/${id}/release`)
+      .set("X-Stellar-Public-Key", validMaintainerPublicKey)
+      .set("X-Stellar-Signature", signature)
+      .send(payload)
+      .expect(401);
+
+    expect(res.body.error).toMatch(/action/i);
+  });
+
+  it("rejects a signed release payload for a different bounty id", async () => {
+    const app = await getApp();
+    const id = await createSubmittedBounty(app);
+    const payload = signedMaintainerPayload(id, { bountyId: "BNT-9999" });
+    const signature = signJsonPayload(payload);
+
+    const res = await request(app)
+      .post(`/api/bounties/${id}/release`)
+      .set("X-Stellar-Public-Key", validMaintainerPublicKey)
+      .set("X-Stellar-Signature", signature)
+      .send(payload)
+      .expect(401);
+
+    expect(res.body.error).toMatch(/bountyId/i);
+  });
+
+  it("rejects a replayed signed release nonce", async () => {
+    const app = await getApp();
+    const id = await createSubmittedBounty(app);
+    const payload = signedMaintainerPayload(id);
+    const signature = signJsonPayload(payload);
+
+    await request(app)
+      .post(`/api/bounties/${id}/release`)
+      .set("X-Stellar-Public-Key", validMaintainerPublicKey)
+      .set("X-Stellar-Signature", signature)
+      .send(payload)
+      .expect(200);
+
+    const replay = await request(app)
+      .post(`/api/bounties/${id}/release`)
+      .set("X-Stellar-Public-Key", validMaintainerPublicKey)
+      .set("X-Stellar-Signature", signature)
+      .send(payload)
+      .expect(401);
+
+    expect(replay.body.error).toMatch(/nonce/i);
   });
 });
