@@ -67,6 +67,31 @@ describe("API — bounty lifecycle routes", () => {
     expect(listRes.body.data.some((b: { id: string }) => b.id === id)).toBe(true);
   });
 
+  it("GET /api/bounties/:id supports ETag conditional requests", async () => {
+    const app = await getApp();
+    const createRes = await request(app).post("/api/bounties").send(validCreateBody).expect(201);
+    const id = createRes.body.data.id as string;
+
+    const firstGet = await request(app).get(`/api/bounties/${id}`).expect(200);
+    expect(firstGet.headers.etag).toBe(`"${createRes.body.data.version}"`);
+    expect(firstGet.headers["cache-control"]).toBe("max-age=5");
+
+    await request(app).get(`/api/bounties/${id}`).set("If-None-Match", firstGet.headers.etag).expect(304);
+
+    const reserveRes = await request(app)
+      .post(`/api/bounties/${id}/reserve`)
+      .send({ contributor: CONTRIBUTOR })
+      .expect(200);
+
+    const afterVersionChange = await request(app)
+      .get(`/api/bounties/${id}`)
+      .set("If-None-Match", firstGet.headers.etag)
+      .expect(200);
+    expect(afterVersionChange.headers.etag).toBe(`"${reserveRes.body.data.version}"`);
+    expect(afterVersionChange.headers.etag).not.toBe(firstGet.headers.etag);
+    expect(afterVersionChange.body.data.version).toBe(reserveRes.body.data.version);
+  });
+
   it("POST create with invalid body returns 400", async () => {
     const app = await getApp();
     const res = await request(app)
