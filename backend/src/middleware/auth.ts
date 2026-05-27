@@ -5,6 +5,12 @@ const HEADER_SIGNATURE = "x-stellar-signature";
 const HEADER_PUBLIC_KEY = "x-stellar-public-key";
 const ENV_PUBLIC_KEY = "MAINTAINER_PUBLIC_KEY";
 const ENV_PUBLIC_KEYS = "MAINTAINER_PUBLIC_KEYS";
+const REPLAY_WINDOW_SECONDS = 60;
+const MAX_NONCE_LENGTH = 128;
+
+type SignedAction = "release" | "refund";
+
+const usedNonces = new Map<string, number>();
 
 interface RawBodyRequest extends Request {
   rawBody?: Buffer;
@@ -72,7 +78,60 @@ function verifyStellarSignature(publicKey: string, payload: Buffer, signatureHea
   return false;
 }
 
-export function createStellarSignatureAuthMiddleware(): RequestHandler {
+function nowInSeconds(): number {
+  return Math.floor(Date.now() / 1000);
+}
+
+function cleanupExpiredNonces(now: number): void {
+  for (const [nonceKey, expiresAt] of usedNonces.entries()) {
+    if (expiresAt <= now) {
+      usedNonces.delete(nonceKey);
+    }
+  }
+}
+
+function getSignedActionValue(req: Request, key: string): unknown {
+  return req.body && typeof req.body === "object" ? (req.body as Record<string, unknown>)[key] : undefined;
+}
+
+function validateReplayProtection(req: Request, publicKey: string, expectedAction: SignedAction): string | undefined {
+  const action = getSignedActionValue(req, "action");
+  if (action !== expectedAction) {
+    return `Signed payload action must be ${expectedAction}.`;
+  }
+
+  const bountyId = getSignedActionValue(req, "bountyId");
+  if (typeof bountyId !== "string" || bountyId !== req.params.id) {
+    return "Signed payload bountyId must match the request bounty id.";
+  }
+
+  const timestamp = getSignedActionValue(req, "timestamp");
+  if (typeof timestamp !== "number" || !Number.isInteger(timestamp)) {
+    return "Signed payload timestamp must be a Unix epoch timestamp in seconds.";
+  }
+
+  const now = nowInSeconds();
+  if (Math.abs(now - timestamp) > REPLAY_WINDOW_SECONDS) {
+    return "Signed payload timestamp is outside the allowed replay window.";
+  }
+
+  const nonce = getSignedActionValue(req, "nonce");
+  if (typeof nonce !== "string" || nonce.trim().length === 0 || nonce.length > MAX_NONCE_LENGTH) {
+    return "Signed payload nonce is required and must be 1-128 characters.";
+  }
+
+  cleanupExpiredNonces(now);
+
+  const nonceKey = `${publicKey}:${nonce}`;
+  if (usedNonces.has(nonceKey)) {
+    return "Signed payload nonce has already been used.";
+  }
+
+  usedNonces.set(nonceKey, now + REPLAY_WINDOW_SECONDS);
+  return undefined;
+}
+
+export function createStellarSignatureAuthMiddleware(expectedAction: SignedAction): RequestHandler {
   return (req, res, next) => {
     if (process.env.NODE_ENV === "test") {
       next();
@@ -112,6 +171,12 @@ export function createStellarSignatureAuthMiddleware(): RequestHandler {
     const maintainer = typeof req.body?.maintainer === "string" ? req.body.maintainer : undefined;
     if (maintainer && maintainer !== publicKeyHeader) {
       res.status(401).json({ error: "Request maintainer does not match signer public key." });
+      return;
+    }
+
+    const replayError = validateReplayProtection(req, publicKeyHeader, expectedAction);
+    if (replayError) {
+      res.status(401).json({ error: replayError });
       return;
     }
 

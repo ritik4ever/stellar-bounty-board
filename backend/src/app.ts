@@ -3,6 +3,7 @@ import express, { Request, Response, NextFunction } from "express";
 import { randomUUID } from "node:crypto";
 import swaggerUi from "swagger-ui-express";
 import { buildCorsOptions } from "./middleware/corsOptions";
+import { createStellarSignatureAuthMiddleware } from "./middleware/auth";
 import { generateOpenApiDocument } from "./docs/openapi";
 
 import {
@@ -86,6 +87,8 @@ app.use(requestContextMiddleware);
 
 const swaggerDoc = generateOpenApiDocument();
 app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerDoc));
+const releaseAuth = createStellarSignatureAuthMiddleware("release");
+const refundAuth = createStellarSignatureAuthMiddleware("refund");
 
 function parseId(raw: string | string[] | undefined): string {
   return bountyIdSchema.parse(Array.isArray(raw) ? raw[0] : raw);
@@ -281,7 +284,7 @@ app.post("/api/bounties/:id/submit", limiter, async (req: Request, res: Response
   }
 });
 
-app.post("/api/bounties/:id/release", limiter, async (req: Request, res: Response) => {
+app.post("/api/bounties/:id/release", limiter, releaseAuth, async (req: Request, res: Response) => {
   const parsedBody = maintainerActionSchema.safeParse(req.body);
   if (!parsedBody.success) {
     jsonError(res, req, 400, zodErrorMessage(parsedBody.error));
@@ -300,7 +303,7 @@ app.post("/api/bounties/:id/release", limiter, async (req: Request, res: Respons
   }
 });
 
-app.post("/api/bounties/:id/refund", limiter, async (req: Request, res: Response) => {
+app.post("/api/bounties/:id/refund", limiter, refundAuth, async (req: Request, res: Response) => {
   const parsedBody = maintainerActionSchema.safeParse(req.body);
   if (!parsedBody.success) {
     jsonError(res, req, 400, zodErrorMessage(parsedBody.error));

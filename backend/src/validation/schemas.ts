@@ -124,6 +124,10 @@ export const submitBountySchema = z
     contributor: stellarAccountSchema.openapi({
       description: "Must match the contributor who reserved the bounty.",
     }),
+    submissionUrl: githubPrUrlSchema.openapi({
+      example: "https://github.com/owner/repo/pull/99",
+      description: "GitHub pull request URL for the submitted work.",
+    }),
 
     notes: z
       .string()
@@ -148,6 +152,22 @@ export const maintainerActionSchema = z
         example: "0".repeat(64),
         description: "Optional transaction hash for the release/refund action (64-char hex).",
       }),
+    action: z.enum(["release", "refund"]).optional().openapi({
+      example: "release",
+      description: "Signed action name. Required when Stellar signature auth is enforced.",
+    }),
+    bountyId: bountyIdSchema.optional().openapi({
+      example: "BNT-0001",
+      description: "Signed bounty id. Required when Stellar signature auth is enforced.",
+    }),
+    timestamp: z.number().int().optional().openapi({
+      example: 1710000000,
+      description: "Unix timestamp in seconds. Required for signed requests and must be within 60 seconds.",
+    }),
+    nonce: z.string().trim().min(1).max(128).optional().openapi({
+      example: "8c7e4c2f-9f74-4d5f-8c72-2e79b0f79f41",
+      description: "Single-use replay-prevention nonce. Required when Stellar signature auth is enforced.",
+    }),
   })
   .openapi("MaintainerActionRequest");
 
