@@ -67,6 +67,22 @@ describe("API — bounty lifecycle routes", () => {
     expect(listRes.body.data.some((b: { id: string }) => b.id === id)).toBe(true);
   });
 
+  it("POST /api/bounties sanitizes title and summary", async () => {
+    const app = await getApp();
+    const createRes = await request(app)
+      .post("/api/bounties")
+      .send({
+        ...validCreateBody,
+        title: "  <script>alert(1)</script> Fix title  ",
+        summary: "  <img src=x onerror=alert(1)> Summary with enough detail & context.  ",
+      })
+      .expect(201);
+
+    expect(createRes.body.data.title).toBe("&lt;script&gt;alert(1)&lt;&#x2F;script&gt; Fix title");
+    expect(createRes.body.data.summary).toContain("&lt;img src=x onerror=alert(1)&gt;");
+    expect(createRes.body.data.summary).toContain("&amp; context.");
+  });
+
   it("POST create with invalid body returns 400", async () => {
     const app = await getApp();
     const res = await request(app)

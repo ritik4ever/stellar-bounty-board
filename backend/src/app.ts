@@ -1,5 +1,6 @@
 import cors from "cors";
 import express, { Request, Response, NextFunction } from "express";
+import { body } from "express-validator";
 import { randomUUID } from "node:crypto";
 import swaggerUi from "swagger-ui-express";
 import { buildCorsOptions } from "./middleware/corsOptions";
@@ -231,7 +232,12 @@ app.get("/api/bounties/released/export.csv", (req: Request, res: Response) => {
   }
 });
 
-app.post("/api/bounties", limiter, async (req: Request, res: Response) => {
+const sanitizeBountyTextFields = [
+  body("title").trim().escape(),
+  body("summary").trim().escape(),
+];
+
+app.post("/api/bounties", limiter, sanitizeBountyTextFields, async (req: Request, res: Response) => {
   const parsed = createBountySchema.safeParse(req.body);
   if (!parsed.success) {
     jsonError(res, req, 400, zodErrorMessage(parsed.error));

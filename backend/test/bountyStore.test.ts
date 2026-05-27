@@ -118,6 +118,33 @@ describe("bountyStore lifecycle — happy paths", () => {
     expect(refunded.refundedTxHash).toBe(txHash);
   });
 
+  it("sanitizes bounty title and summary before storage and listing", async () => {
+    const { createBounty, listBounties } = await loadStore();
+    const created = await createBounty({
+      repo: "acme/widget",
+      issueNumber: 4,
+      title: "  <script>alert(1)</script> Fix title  ",
+      summary: "  <img src=x onerror=alert(1)> Summary with enough detail & context.  ",
+      maintainer: MAINTAINER,
+      tokenSymbol: "XLM",
+      amount: 25,
+      deadlineDays: 7,
+      labels: [],
+    });
+
+    expect(created.title).toBe("&lt;script&gt;alert(1)&lt;/script&gt; Fix title");
+    expect(created.summary).toContain("&lt;img src=x onerror=alert(1)&gt;");
+    expect(created.summary).toContain("&amp; context.");
+
+    const raw = JSON.parse(fs.readFileSync(storeFile, "utf8")) as BountyRecord[];
+    expect(raw[0].title).toBe(created.title);
+    expect(raw[0].summary).toBe(created.summary);
+
+    const listed = listBounties().find((bounty) => bounty.id === created.id);
+    expect(listed?.title).toBe(created.title);
+    expect(listed?.summary).toBe(created.summary);
+  });
+
   it("create → reserve → refund", async () => {
     const { createBounty, reserveBounty, refundBounty } = await loadStore();
     const created = await createBounty({
