@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { sendNotification, type NotificationRecipient } from "./notificationService";
 import { logStructured } from "../logger";
+import { assertGitHubPrMatchesRepo } from "../validation/prUrl";
 
 export type BountyStatus =
   | "open"
@@ -479,6 +480,7 @@ export async function submitBounty(
     if (bounty.contributor !== contributor) {
       throw new Error("Only the reserved contributor can submit this bounty.");
     }
+    assertGitHubPrMatchesRepo(submissionUrl, bounty.repo);
 
     const now = nowInSeconds();
     const updated: BountyRecord = {

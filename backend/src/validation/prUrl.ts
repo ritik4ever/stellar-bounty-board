@@ -2,6 +2,53 @@ import { z } from "zod";
 
 const GITHUB_PR_URL_REGEX = /^https:\/\/github\.com\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+\/pull\/\d+$/;
 
+export function extractGitHubPrRepo(submissionUrl: string): string | null {
+  try {
+    const normalizedUrl = submissionUrl.trim();
+    if (!GITHUB_PR_URL_REGEX.test(normalizedUrl)) {
+      return null;
+    }
+
+    const parsedUrl = new URL(normalizedUrl);
+    if (parsedUrl.hostname !== "github.com") {
+      return null;
+    }
+
+    const [owner, repo, segment, number, ...extraSegments] = parsedUrl.pathname.split("/").filter(Boolean);
+    if (!owner || !repo || segment !== "pull" || !number || extraSegments.length > 0) {
+      return null;
+    }
+
+    if (!/^\d+$/.test(number)) {
+      return null;
+    }
+
+    if (
+      parsedUrl.search !== "" ||
+      parsedUrl.hash !== "" ||
+      parsedUrl.pathname !== `/${owner}/${repo}/pull/${number}`
+    ) {
+      return null;
+    }
+
+    return `${owner}/${repo}`;
+  } catch {
+    return null;
+  }
+}
+
+export function assertGitHubPrMatchesRepo(submissionUrl: string, bountyRepo: string): void {
+  const prRepo = extractGitHubPrRepo(submissionUrl);
+  if (!prRepo) {
+    throw new Error("Submission URL must follow format https://github.com/<owner>/<repo>/pull/<number>");
+  }
+
+  // GitHub owner and repository names are case-insensitive for URL matching.
+  if (prRepo.toLowerCase() !== bountyRepo.trim().toLowerCase()) {
+    throw new Error(`Submission URL must point to a pull request in ${bountyRepo}.`);
+  }
+}
+
 export const githubPrUrlSchema = z
   .string()
   .trim()
