@@ -65,7 +65,7 @@ Closes #42
 
 **Also good (for simple changes):**
 
-```
+```text
 fix(api): reject negative bounty amounts
 ```
 
@@ -83,10 +83,12 @@ npm test
 
 This runs the backend Vitest suite through the root `test` script. To keep the full workspace healthy, also run the frontend or package-specific commands when your change touches those areas.
 
+Note: in a fresh checkout, unrelated backend tests may currently fail around reservation expiration, auth status codes, API amount validation, and webhook timeout behavior. Treat those as existing suite issues unless your PR changes the affected paths.
+
 To run a single backend test file:
 
 ```bash
-npx --prefix backend vitest run test/bountyStore.test.ts
+npm --prefix backend exec -- vitest run test/bountyStore.test.ts
 ```
 
 To run tests in watch mode from the repository root:
@@ -111,7 +113,7 @@ Vitest prints a summary in the terminal and writes the HTML report under `backen
 - Prefer deterministic dates, IDs, and amounts. Avoid depending on the current clock unless the behavior being tested is time-sensitive.
 - Cover success and failure paths for validation, state transitions, and API responses.
 
-Use unit tests for utilities such as date helpers, amount formatting, and schema validation. Use integration tests when a route or service needs to prove request handling, storage updates, or cross-module behavior. Use end-to-end tests only when the user-facing flow cannot be verified confidently at a lower level.
+Prefer unit tests for utilities such as date helpers, amount formatting, and schema validation. Use integration tests when a route or service needs to prove request handling, storage updates, or cross-module behavior. Reserve end-to-end tests for user-facing flows that cannot be verified confidently at a lower level.
 
 ## Pull Request Checklist
 
