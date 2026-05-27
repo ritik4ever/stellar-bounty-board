@@ -84,6 +84,8 @@ The backend also includes a scheduled expiration job in `backend/src/services/re
 - increments the bounty `version`
 - appends an `expired` event with the reason `reservation_ttl_exceeded`
 
+`reservationTimeoutSeconds` and `RESERVATION_TTL_DAYS` are evaluated separately. The per-bounty `reservationTimeoutSeconds` value is applied during bounty store normalization, while `RESERVATION_TTL_DAYS` controls the scheduled job in `backend/src/services/reservationExpirationJob.ts`. Keep them aligned when you want one consistent reservation window; if they differ, the shorter effective timeout can return the reservation to `open` first.
+
 The scheduled job can be tuned with these environment variables:
 
 | Variable | Default | Description |
