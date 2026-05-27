@@ -153,57 +153,7 @@ export function getActiveRewardLabel(
   return `${min} - ${max} XLM`;
 }
 
-const XLM_USD_PRICE_URL =
-  "https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd";
-const XLM_USD_CACHE_MS = 5 * 60 * 1000;
-
-let cachedXlmUsdRate: { rate: number; fetchedAt: number } | null = null;
-
-async function fetchXlmUsdRate(): Promise<number> {
-  if (cachedXlmUsdRate && Date.now() - cachedXlmUsdRate.fetchedAt < XLM_USD_CACHE_MS) {
-    return cachedXlmUsdRate.rate;
-  }
-
-  const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), 5000);
-
-  try {
-    const response = await fetch(XLM_USD_PRICE_URL, { signal: controller.signal });
-    if (!response.ok) {
-      throw new Error(`Failed to fetch XLM/USD rate: ${response.status}`);
-    }
-
-    const data = (await response.json()) as { stellar?: { usd?: number } };
-    const rate = data.stellar?.usd;
-
-    if (typeof rate !== "number" || !Number.isFinite(rate)) {
-      throw new Error("CoinGecko response did not include a numeric XLM/USD rate");
-    }
-
-    cachedXlmUsdRate = { rate, fetchedAt: Date.now() };
-    return rate;
-  } finally {
-    window.clearTimeout(timeoutId);
-  }
-}
-
-export async function xlmToUsd(amount: number): Promise<string> {
-  try {
-    const rate = await fetchXlmUsdRate();
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(amount * rate);
-  } catch {
-    return "USD unavailable";
-  }
-}
-
-export function resetXlmToUsdCache(): void {
-  cachedXlmUsdRate = null;
-}
+export { xlmToUsd, resetXlmToUsdCache } from "./xlmUsd";
 
 export function getContributorMetrics(bounties: Bounty[], contributorAddress?: string) {
   if (!contributorAddress) {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { xlmToUsd } from "./utils";
+import { xlmToUsd } from "./xlmUsd";
 
 interface UsdAmountProps {
   amount: number;

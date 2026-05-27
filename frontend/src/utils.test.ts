@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { xlmToUsd, resetXlmToUsdCache } from "./utils";
+import { xlmToUsd, resetXlmToUsdCache } from "./xlmUsd";
 
 describe("xlmToUsd", () => {
   const fetchMock = vi.fn();
