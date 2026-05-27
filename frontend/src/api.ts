@@ -149,12 +149,35 @@ async function requestBlob(path: string, options: RequestOptions = {}): Promise<
 }
 
 
+export async function listBounties(signal?: AbortSignal): Promise<Bounty[]> {
   const body = await requestJson<{ data: Bounty[] }>("/bounties", {
     retry: true,
     retryLabel: "Loading bounties",
     signal,
   });
   return body.data;
+}
+
+export async function listBountiesPage(
+  limit: number,
+  offset: number,
+  q?: string,
+  signal?: AbortSignal,
+): Promise<{ data: Bounty[]; total?: number; limit?: number; offset?: number }> {
+  const params = new URLSearchParams();
+  params.set("limit", String(limit));
+  params.set("offset", String(offset));
+  if (q && q.trim() !== "") params.set("q", q.trim());
+
+  const body = await requestJson<{ data: Bounty[]; total?: number; limit?: number; offset?: number }>(
+    `/bounties?${params.toString()}`,
+    {
+      retry: true,
+      retryLabel: "Loading bounties",
+      signal,
+    },
+  );
+  return body;
 }
 
 export async function createBounty(payload: CreateBountyPayload): Promise<Bounty> {

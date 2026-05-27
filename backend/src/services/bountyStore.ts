@@ -347,6 +347,8 @@ function persistUpdated(records: BountyRecord[], updated: BountyRecord): BountyR
 export interface ListBountiesOptions {
   /** Case-insensitive substring filter applied to title, summary, and labels. */
   q?: string;
+  limit?: number;
+  offset?: number;
 }
 
 export function listBounties(options: ListBountiesOptions = {}): BountyRecord[] {
@@ -361,6 +363,13 @@ export function listBounties(options: ListBountiesOptions = {}): BountyRecord[] 
         b.summary.toLowerCase().includes(q) ||
         b.labels.some((l) => l.toLowerCase().includes(q)),
     );
+  }
+
+  // If pagination options provided, slice the results accordingly.
+  const offset = options.offset && options.offset > 0 ? options.offset : 0;
+  if (options.limit !== undefined && options.limit !== null) {
+    const limit = Math.max(0, options.limit);
+    return sorted.slice(offset, offset + limit);
   }
 
   return sorted;

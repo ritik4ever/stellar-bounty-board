@@ -28,6 +28,7 @@ import {
   exportReleasedPayoutsCsv,
   getBounty,
   listBounties,
+  listBountiesPage,
   listOpenIssues,
   refundBounty,
   releaseBounty,
@@ -303,6 +304,14 @@ function App() {
   const [form, setForm] = useState<CreateBountyPayload>(initialForm);
   const [bounties, setBounties] = useState<Bounty[]>([]);
   const [issues, setIssues] = useState<OpenIssue[]>([]);
+  // Paginated UI state for infinite scroll
+  const [visibleBounties, setVisibleBounties] = useState<Bounty[]>([]);
+  const [pageOffset, setPageOffset] = useState(0);
+  const PAGE_LIMIT = 20;
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const sentinelObserverRef = useRef<IntersectionObserver | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -310,10 +319,10 @@ function App() {
 
   const [searchQuery, setSearchQuery] = useState(initialFilters.searchQuery);
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(initialFilters.searchQuery);
-  
+
   // Debounced search update
   const debouncedSetSearchQuery = useMemo(() => debounce(setDebouncedSearchQuery, 300), []);
-  
+
   useEffect(() => {
     debouncedSetSearchQuery(searchQuery);
   }, [searchQuery, debouncedSetSearchQuery]);
@@ -447,6 +456,11 @@ function App() {
       setRepoFilter(filters.repoFilter);
       setSortOption(filters.sortOption);
       setSortDirection(filters.sortDirection);
+      // Restore preserved scroll position if available
+      const state = window.history.state as { scrollY?: number } | null;
+      if (state && typeof state.scrollY === "number") {
+        setTimeout(() => window.scrollTo(0, state.scrollY), 0);
+      }
     }
 
     window.addEventListener("popstate", handlePopState);
@@ -455,9 +469,75 @@ function App() {
 
   function navigate(nextPath: string) {
     if (nextPath === window.location.pathname) return;
+    // Preserve scroll position before navigating so browser-back can restore it
+    try {
+      window.history.replaceState({ scrollY: window.scrollY }, "", window.location.pathname + window.location.search + window.location.hash);
+    } catch {
+      // ignore
+    }
     window.history.pushState(null, "", nextPath);
     setPathname(nextPath);
   }
+
+  // Paginated fetch helper for infinite scroll
+  const fetchNextPage = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const result = await listBountiesPage(PAGE_LIMIT, pageOffset, debouncedSearchQuery || undefined);
+      const pageData = result.data ?? [];
+      setVisibleBounties((prev) => [...prev, ...pageData]);
+      setPageOffset((prev) => prev + pageData.length);
+      const total = typeof result.total === "number" ? result.total : undefined;
+      if (typeof total === "number") {
+        setHasMore((pageData.length + pageOffset) < total);
+      } else {
+        setHasMore(pageData.length === PAGE_LIMIT);
+      }
+    } catch (err) {
+      // silent — show nothing
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, hasMore, pageOffset, debouncedSearchQuery]);
+
+  // Load initial page when component mounts or search changes
+  useEffect(() => {
+    setVisibleBounties([]);
+    setPageOffset(0);
+    setHasMore(true);
+    void fetchNextPage();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearchQuery]);
+
+  // Use a callback ref to attach the observer when the sentinel DOM node mounts.
+  const setSentinel = useCallback((el: HTMLDivElement | null) => {
+    // Clean up any previous observer
+    if (sentinelObserverRef.current) {
+      try {
+        sentinelObserverRef.current.disconnect();
+      } catch {
+        // ignore
+      }
+      sentinelObserverRef.current = null;
+    }
+
+    sentinelRef.current = el;
+    if (!el || !hasMore) return;
+
+    try {
+      const obs = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting) {
+          void fetchNextPage();
+        }
+      }, { root: null, rootMargin: "200px" });
+      obs.observe(el);
+      sentinelObserverRef.current = obs;
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasMore, fetchNextPage]);
 
   const metrics = useMemo(() => {
     const activePool = bounties.filter((bounty: Bounty) =>
@@ -626,24 +706,26 @@ function App() {
       sortOption,
       sortDirection,
     });
-    
+
     // Apply sorting
     return sortBounties(filtered, { option: sortOption, direction: sortDirection });
   }, [bounties, debouncedSearchQuery, statusFilter, minReward, maxReward, repoFilter, repoRoute, sortOption, sortDirection]);
+  // If paginated visible bounties are present (infinite scroll), use them for rendering
+  const effectiveBounties = visibleBounties.length > 0 ? visibleBounties : filteredBounties;
 
   const groupedBounties = useMemo(() => {
     if (repoRoute) {
-      return { [repoRoute.owner + '/' + repoRoute.name]: filteredBounties };
+      return { [repoRoute.owner + '/' + repoRoute.name]: effectiveBounties };
     }
-    const groups: Record<string, typeof filteredBounties> = {};
-    filteredBounties.forEach((bounty) => {
+    const groups: Record<string, typeof effectiveBounties> = {};
+    effectiveBounties.forEach((bounty) => {
       if (!groups[bounty.repo]) {
         groups[bounty.repo] = [];
       }
       groups[bounty.repo].push(bounty);
     });
     return groups;
-  }, [filteredBounties, repoRoute]);
+  }, [effectiveBounties, repoRoute]);
 
   if (detailId) {
     const bounty = detailBounty;
@@ -818,7 +900,7 @@ function App() {
           <div className="hero-panel__row">
             <ExternalLink size={18} />
             <span>
-              <a 
+              <a
                 href={`https://github.com/${repoRoute.owner}/${repoRoute.name}`}
                 target="_blank"
                 rel="noreferrer"
@@ -831,7 +913,7 @@ function App() {
           <div className="hero-panel__row">
             <ArrowUpRight size={18} />
             <span>
-              <button 
+              <button
                 className="ghost-button"
                 onClick={() => navigate("/")}
               >
@@ -864,9 +946,9 @@ function App() {
       {error && <div className="error-banner">{error}</div>}
 
       {profileContributor && (
-        <RecommendedBounties 
-          recommendations={recommendations} 
-          loading={loading} 
+        <RecommendedBounties
+          recommendations={recommendations}
+          loading={loading}
         />
       )}
 
@@ -977,16 +1059,16 @@ function App() {
                 <input
                   value={form.labels.join(", ")}
                   onChange={(event) =>
-  setForm({
-    ...form,
-    labels: event.target.value
-      .split(",")
-      .map((item) => ({ name: item.trim(), color: "0075ca" }))
-      .filter((item) => item.name !== ""),
-  })
-}
-placeholder="help wanted, backend"
-/>
+                    setForm({
+                      ...form,
+                      labels: event.target.value
+                        .split(",")
+                        .map((item) => ({ name: item.trim(), color: "0075ca" }))
+                        .filter((item) => item.name !== ""),
+                    })
+                  }
+                  placeholder="help wanted, backend"
+                />
               </label>
             </div>
 
@@ -1017,8 +1099,8 @@ placeholder="help wanted, backend"
                   value={sortOption === "reward-high" && sortDirection === "desc"
                     ? "reward-high-desc"
                     : sortOption === "reward-low" && sortDirection === "asc"
-                    ? "reward-low-asc"
-                    : "reward-high-desc"
+                      ? "reward-low-asc"
+                      : "reward-high-desc"
                   }
                   onChange={(event) => {
                     const value = event.target.value;
@@ -1203,7 +1285,7 @@ placeholder="help wanted, backend"
               {Object.entries(groupedBounties).map(([repo, repoBounties]) => (
                 <div key={repo} className="repo-group">
                   <div className="repo-group__header">
-                    <h3 
+                    <h3
                       className="repo-group__title"
                       onClick={() => navigate(`/repo/${repo.split('/')[0]}/${repo.split('/')[1]}`)}
                       role="link"
@@ -1243,8 +1325,15 @@ placeholder="help wanted, backend"
                       />
                     ))}
                   </div>
-            </div>
-          ))}
+                </div>
+              ))}
+              <div ref={setSentinel as any} className="board-list-sentinel" aria-hidden="true" />
+              {loadingMore && (
+                <div className="loading-more">Loading more bounties…</div>
+              )}
+              {!hasMore && (
+                <div className="end-of-results">End of results</div>
+              )}
             </div>
           ) : (
             <div className="empty-state">
@@ -1294,8 +1383,8 @@ placeholder="help wanted, backend"
               <div className="chip-row">
                 {issue.labels.map((label) => (
                   <span className="chip" key={label.name}>
-  {label.name}
-</span>
+                    {label.name}
+                  </span>
                 ))}
               </div>
             </article>

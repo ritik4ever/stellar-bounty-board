@@ -155,8 +155,23 @@ app.get("/worker/health", (_req: Request, res: Response) => {
 });
 
 app.get("/api/bounties", (req: Request, res: Response) => {
-  const q = typeof req.query.q === "string" ? req.query.q : undefined;
-  res.json({ data: listBounties({ q }) });
+  try {
+    const q = typeof req.query.q === "string" ? req.query.q : undefined;
+    const limitRaw = typeof req.query.limit !== "undefined" ? parsePaginationValue(req.query.limit, "limit", 20, 1, 100) : -1;
+    const offsetRaw = parsePaginationValue(req.query.offset, "offset", 0, 0);
+
+    const all = listBounties({ q });
+    // No pagination requested: return full list (backwards compatible)
+    if (limitRaw === -1) {
+      res.json({ data: all });
+      return;
+    }
+
+    const page = listBounties({ q, limit: limitRaw, offset: offsetRaw });
+    res.json({ data: page, total: all.length, limit: limitRaw, offset: offsetRaw });
+  } catch (error) {
+    sendError(res, req, error);
+  }
 });
 
 app.get("/api/leaderboard", (_req: Request, res: Response) => {
