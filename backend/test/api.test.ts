@@ -49,6 +49,51 @@ describe("API — health and listing", () => {
     expect(Array.isArray(res.body.data)).toBe(true);
   });
 
+  it("GET /api/bounties filters by deadline range", async () => {
+    const app = await getApp();
+    const soon = await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, issueNumber: 201, title: "Soon bounty", deadlineDays: 5 })
+      .expect(201);
+    const middle = await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, issueNumber: 202, title: "Middle bounty", deadlineDays: 15 })
+      .expect(201);
+    const later = await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, issueNumber: 203, title: "Later bounty", deadlineDays: 30 })
+      .expect(201);
+
+    const beforeMiddle = new Date((middle.body.data.deadlineAt - 1) * 1000).toISOString();
+    const afterMiddle = new Date((middle.body.data.deadlineAt + 1) * 1000).toISOString();
+    const middleStart = new Date((soon.body.data.deadlineAt + 1) * 1000).toISOString();
+    const middleEnd = new Date((later.body.data.deadlineAt - 1) * 1000).toISOString();
+
+    const before = await request(app).get("/api/bounties").query({ deadlineBefore: beforeMiddle }).expect(200);
+    expect(before.body.data.map((bounty: { title: string }) => bounty.title)).toEqual(["Soon bounty"]);
+
+    const after = await request(app).get("/api/bounties").query({ deadlineAfter: afterMiddle }).expect(200);
+    expect(after.body.data.map((bounty: { title: string }) => bounty.title)).toEqual(["Later bounty"]);
+
+    const combined = await request(app)
+      .get("/api/bounties")
+      .query({ deadlineAfter: middleStart, deadlineBefore: middleEnd })
+      .expect(200);
+    expect(combined.body.data.map((bounty: { title: string }) => bounty.title)).toEqual(["Middle bounty"]);
+
+    const combinedWithSearch = await request(app)
+      .get("/api/bounties")
+      .query({ q: "later", deadlineBefore: middleEnd })
+      .expect(200);
+    expect(combinedWithSearch.body.data).toEqual([]);
+  });
+
+  it("GET /api/bounties rejects invalid deadline filters", async () => {
+    const app = await getApp();
+    const res = await request(app).get("/api/bounties").query({ deadlineBefore: "not-a-date" }).expect(400);
+    expect(res.body.error).toMatch(/deadlineBefore/i);
+  });
+
   it("GET /api/open-issues returns data", async () => {
     const app = await getApp();
     const res = await request(app).get("/api/open-issues").expect(200);

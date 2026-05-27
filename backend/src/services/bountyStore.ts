@@ -347,6 +347,8 @@ function persistUpdated(records: BountyRecord[], updated: BountyRecord): BountyR
 export interface ListBountiesOptions {
   /** Case-insensitive substring filter applied to title, summary, and labels. */
   q?: string;
+  deadlineBefore?: number;
+  deadlineAfter?: number;
 }
 
 export function listBounties(options: ListBountiesOptions = {}): BountyRecord[] {
@@ -361,6 +363,16 @@ export function listBounties(options: ListBountiesOptions = {}): BountyRecord[] 
         b.summary.toLowerCase().includes(q) ||
         b.labels.some((l) => l.toLowerCase().includes(q)),
     );
+  }
+
+  if (options.deadlineBefore !== undefined) {
+    const deadlineBefore = options.deadlineBefore;
+    sorted = sorted.filter((bounty) => bounty.deadlineAt <= deadlineBefore);
+  }
+
+  if (options.deadlineAfter !== undefined) {
+    const deadlineAfter = options.deadlineAfter;
+    sorted = sorted.filter((bounty) => bounty.deadlineAt >= deadlineAfter);
   }
 
   return sorted;

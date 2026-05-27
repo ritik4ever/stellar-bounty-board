@@ -120,6 +120,23 @@ function parsePaginationValue(
   return parsed;
 }
 
+function parseIsoDateQuery(raw: unknown, field: string): number | undefined {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+  if (typeof value !== "string") {
+    throw new Error(`${field} must be an ISO 8601 date string.`);
+  }
+
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`${field} must be a valid ISO 8601 date string.`);
+  }
+
+  return Math.floor(parsed / 1000);
+}
+
 function jsonError(res: Response, req: Request, statusCode: number, message: string) {
   res.status(statusCode).json({ error: message, requestId: req.requestId });
 }
@@ -155,8 +172,14 @@ app.get("/worker/health", (_req: Request, res: Response) => {
 });
 
 app.get("/api/bounties", (req: Request, res: Response) => {
-  const q = typeof req.query.q === "string" ? req.query.q : undefined;
-  res.json({ data: listBounties({ q }) });
+  try {
+    const q = typeof req.query.q === "string" ? req.query.q : undefined;
+    const deadlineBefore = parseIsoDateQuery(req.query.deadlineBefore, "deadlineBefore");
+    const deadlineAfter = parseIsoDateQuery(req.query.deadlineAfter, "deadlineAfter");
+    res.json({ data: listBounties({ q, deadlineBefore, deadlineAfter }) });
+  } catch (error) {
+    sendError(res, req, error);
+  }
 });
 
 app.get("/api/leaderboard", (_req: Request, res: Response) => {
