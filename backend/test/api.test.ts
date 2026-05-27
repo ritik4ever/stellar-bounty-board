@@ -43,6 +43,15 @@ describe("API — health and listing", () => {
     expect(res.body.service).toContain("bounty-board");
   });
 
+  it("GET /api/health returns security headers", async () => {
+    const app = await getApp();
+    const res = await request(app).get("/api/health").expect(200);
+    expect(res.headers["content-security-policy"]).toContain("default-src 'none'");
+    expect(res.headers["x-frame-options"]).toBeDefined();
+    expect(res.headers["strict-transport-security"]).toBeDefined();
+    expect(res.headers["x-powered-by"]).toBeUndefined();
+  });
+
   it("GET /api/bounties returns data array", async () => {
     const app = await getApp();
     const res = await request(app).get("/api/bounties").expect(200);

@@ -1,5 +1,6 @@
 import cors from "cors";
 import express, { Request, Response, NextFunction } from "express";
+import helmet from "helmet";
 import { randomUUID } from "node:crypto";
 import swaggerUi from "swagger-ui-express";
 import { buildCorsOptions } from "./middleware/corsOptions";
@@ -75,6 +76,16 @@ function requestContextMiddleware(req: Request, res: Response, next: NextFunctio
 export const app = express();
 
 app.use(cors(buildCorsOptions()));
+// API-only hardening: block browser execution contexts and keep Express internals hidden.
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'none'"],
+      },
+    },
+  }),
+);
 
 // Parse JSON bodies; capture raw body for webhook signature verification
 app.use(
