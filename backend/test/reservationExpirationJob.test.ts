@@ -162,7 +162,7 @@ describe("expireStaleReservations", () => {
       deadlineDays: 30, labels: [],
     });
     store.reserveBounty(bounty.id, CONTRIBUTOR);
-    store.submitBounty(bounty.id, CONTRIBUTOR, "https://github.com/pr/1");
+    store.submitBounty(bounty.id, CONTRIBUTOR, "https://github.com/test/repo/pull/1");
 
     const { expireStaleReservations } = await loadJob();
     const result = expireStaleReservations(0); // TTL 0 would expire anything reserved

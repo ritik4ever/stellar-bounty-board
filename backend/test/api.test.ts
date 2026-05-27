@@ -169,6 +169,72 @@ describe("API — bounty lifecycle routes", () => {
     expect(logs.body.pagination.total).toBe(3);
   });
 
+  it("rejects a submission URL from a different GitHub repo", async () => {
+    const app = await getApp();
+    const { body: created } = await request(app).post("/api/bounties").send(validCreateBody).expect(201);
+    const id = created.data.id as string;
+
+    await request(app)
+      .post(`/api/bounties/${id}/reserve`)
+      .send({ contributor: CONTRIBUTOR })
+      .expect(200);
+
+    const res = await request(app)
+      .post(`/api/bounties/${id}/submit`)
+      .send({
+        contributor: CONTRIBUTOR,
+        submissionUrl: "https://github.com/other-owner/other-repo/pull/1",
+      })
+      .expect(400);
+
+    expect(res.body.error).toContain("owner/repo-name");
+  });
+
+  it("rejects a non-GitHub submission URL", async () => {
+    const app = await getApp();
+    const { body: created } = await request(app).post("/api/bounties").send(validCreateBody).expect(201);
+    const id = created.data.id as string;
+
+    await request(app)
+      .post(`/api/bounties/${id}/reserve`)
+      .send({ contributor: CONTRIBUTOR })
+      .expect(200);
+
+    const res = await request(app)
+      .post(`/api/bounties/${id}/submit`)
+      .send({
+        contributor: CONTRIBUTOR,
+        submissionUrl: "https://gitlab.com/owner/repo-name/-/merge_requests/1",
+      })
+      .expect(400);
+
+    expect(res.body.error).toMatch(/github\.com/i);
+  });
+
+  it("accepts a matching private-style GitHub repo URL", async () => {
+    const app = await getApp();
+    const { body: created } = await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, repo: "private-owner/private-repo", issueNumber: 100 })
+      .expect(201);
+    const id = created.data.id as string;
+
+    await request(app)
+      .post(`/api/bounties/${id}/reserve`)
+      .send({ contributor: CONTRIBUTOR })
+      .expect(200);
+
+    const res = await request(app)
+      .post(`/api/bounties/${id}/submit`)
+      .send({
+        contributor: CONTRIBUTOR,
+        submissionUrl: "https://github.com/private-owner/private-repo/pull/7",
+      })
+      .expect(200);
+
+    expect(res.body.data.submissionUrl).toBe("https://github.com/private-owner/private-repo/pull/7");
+  });
+
   it("GET /api/bounties/:id/audit-logs supports pagination", async () => {
     const app = await getApp();
     const { body: created } = await request(app).post("/api/bounties").send(validCreateBody).expect(201);
@@ -319,7 +385,7 @@ describe("GET /api/leaderboard", () => {
     await request(app).post(`/api/bounties/${id}/reserve`).send({ contributor: CONTRIBUTOR }).expect(200);
     await request(app)
       .post(`/api/bounties/${id}/submit`)
-      .send({ contributor: CONTRIBUTOR, submissionUrl: "https://github.com/owner/repo/pull/1" })
+      .send({ contributor: CONTRIBUTOR, submissionUrl: "https://github.com/owner/repo-name/pull/1" })
       .expect(200);
     await request(app).post(`/api/bounties/${id}/release`).send({ maintainer: MAINTAINER }).expect(200);
 
@@ -341,7 +407,7 @@ describe("GET /api/leaderboard", () => {
       await request(app).post(`/api/bounties/${id}/reserve`).send({ contributor: CONTRIBUTOR }).expect(200);
       await request(app)
         .post(`/api/bounties/${id}/submit`)
-        .send({ contributor: CONTRIBUTOR, submissionUrl: `https://github.com/owner/repo/pull/${i + 1}` })
+        .send({ contributor: CONTRIBUTOR, submissionUrl: `https://github.com/owner/repo-name/pull/${i + 1}` })
         .expect(200);
       await request(app).post(`/api/bounties/${id}/release`).send({ maintainer: MAINTAINER }).expect(200);
     }
@@ -358,14 +424,14 @@ describe("GET /api/leaderboard", () => {
     // CONTRIBUTOR gets one bounty released
     const { body: c1 } = await request(app).post("/api/bounties").send(validCreateBody).expect(201);
     await request(app).post(`/api/bounties/${c1.data.id}/reserve`).send({ contributor: CONTRIBUTOR }).expect(200);
-    await request(app).post(`/api/bounties/${c1.data.id}/submit`).send({ contributor: CONTRIBUTOR, submissionUrl: "https://github.com/o/r/pull/1" }).expect(200);
+    await request(app).post(`/api/bounties/${c1.data.id}/submit`).send({ contributor: CONTRIBUTOR, submissionUrl: "https://github.com/owner/repo-name/pull/1" }).expect(200);
     await request(app).post(`/api/bounties/${c1.data.id}/release`).send({ maintainer: MAINTAINER }).expect(200);
 
     // OTHER_ACCOUNT gets two bounties released (more XLM)
     for (let i = 0; i < 2; i++) {
       const { body: c2 } = await request(app).post("/api/bounties").send(validCreateBody).expect(201);
       await request(app).post(`/api/bounties/${c2.data.id}/reserve`).send({ contributor: OTHER_ACCOUNT }).expect(200);
-      await request(app).post(`/api/bounties/${c2.data.id}/submit`).send({ contributor: OTHER_ACCOUNT, submissionUrl: `https://github.com/o/r/pull/${i + 10}` }).expect(200);
+      await request(app).post(`/api/bounties/${c2.data.id}/submit`).send({ contributor: OTHER_ACCOUNT, submissionUrl: `https://github.com/owner/repo-name/pull/${i + 10}` }).expect(200);
       await request(app).post(`/api/bounties/${c2.data.id}/release`).send({ maintainer: MAINTAINER }).expect(200);
     }
 
@@ -380,7 +446,7 @@ describe("GET /api/leaderboard", () => {
     const id = created.data.id as string;
 
     await request(app).post(`/api/bounties/${id}/reserve`).send({ contributor: CONTRIBUTOR }).expect(200);
-    await request(app).post(`/api/bounties/${id}/submit`).send({ contributor: CONTRIBUTOR, submissionUrl: "https://github.com/o/r/pull/1" }).expect(200);
+    await request(app).post(`/api/bounties/${id}/submit`).send({ contributor: CONTRIBUTOR, submissionUrl: "https://github.com/owner/repo-name/pull/1" }).expect(200);
     await request(app).post(`/api/bounties/${id}/release`).send({ maintainer: MAINTAINER }).expect(200);
 
     const res = await request(app).get("/api/leaderboard").expect(200);
