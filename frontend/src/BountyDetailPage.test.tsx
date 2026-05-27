@@ -64,6 +64,48 @@ function renderDetail(detailBounty: Bounty = bounty) {
 
 afterEach(() => {
   vi.useRealTimers();
+  document.head.querySelectorAll("meta[property^='og:'], meta[name='twitter:card']").forEach((meta) => meta.remove());
+  document.title = "";
+});
+
+describe("BountyDetailPage social metadata", () => {
+  it("sets Open Graph and Twitter tags when bounty data loads", () => {
+    render(
+      <BountyDetailPage
+        {...detailProps(bounty)}
+        avatarUrl="https://example.com/avatar.png"
+      />,
+    );
+
+    expect(document.title).toBe("Copy button test bounty | Stellar Bounty Board");
+    expect(document.head.querySelector('meta[property="og:title"]')).toHaveAttribute("content", bounty.title);
+    expect(document.head.querySelector('meta[property="og:description"]')).toHaveAttribute(
+      "content",
+      "Make important identifiers easy to copy. - 150 XLM bounty",
+    );
+    expect(document.head.querySelector('meta[property="og:url"]')).toHaveAttribute("content", window.location.href);
+    expect(document.head.querySelector('meta[property="og:image"]')).toHaveAttribute("content", "https://example.com/avatar.png");
+    expect(document.head.querySelector('meta[name="twitter:card"]')).toHaveAttribute("content", "summary_large_image");
+  });
+
+  it("updates social tags when a different bounty is rendered", () => {
+    const { rerender } = renderDetail();
+    const updatedBounty: Bounty = {
+      ...bounty,
+      title: "Fresh security bounty",
+      summary: "Patch a critical edge case.",
+      amount: 250,
+      tokenSymbol: "USDC",
+    };
+
+    rerender(<BountyDetailPage {...detailProps(updatedBounty)} />);
+
+    expect(document.head.querySelector('meta[property="og:title"]')).toHaveAttribute("content", updatedBounty.title);
+    expect(document.head.querySelector('meta[property="og:description"]')).toHaveAttribute(
+      "content",
+      "Patch a critical edge case. - 250 USDC bounty",
+    );
+  });
 });
 
 describe("BountyDetailPage copy actions", () => {

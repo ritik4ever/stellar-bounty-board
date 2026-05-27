@@ -73,6 +73,36 @@ const EVENT_LABELS: Record<string, string> = {
   expired: "Bounty expired",
 };
 
+function upsertMetaTag(selector: string, attributes: Record<string, string>) {
+  let element = document.head.querySelector<HTMLMetaElement>(selector);
+
+  if (!element) {
+    element = document.createElement("meta");
+    document.head.appendChild(element);
+  }
+
+  Object.entries(attributes).forEach(([name, value]) => {
+    element.setAttribute(name, value);
+  });
+}
+
+function useBountySocialMeta(bounty: Bounty | null, avatarUrl: string) {
+  useEffect(() => {
+    if (!bounty) return;
+
+    const canonicalUrl = window.location.href;
+    const imageUrl = avatarUrl || new URL("/og-image.png", window.location.origin).toString();
+    const description = `${bounty.summary} - ${bounty.amount} ${bounty.tokenSymbol} bounty`;
+
+    document.title = `${bounty.title} | Stellar Bounty Board`;
+    upsertMetaTag('meta[property="og:title"]', { property: "og:title", content: bounty.title });
+    upsertMetaTag('meta[property="og:description"]', { property: "og:description", content: description });
+    upsertMetaTag('meta[property="og:url"]', { property: "og:url", content: canonicalUrl });
+    upsertMetaTag('meta[property="og:image"]', { property: "og:image", content: imageUrl });
+    upsertMetaTag('meta[name="twitter:card"]', { name: "twitter:card", content: "summary_large_image" });
+  }, [avatarUrl, bounty]);
+}
+
 function BountyTimeline({ events, formatTimestamp }: { events: BountyEvent[]; formatTimestamp: (v?: number) => string }) {
   if (!events || events.length === 0) return null;
 
@@ -118,6 +148,7 @@ export default function BountyDetailPage({
   formatTimestamp,
 }: Props) {
   const statusAnnouncement = useBountyStatusAnnouncement(bounty, statusCopy);
+  useBountySocialMeta(bounty, avatarUrl);
 
   function handlePrint() {
     window.print();
