@@ -478,6 +478,89 @@ describe("bountyStore — event history and metrics", () => {
     expect(metrics.uniqueMaintainers).toBeGreaterThan(0);
   });
 
+  it("computeMetrics returns cached metrics and invalidates on writes", async () => {
+    const { computeMetrics, createBounty, reserveBounty, submitBounty, releaseBounty } = await loadStore();
+
+    const first = await createBounty({
+      repo: "acme/widget",
+      issueNumber: 1,
+      title: "Fix the widget spinner",
+      summary: "Ensure the loading state does not flash when latency is high for users.",
+      maintainer: MAINTAINER,
+      tokenSymbol: "usdc",
+      amount: 100,
+      deadlineDays: 14,
+      labels: [],
+    });
+
+    await createBounty({
+      repo: "acme/widget",
+      issueNumber: 2,
+      title: "Add dark mode",
+      summary: "Implement dark mode support for the widget component.",
+      maintainer: MAINTAINER,
+      tokenSymbol: "usdc",
+      amount: 50,
+      deadlineDays: 14,
+      labels: [],
+    });
+
+    await createBounty({
+      repo: "acme/api",
+      issueNumber: 3,
+      title: "Document the API client",
+      summary: "Add usage examples for the public bounty board API client.",
+      maintainer: OTHER_ACCOUNT,
+      tokenSymbol: "xlm",
+      amount: 25,
+      deadlineDays: 14,
+      labels: [],
+    });
+
+    await reserveBounty(first.id, CONTRIBUTOR);
+    await submitBounty(first.id, CONTRIBUTOR, "https://github.com/acme/widget/pull/1");
+    await releaseBounty(first.id, MAINTAINER, "a".repeat(64));
+
+    const metrics = computeMetrics();
+    expect(computeMetrics()).toBe(metrics);
+    expect(metrics.global).toMatchObject({
+      totalBounties: 3,
+      openCount: 2,
+      releasedCount: 1,
+      totalFunded: 175,
+      totalReleased: 100,
+      uniqueMaintainers: 2,
+      uniqueContributors: 1,
+    });
+    expect(metrics.leaderboard).toEqual([{ address: CONTRIBUTOR, totalXlm: 100, bountiesCompleted: 1 }]);
+
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(Date.now() + 31_000);
+      expect(computeMetrics()).not.toBe(metrics);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const refreshedMetrics = computeMetrics();
+    await createBounty({
+      repo: "acme/widget",
+      issueNumber: 4,
+      title: "Improve onboarding copy",
+      summary: "Clarify the first-run onboarding copy for maintainers.",
+      maintainer: MAINTAINER,
+      tokenSymbol: "xlm",
+      amount: 10,
+      deadlineDays: 14,
+      labels: [],
+    });
+
+    const updatedMetrics = computeMetrics();
+    expect(updatedMetrics).not.toBe(refreshedMetrics);
+    expect(updatedMetrics.global.totalBounties).toBe(4);
+    expect(updatedMetrics.global.totalFunded).toBe(185);
+  });
+
   it("race condition prevention: version mismatch on reserve", async () => {
     const { createBounty, reserveBounty } = await loadStore();
 

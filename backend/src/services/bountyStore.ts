@@ -189,6 +189,7 @@ function readStore(): BountyRecord[] {
 
 function writeStore(records: BountyRecord[]): void {
   fs.writeFileSync(getStorePath(), JSON.stringify(records, null, 2));
+  invalidateMetricsCache();
 }
 
 function readAuditStore(): BountyAuditLogRecord[] {
@@ -685,57 +686,94 @@ export interface GlobalMetrics {
   uniqueContributors: number;
 }
 
-export function getGlobalMetrics(): GlobalMetrics {
-  const bounties = listBounties();
-  const totalFunded = bounties.reduce((sum, b) => sum + b.amount, 0);
-  const released = bounties.filter((b) => b.status === "released");
-  const totalReleased = released.reduce((sum, b) => sum + b.amount, 0);
-  const uniqueMaintainers = new Set(bounties.map((b) => b.maintainer)).size;
-  const uniqueContributors = new Set(
-    bounties.filter((b) => b.contributor).map((b) => b.contributor as string),
-  ).size;
-  return {
-    totalBounties: bounties.length,
-    openCount: bounties.filter((b) => b.status === "open").length,
-    reservedCount: bounties.filter((b) => b.status === "reserved").length,
-    submittedCount: bounties.filter((b) => b.status === "submitted").length,
-    releasedCount: released.length,
-    refundedCount: bounties.filter((b) => b.status === "refunded").length,
-    expiredCount: bounties.filter((b) => b.status === "expired").length,
-    totalFunded,
-    totalReleased,
-    uniqueMaintainers,
-    uniqueContributors,
-  };
-}
-
-
 export interface LeaderboardEntry {
   address: string;
   totalXlm: number;
   bountiesCompleted: number;
 }
 
-export function getLeaderboard(limit = 10): LeaderboardEntry[] {
-  const entries = new Map<string, LeaderboardEntry>();
+export interface ComputedMetrics {
+  global: GlobalMetrics;
+  leaderboard: LeaderboardEntry[];
+}
 
-  for (const bounty of listBounties()) {
-    if (bounty.status !== "released" || !bounty.contributor) {
-      continue;
-    }
+const METRICS_CACHE_TTL_MS = 30_000;
+let cachedMetrics: { computedAt: number; value: ComputedMetrics } | null = null;
 
-    const entry = entries.get(bounty.contributor) ?? {
-      address: bounty.contributor,
-      totalXlm: 0,
-      bountiesCompleted: 0,
-    };
+function invalidateMetricsCache(): void {
+  cachedMetrics = null;
+}
 
-    entry.totalXlm += bounty.amount;
-    entry.bountiesCompleted += 1;
-    entries.set(bounty.contributor, entry);
+export function computeMetrics(): ComputedMetrics {
+  const now = Date.now();
+  if (cachedMetrics && now - cachedMetrics.computedAt < METRICS_CACHE_TTL_MS) {
+    return cachedMetrics.value;
   }
 
-  return Array.from(entries.values())
-    .sort((a, b) => b.totalXlm - a.totalXlm || b.bountiesCompleted - a.bountiesCompleted)
-    .slice(0, limit);
+  const bounties = listBounties();
+  const maintainers = new Set<string>();
+  const contributors = new Set<string>();
+  const leaderboardEntries = new Map<string, LeaderboardEntry>();
+  const global: GlobalMetrics = {
+    totalBounties: bounties.length,
+    openCount: 0,
+    reservedCount: 0,
+    submittedCount: 0,
+    releasedCount: 0,
+    refundedCount: 0,
+    expiredCount: 0,
+    totalFunded: 0,
+    totalReleased: 0,
+    uniqueMaintainers: 0,
+    uniqueContributors: 0,
+  };
+
+  for (const bounty of bounties) {
+    global.totalFunded += bounty.amount;
+    maintainers.add(bounty.maintainer);
+
+    if (bounty.status === "open") global.openCount += 1;
+    if (bounty.status === "reserved") global.reservedCount += 1;
+    if (bounty.status === "submitted") global.submittedCount += 1;
+    if (bounty.status === "released") global.releasedCount += 1;
+    if (bounty.status === "refunded") global.refundedCount += 1;
+    if (bounty.status === "expired") global.expiredCount += 1;
+
+    if (bounty.contributor) {
+      contributors.add(bounty.contributor);
+    }
+
+    if (bounty.status === "released" && bounty.contributor) {
+      global.totalReleased += bounty.amount;
+      const entry = leaderboardEntries.get(bounty.contributor) ?? {
+        address: bounty.contributor,
+        totalXlm: 0,
+        bountiesCompleted: 0,
+      };
+      entry.totalXlm += bounty.amount;
+      entry.bountiesCompleted += 1;
+      leaderboardEntries.set(bounty.contributor, entry);
+    }
+  }
+
+  global.uniqueMaintainers = maintainers.size;
+  global.uniqueContributors = contributors.size;
+
+  const value = {
+    global,
+    leaderboard: Array.from(leaderboardEntries.values()).sort(
+      (a, b) => b.totalXlm - a.totalXlm || b.bountiesCompleted - a.bountiesCompleted,
+    ),
+  };
+  cachedMetrics = { computedAt: now, value };
+  return value;
+}
+
+
+export function getGlobalMetrics(): GlobalMetrics {
+  return computeMetrics().global;
+}
+
+export function getLeaderboard(limit = 10): LeaderboardEntry[] {
+  return computeMetrics().leaderboard.slice(0, limit);
 }
