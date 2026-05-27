@@ -3,11 +3,13 @@
 This project is intentionally scoped as an MVP with obvious upgrade paths.
 
 If you want to seed good open-source work quickly:
+
 1. Pick one of the drafts in `docs/issues`.
 2. Open it as a GitHub issue with the suggested labels.
 3. Tag whether it is `good first issue`, `enhancement`, or `help wanted`.
 
 High-value contribution areas:
+
 - Wallet-authenticated payout flow
 - GitHub App or webhook integration
 - Soroban event indexing
@@ -29,26 +31,28 @@ We follow the [Conventional Commits](https://www.conventionalcommits.org/) stand
 ```
 
 **Rules:**
+
 - Keep `<subject>` under 50 characters, lowercase, no period
 - Use imperative mood ("add" not "added")
 - The `(<scope>)` is optional but recommended for clarity
 
 ### Commit Types
 
-| Type | Purpose | Example |
-|------|---------|---------|
-| `feat` | New feature | `feat(frontend): add wallet connection UI` |
-| `fix` | Bug fix | `fix(backend): correct bounty status transition logic` |
-| `docs` | Documentation only | `docs(CONTRIBUTING): add commit message guide` |
-| `test` | Test additions or fixes | `test(contract): add escrow release scenarios` |
-| `refactor` | Code refactoring (no behavior change) | `refactor(backend): extract validation to schema` |
-| `chore` | Tooling, dependencies, build scripts | `chore(deps): update Express to 4.18` |
-| `perf` | Performance improvements | `perf(frontend): memoize bounty list rendering` |
-| `ci` | CI/CD pipeline changes | `ci: add GitHub Actions workflow` |
+| Type       | Purpose                               | Example                                                |
+| ---------- | ------------------------------------- | ------------------------------------------------------ |
+| `feat`     | New feature                           | `feat(frontend): add wallet connection UI`             |
+| `fix`      | Bug fix                               | `fix(backend): correct bounty status transition logic` |
+| `docs`     | Documentation only                    | `docs(CONTRIBUTING): add commit message guide`         |
+| `test`     | Test additions or fixes               | `test(contract): add escrow release scenarios`         |
+| `refactor` | Code refactoring (no behavior change) | `refactor(backend): extract validation to schema`      |
+| `chore`    | Tooling, dependencies, build scripts  | `chore(deps): update Express to 4.18`                  |
+| `perf`     | Performance improvements              | `perf(frontend): memoize bounty list rendering`        |
+| `ci`       | CI/CD pipeline changes                | `ci: add GitHub Actions workflow`                      |
 
 ### Examples
 
 **Good:**
+
 ```
 feat(contract): implement release_bounty escrow transfer
 
@@ -60,9 +64,54 @@ Closes #42
 ```
 
 **Also good (for simple changes):**
+
 ```
 fix(api): reject negative bounty amounts
 ```
+
+## Testing
+
+Add or update tests with the smallest scope that proves the behavior you changed. Unit tests should cover pure helpers, validation rules, and status transitions. Integration tests should cover API routes, service interactions, and persistence behavior. End-to-end tests should be reserved for complete user journeys that need the frontend, backend, and browser together.
+
+### Running Tests
+
+From the repository root:
+
+```bash
+npm test
+```
+
+This runs the backend Vitest suite through the root `test` script. To keep the full workspace healthy, also run the frontend or package-specific commands when your change touches those areas.
+
+To run a single backend test file:
+
+```bash
+npx --prefix backend vitest run test/bountyStore.test.ts
+```
+
+To run tests in watch mode from the repository root:
+
+```bash
+npm run test:watch
+```
+
+To generate a coverage report:
+
+```bash
+npm run test:coverage
+```
+
+Vitest prints a summary in the terminal and writes the HTML report under `backend/coverage/`. Open `backend/coverage/index.html` to inspect uncovered lines and branches. Treat low or missing coverage on code you changed as a signal to add targeted tests before opening a PR.
+
+### Writing Tests
+
+- Put backend tests under `backend/test/` and keep file names close to the code under test.
+- Reuse shared fixtures from `backend/test/fixtures.ts` for common bounty, submission, user, and repository data.
+- Add new fixtures only when several tests need the same setup. Keep one-off values inside the test so the scenario stays readable.
+- Prefer deterministic dates, IDs, and amounts. Avoid depending on the current clock unless the behavior being tested is time-sensitive.
+- Cover success and failure paths for validation, state transitions, and API responses.
+
+Use unit tests for utilities such as date helpers, amount formatting, and schema validation. Use integration tests when a route or service needs to prove request handling, storage updates, or cross-module behavior. Use end-to-end tests only when the user-facing flow cannot be verified confidently at a lower level.
 
 ## Pull Request Checklist
 
