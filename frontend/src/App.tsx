@@ -23,6 +23,7 @@ import {
   X,
   ArrowUpDown,
 } from "lucide-react";
+import { toast } from 'sonner';
 import {
   createBounty,
   exportReleasedPayoutsCsv,
@@ -759,8 +760,11 @@ function App() {
       setError(null);
       await reserveBounty(bounty.id, contributor.trim());
       await refresh();
+      toast.success('Bounty reserved successfully!');
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to reserve bounty.");
+      const message = err instanceof Error ? err.message : 'Failed to reserve bounty.';
+      setError(message);
+      toast.error(message);
     }
   }
 
@@ -788,8 +792,11 @@ function App() {
       setSubmissionModalBounty(null);
       setSubmissionModalData(undefined);
       await refresh();
+      toast.success('PR submitted successfully!');
     } catch (err) {
-      setSubmissionModalError(err instanceof Error ? err.message : "Failed to submit bounty.");
+      const message = err instanceof Error ? err.message : 'Failed to submit bounty.';
+      setSubmissionModalError(message);
+      toast.error(message);
     } finally {
       setSubmissionModalSubmitting(false);
     }
@@ -808,8 +815,11 @@ function App() {
       setError(null);
       await releaseBounty(bounty.id, maintainer.trim(), transactionHash || undefined);
       await refresh();
+      toast.success('Bounty released — payment sent!');
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to release bounty.");
+      const message = err instanceof Error ? err.message : 'Failed to release bounty.';
+      setError(message);
+      toast.error(message);
     }
   }
 
@@ -826,8 +836,11 @@ function App() {
       setError(null);
       await refundBounty(bounty.id, maintainer.trim(), transactionHash || undefined);
       await refresh();
+      toast.success('Bounty refunded successfully!');
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to refund bounty.");
+      const message = err instanceof Error ? err.message : 'Failed to refund bounty.';
+      setError(message);
+      toast.error(message);
     }
   }
 
