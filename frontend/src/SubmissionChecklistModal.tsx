@@ -5,7 +5,9 @@ import type { Bounty } from "./types";
 export interface SubmissionFormData {
   contributor: string;
   prLink: string;
-  testsWritten: boolean;
+  issueLinked: boolean;
+  descriptionExplainsChanges: boolean;
+  ciChecksPass: boolean;
   notes: string;
 }
 
@@ -42,7 +44,11 @@ export default function SubmissionChecklistModal({
 }: Props) {
   const [contributor, setContributor] = useState(initialData?.contributor ?? bounty.contributor ?? "");
   const [prLink, setPrLink] = useState(initialData?.prLink ?? "");
-  const [testsWritten, setTestsWritten] = useState(initialData?.testsWritten ?? false);
+  const [issueLinked, setIssueLinked] = useState(initialData?.issueLinked ?? false);
+  const [descriptionExplainsChanges, setDescriptionExplainsChanges] = useState(
+    initialData?.descriptionExplainsChanges ?? false,
+  );
+  const [ciChecksPass, setCiChecksPass] = useState(initialData?.ciChecksPass ?? false);
   const [notes, setNotes] = useState(initialData?.notes ?? "");
   const [touched, setTouched] = useState({ contributor: false, prLink: false });
 
@@ -83,15 +89,19 @@ export default function SubmissionChecklistModal({
     STELLAR_PUBLIC_KEY_REGEX.test(contributor.trim()) &&
     prLink.trim() !== "" &&
     validateUrl(prLink) === null;
+  const isChecklistComplete = issueLinked && descriptionExplainsChanges && ciChecksPass;
+  const canSubmit = isValid && isChecklistComplete && !submitting;
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setTouched({ contributor: true, prLink: true });
-    if (!isValid) return;
+    if (!canSubmit) return;
     onSubmit({
       contributor: contributor.trim(),
       prLink: prLink.trim(),
-      testsWritten,
+      issueLinked,
+      descriptionExplainsChanges,
+      ciChecksPass,
       notes: notes.trim(),
     });
   }
@@ -175,30 +185,30 @@ export default function SubmissionChecklistModal({
             <legend>Pre-submission checklist</legend>
 
             <ChecklistItem
-              id="check-tests"
-              checked={testsWritten}
-              onChange={setTestsWritten}
+              id="check-linked"
+              checked={issueLinked}
+              onChange={setIssueLinked}
               disabled={submitting}
-              label="Tests written or updated"
-              hint="Unit or integration tests cover the changes"
+              label="PR is linked to the correct issue"
+              hint={`Issue #${bounty.issueNumber} in ${bounty.repo}`}
             />
 
             <ChecklistItem
               id="check-pr-desc"
-              checked={true}
-              onChange={() => {}}
-              disabled={true}
+              checked={descriptionExplainsChanges}
+              onChange={setDescriptionExplainsChanges}
+              disabled={submitting}
               label="PR description explains the changes"
               hint="Your PR has a clear title and description"
             />
 
             <ChecklistItem
-              id="check-linked"
-              checked={true}
-              onChange={() => {}}
-              disabled={true}
-              label="PR is linked to this issue"
-              hint={`Issue #${bounty.issueNumber} in ${bounty.repo}`}
+              id="check-ci"
+              checked={ciChecksPass}
+              onChange={setCiChecksPass}
+              disabled={submitting}
+              label="All CI checks pass"
+              hint="The latest PR checks are green"
             />
           </fieldset>
 
@@ -226,7 +236,7 @@ export default function SubmissionChecklistModal({
             <button
               type="submit"
               className="primary-button"
-              disabled={submitting}
+              disabled={!canSubmit}
             >
               {submitting ? "Submitting..." : "Submit work"}
             </button>
