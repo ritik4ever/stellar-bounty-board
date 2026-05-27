@@ -67,6 +67,24 @@ describe("API — bounty lifecycle routes", () => {
     expect(listRes.body.data.some((b: { id: string }) => b.id === id)).toBe(true);
   });
 
+  it("POST routes require application/json content type", async () => {
+    const app = await getApp();
+
+    await request(app).post("/api/bounties").send(validCreateBody).expect(201);
+
+    const missing = await request(app).post("/api/bounties").expect(415);
+    expect(missing.body).toEqual({ error: "Content-Type must be application/json" });
+
+    const wrong = await request(app)
+      .post("/api/bounties")
+      .set("Content-Type", "text/plain")
+      .send(JSON.stringify(validCreateBody))
+      .expect(415);
+    expect(wrong.body).toEqual({ error: "Content-Type must be application/json" });
+
+    await request(app).get("/api/bounties").set("Content-Type", "text/plain").expect(200);
+  });
+
   it("POST create with invalid body returns 400", async () => {
     const app = await getApp();
     const res = await request(app)
