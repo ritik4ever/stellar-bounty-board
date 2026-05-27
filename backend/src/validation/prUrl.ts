@@ -4,7 +4,12 @@ const GITHUB_PR_URL_REGEX = /^https:\/\/github\.com\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9
 
 export function extractGitHubPrRepo(submissionUrl: string): string | null {
   try {
-    const parsedUrl = new URL(submissionUrl.trim());
+    const normalizedUrl = submissionUrl.trim();
+    if (!GITHUB_PR_URL_REGEX.test(normalizedUrl)) {
+      return null;
+    }
+
+    const parsedUrl = new URL(normalizedUrl);
     if (parsedUrl.hostname !== "github.com") {
       return null;
     }
@@ -15,6 +20,14 @@ export function extractGitHubPrRepo(submissionUrl: string): string | null {
     }
 
     if (!/^\d+$/.test(number)) {
+      return null;
+    }
+
+    if (
+      parsedUrl.search !== "" ||
+      parsedUrl.hash !== "" ||
+      parsedUrl.pathname !== `/${owner}/${repo}/pull/${number}`
+    ) {
       return null;
     }
 
