@@ -297,6 +297,44 @@ const BountyCard = memo(function BountyCard({ bounty, onOpen, renderActionButton
   );
 }, bountyCardPropsEqual);
 
+
+const BOUNTY_BATCH_SIZE = 50;
+
+function useVisibleBountyCount(total: number, resetKey: string): number {
+  const [visibleCount, setVisibleCount] = useState(BOUNTY_BATCH_SIZE);
+
+  useEffect(() => {
+    setVisibleCount(BOUNTY_BATCH_SIZE);
+  }, [resetKey]);
+
+  useEffect(() => {
+    if (visibleCount >= total) return;
+
+    let cancelled = false;
+    const loadMore = () => {
+      if (!cancelled) {
+        setVisibleCount((current) => Math.min(current + BOUNTY_BATCH_SIZE, total));
+      }
+    };
+
+    if (typeof window.requestIdleCallback === "function") {
+      const id = window.requestIdleCallback(loadMore);
+      return () => {
+        cancelled = true;
+        window.cancelIdleCallback(id);
+      };
+    }
+
+    const id = window.setTimeout(loadMore, 16);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(id);
+    };
+  }, [total, visibleCount]);
+
+  return Math.min(visibleCount, total);
+}
+
 function App() {
   const { dark, toggle: toggleDark } = useDarkMode();
   const initialFilters = useMemo(() => readInitialFilters(), []);
@@ -631,19 +669,34 @@ function App() {
     return sortBounties(filtered, { option: sortOption, direction: sortDirection });
   }, [bounties, debouncedSearchQuery, statusFilter, minReward, maxReward, repoFilter, repoRoute, sortOption, sortDirection]);
 
+  const boardResetKey = useMemo(() => JSON.stringify({
+    searchQuery: debouncedSearchQuery,
+    statusFilter,
+    minReward,
+    maxReward,
+    repoFilter: repoRoute ? `${repoRoute.owner}/${repoRoute.name}` : repoFilter,
+    sortOption,
+    sortDirection,
+  }), [debouncedSearchQuery, statusFilter, minReward, maxReward, repoFilter, repoRoute, sortOption, sortDirection]);
+  const visibleBountyCount = useVisibleBountyCount(filteredBounties.length, boardResetKey);
+  const visibleBounties = useMemo(
+    () => filteredBounties.slice(0, visibleBountyCount),
+    [filteredBounties, visibleBountyCount],
+  );
+
   const groupedBounties = useMemo(() => {
     if (repoRoute) {
-      return { [repoRoute.owner + '/' + repoRoute.name]: filteredBounties };
+      return { [repoRoute.owner + '/' + repoRoute.name]: visibleBounties };
     }
-    const groups: Record<string, typeof filteredBounties> = {};
-    filteredBounties.forEach((bounty) => {
+    const groups: Record<string, typeof visibleBounties> = {};
+    visibleBounties.forEach((bounty) => {
       if (!groups[bounty.repo]) {
         groups[bounty.repo] = [];
       }
       groups[bounty.repo].push(bounty);
     });
     return groups;
-  }, [filteredBounties, repoRoute]);
+  }, [visibleBounties, repoRoute]);
 
   if (detailId) {
     const bounty = detailBounty;
@@ -1217,7 +1270,7 @@ placeholder="help wanted, backend"
                     >
                       {repo}
                     </h3>
-                    <span className="repo-count">{repoBounties.length} bounties</span>
+                    <span className="repo-count">{repoBounties.length} shown</span>
                   </div>
                   <div className="repo-group__metrics">
                     <div className="repo-metric">
@@ -1243,8 +1296,13 @@ placeholder="help wanted, backend"
                       />
                     ))}
                   </div>
-            </div>
-          ))}
+                </div>
+              ))}
+              {visibleBountyCount < filteredBounties.length && (
+                <p className="board-progress" role="status">
+                  Showing {visibleBountyCount} of {filteredBounties.length} bounties. More cards load automatically during idle time.
+                </p>
+              )}
             </div>
           ) : (
             <div className="empty-state">
