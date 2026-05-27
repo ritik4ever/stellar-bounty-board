@@ -54,6 +54,15 @@ describe("API — health and listing", () => {
     const res = await request(app).get("/api/open-issues").expect(200);
     expect(res.body).toHaveProperty("data");
   });
+
+  it("GET /api/stats returns global metrics", async () => {
+    const app = await getApp();
+    await request(app).post("/api/bounties").send(validCreateBody).expect(201);
+
+    const res = await request(app).get("/api/stats").expect(200);
+    expect(res.body.data.totalBounties).toBe(1);
+    expect(res.body.data.totalFunded).toBe(validCreateBody.amount);
+  });
 });
 
 describe("API — bounty lifecycle routes", () => {
