@@ -81,10 +81,23 @@ registry.registerPath({
   tags: ["Bounties"],
   summary: "List all bounties",
   description:
-    "Returns every bounty record sorted by creation date (newest first). " +
+    "Returns every bounty record sorted by creation date (newest first) unless `sort` and `order` are provided. " +
     "Bounties whose deadline has passed are automatically transitioned to `expired` before the list is returned.",
+  request: {
+    query: z.object({
+      sort: z.enum(["amount", "deadline", "createdAt"]).optional().openapi({
+        example: "createdAt",
+        description: "Field used to sort the returned bounties.",
+      }),
+      order: z.enum(["asc", "desc"]).optional().openapi({
+        example: "desc",
+        description: "Sort direction. Defaults to descending.",
+      }),
+    }),
+  },
   responses: {
     200: jsonResponse("Array of all bounty records.", z.object({ data: z.array(bountyRecordSchema) })),
+    400: errorResponse("Sort field or order is invalid."),
   },
 });
 

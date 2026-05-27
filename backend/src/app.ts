@@ -6,6 +6,7 @@ import { buildCorsOptions } from "./middleware/corsOptions";
 import { generateOpenApiDocument } from "./docs/openapi";
 
 import {
+  type BountySortField,
   createBounty,
   listBountyAuditLogs,
   listBounties,
@@ -36,6 +37,8 @@ import {
 import { handleGitHubPrEvent } from "./webhooks/githubPrHandler";
 
 const INCOMING_REQUEST_ID = /^[a-zA-Z0-9-]{1,128}$/;
+const BOUNTY_SORT_FIELDS = new Set<BountySortField>(["amount", "deadline", "createdAt"]);
+const SORT_ORDERS = new Set(["asc", "desc"]);
 
 
 
@@ -120,6 +123,26 @@ function parsePaginationValue(
   return parsed;
 }
 
+function parseBountySort(raw: unknown): BountySortField | undefined {
+  if (raw === undefined || raw === null || raw === "") {
+    return undefined;
+  }
+  if (typeof raw !== "string" || !BOUNTY_SORT_FIELDS.has(raw as BountySortField)) {
+    throw new Error("sort must be one of: amount, deadline, createdAt.");
+  }
+  return raw as BountySortField;
+}
+
+function parseSortOrder(raw: unknown): "asc" | "desc" | undefined {
+  if (raw === undefined || raw === null || raw === "") {
+    return undefined;
+  }
+  if (typeof raw !== "string" || !SORT_ORDERS.has(raw)) {
+    throw new Error("order must be either asc or desc.");
+  }
+  return raw as "asc" | "desc";
+}
+
 function jsonError(res: Response, req: Request, statusCode: number, message: string) {
   res.status(statusCode).json({ error: message, requestId: req.requestId });
 }
@@ -155,8 +178,14 @@ app.get("/worker/health", (_req: Request, res: Response) => {
 });
 
 app.get("/api/bounties", (req: Request, res: Response) => {
-  const q = typeof req.query.q === "string" ? req.query.q : undefined;
-  res.json({ data: listBounties({ q }) });
+  try {
+    const q = typeof req.query.q === "string" ? req.query.q : undefined;
+    const sort = parseBountySort(req.query.sort);
+    const order = parseSortOrder(req.query.order);
+    res.json({ data: listBounties({ q, sort, order }) });
+  } catch (error) {
+    sendError(res, req, error);
+  }
 });
 
 app.get("/api/leaderboard", (_req: Request, res: Response) => {

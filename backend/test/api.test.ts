@@ -35,6 +35,39 @@ async function getApp() {
   return app;
 }
 
+async function createSortableBounties(app: Awaited<ReturnType<typeof getApp>>) {
+  vi.useFakeTimers();
+  try {
+    vi.setSystemTime(new Date("2030-01-01T00:00:00Z"));
+    await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, issueNumber: 101, title: "Amount Low", amount: 25, deadlineDays: 30 })
+      .expect(201);
+
+    vi.setSystemTime(new Date("2030-01-02T00:00:00Z"));
+    await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, issueNumber: 102, title: "Amount High", amount: 150, deadlineDays: 10 })
+      .expect(201);
+
+    vi.setSystemTime(new Date("2030-01-03T00:00:00Z"));
+    await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, issueNumber: 103, title: "Amount Mid", amount: 75, deadlineDays: 20 })
+      .expect(201);
+  } finally {
+    vi.useRealTimers();
+  }
+}
+
+async function listTitles(app: Awaited<ReturnType<typeof getApp>>, sort?: string, order?: string): Promise<string[]> {
+  const query: Record<string, string> = {};
+  if (sort) query.sort = sort;
+  if (order) query.order = order;
+  const res = await request(app).get("/api/bounties").query(query).expect(200);
+  return res.body.data.map((bounty: { title: string }) => bounty.title);
+}
+
 describe("API — health and listing", () => {
   it("GET /api/health returns ok", async () => {
     const app = await getApp();
@@ -47,6 +80,25 @@ describe("API — health and listing", () => {
     const app = await getApp();
     const res = await request(app).get("/api/bounties").expect(200);
     expect(Array.isArray(res.body.data)).toBe(true);
+  });
+
+  it("GET /api/bounties sorts by supported fields in both directions", async () => {
+    const app = await getApp();
+    await createSortableBounties(app);
+
+    await expect(listTitles(app)).resolves.toEqual(["Amount Mid", "Amount High", "Amount Low"]);
+    await expect(listTitles(app, "createdAt", "asc")).resolves.toEqual(["Amount Low", "Amount High", "Amount Mid"]);
+    await expect(listTitles(app, "createdAt", "desc")).resolves.toEqual(["Amount Mid", "Amount High", "Amount Low"]);
+    await expect(listTitles(app, "amount", "asc")).resolves.toEqual(["Amount Low", "Amount Mid", "Amount High"]);
+    await expect(listTitles(app, "amount", "desc")).resolves.toEqual(["Amount High", "Amount Mid", "Amount Low"]);
+    await expect(listTitles(app, "deadline", "asc")).resolves.toEqual(["Amount High", "Amount Mid", "Amount Low"]);
+    await expect(listTitles(app, "deadline", "desc")).resolves.toEqual(["Amount Low", "Amount Mid", "Amount High"]);
+  });
+
+  it("GET /api/bounties rejects invalid sort fields", async () => {
+    const app = await getApp();
+    const res = await request(app).get("/api/bounties").query({ sort: "status" }).expect(400);
+    expect(res.body.error).toMatch(/sort/i);
   });
 
   it("GET /api/open-issues returns data", async () => {

@@ -347,11 +347,31 @@ function persistUpdated(records: BountyRecord[], updated: BountyRecord): BountyR
 export interface ListBountiesOptions {
   /** Case-insensitive substring filter applied to title, summary, and labels. */
   q?: string;
+  sort?: BountySortField;
+  order?: SortOrder;
+}
+
+export type BountySortField = "amount" | "deadline" | "createdAt";
+export type SortOrder = "asc" | "desc";
+
+function compareBounties(a: BountyRecord, b: BountyRecord, sort: BountySortField): number {
+  if (sort === "amount") {
+    return a.amount - b.amount;
+  }
+  if (sort === "deadline") {
+    return a.deadlineAt - b.deadlineAt;
+  }
+  return a.createdAt - b.createdAt;
 }
 
 export function listBounties(options: ListBountiesOptions = {}): BountyRecord[] {
   const records = normalizeRecords(readStore());
-  let sorted = [...records].sort((a, b) => b.createdAt - a.createdAt);
+  const sort = options.sort ?? "createdAt";
+  const direction = options.order === "asc" ? 1 : -1;
+  let sorted = [...records].sort((a, b) => {
+    const primary = compareBounties(a, b, sort) * direction;
+    return primary || b.createdAt - a.createdAt || a.id.localeCompare(b.id);
+  });
 
   const q = options.q?.trim().toLowerCase();
   if (q) {
