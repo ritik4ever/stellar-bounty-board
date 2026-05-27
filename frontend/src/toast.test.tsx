@@ -2,7 +2,6 @@ import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { toast } from 'sonner';
 
 vi.mock('sonner', () => ({
   toast: {
@@ -11,6 +10,8 @@ vi.mock('sonner', () => ({
   },
   Toaster: () => null,
 }));
+
+import { toast } from 'sonner';
 
 vi.mock('./api', () => ({
   reserveBounty: vi.fn(),
