@@ -39,7 +39,19 @@ import SubmissionChecklistModal, { type SubmissionFormData } from "./SubmissionC
 import { BountyRecommendation, ContributorProfile, createDefaultProfile, generateRecommendations, updateProfileFromBounties } from "./recommendations";
 import RecommendedBounties from "./RecommendedBounties";
 import { statusCopy, actionCopy, readInitialFilters, FilterState, statusOptions, statusGlossary, sortOptions } from "./constants";
-import { filterBounties, getRewardBounds, getActiveRewardLabel, getContributorMetrics, getUniqueRepos, getRepoMetrics, sortBounties, debounce, SortOption, SortState, xlmToUsd } from "./utils";
+import {
+  filterBounties,
+  getRewardBounds,
+  getActiveRewardLabel,
+  getContributorMetrics,
+  getUniqueRepos,
+  getRepoMetrics,
+  sortBounties,
+  debounce,
+  SortOption,
+  SortState,
+} from "./utils";
+import { xlmToUsd } from "./xlmUsd";
 import { Bounty, CreateBountyPayload, OpenIssue, BountyStatus } from "./types";
 
 import GitHubIssuePreviewCard from "./GitHubIssuePreviewCard";
