@@ -76,6 +76,15 @@ describe("API — bounty lifecycle routes", () => {
     expect(res.body.error).toBeDefined();
   });
 
+  it("POST create rejects repo values that look like URLs", async () => {
+    const app = await getApp();
+    const res = await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, repo: "https://127.0.0.1/private/repo" })
+      .expect(400);
+    expect(res.body.error).toMatch(/repo/i);
+  });
+
   it("POST create with amount below 1 XLM returns 400", async () => {
     const app = await getApp();
     const res = await request(app)
@@ -264,6 +273,34 @@ describe("API — bounty lifecycle routes", () => {
       .send({ maintainer: MAINTAINER })
       .expect(400);
     expect(res.body.error).toMatch(/submitted/i);
+  });
+
+  it("POST submit rejects private IP submission URLs", async () => {
+    const app = await getApp();
+    const { body: created } = await request(app).post("/api/bounties").send(validCreateBody).expect(201);
+    const id = created.data.id as string;
+
+    await request(app).post(`/api/bounties/${id}/reserve`).send({ contributor: CONTRIBUTOR }).expect(200);
+
+    const res = await request(app)
+      .post(`/api/bounties/${id}/submit`)
+      .send({ contributor: CONTRIBUTOR, submissionUrl: "https://127.0.0.1/owner/repo/pull/1" })
+      .expect(400);
+    expect(res.body.error).toMatch(/Submission URL/i);
+  });
+
+  it("POST submit rejects data URI submission URLs", async () => {
+    const app = await getApp();
+    const { body: created } = await request(app).post("/api/bounties").send(validCreateBody).expect(201);
+    const id = created.data.id as string;
+
+    await request(app).post(`/api/bounties/${id}/reserve`).send({ contributor: CONTRIBUTOR }).expect(200);
+
+    const res = await request(app)
+      .post(`/api/bounties/${id}/submit`)
+      .send({ contributor: CONTRIBUTOR, submissionUrl: "data:text/plain,https://github.com/owner/repo/pull/1" })
+      .expect(400);
+    expect(res.body.error).toMatch(/Submission URL/i);
   });
 
   it("wrong maintainer on release returns 400", async () => {
