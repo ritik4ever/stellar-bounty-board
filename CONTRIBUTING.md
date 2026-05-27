@@ -3,11 +3,13 @@
 This project is intentionally scoped as an MVP with obvious upgrade paths.
 
 If you want to seed good open-source work quickly:
+
 1. Pick one of the drafts in `docs/issues`.
 2. Open it as a GitHub issue with the suggested labels.
 3. Tag whether it is `good first issue`, `enhancement`, or `help wanted`.
 
 High-value contribution areas:
+
 - Wallet-authenticated payout flow
 - GitHub App or webhook integration
 - Soroban event indexing
@@ -29,26 +31,28 @@ We follow the [Conventional Commits](https://www.conventionalcommits.org/) stand
 ```
 
 **Rules:**
+
 - Keep `<subject>` under 50 characters, lowercase, no period
 - Use imperative mood ("add" not "added")
 - The `(<scope>)` is optional but recommended for clarity
 
 ### Commit Types
 
-| Type | Purpose | Example |
-|------|---------|---------|
-| `feat` | New feature | `feat(frontend): add wallet connection UI` |
-| `fix` | Bug fix | `fix(backend): correct bounty status transition logic` |
-| `docs` | Documentation only | `docs(CONTRIBUTING): add commit message guide` |
-| `test` | Test additions or fixes | `test(contract): add escrow release scenarios` |
-| `refactor` | Code refactoring (no behavior change) | `refactor(backend): extract validation to schema` |
-| `chore` | Tooling, dependencies, build scripts | `chore(deps): update Express to 4.18` |
-| `perf` | Performance improvements | `perf(frontend): memoize bounty list rendering` |
-| `ci` | CI/CD pipeline changes | `ci: add GitHub Actions workflow` |
+| Type       | Purpose                               | Example                                                |
+| ---------- | ------------------------------------- | ------------------------------------------------------ |
+| `feat`     | New feature                           | `feat(frontend): add wallet connection UI`             |
+| `fix`      | Bug fix                               | `fix(backend): correct bounty status transition logic` |
+| `docs`     | Documentation only                    | `docs(CONTRIBUTING): add commit message guide`         |
+| `test`     | Test additions or fixes               | `test(contract): add escrow release scenarios`         |
+| `refactor` | Code refactoring (no behavior change) | `refactor(backend): extract validation to schema`      |
+| `chore`    | Tooling, dependencies, build scripts  | `chore(deps): update Express to 4.18`                  |
+| `perf`     | Performance improvements              | `perf(frontend): memoize bounty list rendering`        |
+| `ci`       | CI/CD pipeline changes                | `ci: add GitHub Actions workflow`                      |
 
 ### Examples
 
 **Good:**
+
 ```
 feat(contract): implement release_bounty escrow transfer
 
@@ -60,6 +64,7 @@ Closes #42
 ```
 
 **Also good (for simple changes):**
+
 ```
 fix(api): reject negative bounty amounts
 ```
@@ -87,6 +92,28 @@ Before submitting a PR, verify:
   - What changed and why
   - How to test/verify the change
   - Link to related issue(s): `Closes #<issue-number>`
+
+## Pre-commit Hooks
+
+The root `prepare` script runs `husky install`, so hooks are installed after `npm install` at the repository root.
+
+The pre-commit hook runs `npx lint-staged`, which applies the following checks to staged files:
+
+- Frontend `.ts` and `.tsx` files: `npm exec --prefix frontend -- tsc --noEmit -p frontend/tsconfig.json`, then ESLint and Prettier.
+- Backend `.ts` files: `npm exec --prefix backend -- tsc --noEmit -p backend/tsconfig.json`, then ESLint and Prettier.
+- JSON, Markdown, YAML, JavaScript, Rust, and Solidity files: the formatter configured in `lint-staged.config.mjs`.
+
+To verify locally on Linux, macOS, or Windows via WSL2:
+
+```bash
+npm install
+npm --prefix frontend install
+npm --prefix backend install
+git add <changed-files>
+npx lint-staged
+```
+
+If a staged TypeScript file fails type-checking, ESLint, or Prettier, the commit is blocked until the failing check passes.
 
 ## Getting Help
 
