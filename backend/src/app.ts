@@ -363,6 +363,13 @@ app.get("/api/bounties/:id", (req: Request, res: Response) => {
       jsonError(res, req, 404, "Bounty not found.");
       return;
     }
+    const etag = `"${bounty.version}"`;
+    res.setHeader("ETag", etag);
+    res.setHeader("Cache-Control", "max-age=5");
+    if (req.headers["if-none-match"] === etag) {
+      res.status(304).end();
+      return;
+    }
     res.json({ data: bounty });
   } catch (error) {
     sendError(res, req, error, 400);
