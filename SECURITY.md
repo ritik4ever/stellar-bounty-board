@@ -115,6 +115,16 @@ tab of the repository.
 
 ---
 
+## Authentication Design
+
+Maintainer wallet authorization is documented in
+[ADR 0002: Stellar Signature Authentication for Maintainer Actions](docs/adr/0002-stellar-signature-auth.md).
+The ADR explains why Stellar signatures are used instead of JWTs for payout authority, how
+verification works, how replay protection should be applied, and how `MAINTAINER_PUBLIC_KEYS`
+supports multi-key deployments.
+
+---
+
 ## Scope
 
 The following are **in scope** for responsible disclosure:
