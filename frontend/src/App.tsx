@@ -308,6 +308,7 @@ function App() {
   const [submitting, setSubmitting] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [initialLoadError, setInitialLoadError] = useState<string | null>(null);
 
   const [searchQuery, setSearchQuery] = useState(initialFilters.searchQuery);
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(initialFilters.searchQuery);
@@ -346,7 +347,7 @@ function App() {
   }, [detailId]);
 
 
-  async function refresh(signal?: AbortSignal): Promise<void> {
+  const refresh = useCallback(async (signal?: AbortSignal): Promise<void> => {
     const [bountyData, issueData] = await Promise.all([
       listBounties(signal),
       listOpenIssues(signal),
@@ -361,26 +362,32 @@ function App() {
         setDetailBounty(refreshedDetailBounty);
       }
     }
-  }
+  }, []);
+
+  const loadInitialData = useCallback(async (signal?: AbortSignal): Promise<void> => {
+    setLoading(true);
+    setError(null);
+    setInitialLoadError(null);
+
+    try {
+      await refresh(signal);
+    } catch (err) {
+      if (signal?.aborted) return;
+      const message = err instanceof Error ? err.message : "Failed to load project data.";
+      setError(message);
+      setInitialLoadError(message);
+    } finally {
+      if (!signal?.aborted) {
+        setLoading(false);
+      }
+    }
+  }, [refresh]);
 
   useEffect(() => {
     const controller = new AbortController();
     const { signal } = controller;
 
-    async function bootstrap() {
-      try {
-        await refresh(signal);
-      } catch (err) {
-        if (signal.aborted) return; // component unmounted — ignore
-        setError(err instanceof Error ? err.message : "Failed to load project data.");
-      } finally {
-        if (!signal.aborted) {
-          setLoading(false);
-        }
-      }
-    }
-
-    void bootstrap();
+    void loadInitialData(signal);
 
     const timer = window.setInterval(() => {
       const pollController = new AbortController();
@@ -395,7 +402,7 @@ function App() {
       controller.abort();
       window.clearInterval(timer);
     };
-  }, []);
+  }, [loadInitialData, refresh]);
 
   useEffect(() => {
     if (pathname.startsWith("/bounties/") || pathname.startsWith("/repo/")) return;
@@ -861,7 +868,20 @@ function App() {
             </article>
           </section>
 
-          {error && <div className="error-banner">{error}</div>}
+          {initialLoadError && (
+            <div className="error-banner" role="alert">
+              <span>{initialLoadError}</span>
+              <button className="ghost-button" type="button" onClick={() => void loadInitialData()}>
+                Try again
+              </button>
+            </div>
+          )}
+
+          {error && !initialLoadError && (
+            <div className="error-banner" role="alert">
+              <span>{error}</span>
+            </div>
+          )}
 
           {profileContributor && (
             <RecommendedBounties
@@ -1151,8 +1171,8 @@ function App() {
               </section>
 
               {loading ? (
-                <div className="board-list">
-                  {Array.from({ length: 3 }).map((_, i) => (
+                <div className="board-list" aria-busy="true" data-testid="bounty-skeleton-list">
+                  {Array.from({ length: 6 }).map((_, i) => (
                     <SkeletonBountyCard key={i} />
                   ))}
                 </div>

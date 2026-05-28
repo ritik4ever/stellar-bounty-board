@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { toast } from 'sonner';
+import type { Bounty } from './types';
 
 vi.mock('sonner', () => ({
   toast: {
@@ -26,14 +27,13 @@ vi.mock('./api', () => ({
 import * as api from './api';
 import App from './App';
 
-const baseBounty = {
+const baseBounty: Omit<Bounty, 'status'> = {
   id: 'BNTY-1',
   repo: 'ritik4ever/stellar-bounty-board',
   issueNumber: 1,
   title: 'Test bounty',
   summary: 'Summary',
   maintainer: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
-  contributor: null,
   tokenSymbol: 'XLM',
   amount: 100,
   labels: [],
@@ -42,6 +42,14 @@ const baseBounty = {
   version: 1,
   events: [],
 };
+
+function bountyWith(overrides: Partial<Bounty> = {}): Bounty {
+  return {
+    ...baseBounty,
+    status: 'open',
+    ...overrides,
+  };
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -53,9 +61,11 @@ beforeEach(() => {
 describe('Toast notifications for async bounty actions', () => {
 
   it('shows success toast when bounty is reserved', async () => {
-    vi.mocked(api.listBounties).mockResolvedValue([{ ...baseBounty, status: 'open' }]);
+    vi.mocked(api.listBounties).mockResolvedValue([bountyWith()]);
     vi.mocked(window.prompt).mockReturnValue('GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF');
-    vi.mocked(api.reserveBounty).mockResolvedValue(undefined);
+    vi.mocked(api.reserveBounty).mockResolvedValue(
+      bountyWith({ status: 'reserved', contributor: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF' }),
+    );
 
     render(<App />);
     await waitFor(() => expect(screen.getByText('Test bounty')).toBeInTheDocument());
@@ -67,7 +77,7 @@ describe('Toast notifications for async bounty actions', () => {
   });
 
   it('shows error toast when reserve fails', async () => {
-    vi.mocked(api.listBounties).mockResolvedValue([{ ...baseBounty, status: 'open' }]);
+    vi.mocked(api.listBounties).mockResolvedValue([bountyWith()]);
     vi.mocked(window.prompt).mockReturnValue('GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF');
     vi.mocked(api.reserveBounty).mockRejectedValue(new Error('Network error'));
 
@@ -81,7 +91,7 @@ describe('Toast notifications for async bounty actions', () => {
   });
 
   it('shows error toast with Freighter rejection message', async () => {
-    vi.mocked(api.listBounties).mockResolvedValue([{ ...baseBounty, status: 'open' }]);
+    vi.mocked(api.listBounties).mockResolvedValue([bountyWith()]);
     vi.mocked(window.prompt).mockReturnValue('GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF');
     vi.mocked(api.reserveBounty).mockRejectedValue(new Error('User declined access'));
 
@@ -95,15 +105,16 @@ describe('Toast notifications for async bounty actions', () => {
   });
 
   it('shows success toast when bounty is released', async () => {
-    vi.mocked(api.listBounties).mockResolvedValue([{
-      ...baseBounty,
+    vi.mocked(api.listBounties).mockResolvedValue([bountyWith({
       status: 'submitted',
       contributor: 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGKCEL9LGAQLHFLQ2GN7SY',
-    }]);
+    })]);
     vi.mocked(window.prompt)
       .mockReturnValueOnce('GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF')
       .mockReturnValueOnce('');
-    vi.mocked(api.releaseBounty).mockResolvedValue(undefined);
+    vi.mocked(api.releaseBounty).mockResolvedValue(
+      bountyWith({ status: 'released', contributor: 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGKCEL9LGAQLHFLQ2GN7SY' }),
+    );
 
     render(<App />);
     await waitFor(() => expect(screen.getByText('Test bounty')).toBeInTheDocument());
@@ -115,11 +126,10 @@ describe('Toast notifications for async bounty actions', () => {
   });
 
   it('shows error toast when release fails', async () => {
-    vi.mocked(api.listBounties).mockResolvedValue([{
-      ...baseBounty,
+    vi.mocked(api.listBounties).mockResolvedValue([bountyWith({
       status: 'submitted',
       contributor: 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGKCEL9LGAQLHFLQ2GN7SY',
-    }]);
+    })]);
     vi.mocked(window.prompt)
       .mockReturnValueOnce('GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF')
       .mockReturnValueOnce('');
@@ -135,15 +145,16 @@ describe('Toast notifications for async bounty actions', () => {
   });
 
   it('shows success toast when bounty is refunded', async () => {
-    vi.mocked(api.listBounties).mockResolvedValue([{
-      ...baseBounty,
+    vi.mocked(api.listBounties).mockResolvedValue([bountyWith({
       status: 'submitted',
       contributor: 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGKCEL9LGAQLHFLQ2GN7SY',
-    }]);
+    })]);
     vi.mocked(window.prompt)
       .mockReturnValueOnce('GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF')
       .mockReturnValueOnce('');
-    vi.mocked(api.refundBounty).mockResolvedValue(undefined);
+    vi.mocked(api.refundBounty).mockResolvedValue(
+      bountyWith({ status: 'refunded', contributor: 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGKCEL9LGAQLHFLQ2GN7SY' }),
+    );
 
     render(<App />);
     await waitFor(() => expect(screen.getByText('Test bounty')).toBeInTheDocument());
@@ -155,11 +166,10 @@ describe('Toast notifications for async bounty actions', () => {
   });
 
   it('shows error toast when refund fails', async () => {
-    vi.mocked(api.listBounties).mockResolvedValue([{
-      ...baseBounty,
+    vi.mocked(api.listBounties).mockResolvedValue([bountyWith({
       status: 'submitted',
       contributor: 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGKCEL9LGAQLHFLQ2GN7SY',
-    }]);
+    })]);
     vi.mocked(window.prompt)
       .mockReturnValueOnce('GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF')
       .mockReturnValueOnce('');
