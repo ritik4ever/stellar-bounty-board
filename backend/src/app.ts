@@ -160,7 +160,8 @@ app.get("/worker/health", (_req: Request, res: Response) => {
 
 app.get("/api/bounties", async (req: Request, res: Response) => {
   const q = typeof req.query.q === "string" ? req.query.q : undefined;
-  res.json({ data: await listBountiesCached({ q }) });
+  const maintainer = typeof req.query.maintainer === "string" ? req.query.maintainer : undefined;
+  res.json({ data: await listBountiesCached({ q, maintainer }) });
 });
 
 app.get("/api/leaderboard", (_req: Request, res: Response) => {
