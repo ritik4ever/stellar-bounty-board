@@ -7,8 +7,10 @@ import { generateOpenApiDocument } from "./docs/openapi";
 
 import {
   createBounty,
+  disputeBounty,
   listBountyAuditLogs,
   listBounties,
+  resolveDisputeBounty,
   refundBounty,
   releaseBounty,
   reserveBounty,
@@ -22,11 +24,14 @@ import { listOpenIssues } from "./services/openIssues";
 import {
   bountyIdSchema,
   createBountySchema,
+  disputeBountySchema,
   maintainerActionSchema,
   reserveBountySchema,
+  resolveDisputeSchema,
   submitBountySchema,
   zodErrorMessage,
 } from "./validation/schemas";
+import { createStellarSignatureAuthMiddleware } from "./middleware/auth";
 import { logStructured } from "./logger";
 import { limiter } from "./utils";
 import {
@@ -86,6 +91,17 @@ app.use(requestContextMiddleware);
 
 const swaggerDoc = generateOpenApiDocument();
 app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerDoc));
+
+const maintainerSignatureAuth = createStellarSignatureAuthMiddleware();
+const contributorSignatureAuth = createStellarSignatureAuthMiddleware({
+  bodyPublicKeyField: "contributor",
+  requireConfiguredPublicKey: false,
+});
+const arbiterSignatureAuth = createStellarSignatureAuthMiddleware({
+  allowedPublicKeyEnv: "ARBITER_ADDRESS",
+  allowedPublicKeysEnv: "ARBITER_ADDRESSES",
+  bodyPublicKeyField: "arbiter",
+});
 
 function parseId(raw: string | string[] | undefined): string {
   return bountyIdSchema.parse(Array.isArray(raw) ? raw[0] : raw);
@@ -281,7 +297,46 @@ app.post("/api/bounties/:id/submit", limiter, async (req: Request, res: Response
   }
 });
 
-app.post("/api/bounties/:id/release", limiter, async (req: Request, res: Response) => {
+app.post("/api/bounties/:id/dispute", limiter, contributorSignatureAuth, async (req: Request, res: Response) => {
+  const parsedBody = disputeBountySchema.safeParse(req.body);
+  if (!parsedBody.success) {
+    jsonError(res, req, 400, zodErrorMessage(parsedBody.error));
+    return;
+  }
+
+  try {
+    const bounty = await disputeBounty(
+      parseId(req.params.id),
+      parsedBody.data.contributor,
+      parsedBody.data.reason,
+    );
+    res.json({ data: bounty });
+  } catch (error) {
+    sendError(res, req, error);
+  }
+});
+
+app.post("/api/bounties/:id/resolve-dispute", limiter, arbiterSignatureAuth, async (req: Request, res: Response) => {
+  const parsedBody = resolveDisputeSchema.safeParse(req.body);
+  if (!parsedBody.success) {
+    jsonError(res, req, 400, zodErrorMessage(parsedBody.error));
+    return;
+  }
+
+  try {
+    const bounty = await resolveDisputeBounty(
+      parseId(req.params.id),
+      parsedBody.data.arbiter,
+      parsedBody.data.release,
+      parsedBody.data.resolution_notes,
+    );
+    res.json({ data: bounty });
+  } catch (error) {
+    sendError(res, req, error);
+  }
+});
+
+app.post("/api/bounties/:id/release", limiter, maintainerSignatureAuth, async (req: Request, res: Response) => {
   const parsedBody = maintainerActionSchema.safeParse(req.body);
   if (!parsedBody.success) {
     jsonError(res, req, 400, zodErrorMessage(parsedBody.error));
@@ -300,7 +355,7 @@ app.post("/api/bounties/:id/release", limiter, async (req: Request, res: Respons
   }
 });
 
-app.post("/api/bounties/:id/refund", limiter, async (req: Request, res: Response) => {
+app.post("/api/bounties/:id/refund", limiter, maintainerSignatureAuth, async (req: Request, res: Response) => {
   const parsedBody = maintainerActionSchema.safeParse(req.body);
   if (!parsedBody.success) {
     jsonError(res, req, 400, zodErrorMessage(parsedBody.error));

@@ -13,6 +13,8 @@ const SOROBAN_ADDRESS_REGEX = /^C[A-Z2-7]{55}$/;
 
 const STELLAR_EXAMPLE = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 const TX_HASH_REGEX = /^[0-9a-fA-F]{64}$/;
+const MAX_BOUNTY_AMOUNT = 10000;
+const STELLAR_DECIMAL_PLACES = 7;
 
 export const bountyIdSchema = z
   .string()
@@ -30,6 +32,11 @@ const stellarAccountSchema = z
     example: STELLAR_EXAMPLE,
     description: "A valid Stellar public key (starts with G, 56 characters, checksum verified).",
   });
+
+function hasAtMostSevenDecimalPlaces(value: number): boolean {
+  const scaled = value * 10 ** STELLAR_DECIMAL_PLACES;
+  return Math.abs(scaled - Math.round(scaled)) < 1e-6;
+}
 
 /** Soroban contract address (C... format) */
 const sorobanAddressSchema = z
@@ -76,7 +83,10 @@ export const createBountySchema = z
       .openapi({ example: "XLM", description: "Stellar token symbol for payout (1–12 alphanumeric chars)." }),
     amount: z.coerce
       .number()
-      .min(1, "Amount must be at least 1 XLM."),
+      .finite("Amount must be a finite number.")
+      .min(1, "Amount must be at least 1 XLM.")
+      .max(MAX_BOUNTY_AMOUNT, "Amount cannot exceed 10000 XLM.")
+      .refine(hasAtMostSevenDecimalPlaces, "Amount can have at most 7 decimal places."),
 
     deadlineDays: z.coerce
       .number()
@@ -124,6 +134,10 @@ export const submitBountySchema = z
     contributor: stellarAccountSchema.openapi({
       description: "Must match the contributor who reserved the bounty.",
     }),
+    submissionUrl: githubPrUrlSchema.openapi({
+      example: "https://github.com/owner/repo-name/pull/1",
+      description: "GitHub pull request URL containing the submitted work.",
+    }),
 
     notes: z
       .string()
@@ -151,6 +165,45 @@ export const maintainerActionSchema = z
   })
   .openapi("MaintainerActionRequest");
 
+export const disputeBountySchema = z
+  .object({
+    contributor: stellarAccountSchema.openapi({
+      description: "Must match the contributor who submitted the bounty.",
+    }),
+    reason: z
+      .string()
+      .trim()
+      .min(10, "Dispute reason must be at least 10 characters.")
+      .max(500, "Dispute reason cannot exceed 500 characters.")
+      .openapi({
+        example: "Submitted work meets the acceptance criteria but payment was not released.",
+        description: "Contributor explanation for opening a dispute.",
+      }),
+  })
+  .openapi("DisputeBountyRequest");
+
+export const resolveDisputeSchema = z
+  .object({
+    arbiter: stellarAccountSchema.openapi({
+      description: "Must match the configured arbiter address.",
+    }),
+    release: z.boolean().openapi({
+      example: true,
+      description: "When true, release the bounty to the contributor; when false, refund it.",
+    }),
+    resolution_notes: z
+      .string()
+      .trim()
+      .min(5, "Resolution notes must be at least 5 characters.")
+      .max(500, "Resolution notes cannot exceed 500 characters.")
+      .optional()
+      .openapi({
+        example: "Evidence confirms the submitted pull request satisfies the bounty requirements.",
+        description: "Optional arbiter notes explaining the dispute resolution decision.",
+      }),
+  })
+  .openapi("ResolveDisputeRequest");
+
 // ---------------------------------------------------------------------------
 // Shared response schemas
 // ---------------------------------------------------------------------------
@@ -174,12 +227,16 @@ export const bountyRecordSchema = z
     amount: z.number().openapi({ example: 100 }),
     labels: z.array(z.string()).openapi({ example: ["bug", "help wanted"] }),
     status: z
-      .enum(["open", "reserved", "submitted", "released", "refunded", "expired"])
+      .enum(["open", "reserved", "submitted", "disputed", "released", "refunded", "expired"])
       .openapi({ example: "open" }),
     createdAt: z.number().openapi({ example: 1710000000, description: "Unix timestamp (seconds)." }),
     deadlineAt: z.number().openapi({ example: 1911000000, description: "Unix timestamp (seconds)." }),
     reservedAt: z.number().optional().openapi({ example: 1710003600 }),
     submittedAt: z.number().optional(),
+    disputedAt: z.number().optional(),
+    disputeReason: z.string().optional(),
+    arbiter: z.string().optional().openapi({ example: STELLAR_EXAMPLE }),
+    resolutionNotes: z.string().optional(),
     releasedAt: z.number().optional(),
     releasedTxHash: z.string().optional().openapi({ example: "0".repeat(64) }),
     refundedAt: z.number().optional(),
@@ -206,12 +263,12 @@ export const bountyAuditLogSchema = z
     id: z.string().openapi({ example: "AUD-000001" }),
     bountyId: z.string().openapi({ example: "BNT-0001" }),
     fromStatus: z
-      .enum(["open", "reserved", "submitted", "released", "refunded", "expired"])
+      .enum(["open", "reserved", "submitted", "disputed", "released", "refunded", "expired"])
       .openapi({ example: "open" }),
     toStatus: z
-      .enum(["open", "reserved", "submitted", "released", "refunded", "expired"])
+      .enum(["open", "reserved", "submitted", "disputed", "released", "refunded", "expired"])
       .openapi({ example: "reserved" }),
-    transition: z.enum(["reserve", "submit", "release", "refund", "expire"]).openapi({ example: "reserve" }),
+    transition: z.enum(["reserve", "submit", "dispute", "release", "refund", "expire"]).openapi({ example: "reserve" }),
     actor: z.string().openapi({ example: STELLAR_EXAMPLE }),
     timestamp: z.number().openapi({ example: 1710003600, description: "Unix timestamp (seconds)." }),
     metadata: z.record(auditLogMetadataValueSchema).optional().openapi({

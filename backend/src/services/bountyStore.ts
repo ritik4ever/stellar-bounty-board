@@ -7,16 +7,17 @@ export type BountyStatus =
   | "open"
   | "reserved"
   | "submitted"
+  | "disputed"
   | "released"
   | "refunded"
   | "expired";
 
-export type BountyTransitionType = "reserve" | "submit" | "release" | "refund" | "expire";
+export type BountyTransitionType = "reserve" | "submit" | "dispute" | "release" | "refund" | "expire";
 
 export type AuditMetadataValue = string | number | boolean | null;
 
 export interface BountyEvent {
-  type: "created" | "reserved" | "submitted" | "released" | "refunded" | "expired";
+  type: "created" | "reserved" | "submitted" | "disputed" | "released" | "refunded" | "expired";
   timestamp: number;
   actor?: string;
   details?: Record<string, unknown>;
@@ -49,6 +50,10 @@ export interface BountyRecord {
   deadlineAt: number;
   reservedAt?: number;
   submittedAt?: number;
+  disputedAt?: number;
+  disputeReason?: string;
+  arbiter?: string;
+  resolutionNotes?: string;
   releasedAt?: number;
   releasedTxHash?: string;
   refundedAt?: number;
@@ -366,6 +371,68 @@ export function listBounties(options: ListBountiesOptions = {}): BountyRecord[] 
   return sorted;
 }
 
+export function expireStaleReservations(ttlSeconds = 7 * 24 * 60 * 60): number {
+  const now = nowInSeconds();
+  const records = readStore();
+  const staleIds = new Set(
+    records
+      .filter(
+        (record) =>
+          record.status === "reserved" &&
+          typeof record.reservedAt === "number" &&
+          now - record.reservedAt > ttlSeconds,
+      )
+      .map((record) => record.id),
+  );
+
+  if (staleIds.size === 0) {
+    return 0;
+  }
+
+  const auditEntries: CreateAuditLogInput[] = [];
+  const updated = records.map((record) => {
+    if (!staleIds.has(record.id)) {
+      return record;
+    }
+
+    auditEntries.push({
+      bountyId: record.id,
+      fromStatus: record.status,
+      toStatus: "open",
+      transition: "expire",
+      actor: "system",
+      timestamp: now,
+      metadata: {
+        reason: "reservation_ttl_exceeded",
+        ttlSeconds,
+      },
+    });
+
+    return {
+      ...record,
+      status: "open" as const,
+      contributor: undefined,
+      reservedAt: undefined,
+      version: (record.version ?? 1) + 1,
+      events: [
+        ...(record.events ?? [{ type: "created" as const, timestamp: record.createdAt }]),
+        {
+          type: "expired" as const,
+          timestamp: now,
+          details: {
+            reason: "reservation_ttl_exceeded",
+            ttlSeconds,
+          },
+        },
+      ],
+    };
+  });
+
+  writeStore(updated);
+  appendAuditLogs(auditEntries);
+  return staleIds.size;
+}
+
 let globalLock: Promise<void> = Promise.resolve();
 
 async function withGlobalLock<T>(fn: () => T | Promise<T>): Promise<T> {
@@ -394,7 +461,7 @@ export async function createBounty(input: CreateBountyInput): Promise<BountyReco
       summary: input.summary,
       maintainer: input.maintainer,
       tokenSymbol: input.tokenSymbol.toUpperCase(),
-      amount: Number(input.amount.toFixed(2)),
+      amount: Number(input.amount.toFixed(7)),
       labels: input.labels,
       status: "open",
       createdAt,
@@ -505,6 +572,160 @@ export async function submitBounty(
         },
       },
     ]);
+    return persisted;
+  });
+}
+
+export async function disputeBounty(
+  id: string,
+  contributor: string,
+  reason: string,
+): Promise<BountyRecord> {
+  return withGlobalLock(() => {
+    const records = listBounties();
+    const bounty = findBounty(records, id);
+
+    if (bounty.status !== "submitted") {
+      throw new Error("Only submitted bounties can be disputed.");
+    }
+    if (bounty.contributor !== contributor) {
+      throw new Error("Only the submitting contributor can dispute this bounty.");
+    }
+
+    const now = nowInSeconds();
+    const trimmedReason = reason.trim();
+    const arbiter = process.env.ARBITER_ADDRESS?.trim();
+    const updated: BountyRecord = {
+      ...bounty,
+      status: "disputed",
+      disputedAt: now,
+      disputeReason: trimmedReason,
+      arbiter: arbiter || bounty.arbiter,
+      version: bounty.version + 1,
+      events: [
+        ...bounty.events,
+        {
+          type: "disputed",
+          timestamp: now,
+          actor: contributor,
+          details: { reason: trimmedReason },
+        },
+      ],
+    };
+
+    const persisted = persistUpdated(records, updated);
+    appendAuditLogs([
+      {
+        bountyId: id,
+        fromStatus: bounty.status,
+        toStatus: "disputed",
+        transition: "dispute",
+        actor: contributor,
+        metadata: {
+          reason: trimmedReason,
+          arbiter: updated.arbiter,
+        },
+      },
+    ]);
+
+    const recipients: NotificationRecipient[] = [{ role: "maintainer", address: bounty.maintainer }];
+    if (arbiter) {
+      recipients.push({ role: "arbiter", address: arbiter });
+    }
+    sendNotification(recipients, "bounty_disputed", {
+      bountyId: persisted.id,
+      repo: persisted.repo,
+      issueNumber: persisted.issueNumber,
+      contributor,
+      arbiter,
+      reason: trimmedReason,
+      status: persisted.status,
+    }).catch((err) => console.warn("[disputeBounty] Notification failed (non-blocking):", err));
+
+    return persisted;
+  });
+}
+
+export async function resolveDisputeBounty(
+  id: string,
+  arbiter: string,
+  release: boolean,
+  resolutionNotes?: string,
+  transactionHash?: string,
+): Promise<BountyRecord> {
+  return withGlobalLock(() => {
+    const expectedArbiter = process.env.ARBITER_ADDRESS?.trim();
+    if (!expectedArbiter) {
+      throw new Error("Arbiter address configuration is missing.");
+    }
+    if (arbiter !== expectedArbiter) {
+      throw new Error("Arbiter address does not match the configured arbiter.");
+    }
+
+    const records = listBounties();
+    const bounty = findBounty(records, id);
+    if (bounty.status !== "disputed") {
+      throw new Error("Only disputed bounties can be resolved.");
+    }
+
+    const now = nowInSeconds();
+    const trimmedNotes = resolutionNotes?.trim();
+    const toStatus: BountyStatus = release ? "released" : "refunded";
+    const transition: BountyTransitionType = release ? "release" : "refund";
+    const updated: BountyRecord = {
+      ...bounty,
+      status: toStatus,
+      arbiter,
+      resolutionNotes: trimmedNotes,
+      releasedAt: release ? now : bounty.releasedAt,
+      releasedTxHash: release && transactionHash?.trim() ? transactionHash.trim() : bounty.releasedTxHash,
+      refundedAt: release ? bounty.refundedAt : now,
+      refundedTxHash: !release && transactionHash?.trim() ? transactionHash.trim() : bounty.refundedTxHash,
+      version: bounty.version + 1,
+      events: [
+        ...bounty.events,
+        {
+          type: release ? "released" : "refunded",
+          timestamp: now,
+          actor: arbiter,
+          details: {
+            resolution_notes: trimmedNotes,
+            resolvedFromDispute: true,
+          },
+        },
+      ],
+    };
+
+    const persisted = persistUpdated(records, updated);
+    appendAuditLogs([
+      {
+        bountyId: id,
+        fromStatus: bounty.status,
+        toStatus,
+        transition,
+        actor: arbiter,
+        metadata: {
+          resolution_notes: trimmedNotes,
+          resolvedFromDispute: true,
+          transactionHash: release ? updated.releasedTxHash : updated.refundedTxHash,
+        },
+      },
+    ]);
+
+    const recipients: NotificationRecipient[] = [{ role: "maintainer", address: bounty.maintainer }];
+    if (bounty.contributor) {
+      recipients.push({ role: "contributor", address: bounty.contributor });
+    }
+    sendNotification(recipients, release ? "dispute_released" : "dispute_refunded", {
+      bountyId: persisted.id,
+      repo: persisted.repo,
+      issueNumber: persisted.issueNumber,
+      arbiter,
+      release,
+      resolution_notes: trimmedNotes,
+      status: persisted.status,
+    }).catch((err) => console.warn("[resolveDisputeBounty] Notification failed (non-blocking):", err));
+
     return persisted;
   });
 }

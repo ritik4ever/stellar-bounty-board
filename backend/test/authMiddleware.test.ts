@@ -89,7 +89,7 @@ describe("Stellar auth middleware", () => {
     await request(app).post(`/api/bounties/${id}/reserve`).send({ contributor: validMaintainerPublicKey }).expect(200);
     await request(app)
       .post(`/api/bounties/${id}/submit`)
-      .send({ contributor: validMaintainerPublicKey, submissionUrl: "https://example.com/pr/1" })
+      .send({ contributor: validMaintainerPublicKey, submissionUrl: "https://github.com/owner/repo/pull/1" })
       .expect(200);
 
     const payload = { maintainer: validMaintainerPublicKey, transactionHash: "a".repeat(64) };
