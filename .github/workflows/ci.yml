@@ -28,6 +28,17 @@ jobs:
       - name: TypeScript type-check backend
         run: npx tsc --noEmit -p backend/tsconfig.json
 
+      - name: Run frontend tests with coverage
+        run: npm --prefix frontend run test:coverage
+
+      - name: Upload frontend coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage-report
+          path: frontend/coverage
+          if-no-files-found: error
+
       - name: Run backend tests
         run: npm test
 
