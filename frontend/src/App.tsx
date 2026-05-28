@@ -1034,7 +1034,7 @@ function App() {
                       <input
                         value={searchQuery}
                         onChange={(event) => setSearchQuery(event.target.value)}
-                        placeholder="Search repo, title, labels, status"
+                        placeholder="Search repo, title, summary, labels"
                       />
                     </div>
                   </label>
