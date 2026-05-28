@@ -117,6 +117,24 @@ function validateStellarPublicKey(input: string): string | null {
   return null;
 }
 
+function formatTokenAmount(amount: number): string {
+  return Number.isInteger(amount) ? String(amount) : amount.toFixed(7).replace(/\.?0+$/, "");
+}
+
+function formatTokenTotals(bounties: Bounty[]): string {
+  if (bounties.length === 0) return "0";
+
+  const totals = bounties.reduce((acc, bounty) => {
+    const token = bounty.tokenSymbol.toUpperCase();
+    acc.set(token, (acc.get(token) ?? 0) + bounty.amount);
+    return acc;
+  }, new Map<string, number>());
+
+  return Array.from(totals.entries())
+    .map(([token, amount]) => `${formatTokenAmount(amount)} ${token}`)
+    .join(" · ");
+}
+
 
 const contributorStatuses: Array<BountyStatus | "all"> = [
   "all",
@@ -602,8 +620,9 @@ function App() {
       return;
     }
     let active = true;
+    const controller = new AbortController();
     setDetailLoading(true);
-    getBounty(detailId)
+    getBounty(detailId, controller.signal)
       .then((bounty) => {
         if (active) {
           setDetailBounty(bounty);
@@ -618,6 +637,7 @@ function App() {
       });
     return () => {
       active = false;
+      controller.abort();
     };
   }, [detailId]);
 
@@ -1195,11 +1215,11 @@ function App() {
                         </div>
                         <div className="repo-metric">
                           <span className="repo-metric__label">Funded</span>
-                          <span className="repo-metric__value">{repoBounties.reduce((sum, b) => sum + b.amount, 0)} XLM</span>
+                          <span className="repo-metric__value">{formatTokenTotals(repoBounties)}</span>
                         </div>
                         <div className="repo-metric">
                           <span className="repo-metric__label">Paid</span>
-                          <span className="repo-metric__value">{repoBounties.filter(b => b.status === 'released').reduce((sum, b) => sum + b.amount, 0)} XLM</span>
+                          <span className="repo-metric__value">{formatTokenTotals(repoBounties.filter(b => b.status === 'released'))}</span>
                         </div>
                       </div>
                       <div className="repo-group__bounties">

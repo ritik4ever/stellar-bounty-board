@@ -13,6 +13,20 @@ const SOROBAN_ADDRESS_REGEX = /^C[A-Z2-7]{55}$/;
 const STELLAR_EXAMPLE = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 const TX_HASH_REGEX = /^[0-9a-fA-F]{64}$/;
 
+function hasAtMostDecimalPlaces(value: number, maxPlaces: number): boolean {
+  if (!Number.isFinite(value)) return false;
+
+  const normalized = value.toString().toLowerCase();
+  if (!normalized.includes("e")) {
+    const [, fraction = ""] = normalized.split(".");
+    return fraction.length <= maxPlaces;
+  }
+
+  const fixed = value.toFixed(maxPlaces + 1).replace(/0+$/, "");
+  const [, fraction = ""] = fixed.split(".");
+  return fraction.length <= maxPlaces;
+}
+
 export const bountyIdSchema = z
   .string()
   .trim()
@@ -80,7 +94,7 @@ export const createBountySchema = z
       .number()
       .min(1, "Amount must be at least 1 XLM.")
       .max(10000, "Amount cannot exceed 10000 XLM.")
-      .refine((value) => Number.isInteger(value * 10_000_000), {
+      .refine((value) => hasAtMostDecimalPlaces(value, 7), {
         message: "Amount can have at most 7 decimal places.",
       }),
 
