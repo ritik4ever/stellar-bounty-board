@@ -55,13 +55,13 @@ export function filterBounties(bounties: Bounty[], filters: FilterState): Bounty
 
     // Search filter
     if (filters.searchQuery.trim() !== "") {
-      const searchLower = filters.searchQuery.toLowerCase();
+      const searchLower = filters.searchQuery.trim().toLowerCase();
       const matchesSearch =
         bounty.repo.toLowerCase().includes(searchLower) ||
         bounty.title.toLowerCase().includes(searchLower) ||
-        bounty.labels.some((label) => label.name.toLowerCase().includes(searchLower)) ||
-        bounty.status.toLowerCase().includes(searchLower);
-      
+        bounty.summary.toLowerCase().includes(searchLower) ||
+        bounty.labels.some((label) => label.name.toLowerCase().includes(searchLower));
+
       if (!matchesSearch) {
         return false;
       }

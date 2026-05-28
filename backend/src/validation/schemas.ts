@@ -124,6 +124,14 @@ export const submitBountySchema = z
     contributor: stellarAccountSchema.openapi({
       description: "Must match the contributor who reserved the bounty.",
     }),
+    submissionUrl: z
+      .string()
+      .trim()
+      .regex(GITHUB_PR_URL_REGEX, "Submission URL must be a GitHub pull request URL.")
+      .openapi({
+        example: "https://github.com/owner/repo/pull/99",
+        description: "GitHub pull request URL for the completed work.",
+      }),
 
     notes: z
       .string()

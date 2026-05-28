@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { toast } from 'sonner';
+import { Bounty } from './types';
 
 vi.mock('sonner', () => ({
   toast: {
@@ -26,17 +27,17 @@ vi.mock('./api', () => ({
 import * as api from './api';
 import App from './App';
 
-const baseBounty = {
+const baseBounty: Bounty = {
   id: 'BNTY-1',
   repo: 'ritik4ever/stellar-bounty-board',
   issueNumber: 1,
   title: 'Test bounty',
   summary: 'Summary',
   maintainer: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
-  contributor: null,
   tokenSymbol: 'XLM',
   amount: 100,
   labels: [],
+  status: 'open',
   createdAt: 1_700_000_000,
   deadlineAt: 9_999_999_999,
   version: 1,
@@ -55,7 +56,7 @@ describe('Toast notifications for async bounty actions', () => {
   it('shows success toast when bounty is reserved', async () => {
     vi.mocked(api.listBounties).mockResolvedValue([{ ...baseBounty, status: 'open' }]);
     vi.mocked(window.prompt).mockReturnValue('GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF');
-    vi.mocked(api.reserveBounty).mockResolvedValue(undefined);
+    vi.mocked(api.reserveBounty).mockResolvedValue({ ...baseBounty, status: 'reserved' });
 
     render(<App />);
     await waitFor(() => expect(screen.getByText('Test bounty')).toBeInTheDocument());
@@ -103,7 +104,7 @@ describe('Toast notifications for async bounty actions', () => {
     vi.mocked(window.prompt)
       .mockReturnValueOnce('GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF')
       .mockReturnValueOnce('');
-    vi.mocked(api.releaseBounty).mockResolvedValue(undefined);
+    vi.mocked(api.releaseBounty).mockResolvedValue({ ...baseBounty, status: 'released' });
 
     render(<App />);
     await waitFor(() => expect(screen.getByText('Test bounty')).toBeInTheDocument());
@@ -143,7 +144,7 @@ describe('Toast notifications for async bounty actions', () => {
     vi.mocked(window.prompt)
       .mockReturnValueOnce('GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF')
       .mockReturnValueOnce('');
-    vi.mocked(api.refundBounty).mockResolvedValue(undefined);
+    vi.mocked(api.refundBounty).mockResolvedValue({ ...baseBounty, status: 'refunded' });
 
     render(<App />);
     await waitFor(() => expect(screen.getByText('Test bounty')).toBeInTheDocument());
