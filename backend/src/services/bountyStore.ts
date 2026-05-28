@@ -348,6 +348,8 @@ function persistUpdated(records: BountyRecord[], updated: BountyRecord): BountyR
 export interface ListBountiesOptions {
   /** Case-insensitive substring filter applied to title, summary, and labels. */
   q?: string;
+  /** Filter by contributor Stellar address (exact match). */
+  contributor?: string;
 }
 
 export function listBounties(options: ListBountiesOptions = {}): BountyRecord[] {
@@ -362,6 +364,11 @@ export function listBounties(options: ListBountiesOptions = {}): BountyRecord[] 
         b.summary.toLowerCase().includes(q) ||
         b.labels.some((l) => l.toLowerCase().includes(q)),
     );
+  }
+
+  if (options.contributor?.trim()) {
+    const addr = options.contributor.trim();
+    sorted = sorted.filter((b) => b.contributor === addr);
   }
 
   return sorted;
@@ -392,15 +399,23 @@ export async function listBountiesCached(
   }
 
   const q = options.q?.trim().toLowerCase();
-  if (!q) {
-    return records;
+  let filtered = records;
+
+  if (q) {
+    filtered = filtered.filter(
+      (b) =>
+        b.title.toLowerCase().includes(q) ||
+        b.summary.toLowerCase().includes(q) ||
+        b.labels.some((l) => l.toLowerCase().includes(q)),
+    );
   }
-  return records.filter(
-    (b) =>
-      b.title.toLowerCase().includes(q) ||
-      b.summary.toLowerCase().includes(q) ||
-      b.labels.some((l) => l.toLowerCase().includes(q)),
-  );
+
+  if (options.contributor?.trim()) {
+    const addr = options.contributor.trim();
+    filtered = filtered.filter((b) => b.contributor === addr);
+  }
+
+  return filtered;
 }
 
 /** Drop the cached bounty list so the next read reflects a mutation (#361). */
