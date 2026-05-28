@@ -13,6 +13,7 @@ vi.mock('sonner', () => ({
 }));
 
 vi.mock('./api', () => ({
+  createBounty: vi.fn(),
   reserveBounty: vi.fn(),
   submitBounty: vi.fn(),
   releaseBounty: vi.fn(),
@@ -25,18 +26,19 @@ vi.mock('./api', () => ({
 
 import * as api from './api';
 import App from './App';
+import type { Bounty } from './types';
 
-const baseBounty = {
+const baseBounty: Bounty = {
   id: 'BNTY-1',
   repo: 'ritik4ever/stellar-bounty-board',
   issueNumber: 1,
   title: 'Test bounty',
   summary: 'Summary',
   maintainer: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
-  contributor: null,
   tokenSymbol: 'XLM',
   amount: 100,
   labels: [],
+  status: 'open',
   createdAt: 1_700_000_000,
   deadlineAt: 9_999_999_999,
   version: 1,
@@ -46,16 +48,47 @@ const baseBounty = {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(api.listOpenIssues).mockResolvedValue([]);
+  vi.mocked(api.createBounty).mockResolvedValue({ ...baseBounty, status: 'open' });
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
   window.prompt = vi.fn();
   window.alert = vi.fn();
 });
 
 describe('Toast notifications for async bounty actions', () => {
+  it('submits the selected bounty token from the creation form', async () => {
+    vi.mocked(api.listBounties).mockResolvedValue([]);
+
+    render(<App />);
+
+    await userEvent.type(screen.getByLabelText('Issue title'), 'Add multi token bounty flow');
+    await userEvent.type(
+      screen.getByLabelText('Summary'),
+      'Allow maintainers to select USDC when creating a bounty.',
+    );
+    await userEvent.selectOptions(screen.getByLabelText('Token'), 'USDC');
+    await userEvent.click(screen.getByRole('button', { name: 'Publish bounty' }));
+
+    await waitFor(() =>
+      expect(api.createBounty).toHaveBeenCalledWith(expect.objectContaining({ tokenSymbol: 'USDC' })),
+    );
+  });
 
   it('shows success toast when bounty is reserved', async () => {
     vi.mocked(api.listBounties).mockResolvedValue([{ ...baseBounty, status: 'open' }]);
     vi.mocked(window.prompt).mockReturnValue('GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF');
-    vi.mocked(api.reserveBounty).mockResolvedValue(undefined);
+    vi.mocked(api.reserveBounty).mockResolvedValue({ ...baseBounty, status: 'reserved' });
 
     render(<App />);
     await waitFor(() => expect(screen.getByText('Test bounty')).toBeInTheDocument());
@@ -103,7 +136,7 @@ describe('Toast notifications for async bounty actions', () => {
     vi.mocked(window.prompt)
       .mockReturnValueOnce('GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF')
       .mockReturnValueOnce('');
-    vi.mocked(api.releaseBounty).mockResolvedValue(undefined);
+    vi.mocked(api.releaseBounty).mockResolvedValue({ ...baseBounty, status: 'released' });
 
     render(<App />);
     await waitFor(() => expect(screen.getByText('Test bounty')).toBeInTheDocument());
@@ -143,7 +176,7 @@ describe('Toast notifications for async bounty actions', () => {
     vi.mocked(window.prompt)
       .mockReturnValueOnce('GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF')
       .mockReturnValueOnce('');
-    vi.mocked(api.refundBounty).mockResolvedValue(undefined);
+    vi.mocked(api.refundBounty).mockResolvedValue({ ...baseBounty, status: 'refunded' });
 
     render(<App />);
     await waitFor(() => expect(screen.getByText('Test bounty')).toBeInTheDocument());

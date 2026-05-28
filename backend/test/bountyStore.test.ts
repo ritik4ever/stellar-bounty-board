@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BountyRecord } from "../src/services/bountyStore";
-import { CONTRIBUTOR, MAINTAINER, OTHER_ACCOUNT } from "./fixtures";
+import { CONTRIBUTOR, MAINTAINER, OTHER_ACCOUNT, USDC_TOKEN_ADDRESS, XLM_TOKEN_ADDRESS } from "./fixtures";
 
 let storeFile: string;
 
@@ -12,11 +12,16 @@ beforeEach(() => {
   storeFile = path.join(os.tmpdir(), `bounty-store-${randomUUID()}.json`);
   fs.writeFileSync(storeFile, "[]", "utf8");
   process.env.BOUNTY_STORE_PATH = storeFile;
+  process.env.BOUNTY_TOKEN_ADDRESS_MAP = JSON.stringify({
+    XLM: XLM_TOKEN_ADDRESS,
+    USDC: USDC_TOKEN_ADDRESS,
+  });
   vi.resetModules();
 });
 
 afterEach(() => {
   delete process.env.BOUNTY_STORE_PATH;
+  delete process.env.BOUNTY_TOKEN_ADDRESS_MAP;
   try {
     fs.unlinkSync(storeFile);
   } catch {
@@ -60,6 +65,7 @@ describe("bountyStore lifecycle — happy paths", () => {
     expect(created.status).toBe("open");
     expect(created.id).toMatch(/^BNT-\d{4}$/);
     expect(created.tokenSymbol).toBe("USDC");
+    expect(created.tokenAddress).toBe(USDC_TOKEN_ADDRESS);
 
     const reserved = await reserveBounty(created.id, CONTRIBUTOR);
     expect(reserved.status).toBe("reserved");
@@ -79,6 +85,8 @@ describe("bountyStore lifecycle — happy paths", () => {
     const txHash = "c".repeat(64);
     const released = await releaseBounty(created.id, MAINTAINER, txHash);
     expect(released.status).toBe("released");
+    expect(released.tokenSymbol).toBe("USDC");
+    expect(released.tokenAddress).toBe(USDC_TOKEN_ADDRESS);
     expect(released.releasedAt).toBeDefined();
     expect(released.releasedTxHash).toBe(txHash);
 
@@ -237,6 +245,22 @@ describe("bountyStore — expiration via normalizeRecords", () => {
 });
 
 describe("bountyStore — invalid transitions and errors", () => {
+  it("create: rejects token symbols missing from the configured address map", async () => {
+    const { createBounty } = await loadStore();
+
+    await expect(async () => await createBounty({
+      repo: "acme/widget",
+      issueNumber: 9,
+      title: "Unsupported token bounty title ok",
+      summary: "Summary with twenty or more characters here.",
+      maintainer: MAINTAINER,
+      tokenSymbol: "EURC",
+      amount: 10,
+      deadlineDays: 30,
+      labels: [],
+    })).rejects.toThrow(/unsupported token symbol eurc/i);
+  });
+
   it("throws when bounty id is missing", async () => {
     const { reserveBounty } = await loadStore();
     await expect(async () => await reserveBounty("BNT-9999", CONTRIBUTOR)).rejects.toThrow(/not found/i);

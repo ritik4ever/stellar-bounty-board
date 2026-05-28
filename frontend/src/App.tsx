@@ -89,6 +89,11 @@ const initialForm: CreateBountyPayload = {
   labels: [{ name: "help wanted", color: "0075ca" }],
 };
 
+const tokenOptions = [
+  { symbol: "XLM", label: "XLM" },
+  { symbol: "USDC", label: "USDC" },
+];
+
 
 
 function formatRelativeDeadline(deadlineAt: number): string {
@@ -951,10 +956,16 @@ function App() {
 
                   <label>
                     Token
-                    <input
+                    <select
                       value={form.tokenSymbol}
                       onChange={(event) => setForm({ ...form, tokenSymbol: event.target.value })}
-                    />
+                    >
+                      {tokenOptions.map((token) => (
+                        <option key={token.symbol} value={token.symbol}>
+                          {token.label}
+                        </option>
+                      ))}
+                    </select>
                   </label>
                 </div>
 

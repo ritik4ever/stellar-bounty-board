@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { sendNotification, type NotificationRecipient } from "./notificationService";
 import { logStructured } from "../logger";
+import { normalizeTokenSymbol, resolveTokenAddress } from "./tokenAddressMap";
 
 export type BountyStatus =
   | "open"
@@ -42,6 +43,7 @@ export interface BountyRecord {
   maintainer: string;
   contributor?: string;
   tokenSymbol: string;
+  tokenAddress?: string;
   amount: number;
   labels: string[];
   status: BountyStatus;
@@ -113,6 +115,7 @@ const sampleBounties: BountyRecord[] = [
     maintainer: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
     contributor: "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
     tokenSymbol: "XLM",
+    tokenAddress: resolveTokenAddress("XLM"),
     amount: 150,
     labels: ["help wanted", "realtime"],
     status: "reserved",
@@ -135,6 +138,7 @@ const sampleBounties: BountyRecord[] = [
       "Create a contributor-facing export view for released payouts with CSV download and per-asset grouping.",
     maintainer: "GCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
     tokenSymbol: "USDC",
+    tokenAddress: resolveTokenAddress("USDC"),
     amount: 220,
     labels: ["frontend", "analytics"],
     status: "open",
@@ -301,11 +305,15 @@ function normalizeRecords(records: BountyRecord[]): BountyRecord[] {
       };
     }
 
-    // Ensure version and events exist for backward compatibility
-    if (!record.version || !record.events) {
+    const resolvedTokenAddress = record.tokenAddress ?? resolveTokenAddress(record.tokenSymbol);
+
+    // Ensure version, events, and tokenAddress exist for backward compatibility
+    if (!record.version || !record.events || !record.tokenAddress) {
       changed = true;
       return {
         ...record,
+        tokenSymbol: normalizeTokenSymbol(record.tokenSymbol),
+        tokenAddress: resolvedTokenAddress,
         version: record.version || 1,
         events,
         reservationTimeoutSeconds: record.reservationTimeoutSeconds || 604800,
@@ -386,6 +394,8 @@ export async function createBounty(input: CreateBountyInput): Promise<BountyReco
   return withGlobalLock(() => {
     const records = listBounties();
     const createdAt = nowInSeconds();
+    const tokenSymbol = normalizeTokenSymbol(input.tokenSymbol);
+    const tokenAddress = resolveTokenAddress(tokenSymbol);
     const bounty: BountyRecord = {
       id: nextId(records),
       repo: input.repo,
@@ -393,7 +403,8 @@ export async function createBounty(input: CreateBountyInput): Promise<BountyReco
       title: input.title,
       summary: input.summary,
       maintainer: input.maintainer,
-      tokenSymbol: input.tokenSymbol.toUpperCase(),
+      tokenSymbol,
+      tokenAddress,
       amount: Number(input.amount.toFixed(2)),
       labels: input.labels,
       status: "open",
@@ -419,6 +430,7 @@ export async function createBounty(input: CreateBountyInput): Promise<BountyReco
       maintainer: input.maintainer,
       amount: bounty.amount,
       tokenSymbol: bounty.tokenSymbol,
+      tokenAddress: bounty.tokenAddress,
     }).catch((err) => console.warn("[createBounty] Notification failed (non-blocking):", err));
 
     return bounty;

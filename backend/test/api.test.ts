@@ -4,7 +4,14 @@ import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CONTRIBUTOR, MAINTAINER, OTHER_ACCOUNT, validCreateBody } from "./fixtures";
+import {
+  CONTRIBUTOR,
+  MAINTAINER,
+  OTHER_ACCOUNT,
+  USDC_TOKEN_ADDRESS,
+  XLM_TOKEN_ADDRESS,
+  validCreateBody,
+} from "./fixtures";
 
 let storeFile: string;
 
@@ -12,11 +19,16 @@ beforeEach(async () => {
   storeFile = path.join(os.tmpdir(), `bounty-api-${randomUUID()}.json`);
   fs.writeFileSync(storeFile, "[]", "utf8");
   process.env.BOUNTY_STORE_PATH = storeFile;
+  process.env.BOUNTY_TOKEN_ADDRESS_MAP = JSON.stringify({
+    XLM: XLM_TOKEN_ADDRESS,
+    USDC: USDC_TOKEN_ADDRESS,
+  });
   vi.resetModules();
 });
 
 afterEach(() => {
   delete process.env.BOUNTY_STORE_PATH;
+  delete process.env.BOUNTY_TOKEN_ADDRESS_MAP;
   try {
     fs.unlinkSync(storeFile);
   } catch {
@@ -62,9 +74,44 @@ describe("API — bounty lifecycle routes", () => {
     const createRes = await request(app).post("/api/bounties").send(validCreateBody).expect(201);
     const id = createRes.body.data.id as string;
     expect(createRes.body.data.status).toBe("open");
+    expect(createRes.body.data.tokenAddress).toBe(XLM_TOKEN_ADDRESS);
 
     const listRes = await request(app).get("/api/bounties").expect(200);
     expect(listRes.body.data.some((b: { id: string }) => b.id === id)).toBe(true);
+  });
+
+  it("creates, reserves, submits, and releases a USDC bounty", async () => {
+    const app = await getApp();
+    const { body: created } = await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, tokenSymbol: "usdc", amount: 75 })
+      .expect(201);
+    const id = created.data.id as string;
+
+    expect(created.data.tokenSymbol).toBe("USDC");
+    expect(created.data.tokenAddress).toBe(USDC_TOKEN_ADDRESS);
+
+    await request(app)
+      .post(`/api/bounties/${id}/reserve`)
+      .send({ contributor: CONTRIBUTOR })
+      .expect(200);
+
+    await request(app)
+      .post(`/api/bounties/${id}/submit`)
+      .send({
+        contributor: CONTRIBUTOR,
+        submissionUrl: "https://github.com/owner/repo-name/pull/223",
+      })
+      .expect(200);
+
+    const release = await request(app)
+      .post(`/api/bounties/${id}/release`)
+      .send({ maintainer: MAINTAINER, transactionHash: "b".repeat(64) })
+      .expect(200);
+
+    expect(release.body.data.status).toBe("released");
+    expect(release.body.data.tokenSymbol).toBe("USDC");
+    expect(release.body.data.tokenAddress).toBe(USDC_TOKEN_ADDRESS);
   });
 
   it("POST create with invalid body returns 400", async () => {

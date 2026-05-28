@@ -1,7 +1,6 @@
 import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
 
-import { githubPrUrlSchema } from "./prUrl";
 import { isValidStellarAddress } from "../utils";
 
 extendZodWithOpenApi(z);
@@ -73,10 +72,17 @@ export const createBountySchema = z
       .string()
       .trim()
       .regex(TOKEN_REGEX, "Token symbol must be 1-12 letters or numbers.")
-      .openapi({ example: "XLM", description: "Stellar token symbol for payout (1–12 alphanumeric chars)." }),
+      .openapi({
+        example: "XLM",
+        description: "Stellar token symbol for payout. The backend resolves it via BOUNTY_TOKEN_ADDRESS_MAP.",
+      }),
     amount: z.coerce
       .number()
-      .min(1, "Amount must be at least 1 XLM."),
+      .min(1, "Amount must be at least 1 XLM.")
+      .max(10000, "Amount cannot exceed 10000 XLM.")
+      .refine((value) => Number.isInteger(value * 10_000_000), {
+        message: "Amount can have at most 7 decimal places.",
+      }),
 
     deadlineDays: z.coerce
       .number()
@@ -124,7 +130,11 @@ export const submitBountySchema = z
     contributor: stellarAccountSchema.openapi({
       description: "Must match the contributor who reserved the bounty.",
     }),
-
+    submissionUrl: z
+      .string()
+      .trim()
+      .url("Submission URL must be a valid URL.")
+      .openapi({ example: "https://github.com/owner/repo/pull/99", description: "Submission link for review." }),
     notes: z
       .string()
       .trim()
@@ -171,6 +181,10 @@ export const bountyRecordSchema = z
     maintainer: z.string().openapi({ example: STELLAR_EXAMPLE }),
     contributor: z.string().optional().openapi({ example: STELLAR_EXAMPLE }),
     tokenSymbol: z.string().openapi({ example: "XLM" }),
+    tokenAddress: sorobanAddressSchema.optional().openapi({
+      example: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      description: "Resolved SEP-41 token contract address used for escrow/release.",
+    }),
     amount: z.number().openapi({ example: 100 }),
     labels: z.array(z.string()).openapi({ example: ["bug", "help wanted"] }),
     status: z

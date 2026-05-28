@@ -29,6 +29,7 @@ import {
 } from "./validation/schemas";
 import { logStructured } from "./logger";
 import { limiter } from "./utils";
+import { createStellarSignatureAuthMiddleware } from "./middleware/auth";
 import {
   captureRawBody,
   createGitHubWebhookSignatureMiddleware,
@@ -86,6 +87,7 @@ app.use(requestContextMiddleware);
 
 const swaggerDoc = generateOpenApiDocument();
 app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerDoc));
+const maintainerAuthMiddleware = createStellarSignatureAuthMiddleware();
 
 function parseId(raw: string | string[] | undefined): string {
   return bountyIdSchema.parse(Array.isArray(raw) ? raw[0] : raw);
@@ -281,7 +283,7 @@ app.post("/api/bounties/:id/submit", limiter, async (req: Request, res: Response
   }
 });
 
-app.post("/api/bounties/:id/release", limiter, async (req: Request, res: Response) => {
+app.post("/api/bounties/:id/release", limiter, maintainerAuthMiddleware, async (req: Request, res: Response) => {
   const parsedBody = maintainerActionSchema.safeParse(req.body);
   if (!parsedBody.success) {
     jsonError(res, req, 400, zodErrorMessage(parsedBody.error));
@@ -300,7 +302,7 @@ app.post("/api/bounties/:id/release", limiter, async (req: Request, res: Respons
   }
 });
 
-app.post("/api/bounties/:id/refund", limiter, async (req: Request, res: Response) => {
+app.post("/api/bounties/:id/refund", limiter, maintainerAuthMiddleware, async (req: Request, res: Response) => {
   const parsedBody = maintainerActionSchema.safeParse(req.body);
   if (!parsedBody.success) {
     jsonError(res, req, 400, zodErrorMessage(parsedBody.error));
