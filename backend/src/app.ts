@@ -1,4 +1,5 @@
 import cors from "cors";
+import compression from "compression";
 import express, { Request, Response, NextFunction } from "express";
 import { randomUUID } from "node:crypto";
 import swaggerUi from "swagger-ui-express";
@@ -74,6 +75,7 @@ function requestContextMiddleware(req: Request, res: Response, next: NextFunctio
 
 export const app = express();
 
+app.use(compression({ threshold: 1024 }));
 app.use(cors(buildCorsOptions()));
 
 // Parse JSON bodies; capture raw body for webhook signature verification
