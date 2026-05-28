@@ -77,6 +77,27 @@ registry.registerPath({
 
 registry.registerPath({
   method: "get",
+  path: "/api/health/deep",
+  tags: ["System"],
+  summary: "Deep health check",
+  description:
+    "Returns service health plus the current open-issues feed status, including whether the feed is using stale data " +
+    "after GitHub rate limiting.",
+  responses: {
+    200: jsonResponse(
+      "Service and dependency status.",
+      z.object({
+        service: z.string(),
+        status: z.literal("ok"),
+        timestamp: z.string(),
+        openIssuesFeed: z.enum(["up", "rate-limited", "stale"]),
+      }),
+    ),
+  },
+});
+
+registry.registerPath({
+  method: "get",
   path: "/api/bounties",
   tags: ["Bounties"],
   summary: "List all bounties",
@@ -216,7 +237,8 @@ registry.registerPath({
   tags: ["Open Issues"],
   summary: "List open feature requests",
   description:
-    "Returns a curated static list of open feature requests and contribution opportunities for the Stellar Bounty Board project itself.",
+    "Returns contribution opportunities from the GitHub issue tracker. Responses are cached for 10 minutes and " +
+    "stale cached data is served when GitHub rate limits are encountered.",
   responses: {
     200: jsonResponse("Array of open issues.", z.object({ data: z.array(openIssueSchema) })),
   },

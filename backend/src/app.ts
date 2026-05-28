@@ -18,7 +18,7 @@ import {
   getGlobalMetrics,
   getLeaderboard,
 } from "./services/bountyStore";
-import { listOpenIssues } from "./services/openIssues";
+import { getOpenIssuesFeedStatus, listOpenIssues } from "./services/openIssues";
 import {
   bountyIdSchema,
   createBountySchema,
@@ -143,6 +143,15 @@ app.get("/api/health", (_req: Request, res: Response) => {
     service: "stellar-bounty-board-backend",
     status: "ok",
     timestamp: new Date().toISOString(),
+  });
+});
+
+app.get("/api/health/deep", (_req: Request, res: Response) => {
+  res.json({
+    service: "stellar-bounty-board-backend",
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    openIssuesFeed: getOpenIssuesFeedStatus(),
   });
 });
 
@@ -340,8 +349,14 @@ app.post(
   },
 );
 
-app.get("/api/open-issues", (_req: Request, res: Response) => {
-  res.json({ data: listOpenIssues() });
+app.get("/api/open-issues", async (req: Request, res: Response) => {
+  try {
+    const feed = await listOpenIssues();
+    res.setHeader("Cache-Control", "max-age=600");
+    res.json({ data: feed.issues });
+  } catch (error) {
+    sendError(res, req, error, 500);
+  }
 });
 
 
