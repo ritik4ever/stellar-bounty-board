@@ -7,7 +7,7 @@ import { memo } from "react";
  */
 function SkeletonBountyCardBase() {
   return (
-    <article className="bounty-card skeleton-card" aria-hidden="true">
+    <article className="bounty-card skeleton-card" aria-hidden="true" data-testid="skeleton-bounty-card">
       <div className="bounty-card__top">
         <div>
           <span className="skeleton-block skeleton-pill" />

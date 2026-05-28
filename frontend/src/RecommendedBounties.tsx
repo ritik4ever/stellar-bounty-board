@@ -135,9 +135,9 @@ export default function RecommendedBounties({ recommendations, loading }: Recomm
       ? recommendations
       : recommendations.filter(({ bounty }) => {
           const haystack = [
-            ...bounty.labels,
+            ...bounty.labels.map((label) => label.name),
             ...(bounty.tags ?? []),
-          ].map((t) => t.toLowerCase());
+          ].map((tag) => tag.toLowerCase());
           return haystack.some((t) => t.includes(activeTag.toLowerCase()));
         });
 
