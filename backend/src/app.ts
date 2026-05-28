@@ -358,6 +358,36 @@ app.get("/api/bounties/:id/events", (req: Request, res: Response) => {
   }
 });
 
+app.get("/api/bounties/by-issue", (req: Request, res: Response) => {
+  const repo = typeof req.query.repo === "string" ? req.query.repo.trim() : undefined;
+  const rawIssue = typeof req.query.issueNumber === "string" ? req.query.issueNumber : undefined;
+
+  if (!repo || !rawIssue) {
+    jsonError(res, req, 400, "Both repo and issueNumber query params are required.");
+    return;
+  }
+
+  const issueNumber = Number(rawIssue);
+  if (!Number.isFinite(issueNumber) || !Number.isInteger(issueNumber) || issueNumber <= 0) {
+    jsonError(res, req, 400, "issueNumber must be a positive integer.");
+    return;
+  }
+
+  try {
+    const bounties = listBounties();
+    const bounty = bounties.find(
+      (b) => b.repo.toLowerCase() === repo.toLowerCase() && b.issueNumber === issueNumber,
+    );
+    if (!bounty) {
+      jsonError(res, req, 404, "Bounty not found for the given repo and issue number.");
+      return;
+    }
+    res.json({ data: bounty });
+  } catch (error) {
+    sendError(res, req, error, 400);
+  }
+});
+
 app.get("/api/bounties/:id", (req: Request, res: Response) => {
   try {
     const id = parseId(req.params.id);
