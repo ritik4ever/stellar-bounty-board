@@ -70,6 +70,32 @@ describe("API — health and listing", () => {
     expect(res.body.data.map((b: { amount: number }) => b.amount)).toEqual([75]);
   });
 
+  it("GET /api/bounties filters by minAmount only", async () => {
+    const app = await getApp();
+
+    await request(app).post("/api/bounties").send({ ...validCreateBody, amount: 25 }).expect(201);
+    await request(app).post("/api/bounties").send({ ...validCreateBody, issueNumber: 124, amount: 75 }).expect(201);
+    await request(app).post("/api/bounties").send({ ...validCreateBody, issueNumber: 125, amount: 150 }).expect(201);
+
+    const res = await request(app).get("/api/bounties").query({ minAmount: 50 }).expect(200);
+    const amounts = res.body.data.map((b: { amount: number }) => b.amount).sort((a: number, b: number) => a - b);
+
+    expect(amounts).toEqual([75, 150]);
+  });
+
+  it("GET /api/bounties filters by maxAmount only", async () => {
+    const app = await getApp();
+
+    await request(app).post("/api/bounties").send({ ...validCreateBody, amount: 25 }).expect(201);
+    await request(app).post("/api/bounties").send({ ...validCreateBody, issueNumber: 124, amount: 75 }).expect(201);
+    await request(app).post("/api/bounties").send({ ...validCreateBody, issueNumber: 125, amount: 150 }).expect(201);
+
+    const res = await request(app).get("/api/bounties").query({ maxAmount: 100 }).expect(200);
+    const amounts = res.body.data.map((b: { amount: number }) => b.amount).sort((a: number, b: number) => a - b);
+
+    expect(amounts).toEqual([25, 75]);
+  });
+
   it("GET /api/bounties validates amount range filters", async () => {
     const app = await getApp();
 
