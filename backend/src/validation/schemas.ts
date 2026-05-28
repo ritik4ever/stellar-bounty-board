@@ -10,9 +10,32 @@ extendZodWithOpenApi(z);
 const REPO_REGEX = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 const TOKEN_REGEX = /^[A-Za-z0-9]{1,12}$/;
 const SOROBAN_ADDRESS_REGEX = /^C[A-Z2-7]{55}$/;
+const DEFAULT_ALLOWED_TOKEN_SYMBOLS = ["XLM", "USDC"];
 
 const STELLAR_EXAMPLE = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 const TX_HASH_REGEX = /^[0-9a-fA-F]{64}$/;
+
+export function parseAllowedTokenSymbols(value = process.env.ALLOWED_TOKEN_SYMBOLS): string[] {
+  const parsed = String(value || "")
+    .split(",")
+    .map((symbol) => symbol.trim().toUpperCase())
+    .filter((symbol) => TOKEN_REGEX.test(symbol));
+
+  return parsed.length > 0 ? [...new Set(parsed)] : DEFAULT_ALLOWED_TOKEN_SYMBOLS;
+}
+
+function allowedTokenMessage(symbols = parseAllowedTokenSymbols()): string {
+  return `Token symbol must be one of: ${symbols.join(", ")}.`;
+}
+
+const tokenSymbolSchema = z
+  .string()
+  .trim()
+  .regex(TOKEN_REGEX, "Token symbol must be 1-12 letters or numbers.")
+  .transform((symbol) => symbol.toUpperCase())
+  .refine((symbol) => parseAllowedTokenSymbols().includes(symbol), {
+    message: allowedTokenMessage(),
+  });
 
 export const bountyIdSchema = z
   .string()
@@ -69,14 +92,17 @@ export const createBountySchema = z
         description: "Description of the work required (20–280 chars).",
       }),
     maintainer: stellarAccountSchema,
-    tokenSymbol: z
-      .string()
-      .trim()
-      .regex(TOKEN_REGEX, "Token symbol must be 1-12 letters or numbers.")
-      .openapi({ example: "XLM", description: "Stellar token symbol for payout (1–12 alphanumeric chars)." }),
+    tokenSymbol: tokenSymbolSchema.openapi({
+      example: "XLM",
+      description: "Stellar token symbol for payout. Allowed symbols come from ALLOWED_TOKEN_SYMBOLS; default: XLM,USDC.",
+    }),
     amount: z.coerce
       .number()
-      .min(1, "Amount must be at least 1 XLM."),
+      .min(1, "Amount must be at least 1 XLM.")
+      .max(10000, "Amount must not exceed 10000 XLM.")
+      .refine((amount) => Number.isInteger(amount * 10_000_000), {
+        message: "Amount can have at most 7 decimal places.",
+      }),
 
     deadlineDays: z.coerce
       .number()
@@ -123,6 +149,10 @@ export const submitBountySchema = z
   .object({
     contributor: stellarAccountSchema.openapi({
       description: "Must match the contributor who reserved the bounty.",
+    }),
+    submissionUrl: githubPrUrlSchema.openapi({
+      example: "https://github.com/owner/repo/pull/99",
+      description: "GitHub pull request URL for the bounty submission.",
     }),
 
     notes: z

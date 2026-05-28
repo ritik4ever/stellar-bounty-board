@@ -148,11 +148,19 @@ async function requestBlob(path: string, options: RequestOptions = {}): Promise<
   throw formatRetryError(retryLabel, retryAttempts, message);
 }
 
-
+export async function listBounties(signal?: AbortSignal): Promise<Bounty[]> {
   const body = await requestJson<{ data: Bounty[] }>("/bounties", {
     retry: true,
     retryLabel: "Loading bounties",
     signal,
+  });
+  return body.data;
+}
+
+export async function getBounty(id: string): Promise<Bounty> {
+  const body = await requestJson<{ data: Bounty }>(`/bounties/${id}`, {
+    retry: true,
+    retryLabel: "Loading bounty",
   });
   return body.data;
 }

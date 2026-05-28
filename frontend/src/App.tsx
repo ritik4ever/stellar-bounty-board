@@ -975,7 +975,7 @@ function App() {
                   <label>
                     Labels
                     <input
-                      value={form.labels.join(", ")}
+                      value={form.labels.map((label) => label.name).join(", ")}
                       onChange={(event) =>
                         setForm({
                           ...form,
