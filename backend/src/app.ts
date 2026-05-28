@@ -120,6 +120,26 @@ function parsePaginationValue(
   return parsed;
 }
 
+function parseOptionalAmountFilter(raw: unknown, field: string): number | undefined {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+  if (typeof value !== "string") {
+    throw new Error(`${field} must be a number.`);
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`${field} must be a number.`);
+  }
+  if (parsed < 0) {
+    throw new Error(`${field} must be greater than or equal to 0.`);
+  }
+
+  return parsed;
+}
+
 function jsonError(res: Response, req: Request, statusCode: number, message: string) {
   res.status(statusCode).json({ error: message, requestId: req.requestId });
 }
@@ -155,8 +175,26 @@ app.get("/worker/health", (_req: Request, res: Response) => {
 });
 
 app.get("/api/bounties", (req: Request, res: Response) => {
-  const q = typeof req.query.q === "string" ? req.query.q : undefined;
-  res.json({ data: listBounties({ q }) });
+  try {
+    const q = typeof req.query.q === "string" ? req.query.q : undefined;
+    const minAmount = parseOptionalAmountFilter(req.query.minAmount, "minAmount");
+    const maxAmount = parseOptionalAmountFilter(req.query.maxAmount, "maxAmount");
+
+    if (minAmount !== undefined && maxAmount !== undefined && minAmount > maxAmount) {
+      jsonError(res, req, 400, "minAmount must be less than or equal to maxAmount.");
+      return;
+    }
+
+    const data = listBounties({ q }).filter((bounty) => {
+      if (minAmount !== undefined && bounty.amount < minAmount) return false;
+      if (maxAmount !== undefined && bounty.amount > maxAmount) return false;
+      return true;
+    });
+
+    res.json({ data });
+  } catch (error) {
+    sendError(res, req, error);
+  }
 });
 
 app.get("/api/leaderboard", (_req: Request, res: Response) => {
