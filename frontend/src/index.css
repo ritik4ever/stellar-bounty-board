@@ -349,6 +349,27 @@ textarea {
   gap: 14px;
 }
 
+.board-list--virtual {
+  display: block;
+  max-height: min(78vh, 900px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 6px;
+  scrollbar-gutter: stable;
+}
+
+.board-list__virtual-spacer {
+  position: relative;
+  width: 100%;
+}
+
+.board-list__virtual-row {
+  left: 0;
+  position: absolute;
+  top: 0;
+  width: 100%;
+}
+
 .profile-controls label {
   display: grid;
   gap: 8px;
