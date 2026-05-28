@@ -155,8 +155,33 @@ app.get("/worker/health", (_req: Request, res: Response) => {
 });
 
 app.get("/api/bounties", (req: Request, res: Response) => {
-  const q = typeof req.query.q === "string" ? req.query.q : undefined;
-  res.json({ data: listBounties({ q }) });
+  try {
+    const q = typeof req.query.q === "string" ? req.query.q : undefined;
+
+    let minAmount: number | undefined;
+    if (req.query.minAmount !== undefined) {
+      minAmount = parsePaginationValue(
+        req.query.minAmount,
+        "minAmount",
+        0,
+        0,
+      );
+    }
+
+    let maxAmount: number | undefined;
+    if (req.query.maxAmount !== undefined) {
+      maxAmount = parsePaginationValue(
+        req.query.maxAmount,
+        "maxAmount",
+        0,
+        0,
+      );
+    }
+
+    res.json({ data: listBounties({ q, minAmount, maxAmount }) });
+  } catch (error) {
+    sendError(res, req, error);
+  }
 });
 
 app.get("/api/leaderboard", (_req: Request, res: Response) => {

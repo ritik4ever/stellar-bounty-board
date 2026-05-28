@@ -524,3 +524,81 @@ describe("bountyStore — event history and metrics", () => {
     expect(reserved.events.some((e) => e.type === "reserved")).toBe(true);
   });
 });
+
+describe("listBounties — amount range filter", () => {
+  it("minAmount filters bounties with amount >= threshold", async () => {
+    const { createBounty, listBounties } = await loadStore();
+
+    await createBounty({
+      repo: "acme/widget", issueNumber: 101,
+      title: "Cheap fix bounty title long enough",
+      summary: "Summary with twenty or more characters here.",
+      maintainer: MAINTAINER, tokenSymbol: "XLM", amount: 50,
+      deadlineDays: 14, labels: [],
+    });
+    await createBounty({
+      repo: "acme/widget", issueNumber: 102,
+      title: "Expensive fix bounty title long",
+      summary: "Summary with twenty or more characters here.",
+      maintainer: MAINTAINER, tokenSymbol: "XLM", amount: 500,
+      deadlineDays: 14, labels: [],
+    });
+
+    const result = listBounties({ minAmount: 100 });
+    expect(result.every((b) => b.amount >= 100)).toBe(true);
+    expect(result.length).toBeGreaterThan(0);
+  });
+
+  it("maxAmount filters bounties with amount <= threshold", async () => {
+    const { createBounty, listBounties } = await loadStore();
+
+    await createBounty({
+      repo: "acme/widget", issueNumber: 201,
+      title: "Low value fix bounty title long enough",
+      summary: "Summary with twenty or more characters here.",
+      maintainer: MAINTAINER, tokenSymbol: "XLM", amount: 30,
+      deadlineDays: 14, labels: [],
+    });
+    await createBounty({
+      repo: "acme/widget", issueNumber: 202,
+      title: "High value fix bounty title long enough",
+      summary: "Summary with twenty or more characters here.",
+      maintainer: MAINTAINER, tokenSymbol: "XLM", amount: 1000,
+      deadlineDays: 14, labels: [],
+    });
+
+    const result = listBounties({ maxAmount: 100 });
+    expect(result.every((b) => b.amount <= 100)).toBe(true);
+    expect(result.length).toBeGreaterThan(0);
+  });
+
+  it("combined minAmount + maxAmount filter", async () => {
+    const { createBounty, listBounties } = await loadStore();
+
+    await createBounty({
+      repo: "acme/widget", issueNumber: 301,
+      title: "Low range fix bounty title long enough",
+      summary: "Summary with twenty or more characters here.",
+      maintainer: MAINTAINER, tokenSymbol: "XLM", amount: 20,
+      deadlineDays: 14, labels: [],
+    });
+    await createBounty({
+      repo: "acme/widget", issueNumber: 302,
+      title: "Mid range fix bounty title long enough",
+      summary: "Summary with twenty or more characters here.",
+      maintainer: MAINTAINER, tokenSymbol: "XLM", amount: 150,
+      deadlineDays: 14, labels: [],
+    });
+    await createBounty({
+      repo: "acme/widget", issueNumber: 303,
+      title: "High range fix bounty title long enough",
+      summary: "Summary with twenty or more characters here.",
+      maintainer: MAINTAINER, tokenSymbol: "XLM", amount: 800,
+      deadlineDays: 14, labels: [],
+    });
+
+    const result = listBounties({ minAmount: 100, maxAmount: 500 });
+    expect(result.every((b) => b.amount >= 100 && b.amount <= 500)).toBe(true);
+    expect(result.length).toBeGreaterThan(0);
+  });
+});
