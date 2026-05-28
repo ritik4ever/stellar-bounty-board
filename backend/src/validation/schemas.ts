@@ -1,7 +1,6 @@
 import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
 
-import { githubPrUrlSchema } from "./prUrl";
 import { isValidStellarAddress } from "../utils";
 
 extendZodWithOpenApi(z);
@@ -13,6 +12,13 @@ const SOROBAN_ADDRESS_REGEX = /^C[A-Z2-7]{55}$/;
 
 const STELLAR_EXAMPLE = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 const TX_HASH_REGEX = /^[0-9a-fA-F]{64}$/;
+
+function hasAtMostDecimalPlaces(value: number, places: number): boolean {
+  const [coefficient, exponentText] = value.toString().toLowerCase().split("e");
+  const decimalPlaces = coefficient.split(".")[1]?.length ?? 0;
+  const exponent = exponentText === undefined ? 0 : Number(exponentText);
+  return Math.max(0, decimalPlaces - exponent) <= places;
+}
 
 export const bountyIdSchema = z
   .string()
@@ -76,7 +82,11 @@ export const createBountySchema = z
       .openapi({ example: "XLM", description: "Stellar token symbol for payout (1–12 alphanumeric chars)." }),
     amount: z.coerce
       .number()
-      .min(1, "Amount must be at least 1 XLM."),
+      .min(1, "Amount must be at least 1 XLM.")
+      .max(10000, "Amount cannot exceed 10000 XLM.")
+      .refine((amount) => hasAtMostDecimalPlaces(amount, 7), {
+        message: "Amount must have at most 7 decimal places.",
+      }),
 
     deadlineDays: z.coerce
       .number()
@@ -124,6 +134,10 @@ export const submitBountySchema = z
     contributor: stellarAccountSchema.openapi({
       description: "Must match the contributor who reserved the bounty.",
     }),
+    submissionUrl: z.string().trim().url("Submission URL must be a valid URL.").openapi({
+      example: "https://github.com/owner/repo/pull/99",
+      description: "URL submitted by the reserved contributor.",
+    }),
 
     notes: z
       .string()
@@ -154,6 +168,29 @@ export const maintainerActionSchema = z
 // ---------------------------------------------------------------------------
 // Shared response schemas
 // ---------------------------------------------------------------------------
+
+const bountyEventTypeSchema = z.enum(["created", "reserved", "submitted", "released", "refunded", "expired"]);
+
+export const bountyEventSchema = z
+  .object({
+    type: bountyEventTypeSchema.openapi({ example: "reserved" }),
+    timestamp: z.number().openapi({ example: 1710003600, description: "Unix timestamp (seconds)." }),
+    actor: z.string().optional().openapi({ example: STELLAR_EXAMPLE }),
+    details: z.record(z.unknown()).optional().openapi({
+      example: { reason: "reservation_timeout" },
+      description: "Optional event-specific metadata.",
+    }),
+  })
+  .openapi("BountyEvent");
+
+export const bountyEventListResponseSchema = z
+  .object({
+    data: z.array(bountyEventSchema),
+    total: z.number().int().min(0).openapi({ example: 4 }),
+    page: z.number().int().min(1).openapi({ example: 1 }),
+    pageSize: z.number().int().min(1).max(50).openapi({ example: 20 }),
+  })
+  .openapi("BountyEventListResponse");
 
 export const errorResponseSchema = z
   .object({
@@ -186,6 +223,7 @@ export const bountyRecordSchema = z
     refundedTxHash: z.string().optional().openapi({ example: "0".repeat(64) }),
     submissionUrl: z.string().optional().openapi({ example: "https://github.com/owner/repo/pull/99" }),
     notes: z.string().optional(),
+    events: z.array(bountyEventSchema).optional(),
   })
   .openapi("BountyRecord");
 

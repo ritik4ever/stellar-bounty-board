@@ -8,12 +8,12 @@ import { generateOpenApiDocument } from "./docs/openapi";
 import {
   createBounty,
   listBountyAuditLogs,
+  listBountyEvents,
   listBounties,
   refundBounty,
   releaseBounty,
   reserveBounty,
   submitBounty,
-  getBountyEvents,
   getMaintainerMetrics,
   getGlobalMetrics,
   getLeaderboard,
@@ -347,8 +347,10 @@ app.get("/api/open-issues", (_req: Request, res: Response) => {
 
 app.get("/api/bounties/:id/events", (req: Request, res: Response) => {
   try {
-    const events = getBountyEvents(parseId(req.params.id));
-    res.json({ data: events });
+    const page = parsePaginationValue(req.query.page, "page", 1, 1);
+    const pageSize = parsePaginationValue(req.query.pageSize, "pageSize", 20, 1, 50);
+    const events = listBountyEvents(parseId(req.params.id), { page, pageSize });
+    res.json(events);
   } catch (error) {
     sendError(res, req, error);
   }
@@ -363,7 +365,8 @@ app.get("/api/bounties/:id", (req: Request, res: Response) => {
       jsonError(res, req, 404, "Bounty not found.");
       return;
     }
-    res.json({ data: bounty });
+    const events = bounty.events ?? [];
+    res.json({ data: { ...bounty, events: events.slice(-10) } });
   } catch (error) {
     sendError(res, req, error, 400);
   }

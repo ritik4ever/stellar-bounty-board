@@ -4,6 +4,8 @@ import {
   bountyAuditLogListResponseSchema,
   bountyAuditLogPaginationSchema,
   bountyAuditLogSchema,
+  bountyEventListResponseSchema,
+  bountyEventSchema,
   bountyRecordSchema,
   createBountySchema,
   errorResponseSchema,
@@ -20,6 +22,8 @@ const registry = new OpenAPIRegistry();
 // Register all named schemas so they appear in #/components/schemas
 // ---------------------------------------------------------------------------
 registry.register("BountyRecord", bountyRecordSchema);
+registry.register("BountyEvent", bountyEventSchema);
+registry.register("BountyEventListResponse", bountyEventListResponseSchema);
 registry.register("BountyAuditLogRecord", bountyAuditLogSchema);
 registry.register("BountyAuditLogPagination", bountyAuditLogPaginationSchema);
 registry.register("BountyAuditLogListResponse", bountyAuditLogListResponseSchema);
@@ -111,6 +115,34 @@ registry.registerPath({
   },
   responses: {
     200: jsonResponse("Audit log page for the requested bounty.", bountyAuditLogListResponseSchema),
+    400: errorResponse("Bounty not found, bounty id invalid, or pagination query invalid."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/bounties/{id}/events",
+  tags: ["Bounties"],
+  summary: "List event history for one bounty",
+  description:
+    "Returns lifecycle events for a bounty in newest-first order. " +
+    "Use `page` (default 1) and `pageSize` (default 20, max 50) for pagination. " +
+    "The bounty detail response embeds only the latest 10 events for backward compatibility.",
+  request: {
+    params: z.object({ id: z.string().openapi(bountyIdParam.schema) }),
+    query: z.object({
+      page: z.number().int().min(1).optional().openapi({
+        example: 1,
+        description: "One-based page number.",
+      }),
+      pageSize: z.number().int().min(1).max(50).optional().openapi({
+        example: 20,
+        description: "Maximum number of events to return (1-50).",
+      }),
+    }),
+  },
+  responses: {
+    200: jsonResponse("Event history page for the requested bounty.", bountyEventListResponseSchema),
     400: errorResponse("Bounty not found, bounty id invalid, or pagination query invalid."),
   },
 });

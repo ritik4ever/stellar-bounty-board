@@ -33,6 +33,13 @@ export interface BountyAuditLogRecord {
   metadata?: Record<string, AuditMetadataValue>;
 }
 
+export interface BountyEventPage {
+  data: BountyEvent[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 export interface BountyRecord {
   id: string;
   repo: string;
@@ -637,6 +644,26 @@ export function getBountyEvents(bountyId: string): BountyEvent[] {
     throw new Error(`Bounty ${bountyId} not found.`);
   }
   return bounty.events ?? [];
+}
+
+export function listBountyEvents(
+  bountyId: string,
+  options: { page?: number; pageSize?: number } = {},
+): BountyEventPage {
+  const { page = 1, pageSize = 20 } = options;
+  const sorted = getBountyEvents(bountyId)
+    .map((event, index) => ({ event, index }))
+    .sort((a, b) => b.event.timestamp - a.event.timestamp || b.index - a.index)
+    .map(({ event }) => event);
+  const total = sorted.length;
+  const start = (page - 1) * pageSize;
+
+  return {
+    data: sorted.slice(start, start + pageSize),
+    total,
+    page,
+    pageSize,
+  };
 }
 
 export interface MaintainerMetrics {
