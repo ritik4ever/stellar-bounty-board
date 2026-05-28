@@ -304,7 +304,8 @@ export function generateOpenApiDocument() {
       description:
         "REST API for the Stellar Bounty Board — a platform for posting, reserving, submitting, " +
         "and releasing on-chain bounties backed by Stellar tokens.\n\n" +
-        "**Bounty lifecycle:** `open` → `reserved` → `submitted` → `released`\n\n" +
+        "**Bounty lifecycle:** `open` → `reserved` → `submitted` → `disputed` (optional) → `released`/`refunded`\n\n" +
+        "A contributor may dispute a submitted bounty before the configured arbiter resolves it. " +
         "Maintainers may also `refund` an `open` or `reserved` bounty at any time. " +
         "Bounties whose deadline passes are automatically transitioned to `expired`.",
     },
