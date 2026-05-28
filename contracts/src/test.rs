@@ -757,6 +757,81 @@ fn test_paused_release_bounty_fails() {
 }
 
 #[test]
+#[should_panic(expected = "ContractPaused")]
+fn test_paused_refund_bounty_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, contributor, token_id, _fee_recipient, _) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    let deadline = env.ledger().timestamp() + 1000;
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &deadline,
+        &0u32,
+    );
+    client.reserve_bounty(&bounty_id, &contributor);
+    env.ledger().set_timestamp(deadline + 1);
+
+    client.set_paused(&true);
+    client.refund_bounty(&bounty_id, &maintainer);
+}
+
+#[test]
+#[should_panic(expected = "ContractPaused")]
+fn test_paused_dispute_bounty_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, contributor, token_id, _fee_recipient, arbiter) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    let bounty_id = create_bounty_with_state(
+        &env,
+        &client,
+        maintainer,
+        contributor,
+        token_id,
+        BountyStatus::Submitted,
+    );
+    client.set_paused(&true);
+    client.dispute_bounty(&bounty_id, &arbiter);
+}
+
+#[test]
+#[should_panic(expected = "ContractPaused")]
+fn test_paused_resolve_dispute_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, contributor, token_id, _fee_recipient, arbiter) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    let bounty_id = create_bounty_with_state(
+        &env,
+        &client,
+        maintainer,
+        contributor,
+        token_id,
+        BountyStatus::Submitted,
+    );
+    client.dispute_bounty(&bounty_id, &arbiter);
+    env.ledger().set_timestamp(env.ledger().timestamp() + 601);
+
+    client.set_paused(&true);
+    client.resolve_dispute(&bounty_id, &true);
+}
+
+#[test]
 fn test_unpaused_create_bounty_resumes() {
     let env = Env::default();
     env.mock_all_auths();
