@@ -76,7 +76,11 @@ export const createBountySchema = z
       .openapi({ example: "XLM", description: "Stellar token symbol for payout (1–12 alphanumeric chars)." }),
     amount: z.coerce
       .number()
-      .min(1, "Amount must be at least 1 XLM."),
+      .min(1, "Amount must be at least 1 XLM.")
+      .max(10000, "Amount must not exceed 10000 XLM.")
+      .refine((amount) => Number.isInteger(amount * 10_000_000), {
+        message: "Amount can have at most 7 decimal places.",
+      }),
 
     deadlineDays: z.coerce
       .number()
@@ -123,6 +127,10 @@ export const submitBountySchema = z
   .object({
     contributor: stellarAccountSchema.openapi({
       description: "Must match the contributor who reserved the bounty.",
+    }),
+    submissionUrl: githubPrUrlSchema.openapi({
+      example: "https://github.com/owner/repo/pull/99",
+      description: "GitHub pull request URL for the bounty submission.",
     }),
 
     notes: z

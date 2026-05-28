@@ -41,6 +41,7 @@ import RecommendedBounties from "./RecommendedBounties";
 import { statusCopy, actionCopy, readInitialFilters, FilterState, statusOptions, statusGlossary, sortOptions } from "./constants";
 import { filterBounties, getRewardBounds, getActiveRewardLabel, getContributorMetrics, getUniqueRepos, getRepoMetrics, sortBounties, debounce, SortOption, SortState, xlmToUsd } from "./utils";
 import { Bounty, CreateBountyPayload, OpenIssue, BountyStatus } from "./types";
+import { getPollingIntervalMs, usePolling } from "./usePolling";
 
 import GitHubIssuePreviewCard from "./GitHubIssuePreviewCard";
 import BountyDetailPage from "./BountyDetailPage";
@@ -340,13 +341,14 @@ function App() {
   const [submissionModalSubmitting, setSubmissionModalSubmitting] = useState(false);
   const [submissionModalError, setSubmissionModalError] = useState<string | null>(null);
   const [submissionModalData, setSubmissionModalData] = useState<Partial<SubmissionFormData> | undefined>(undefined);
+  const pollIntervalMs = useMemo(() => getPollingIntervalMs(), []);
 
   useEffect(() => {
     detailIdRef.current = detailId;
   }, [detailId]);
 
 
-  async function refresh(signal?: AbortSignal): Promise<void> {
+  const refresh = useCallback(async (signal?: AbortSignal): Promise<void> => {
     const [bountyData, issueData] = await Promise.all([
       listBounties(signal),
       listOpenIssues(signal),
@@ -361,7 +363,7 @@ function App() {
         setDetailBounty(refreshedDetailBounty);
       }
     }
-  }
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -381,21 +383,12 @@ function App() {
     }
 
     void bootstrap();
-
-    const timer = window.setInterval(() => {
-      const pollController = new AbortController();
-      void refresh(pollController.signal).catch((err) => {
-        if (!(err instanceof DOMException && err.name === "AbortError")) {
-          // Silent poll failure — do not surface to user
-        }
-      });
-    }, 7000);
-
     return () => {
       controller.abort();
-      window.clearInterval(timer);
     };
-  }, []);
+  }, [refresh]);
+
+  usePolling(refresh, pollIntervalMs);
 
   useEffect(() => {
     if (pathname.startsWith("/bounties/") || pathname.startsWith("/repo/")) return;
