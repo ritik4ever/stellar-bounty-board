@@ -6,6 +6,14 @@ const HEADER_PUBLIC_KEY = "x-stellar-public-key";
 const ENV_PUBLIC_KEY = "MAINTAINER_PUBLIC_KEY";
 const ENV_PUBLIC_KEYS = "MAINTAINER_PUBLIC_KEYS";
 
+interface StellarSignatureAuthOptions {
+  allowedPublicKeyEnv?: string;
+  allowedPublicKeysEnv?: string;
+  bodyPublicKeyField?: string;
+  requireConfiguredPublicKey?: boolean;
+  skipInTest?: boolean;
+}
+
 interface RawBodyRequest extends Request {
   rawBody?: Buffer;
 }
@@ -17,8 +25,8 @@ function normalizeHeaderValue(headerValue: string | string[] | undefined): strin
   return Array.isArray(headerValue) ? headerValue[0] : headerValue;
 }
 
-function getMaintainerPublicKeys(): string[] {
-  const rawKeys = process.env[ENV_PUBLIC_KEYS] ?? process.env[ENV_PUBLIC_KEY] ?? "";
+function getConfiguredPublicKeys(publicKeysEnv: string, publicKeyEnv: string): string[] {
+  const rawKeys = process.env[publicKeysEnv] ?? process.env[publicKeyEnv] ?? "";
   return rawKeys
     .split(",")
     .map((value) => value.trim())
@@ -72,17 +80,27 @@ function verifyStellarSignature(publicKey: string, payload: Buffer, signatureHea
   return false;
 }
 
-export function createStellarSignatureAuthMiddleware(): RequestHandler {
+export function createStellarSignatureAuthMiddleware(options: StellarSignatureAuthOptions = {}): RequestHandler {
+  const {
+    allowedPublicKeyEnv = ENV_PUBLIC_KEY,
+    allowedPublicKeysEnv = ENV_PUBLIC_KEYS,
+    bodyPublicKeyField = "maintainer",
+    requireConfiguredPublicKey = true,
+    skipInTest = true,
+  } = options;
+
   return (req, res, next) => {
-    if (process.env.NODE_ENV === "test") {
+    if (skipInTest && process.env.NODE_ENV === "test") {
       next();
       return;
     }
 
-    const allowedMaintainerKeys = getMaintainerPublicKeys();
-    if (allowedMaintainerKeys.length === 0) {
-      res.status(500).json({ error: "Server maintainer public key configuration is missing." });
-      return;
+    const allowedPublicKeys = getConfiguredPublicKeys(allowedPublicKeysEnv, allowedPublicKeyEnv);
+    if (requireConfiguredPublicKey) {
+      if (allowedPublicKeys.length === 0) {
+        res.status(500).json({ error: "Server public key configuration is missing." });
+        return;
+      }
     }
 
     const signatureHeader = normalizeHeaderValue(req.header(HEADER_SIGNATURE));
@@ -98,7 +116,7 @@ export function createStellarSignatureAuthMiddleware(): RequestHandler {
       return;
     }
 
-    if (!allowedMaintainerKeys.includes(publicKeyHeader)) {
+    if (requireConfiguredPublicKey && !allowedPublicKeys.includes(publicKeyHeader)) {
       res.status(401).json({ error: "Unauthorized Stellar public key." });
       return;
     }
@@ -109,9 +127,9 @@ export function createStellarSignatureAuthMiddleware(): RequestHandler {
       return;
     }
 
-    const maintainer = typeof req.body?.maintainer === "string" ? req.body.maintainer : undefined;
-    if (maintainer && maintainer !== publicKeyHeader) {
-      res.status(401).json({ error: "Request maintainer does not match signer public key." });
+    const bodyPublicKey = typeof req.body?.[bodyPublicKeyField] === "string" ? req.body[bodyPublicKeyField] : undefined;
+    if (bodyPublicKey && bodyPublicKey !== publicKeyHeader) {
+      res.status(401).json({ error: `Request ${bodyPublicKeyField} does not match signer public key.` });
       return;
     }
 

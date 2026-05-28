@@ -6,11 +6,13 @@ import {
   bountyAuditLogSchema,
   bountyRecordSchema,
   createBountySchema,
+  disputeBountySchema,
   errorResponseSchema,
   healthResponseSchema,
   maintainerActionSchema,
   openIssueSchema,
   reserveBountySchema,
+  resolveDisputeSchema,
   submitBountySchema,
 } from "../validation/schemas";
 
@@ -26,6 +28,8 @@ registry.register("BountyAuditLogListResponse", bountyAuditLogListResponseSchema
 registry.register("CreateBountyRequest", createBountySchema);
 registry.register("ReserveBountyRequest", reserveBountySchema);
 registry.register("SubmitBountyRequest", submitBountySchema);
+registry.register("DisputeBountyRequest", disputeBountySchema);
+registry.register("ResolveDisputeRequest", resolveDisputeSchema);
 registry.register("MaintainerActionRequest", maintainerActionSchema);
 registry.register("ErrorResponse", errorResponseSchema);
 registry.register("OpenIssue", openIssueSchema);
@@ -192,6 +196,44 @@ registry.registerPath({
 
 registry.registerPath({
   method: "post",
+  path: "/api/bounties/{id}/dispute",
+  tags: ["Bounties"],
+  summary: "Open a dispute for a submitted bounty",
+  description:
+    "Transitions a `submitted` bounty to `disputed`. " +
+    "The request must be signed by the contributor who submitted the bounty.",
+  request: {
+    params: z.object({ id: z.string().openapi(bountyIdParam.schema) }),
+    body: jsonBody(disputeBountySchema),
+  },
+  responses: {
+    200: bountyDataResponse("Dispute opened successfully."),
+    400: errorResponse("Bounty not found, not submitted, contributor mismatch, or validation failed."),
+    401: errorResponse("Missing or invalid Stellar contributor signature."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/bounties/{id}/resolve-dispute",
+  tags: ["Bounties"],
+  summary: "Resolve a disputed bounty",
+  description:
+    "Transitions a `disputed` bounty to either `released` or `refunded`. " +
+    "The request must be signed by the configured arbiter address.",
+  request: {
+    params: z.object({ id: z.string().openapi(bountyIdParam.schema) }),
+    body: jsonBody(resolveDisputeSchema),
+  },
+  responses: {
+    200: bountyDataResponse("Dispute resolved successfully."),
+    400: errorResponse("Bounty not found, not disputed, or validation failed."),
+    401: errorResponse("Missing, invalid, or unauthorized Stellar arbiter signature."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
   path: "/api/bounties/{id}/refund",
   tags: ["Bounties"],
   summary: "Refund a bounty",
@@ -262,7 +304,8 @@ export function generateOpenApiDocument() {
       description:
         "REST API for the Stellar Bounty Board — a platform for posting, reserving, submitting, " +
         "and releasing on-chain bounties backed by Stellar tokens.\n\n" +
-        "**Bounty lifecycle:** `open` → `reserved` → `submitted` → `released`\n\n" +
+        "**Bounty lifecycle:** `open` → `reserved` → `submitted` → `disputed` (optional) → `released`/`refunded`\n\n" +
+        "A contributor may dispute a submitted bounty before the configured arbiter resolves it. " +
         "Maintainers may also `refund` an `open` or `reserved` bounty at any time. " +
         "Bounties whose deadline passes are automatically transitioned to `expired`.",
     },
