@@ -617,8 +617,12 @@ function App() {
     };
   }, [detailId]);
 
+  const effectiveRepoFilter = useMemo(
+    () => (repoRoute ? `${repoRoute.owner}/${repoRoute.name}` : repoFilter),
+    [repoRoute, repoFilter],
+  );
+
   const filteredBounties = useMemo(() => {
-    const effectiveRepoFilter = repoRoute ? `${repoRoute.owner}/${repoRoute.name}` : repoFilter;
     const filtered = filterBounties(bounties, {
       searchQuery: debouncedSearchQuery,
       statusFilter,
@@ -1298,7 +1302,7 @@ function App() {
                   statusFilter={statusFilter}
                   minReward={minReward}
                   maxReward={maxReward}
-                  repoFilter={repoFilter}
+                  repoFilter={effectiveRepoFilter}
                   onClearFilters={clearFilters}
                 />
               )}

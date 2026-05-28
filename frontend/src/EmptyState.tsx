@@ -1,10 +1,11 @@
 import React from "react";
+import type { BountyStatus } from "./types";
 
 export interface EmptyStateProps {
   /** Current search query (debounced) */
   searchQuery?: string;
   /** Current status filter */
-  statusFilter?: string;
+  statusFilter?: "all" | BountyStatus;
   /** Minimum reward filter */
   minReward?: string;
   /** Maximum reward filter */
@@ -29,19 +30,22 @@ export default function EmptyState({
   repoFilter,
   onClearFilters,
 }: EmptyStateProps) {
+  const trimmedSearch = searchQuery?.trim();
+  const trimmedRepo = repoFilter?.trim();
+
   const hasFilters = Boolean(
-    searchQuery ||
+    trimmedSearch ||
       (statusFilter && statusFilter !== "all") ||
       minReward ||
       maxReward ||
-      repoFilter,
+      trimmedRepo,
   );
 
   const message = (() => {
-    if (searchQuery) {
+    if (trimmedSearch) {
       return (
         <>
-          No bounties match "<strong>{searchQuery}</strong>"
+          No bounties match "<strong>{trimmedSearch}</strong>"
         </>
       );
     }
@@ -51,8 +55,8 @@ export default function EmptyState({
     if (minReward || maxReward) {
       return <>No XLM bounties in this reward range</>;
     }
-    if (repoFilter) {
-      return <>No bounties in {repoFilter}</>;
+    if (trimmedRepo) {
+      return <>No bounties in {trimmedRepo}</>;
     }
     return <>No bounties available yet</>;
   })();
