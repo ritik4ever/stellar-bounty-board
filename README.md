@@ -111,6 +111,11 @@ Coverage report (Istanbul via Vitest):
 npm run test:coverage
 ```
 
+Frontend coverage is enforced separately in CI. The frontend Vitest
+configuration requires at least 70% line coverage and writes an HTML report to
+`frontend/coverage`, which the CI workflow uploads as the
+`frontend-coverage-report` artifact.
+
 ## Contract Notes
 
 The Soroban contract models the escrow lifecycle:
