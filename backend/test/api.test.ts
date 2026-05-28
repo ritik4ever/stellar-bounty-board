@@ -17,6 +17,10 @@ beforeEach(async () => {
 
 afterEach(() => {
   delete process.env.BOUNTY_STORE_PATH;
+  delete process.env.RATE_LIMIT_TEST_MODE;
+  delete process.env.RATE_LIMIT_WINDOW_MS;
+  delete process.env.RATE_LIMIT_READ_MAX;
+  delete process.env.RATE_LIMIT_MUTATION_MAX;
   try {
     fs.unlinkSync(storeFile);
   } catch {
@@ -294,6 +298,33 @@ describe("API — bounty lifecycle routes", () => {
       .send({ contributor: CONTRIBUTOR })
       .expect(400);
     expect(res.body.error).toMatch(/not found/i);
+  });
+
+  it("rate limits repeated mutation requests", async () => {
+    process.env.RATE_LIMIT_TEST_MODE = "true";
+    process.env.RATE_LIMIT_READ_MAX = "50";
+    process.env.RATE_LIMIT_MUTATION_MAX = "2";
+    process.env.RATE_LIMIT_WINDOW_MS = "60000";
+    vi.resetModules();
+
+    const app = await getApp();
+    const { body: created } = await request(app).post("/api/bounties").send(validCreateBody).expect(201);
+    const id = created.data.id as string;
+
+    const first = await request(app)
+      .post(`/api/bounties/${id}/reserve`)
+      .send({ contributor: CONTRIBUTOR })
+      .expect(200);
+
+    expect(first.headers["ratelimit"]).toBeDefined();
+
+    const limited = await request(app)
+      .post(`/api/bounties/${id}/reserve`)
+      .send({ contributor: OTHER_ACCOUNT })
+      .expect(429);
+
+    expect(limited.headers["retry-after"]).toBeDefined();
+    expect(limited.headers["ratelimit"]).toBeDefined();
   });
 });
 
