@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import { FormEvent, ReactNode, Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUpRight,
   Coins,
@@ -23,6 +23,7 @@ import {
   X,
   ArrowUpDown,
 } from "lucide-react";
+import { toast } from 'sonner';
 import {
   createBounty,
   exportReleasedPayoutsCsv,
@@ -38,14 +39,18 @@ import SubmissionChecklistModal, { type SubmissionFormData } from "./SubmissionC
 import { BountyRecommendation, ContributorProfile, createDefaultProfile, generateRecommendations, updateProfileFromBounties } from "./recommendations";
 import RecommendedBounties from "./RecommendedBounties";
 import { statusCopy, actionCopy, readInitialFilters, FilterState, statusOptions, statusGlossary, sortOptions } from "./constants";
-import { filterBounties, getRewardBounds, getActiveRewardLabel, getContributorMetrics, getUniqueRepos, getRepoMetrics, sortBounties, debounce, SortOption, SortState, xlmToUsd } from "./utils";
+import { filterBounties, getRewardBounds, getActiveRewardLabel, getContributorMetrics, getUniqueRepos, getUniqueTokenSymbols, getRepoMetrics, sortBounties, debounce, SortOption, SortState, xlmToUsd } from "./utils";
 import { Bounty, CreateBountyPayload, OpenIssue, BountyStatus } from "./types";
 
 import GitHubIssuePreviewCard from "./GitHubIssuePreviewCard";
-import BountyDetailPage from "./BountyDetailPage";
 import UsdAmount from "./UsdAmount";
 
 import SkeletonBountyCard from "./SkeletonBountyCard";
+import EmptyState from "./EmptyState";
+
+// Lazy-load BountyDetailPage — it is only rendered on /bounties/:id routes,
+// so deferring it keeps the initial board bundle smaller.
+const BountyDetailPage = lazy(() => import("./BountyDetailPage"));
 
 const STELLAR_PUBLIC_KEY_HINT = "Expected Stellar public key (starts with G and is 56 characters).";
 const STELLAR_PUBLIC_KEY_REGEX = /^G[A-Z2-7]{55}$/;
@@ -140,7 +145,7 @@ function formatTimestamp(value?: number): string {
   return new Date(value * 1000).toLocaleString();
 }
 
-function BountyAmount({ bounty }: { bounty: Bounty }) {
+const BountyAmount = memo(function BountyAmount({ bounty }: { bounty: Bounty }) {
   const [usdAmount, setUsdAmount] = useState<string | null>(null);
 
   useEffect(() => {
@@ -171,7 +176,131 @@ function BountyAmount({ bounty }: { bounty: Bounty }) {
       {usdAmount && <span>{usdAmount}</span>}
     </div>
   );
+});
+
+type BountyCardProps = {
+  bounty: Bounty;
+  onOpen: (id: string) => void;
+  renderActionButton: (
+    bounty: Bounty,
+    action: { action: "reserve" | "submit" | "release" | "refund"; label: string; title: string },
+  ) => ReactNode;
+};
+
+// Custom comparator: skip re-renders when the underlying bounty data is
+// unchanged, even if parent recreated callback identities. `statusCopy` and
+// `actionCopy` come from a stable module-scope import.
+function bountyCardPropsEqual(prev: BountyCardProps, next: BountyCardProps): boolean {
+  const a = prev.bounty;
+  const b = next.bounty;
+  return (
+    a.id === b.id &&
+    a.status === b.status &&
+    a.amount === b.amount &&
+    a.tokenSymbol === b.tokenSymbol &&
+    a.contributor === b.contributor &&
+    a.maintainer === b.maintainer &&
+    a.title === b.title &&
+    a.summary === b.summary &&
+    a.deadlineAt === b.deadlineAt &&
+    a.submissionUrl === b.submissionUrl &&
+    a.releasedTxHash === b.releasedTxHash &&
+    a.refundedTxHash === b.refundedTxHash &&
+    a.labels === b.labels
+  );
 }
+
+const BountyCard = memo(function BountyCard({ bounty, onOpen, renderActionButton }: BountyCardProps) {
+  return (
+    <article
+      className="bounty-card"
+      role="link"
+      tabIndex={0}
+      onClick={() => onOpen(bounty.id)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpen(bounty.id);
+        }
+      }}
+    >
+      <div className="bounty-card__top">
+        <div>
+          <span
+            className={`status-pill status-pill--${bounty.status}`}
+            title={statusCopy[bounty.status].description}
+            aria-label={`${statusCopy[bounty.status].label}: ${statusCopy[bounty.status].description}`}
+          >
+            {statusCopy[bounty.status].label}
+          </span>
+          <h3>{bounty.title}</h3>
+        </div>
+      </div>
+
+      <p className="bounty-summary">{bounty.summary}</p>
+
+      <div className="meta-grid">
+        <div>
+          <span className="meta-label">Issue</span>
+          <strong>
+            <a
+              className="inline-link"
+              href={`https://github.com/${bounty.repo}/issues/${bounty.issueNumber}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {bounty.repo} #{bounty.issueNumber}
+            </a>
+          </strong>
+        </div>
+        <div>
+          <span className="meta-label">Deadline</span>
+          <strong>{formatRelativeDeadline(bounty.deadlineAt)}</strong>
+        </div>
+        <div>
+          <span className="meta-label">Maintainer</span>
+          <strong>{shortAddress(bounty.maintainer)}</strong>
+        </div>
+        <div>
+          <span className="meta-label">Contributor</span>
+          <strong>{bounty.contributor ? shortAddress(bounty.contributor) : "Open"}</strong>
+        </div>
+        {bounty.status === "released" && bounty.releasedTxHash && (
+          <div>
+            <span className="meta-label">Release tx</span>
+            <strong>{`${bounty.releasedTxHash.slice(0, 10)}...`}</strong>
+          </div>
+        )}
+        {bounty.status === "refunded" && bounty.refundedTxHash && (
+          <div>
+            <span className="meta-label">Refund tx</span>
+            <strong>{`${bounty.refundedTxHash.slice(0, 10)}...`}</strong>
+          </div>
+        )}
+      </div>
+
+      <div className="chip-row">
+        {bounty.labels.map((label) => (
+          <span className="chip" key={label.name}>{label.name}</span>
+        ))}
+      </div>
+
+      <p className="status-helper">
+        <strong>{statusCopy[bounty.status].label}:</strong> {statusCopy[bounty.status].description}
+      </p>
+
+      {bounty.submissionUrl && (
+        <a className="submission-link" href={bounty.submissionUrl} target="_blank" rel="noreferrer">
+          Review submission <ArrowUpRight size={16} />
+        </a>
+      )}
+
+      <div className="action-row">
+        {(actionCopy[bounty.status] ?? []).map((action) => renderActionButton(bounty, action))}
+      </div>
+    </article>
+  );
+}, bountyCardPropsEqual);
 
 function App() {
   const { dark, toggle: toggleDark } = useDarkMode();
@@ -186,10 +315,10 @@ function App() {
 
   const [searchQuery, setSearchQuery] = useState(initialFilters.searchQuery);
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(initialFilters.searchQuery);
-  
+
   // Debounced search update
   const debouncedSetSearchQuery = useMemo(() => debounce(setDebouncedSearchQuery, 300), []);
-  
+
   useEffect(() => {
     debouncedSetSearchQuery(searchQuery);
   }, [searchQuery, debouncedSetSearchQuery]);
@@ -197,9 +326,17 @@ function App() {
   const [minReward, setMinReward] = useState(initialFilters.minReward);
   const [maxReward, setMaxReward] = useState(initialFilters.maxReward);
   const [repoFilter, setRepoFilter] = useState(initialFilters.repoFilter);
+  const [tokenFilter, setTokenFilter] = useState(initialFilters.tokenFilter);
   const [sortOption, setSortOption] = useState(initialFilters.sortOption);
   const [sortDirection, setSortDirection] = useState(initialFilters.sortDirection);
   const [pathname, setPathname] = useState(window.location.pathname);
+  const detailId = useMemo(() => {
+    const match = pathname.match(/^\/bounties\/([^/]+)$/);
+    return match ? decodeURIComponent(match[1] ?? "") : null;
+  }, [pathname]);
+  const detailIdRef = useRef<string | null>(detailId);
+  const [detailBounty, setDetailBounty] = useState<Bounty | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [profileContributor, setProfileContributor] = useState("");
   const [profileStatus, setProfileStatus] = useState<"all" | BountyStatus>("all");
 
@@ -209,6 +346,9 @@ function App() {
   const [submissionModalError, setSubmissionModalError] = useState<string | null>(null);
   const [submissionModalData, setSubmissionModalData] = useState<Partial<SubmissionFormData> | undefined>(undefined);
 
+  useEffect(() => {
+    detailIdRef.current = detailId;
+  }, [detailId]);
 
 
   async function refresh(signal?: AbortSignal): Promise<void> {
@@ -218,6 +358,14 @@ function App() {
     ]);
     setBounties(bountyData);
     setIssues(issueData);
+
+    const currentDetailId = detailIdRef.current;
+    if (currentDetailId) {
+      const refreshedDetailBounty = bountyData.find((bounty) => bounty.id === currentDetailId);
+      if (refreshedDetailBounty) {
+        setDetailBounty(refreshedDetailBounty);
+      }
+    }
   }
 
   useEffect(() => {
@@ -278,6 +426,10 @@ function App() {
       params.set("repo", repoFilter);
     }
 
+    if (tokenFilter !== "") {
+      params.set("tokenSymbol", tokenFilter);
+    }
+
     if (sortOption !== "newest") {
       params.set("sort", sortOption);
     }
@@ -289,7 +441,7 @@ function App() {
     const nextSearch = params.toString();
     const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`;
     window.history.replaceState(null, "", nextUrl);
-  }, [maxReward, minReward, pathname, debouncedSearchQuery, statusFilter, repoFilter, sortOption, sortDirection]);
+  }, [maxReward, minReward, pathname, debouncedSearchQuery, statusFilter, repoFilter, tokenFilter, sortOption, sortDirection]);
 
   useEffect(() => {
     function handlePopState() {
@@ -303,6 +455,7 @@ function App() {
       setMinReward(filters.minReward);
       setMaxReward(filters.maxReward);
       setRepoFilter(filters.repoFilter);
+      setTokenFilter(filters.tokenFilter);
       setSortOption(filters.sortOption);
       setSortDirection(filters.sortDirection);
     }
@@ -333,6 +486,10 @@ function App() {
     return getUniqueRepos(bounties);
   }, [bounties]);
 
+  const uniqueTokens = useMemo(() => {
+    return getUniqueTokenSymbols(bounties);
+  }, [bounties]);
+
   const rewardBounds = useMemo(() => {
     return getRewardBounds(bounties);
   }, [bounties]);
@@ -346,8 +503,6 @@ function App() {
   }, [bounties, profileContributor]);
 
   const [profile, setProfile] = useState(() => createDefaultProfile());
-  const [detailBounty, setDetailBounty] = useState<Bounty | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
   const recommendations = useMemo(() => {
     return generateRecommendations(bounties, profile);
   }, [bounties, profile]);
@@ -358,6 +513,7 @@ function App() {
     setMinReward("");
     setMaxReward("");
     setRepoFilter("");
+    setTokenFilter("");
     setSortOption("newest");
     setSortDirection("desc");
   }
@@ -403,6 +559,13 @@ function App() {
     }
   }
 
+  const handleOpenBounty = useCallback(
+    (id: string) => {
+      navigate(`/bounties/${encodeURIComponent(id)}`);
+    },
+    [navigate],
+  );
+
   function renderActionButton(
     bounty: Bounty,
     action: { action: BountyAction; label: string; title: string },
@@ -436,11 +599,6 @@ function App() {
       </button>
     );
   }
-
-  const detailId = useMemo(() => {
-    const match = pathname.match(/^\/bounties\/([^/]+)$/);
-    return match ? decodeURIComponent(match[1] ?? "") : null;
-  }, [pathname]);
 
   const repoRoute = useMemo(() => {
     const match = pathname.match(/^\/repo\/([^/]+)\/([^/]+)$/);
@@ -481,13 +639,14 @@ function App() {
       minReward,
       maxReward,
       repoFilter: effectiveRepoFilter,
+      tokenFilter,
       sortOption,
       sortDirection,
     });
-    
+
     // Apply sorting
     return sortBounties(filtered, { option: sortOption, direction: sortDirection });
-  }, [bounties, debouncedSearchQuery, statusFilter, minReward, maxReward, repoFilter, repoRoute, sortOption, sortDirection]);
+  }, [bounties, debouncedSearchQuery, statusFilter, minReward, maxReward, repoFilter, tokenFilter, repoRoute, sortOption, sortDirection]);
 
   const groupedBounties = useMemo(() => {
     if (repoRoute) {
@@ -503,23 +662,88 @@ function App() {
     return groups;
   }, [filteredBounties, repoRoute]);
 
+  // Derive whether any filter is currently active so EmptyState knows whether
+  // to show the "Clear filters" CTA.
+  const hasActiveFilters =
+    debouncedSearchQuery.trim() !== "" ||
+    statusFilter !== "all" ||
+    minReward !== "" ||
+    maxReward !== "" ||
+    repoFilter !== "";
+
+  // Build a context-aware heading and supporting message for the empty board.
+  const { emptyStateHeading, emptyStateMessage } = useMemo((): {
+    emptyStateHeading: string;
+    emptyStateMessage: string;
+  } => {
+    // Token search: user typed something like "XLM" or "USDC"
+    const tokenMatch = debouncedSearchQuery.trim().match(/^[A-Z]{2,6}$/);
+    if (tokenMatch) {
+      return {
+        emptyStateHeading: `No ${tokenMatch[0]} bounties`,
+        emptyStateMessage: `There are no bounties denominated in ${tokenMatch[0]} right now.`,
+      };
+    }
+
+    // Status filter active
+    if (statusFilter !== "all") {
+      const label = statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1);
+      return {
+        emptyStateHeading: `No ${label.toLowerCase()} bounties`,
+        emptyStateMessage: `There are no bounties with status "${label.toLowerCase()}" matching your current filters.`,
+      };
+    }
+
+    // Repo filter active
+    if (repoFilter) {
+      return {
+        emptyStateHeading: "No bounties in this repo",
+        emptyStateMessage: `No bounties found for repository "${repoFilter}".`,
+      };
+    }
+
+    // Generic search query
+    if (debouncedSearchQuery.trim()) {
+      return {
+        emptyStateHeading: `No bounties found for "${debouncedSearchQuery.trim()}"`,
+        emptyStateMessage: "Try a different search term or clear your filters.",
+      };
+    }
+
+    // Reward range filter only
+    if (minReward || maxReward) {
+      return {
+        emptyStateHeading: "No bounties in this reward range",
+        emptyStateMessage: "Try widening the min/max reward range.",
+      };
+    }
+
+    // No filters at all — board is genuinely empty
+    return {
+      emptyStateHeading: "No bounties yet",
+      emptyStateMessage: "Be the first to create a bounty using the form above.",
+    };
+  }, [debouncedSearchQuery, statusFilter, repoFilter, minReward, maxReward]);
+
   if (detailId) {
     const bounty = detailBounty;
     const owner = bounty ? repoOwner(bounty.repo) : "";
     const avatarUrl = bounty ? `https://github.com/${owner}.png?size=72` : "";
 
     return (
-      <BountyDetailPage
-        bounty={bounty}
-        loading={detailLoading}
-        onBack={() => navigate("/")}
-        owner={owner}
-        avatarUrl={avatarUrl}
-        statusCopy={statusCopy}
-        actionCopy={actionCopy}
-        renderActionButton={renderActionButton}
-        formatTimestamp={formatTimestamp}
-      />
+      <Suspense fallback={<div className="empty-state">Loading bounty...</div>}>
+        <BountyDetailPage
+          bounty={bounty}
+          loading={detailLoading}
+          onBack={() => navigate("/")}
+          owner={owner}
+          avatarUrl={avatarUrl}
+          statusCopy={statusCopy}
+          actionCopy={actionCopy}
+          renderActionButton={renderActionButton}
+          formatTimestamp={formatTimestamp}
+        />
+      </Suspense>
     );
   }
 
@@ -535,11 +759,13 @@ function App() {
       setError(null);
       await reserveBounty(bounty.id, contributor.trim());
       await refresh();
+      toast.success('Bounty reserved successfully!');
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to reserve bounty.");
+      const message = err instanceof Error ? err.message : 'Failed to reserve bounty.';
+      setError(message);
+      toast.error(message);
     }
   }
-
   async function handleSubmit(bounty: Bounty) {
     setSubmissionModalBounty(bounty);
     setSubmissionModalError(null);
@@ -564,13 +790,15 @@ function App() {
       setSubmissionModalBounty(null);
       setSubmissionModalData(undefined);
       await refresh();
+      toast.success('PR submitted successfully!');
     } catch (err) {
-      setSubmissionModalError(err instanceof Error ? err.message : "Failed to submit bounty.");
+      const message = err instanceof Error ? err.message : 'Failed to submit bounty.';
+      setSubmissionModalError(message);
+      toast.error(message);
     } finally {
       setSubmissionModalSubmitting(false);
     }
   }
-
   async function handleRelease(bounty: Bounty) {
     const maintainer = window.prompt("Maintainer Stellar address", bounty.maintainer);
     if (!maintainer) return;
@@ -584,842 +812,802 @@ function App() {
       setError(null);
       await releaseBounty(bounty.id, maintainer.trim(), transactionHash || undefined);
       await refresh();
+      toast.success('Bounty released — payment sent!');
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to release bounty.");
+      const message = err instanceof Error ? err.message : 'Failed to release bounty.';
+      setError(message);
+      toast.error(message);
     }
   }
+    async function handleRefund(bounty: Bounty) {
+      const maintainer = window.prompt("Maintainer Stellar address", bounty.maintainer);
+      if (!maintainer) return;
+      const maintainerError = validateStellarPublicKey(maintainer);
+      if (maintainerError) {
+        window.alert(maintainerError);
+        return;
+      }
+      const transactionHash = window.prompt("Transaction hash (64 hex chars, optional)") ?? undefined;
+      try {
+        setError(null);
+        await refundBounty(bounty.id, maintainer.trim(), transactionHash || undefined);
+        await refresh();
+        toast.success('Bounty refunded successfully!');
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to refund bounty.';
+        setError(message);
+        toast.error(message);
+      }
+  }                      
 
-  async function handleRefund(bounty: Bounty) {
-    const maintainer = window.prompt("Maintainer Stellar address", bounty.maintainer);
-    if (!maintainer) return;
-    const maintainerError = validateStellarPublicKey(maintainer);
-    if (maintainerError) {
-      window.alert(maintainerError);
-      return;
-    }
-    const transactionHash = window.prompt("Transaction hash (64 hex chars, optional)") ?? undefined;
-    try {
-      setError(null);
-      await refundBounty(bounty.id, maintainer.trim(), transactionHash || undefined);
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to refund bounty.");
-    }
-  }
-
-
-  return (
+  return (               
     <div className="page-shell">
-      <div className="glow glow-left" />
-      <div className="glow glow-right" />
+          <div className="glow glow-left" />
+          <div className="glow glow-right" />
 
-      <header className="hero">
-        <button
-          type="button"
-          className="dark-mode-toggle"
-          onClick={toggleDark}
-          aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
-          title={dark ? "Switch to light mode" : "Switch to dark mode"}
-        >
-          {dark ? <Sun size={18} /> : <Moon size={18} />}
-        </button>
-        <div className="hero-copy">
-          <span className="eyebrow">Stellar + Open Source</span>
-          <h1>Fund GitHub issues with on-chain style escrow.</h1>
-          <p>
-            Stellar Bounty Board turns backlog items into funded contribution lanes.
-            Maintainers lock a reward, contributors reserve the work, and payout flows
-            through a simple review lifecycle.
-          </p>
-          <div className="hero-actions">
-            <a href="#create" className="primary-link">
-              Launch a bounty
-            </a>
-            <a href="#issues" className="secondary-link">
-              Contribution backlog
-            </a>
-            <button
-              type="button"
-              className="secondary-link"
-              disabled={exporting}
-              onClick={() => void handleExportReleasedPayouts()}
-            >
-              {exporting ? "Exporting..." : "Export released payouts (CSV)"}
-            </button>
-          </div>
-        </div>
-
-        <section className="hero-panel">
-          <div className="hero-panel__row">
-            <ShieldCheck size={18} />
-            <span>Escrow-first maintainer controls</span>
-          </div>
-          <div className="hero-panel__row">
-            <FolderGit2 size={18} />
-            <span>GitHub issue and PR-linked lifecycle</span>
-          </div>
-          <div className="hero-panel__row">
-            <Coins size={18} />
-            <span>Built to graduate from demo backend to Soroban source of truth</span>
-          </div>
-        </section>
-      </header>
-
-      {repoRoute && (
-        <section className="hero-panel">
-          <div className="hero-panel__row">
-            <GitBranch size={18} />
-            <span>
-              <strong>{repoRoute.owner}/{repoRoute.name}</strong> repository
-            </span>
-          </div>
-          <div className="hero-panel__row">
-            <ExternalLink size={18} />
-            <span>
-              <a 
-                href={`https://github.com/${repoRoute.owner}/${repoRoute.name}`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-link"
-              >
-                View on GitHub
-              </a>
-            </span>
-          </div>
-          <div className="hero-panel__row">
-            <ArrowUpRight size={18} />
-            <span>
-              <button 
-                className="ghost-button"
-                onClick={() => navigate("/")}
-              >
-                View all repositories
-              </button>
-            </span>
-          </div>
-        </section>
-      )}
-
-      <section className="metrics">
-        <article className="metric-card">
-          <span>Live bounties</span>
-          <strong>{metrics.liveBounties}</strong>
-        </article>
-        <article className="metric-card">
-          <span>Funded volume</span>
-          <strong>{metrics.fundedVolume} XLM</strong>
-        </article>
-        <article className="metric-card">
-          <span>Open to claim</span>
-          <strong>{metrics.openIssues}</strong>
-        </article>
-        <article className="metric-card">
-          <span>Released payouts</span>
-          <strong>{metrics.shippedRewards}</strong>
-        </article>
-      </section>
-
-      {error && <div className="error-banner">{error}</div>}
-
-      {profileContributor && (
-        <RecommendedBounties 
-          recommendations={recommendations} 
-          loading={loading} 
-        />
-      )}
-
-      <main className="content-grid">
-        <section className="panel form-panel" id="create">
-          <div className="panel-header">
-            <div>
-              <span className="panel-kicker">Maintainer flow</span>
-              <h2>Create a bounty</h2>
-            </div>
-            <Rocket size={18} />
-          </div>
-
-          <form className="bounty-form" onSubmit={handleCreate}>
-            <label>
-              Repository
-              <input
-                value={form.repo}
-                onChange={(event) => setForm({ ...form, repo: event.target.value })}
-                placeholder="owner/repo"
-              />
-            </label>
-
-            <div className="two-up">
-              <label>
-                Issue number
-                <input
-                  type="number"
-                  value={form.issueNumber}
-                  onChange={(event) =>
-                    setForm({ ...form, issueNumber: Number(event.target.value) })
-                  }
-                />
-              </label>
-
-              <label>
-                Reward
-                <input
-                  type="number"
-                  min="1"
-                  value={form.amount}
-                  onChange={(event) => setForm({ ...form, amount: Number(event.target.value) })}
-                />
-              </label>
-            </div>
-
-            <label>
-              Issue title
-              <input
-                value={form.title}
-                onChange={(event) => setForm({ ...form, title: event.target.value })}
-                placeholder="Example: Add WebSocket payout updates"
-              />
-            </label>
-
-            <label>
-              Summary
-              <textarea
-                value={form.summary}
-                onChange={(event) => setForm({ ...form, summary: event.target.value })}
-                placeholder="What should a contributor build?"
-                rows={4}
-              />
-            </label>
-
-            <div className="two-up">
-              <label>
-                Maintainer address
-                <input
-                  value={form.maintainer}
-                  onChange={(event) => setForm({ ...form, maintainer: event.target.value })}
-                  placeholder="G... (56 chars)"
-                  inputMode="text"
-                  autoComplete="off"
-                  aria-invalid={Boolean(form.maintainer.trim() && validateStellarPublicKey(form.maintainer))}
-                />
-                <small className="field-hint">Enter a Stellar public key (starts with 'G', 56 characters)</small>
-                {form.maintainer.trim() && validateStellarPublicKey(form.maintainer) && (
-                  <small className="field-error">{validateStellarPublicKey(form.maintainer)}</small>
-                )}
-              </label>
-
-              <label>
-                Token
-                <input
-                  value={form.tokenSymbol}
-                  onChange={(event) => setForm({ ...form, tokenSymbol: event.target.value })}
-                />
-              </label>
-            </div>
-
-            <div className="two-up">
-              <label>
-                Deadline in days
-                <input
-                  type="number"
-                  min="1"
-                  max="90"
-                  value={form.deadlineDays}
-                  onChange={(event) =>
-                    setForm({ ...form, deadlineDays: Number(event.target.value) })
-                  }
-                />
-              </label>
-
-              <label>
-                Labels
-                <input
-                  value={form.labels.join(", ")}
-                  onChange={(event) =>
-  setForm({
-    ...form,
-    labels: event.target.value
-      .split(",")
-      .map((item) => ({ name: item.trim(), color: "0075ca" }))
-      .filter((item) => item.name !== ""),
-  })
-}
-placeholder="help wanted, backend"
-/>
-              </label>
-            </div>
-
-            <GitHubIssuePreviewCard
-              repo={form.repo}
-              issueNumber={form.issueNumber}
-              title={form.title}
-              labels={form.labels}
-            />
-
-            <button className="primary-button" disabled={submitting}>
-              {submitting ? "Publishing..." : "Publish bounty"}
-            </button>
-          </form>
-        </section>
-
-        <section className="panel board-panel">
-          <div className="panel-header">
-            <div>
-              <span className="panel-kicker">Contributor flow</span>
-              <h2>Bounty board</h2>
-            </div>
-            <div className="board-sort">
-              <label className="board-sort__label">
-                <ArrowUpDown size={16} />
-                <span>Amount</span>
-                <select
-                  value={sortOption === "reward-high" && sortDirection === "desc"
-                    ? "reward-high-desc"
-                    : sortOption === "reward-low" && sortDirection === "asc"
-                    ? "reward-low-asc"
-                    : "reward-high-desc"
-                  }
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    if (value === "reward-high-desc") {
-                      setSortOption("reward-high");
-                      setSortDirection("desc");
-                    } else if (value === "reward-low-asc") {
-                      setSortOption("reward-low");
-                      setSortDirection("asc");
-                    }
-                  }}
+          <header className="hero">
+            <div className="hero-copy">
+              <span className="eyebrow">Stellar + Open Source</span>
+              <h1>Fund GitHub issues with on-chain style escrow.</h1>
+              <p>
+                Stellar Bounty Board turns backlog items into funded contribution lanes.
+                Maintainers lock a reward, contributors reserve the work, and payout flows
+                through a simple review lifecycle.
+              </p>
+              <div className="hero-actions">
+                <a href="#create" className="primary-link">
+                  Launch a bounty
+                </a>
+                <a href="#issues" className="secondary-link">
+                  Contribution backlog
+                </a>
+                <button
+                  type="button"
+                  className="secondary-link"
+                  disabled={exporting}
+                  onClick={() => void handleExportReleasedPayouts()}
                 >
-                  <option value="reward-high-desc">High → Low</option>
-                  <option value="reward-low-asc">Low → High</option>
-                </select>
-              </label>
-            </div>
-            <HandCoins size={18} />
-          </div>
-
-          <div className="board-filters">
-            <div className="board-filters__header">
-              <div>
-                <span className="panel-kicker">Board filters</span>
-                <p>
-                  Showing <strong>{filteredBounties.length}</strong> of <strong>{bounties.length}</strong>{" "}
-                  bounties
-                </p>
+                  {exporting ? "Exporting..." : "Export released payouts (CSV)"}
+                </button>
               </div>
-              <button className="ghost-button filter-reset" type="button" onClick={clearFilters}>
-                Clear filters
-              </button>
             </div>
 
-            <div className="filter-grid">
-              <label className="filter-field filter-field--search">
-                <span>Search</span>
-                <div className="input-with-icon">
-                  <Search size={16} />
+            <section className="hero-panel">
+              <div className="hero-panel__row">
+                <ShieldCheck size={18} />
+                <span>Escrow-first maintainer controls</span>
+              </div>
+              <div className="hero-panel__row">
+                <FolderGit2 size={18} />
+                <span>GitHub issue and PR-linked lifecycle</span>
+              </div>
+              <div className="hero-panel__row">
+                <Coins size={18} />
+                <span>Built to graduate from demo backend to Soroban source of truth</span>
+              </div>
+            </section>
+          </header>
+
+          {repoRoute && (
+            <section className="hero-panel">
+              <div className="hero-panel__row">
+                <GitBranch size={18} />
+                <span>
+                  <strong>{repoRoute.owner}/{repoRoute.name}</strong> repository
+                </span>
+              </div>
+              <div className="hero-panel__row">
+                <ExternalLink size={18} />
+                <span>
+                  <a
+                    href={`https://github.com/${repoRoute.owner}/${repoRoute.name}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-link"
+                  >
+                    View on GitHub
+                  </a>
+                </span>
+              </div>
+              <div className="hero-panel__row">
+                <ArrowUpRight size={18} />
+                <span>
+                  <button
+                    className="ghost-button"
+                    onClick={() => navigate("/")}
+                  >
+                    View all repositories
+                  </button>
+                </span>
+              </div>
+            </section>
+          )}
+
+          <section className="metrics">
+            <article className="metric-card">
+              <span>Live bounties</span>
+              <strong>{metrics.liveBounties}</strong>
+            </article>
+            <article className="metric-card">
+              <span>Funded volume</span>
+              <strong>{metrics.fundedVolume} XLM</strong>
+            </article>
+            <article className="metric-card">
+              <span>Open to claim</span>
+              <strong>{metrics.openIssues}</strong>
+            </article>
+            <article className="metric-card">
+              <span>Released payouts</span>
+              <strong>{metrics.shippedRewards}</strong>
+            </article>
+          </section>
+
+          {error && <div className="error-banner">{error}</div>}
+
+          {profileContributor && (
+            <RecommendedBounties
+              recommendations={recommendations}
+              loading={loading}
+            />
+          )}
+
+          <main className="content-grid">
+            <section className="panel form-panel" id="create">
+              <div className="panel-header">
+                <div>
+                  <span className="panel-kicker">Maintainer flow</span>
+                  <h2>Create a bounty</h2>
+                </div>
+                <Rocket size={18} />
+              </div>
+
+              <form className="bounty-form" onSubmit={handleCreate}>
+                <label>
+                  Repository
                   <input
-                    value={searchQuery}
-                    onChange={(event) => setSearchQuery(event.target.value)}
-                    placeholder="Search repo, title, labels, status"
+                    value={form.repo}
+                    onChange={(event) => setForm({ ...form, repo: event.target.value })}
+                    placeholder="owner/repo"
                   />
-                </div>
-              </label>
+                </label>
 
-              <label className="filter-field">
-                <span>Status</span>
-                <div className="input-with-icon">
-                  <SlidersHorizontal size={16} />
-                  <select
-                    value={statusFilter}
-                    onChange={(event) => setStatusFilter(event.target.value as "all" | BountyStatus)}
-                  >
-                    {statusOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </label>
-
-              <label className="filter-field">
-                <span>Repository</span>
-                <div className="input-with-icon">
-                  <GitBranch size={16} />
-                  <select
-                    value={repoFilter}
-                    onChange={(event) => setRepoFilter(event.target.value)}
-                  >
-                    <option value="">All repositories</option>
-                    {uniqueRepos.map((repo) => (
-                      <option key={repo} value={repo}>
-                        {repo}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </label>
-
-              <label className="filter-field">
-                <span>Min reward</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  inputMode="numeric"
-                  value={minReward}
-                  onChange={(event) => setMinReward(event.target.value)}
-                  placeholder={rewardBounds.lowest > 0 ? `${rewardBounds.lowest}` : "0"}
-                />
-              </label>
-
-              <label className="filter-field">
-                <span>Max reward</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  inputMode="numeric"
-                  value={maxReward}
-                  onChange={(event) => setMaxReward(event.target.value)}
-                  placeholder={rewardBounds.highest > 0 ? `${rewardBounds.highest}` : "No limit"}
-                />
-              </label>
-
-              <label className="filter-field">
-                <span>Sort by</span>
-                <div className="input-with-icon">
-                  <ArrowUpDown size={16} />
-                  <select
-                    value={sortOption}
-                    onChange={(event) => {
-                      const newOption = event.target.value as SortOption;
-                      setSortOption(newOption);
-                      // Set default direction for this sort option
-                      const optionConfig = sortOptions.find(opt => opt.value === newOption);
-                      if (optionConfig) {
-                        setSortDirection(optionConfig.direction);
+                <div className="two-up">
+                  <label>
+                    Issue number
+                    <input
+                      type="number"
+                      value={form.issueNumber}
+                      onChange={(event) =>
+                        setForm({ ...form, issueNumber: Number(event.target.value) })
                       }
-                    }}
-                  >
-                    {sortOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
+                    />
+                  </label>
+
+                  <label>
+                    Reward
+                    <input
+                      type="number"
+                      min="1"
+                      value={form.amount}
+                      onChange={(event) => setForm({ ...form, amount: Number(event.target.value) })}
+                    />
+                  </label>
                 </div>
-              </label>
-            </div>
 
-            <div className="active-range" aria-live="polite">
-              <span className="active-range__label">Active reward range</span>
-              <strong>{activeRewardLabel}</strong>
-            </div>
-          </div>
+                <label>
+                  Issue title
+                  <input
+                    value={form.title}
+                    onChange={(event) => setForm({ ...form, title: event.target.value })}
+                    placeholder="Example: Add WebSocket payout updates"
+                  />
+                </label>
 
-          <section className="status-glossary" aria-labelledby="status-glossary-title">
-            <div className="status-glossary__header">
-              <div>
-                <span className="panel-kicker">Contributor guide</span>
-                <h3 id="status-glossary-title">Status quick guide</h3>
+                <label>
+                  Summary
+                  <textarea
+                    value={form.summary}
+                    onChange={(event) => setForm({ ...form, summary: event.target.value })}
+                    placeholder="What should a contributor build?"
+                    rows={4}
+                  />
+                </label>
+
+                <div className="two-up">
+                  <label>
+                    Maintainer address
+                    <input
+                      value={form.maintainer}
+                      onChange={(event) => setForm({ ...form, maintainer: event.target.value })}
+                      placeholder="G... (56 chars)"
+                      inputMode="text"
+                      autoComplete="off"
+                      aria-invalid={Boolean(form.maintainer.trim() && validateStellarPublicKey(form.maintainer))}
+                    />
+                    <small className="field-hint">Enter a Stellar public key (starts with 'G', 56 characters)</small>
+                    {form.maintainer.trim() && validateStellarPublicKey(form.maintainer) && (
+                      <small className="field-error">{validateStellarPublicKey(form.maintainer)}</small>
+                    )}
+                  </label>
+
+                  <label>
+                    Token
+                    <input
+                      value={form.tokenSymbol}
+                      onChange={(event) => setForm({ ...form, tokenSymbol: event.target.value })}
+                    />
+                  </label>
+                </div>
+
+                <div className="two-up">
+                  <label>
+                    Deadline in days
+                    <input
+                      type="number"
+                      min="1"
+                      max="90"
+                      value={form.deadlineDays}
+                      onChange={(event) =>
+                        setForm({ ...form, deadlineDays: Number(event.target.value) })
+                      }
+                    />
+                  </label>
+
+                  <label>
+                    Labels
+                    <input
+                      value={form.labels.join(", ")}
+                      onChange={(event) =>
+                        setForm({
+                          ...form,
+                          labels: event.target.value
+                            .split(",")
+                            .map((item) => ({ name: item.trim(), color: "0075ca" }))
+                            .filter((item) => item.name !== ""),
+                        })
+                      }
+                      placeholder="help wanted, backend"
+                    />
+                  </label>
+                </div>
+
+                <GitHubIssuePreviewCard
+                  repo={form.repo}
+                  issueNumber={form.issueNumber}
+                  title={form.title}
+                  labels={form.labels}
+                />
+
+                <button className="primary-button" disabled={submitting}>
+                  {submitting ? "Publishing..." : "Publish bounty"}
+                </button>
+              </form>
+            </section>
+
+            <section className="panel board-panel">
+              <div className="panel-header">
+                <div>
+                  <span className="panel-kicker">Contributor flow</span>
+                  <h2>Bounty board</h2>
+                </div>
+                <HandCoins size={18} />
               </div>
-              <span className="status-glossary__hint">Hover or tap pills and buttons for a short explanation.</span>
+
+              <div className="board-filters">
+                <div className="board-filters__header">
+                  <div>
+                    <span className="panel-kicker">Board filters</span>
+                    <p>
+                      Showing <strong>{filteredBounties.length}</strong> of <strong>{bounties.length}</strong>{" "}
+                      bounties
+                    </p>
+                  </div>
+                  <button className="ghost-button filter-reset" type="button" onClick={clearFilters}>
+                    Clear filters
+                  </button>
+                </div>
+
+                <div className="filter-grid">
+                  <label className="filter-field filter-field--search">
+                    <span>Search</span>
+                    <div className="input-with-icon">
+                      <Search size={16} />
+                      <input
+                        value={searchQuery}
+                        onChange={(event) => setSearchQuery(event.target.value)}
+                        placeholder="Search repo, title, labels, status"
+                      />
+                    </div>
+                  </label>
+
+                  <label className="filter-field">
+                    <span>Status</span>
+                    <div className="input-with-icon">
+                      <SlidersHorizontal size={16} />
+                      <select
+                        value={statusFilter}
+                        onChange={(event) => setStatusFilter(event.target.value as "all" | BountyStatus)}
+                      >
+                        {statusOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </label>
+
+                  <label className="filter-field">
+                    <span>Repository</span>
+                    <div className="input-with-icon">
+                      <GitBranch size={16} />
+                      <select
+                        value={repoFilter}
+                        onChange={(event) => setRepoFilter(event.target.value)}
+                      >
+                        <option value="">All repositories</option>
+                        {uniqueRepos.map((repo) => (
+                          <option key={repo} value={repo}>
+                            {repo}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </label>
+
+                  <label className="filter-field">
+                    <span>Token</span>
+                    <div className="input-with-icon">
+                      <Coins size={16} />
+                      <select
+                        aria-label="Filter by token"
+                        value={tokenFilter}
+                        onChange={(event) => setTokenFilter(event.target.value)}
+                      >
+                        <option value="">All Tokens</option>
+                        {uniqueTokens.map((token) => (
+                          <option key={token} value={token}>
+                            {token}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </label>
+
+                  <label className="filter-field">
+                    <span>Min reward</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      inputMode="numeric"
+                      value={minReward}
+                      onChange={(event) => setMinReward(event.target.value)}
+                      placeholder={rewardBounds.lowest > 0 ? `${rewardBounds.lowest}` : "0"}
+                    />
+                  </label>
+
+                  <label className="filter-field">
+                    <span>Max reward</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      inputMode="numeric"
+                      value={maxReward}
+                      onChange={(event) => setMaxReward(event.target.value)}
+                      placeholder={rewardBounds.highest > 0 ? `${rewardBounds.highest}` : "No limit"}
+                    />
+                  </label>
+
+                  <label className="filter-field">
+                    <span>Sort by</span>
+                    <div className="input-with-icon">
+                      <ArrowUpDown size={16} />
+                      <select
+                        value={sortOption}
+                        onChange={(event) => {
+                          const newOption = event.target.value as SortOption;
+                          setSortOption(newOption);
+                          // Set default direction for this sort option
+                          const optionConfig = sortOptions.find(opt => opt.value === newOption);
+                          if (optionConfig) {
+                            setSortDirection(optionConfig.direction);
+                          }
+                        }}
+                      >
+                        {sortOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </label>
+                </div>
+
+                <div className="active-range" aria-live="polite">
+                  <span className="active-range__label">Active reward range</span>
+                  <strong>{activeRewardLabel}</strong>
+                </div>
+              </div>
+
+              <section className="status-glossary" aria-labelledby="status-glossary-title">
+                <div className="status-glossary__header">
+                  <div>
+                    <span className="panel-kicker">Contributor guide</span>
+                    <h3 id="status-glossary-title">Status quick guide</h3>
+                  </div>
+                  <span className="status-glossary__hint">Hover or tap pills and buttons for a short explanation.</span>
+                </div>
+                <div className="status-glossary__list">
+                  {statusGlossary.map((item) => (
+                    <article className="status-glossary__item" key={item.status}>
+                      <span className={`status-pill status-pill--${item.status}`}>{item.label}</span>
+                      <p>{item.description}</p>
+                    </article>
+                  ))}
+                </div>
+              </section>
+
+              {loading ? (
+                <div className="board-list">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <SkeletonBountyCard key={i} />
+                  ))}
+                </div>
+              ) : Object.keys(groupedBounties).length > 0 ? (
+                <div className="board-list">
+                  {Object.entries(groupedBounties).map(([repo, repoBounties]) => (
+                    <div key={repo} className="repo-group">
+                      <div className="repo-group__header">
+                        <h3
+                          className="repo-group__title"
+                          onClick={() => navigate(`/repo/${repo.split('/')[0]}/${repo.split('/')[1]}`)}
+                          role="link"
+                          tabIndex={0}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              navigate(`/repo/${repo.split('/')[0]}/${repo.split('/')[1]}`);
+                            }
+                          }}
+                        >
+                          {repo}
+                        </h3>
+                        <span className="repo-count">{repoBounties.length} bounties</span>
+                      </div>
+                      <div className="repo-group__metrics">
+                        <div className="repo-metric">
+                          <span className="repo-metric__label">Open</span>
+                          <span className="repo-metric__value">{repoBounties.filter(b => b.status === 'open').length}</span>
+                        </div>
+                        <div className="repo-metric">
+                          <span className="repo-metric__label">Funded</span>
+                          <span className="repo-metric__value">{repoBounties.reduce((sum, b) => sum + b.amount, 0)} XLM</span>
+                        </div>
+                        <div className="repo-metric">
+                          <span className="repo-metric__label">Paid</span>
+                          <span className="repo-metric__value">{repoBounties.filter(b => b.status === 'released').reduce((sum, b) => sum + b.amount, 0)} XLM</span>
+                        </div>
+                      </div>
+                      <div className="repo-group__bounties">
+                        {repoBounties.map((bounty) => (
+                          <article
+                            className="bounty-card"
+                            key={bounty.id}
+                            role="link"
+                            tabIndex={0}
+                            onClick={() => navigate(`/bounties/${encodeURIComponent(bounty.id)}`)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                navigate(`/bounties/${encodeURIComponent(bounty.id)}`);
+                              }
+                            }}
+                          >
+                            <div className="bounty-card__top">
+                              <div>
+                                <span
+                                  className={`status-pill status-pill--${bounty.status}`}
+                                  title={statusCopy[bounty.status].description}
+                                  aria-label={`${statusCopy[bounty.status].label}: ${statusCopy[bounty.status].description}`}
+                                >
+                                  {statusCopy[bounty.status].label}
+                                </span>
+                                <h3>{bounty.title}</h3>
+                              </div>
+                              <div className="amount-chip">
+                                {bounty.amount} {bounty.tokenSymbol}
+                              </div>
+                            </div>
+
+                            <p className="bounty-summary">{bounty.summary}</p>
+
+                            <div className="meta-grid">
+                              <div>
+                                <span className="meta-label">Issue</span>
+                                <strong>
+                                  <a
+                                    className="inline-link"
+                                    href={`https://github.com/${bounty.repo}/issues/${bounty.issueNumber}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    {bounty.repo} #{bounty.issueNumber}
+                                  </a>
+                                </strong>
+                              </div>
+                              <div>
+                                <span className="meta-label">Deadline</span>
+                                <strong>{formatRelativeDeadline(bounty.deadlineAt)}</strong>
+                              </div>
+                              <div>
+                                <span className="meta-label">Maintainer</span>
+                                <strong>{shortAddress(bounty.maintainer)}</strong>
+                              </div>
+                              <div>
+                                <span className="meta-label">Contributor</span>
+                                <strong>{bounty.contributor ? shortAddress(bounty.contributor) : "Open"}</strong>
+                              </div>
+                              {bounty.status === "released" && bounty.releasedTxHash && (
+                                <div>
+                                  <span className="meta-label">Release tx</span>
+                                  <strong>{`${bounty.releasedTxHash.slice(0, 10)}...`}</strong>
+                                </div>
+                              )}
+                              {bounty.status === "refunded" && bounty.refundedTxHash && (
+                                <div>
+                                  <span className="meta-label">Refund tx</span>
+                                  <strong>{`${bounty.refundedTxHash.slice(0, 10)}...`}</strong>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="chip-row">
+                              {bounty.labels.map((label) => (
+                                <span className="chip" key={label.name}>
+                                  {label.name}
+                                </span>
+                              ))}
+                            </div>
+
+                            <p className="status-helper">
+                              <strong>{statusCopy[bounty.status].label}:</strong> {statusCopy[bounty.status].description}
+                            </p>
+
+                            {bounty.submissionUrl && (
+                              <a className="submission-link" href={bounty.submissionUrl} target="_blank" rel="noreferrer">
+                                Review submission <ArrowUpRight size={16} />
+                              </a>
+                            )}
+
+                            <div className="action-row">
+                              {(actionCopy[bounty.status] ?? []).map((action) => renderActionButton(bounty, action))}
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState
+                  heading={emptyStateHeading}
+                  message={emptyStateMessage}
+                  hasFilters={hasActiveFilters}
+                  onClearFilters={clearFilters}
+                />
+              )}
+            </section>
+          </main>
+
+          <section className="panel issues-panel" id="issues">
+            <div className="panel-header">
+              <div>
+                <span className="panel-kicker">Open source angle</span>
+                <h2>Issue drafts to open next</h2>
+              </div>
+              <FolderGit2 size={18} />
             </div>
-            <div className="status-glossary__list">
-              {statusGlossary.map((item) => (
-                <article className="status-glossary__item" key={item.status}>
-                  <span className={`status-pill status-pill--${item.status}`}>{item.label}</span>
-                  <p>{item.description}</p>
+
+            <div className="issue-list">
+              {issues.map((issue) => (
+                <article className="issue-card" key={issue.id}>
+                  <div className="issue-card__top">
+                    <strong>{issue.id}</strong>
+                    <span className={`impact-chip impact-chip--${issue.impact}`}>{issue.impact}</span>
+                  </div>
+                  <h3>{issue.title}</h3>
+                  <p>{issue.summary}</p>
+                  <div className="chip-row">
+                    {issue.labels.map((label) => (
+                      <span className="chip" key={label.name}>
+                        {label.name}
+                      </span>
+                    ))}
+                  </div>
                 </article>
               ))}
             </div>
           </section>
 
-          <div className="board-status-pills" role="tablist" aria-label="Filter bounties by status">
-            {boardStatuses.map((status) => (
-              <button
-                key={status}
-                type="button"
-                role="tab"
-                aria-selected={statusFilter === status}
-                className={`filter-chip ${statusFilter === status ? "filter-chip--active" : ""}`}
-                onClick={() => setStatusFilter(status)}
-              >
-                {status === "all" ? "All" : statusCopy[status].label}
-              </button>
-            ))}
-          </div>
-
-          {loading ? (
-            <div className="board-list">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <SkeletonBountyCard key={i} />
-              ))}
-            </div>
-          ) : Object.keys(groupedBounties).length > 0 ? (
-            <div className="board-list">
-              {Object.entries(groupedBounties).map(([repo, repoBounties]) => (
-                <div key={repo} className="repo-group">
-                  <div className="repo-group__header">
-                    <h3 
-                      className="repo-group__title"
-                      onClick={() => navigate(`/repo/${repo.split('/')[0]}/${repo.split('/')[1]}`)}
-                      role="link"
-                      tabIndex={0}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          navigate(`/repo/${repo.split('/')[0]}/${repo.split('/')[1]}`);
-                        }
-                      }}
-                    >
-                      {repo}
-                    </h3>
-                    <span className="repo-count">{repoBounties.length} bounties</span>
-                  </div>
-                  <div className="repo-group__metrics">
-                    <div className="repo-metric">
-                      <span className="repo-metric__label">Open</span>
-                      <span className="repo-metric__value">{repoBounties.filter(b => b.status === 'open').length}</span>
-                    </div>
-                    <div className="repo-metric">
-                      <span className="repo-metric__label">Funded</span>
-                      <span className="repo-metric__value">{repoBounties.reduce((sum, b) => sum + b.amount, 0)} XLM</span>
-                    </div>
-                    <div className="repo-metric">
-                      <span className="repo-metric__label">Paid</span>
-                      <span className="repo-metric__value">{repoBounties.filter(b => b.status === 'released').reduce((sum, b) => sum + b.amount, 0)} XLM</span>
-                    </div>
-                  </div>
-                  <div className="repo-group__bounties">
-                    {repoBounties.map((bounty) => (
-                <article
-                  className="bounty-card"
-                  key={bounty.id}
-                  role="link"
-                  tabIndex={0}
-                  onClick={() => navigate(`/bounties/${encodeURIComponent(bounty.id)}`)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      navigate(`/bounties/${encodeURIComponent(bounty.id)}`);
-                    }
-                  }}
-                >
-                  <div className="bounty-card__top">
-                    <div>
-                      <span
-                        className={`status-pill status-pill--${bounty.status}`}
-                        title={statusCopy[bounty.status].description}
-                        aria-label={`${statusCopy[bounty.status].label}: ${statusCopy[bounty.status].description}`}
-                      >
-                        {statusCopy[bounty.status].label}
-                      </span>
-                      <h3>{bounty.title}</h3>
-                    </div>
-
-                  </div>
-
-                  <p className="bounty-summary">{bounty.summary}</p>
-
-                  <div className="meta-grid">
-                    <div>
-                      <span className="meta-label">Issue</span>
-                      <strong>
-                        <a
-                          className="inline-link"
-                          href={`https://github.com/${bounty.repo}/issues/${bounty.issueNumber}`}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          {bounty.repo} #{bounty.issueNumber}
-                        </a>
-                      </strong>
-                    </div>
-                    <div>
-                      <span className="meta-label">Deadline</span>
-                      <strong>{formatRelativeDeadline(bounty.deadlineAt)}</strong>
-                    </div>
-                    <div>
-                      <span className="meta-label">Maintainer</span>
-                      <strong>{shortAddress(bounty.maintainer)}</strong>
-                    </div>
-                    <div>
-                      <span className="meta-label">Contributor</span>
-                      <strong>{bounty.contributor ? shortAddress(bounty.contributor) : "Open"}</strong>
-                    </div>
-                    {bounty.status === "released" && bounty.releasedTxHash && (
-                      <div>
-                        <span className="meta-label">Release tx</span>
-                        <strong>{`${bounty.releasedTxHash.slice(0, 10)}...`}</strong>
-                      </div>
-                    )}
-                    {bounty.status === "refunded" && bounty.refundedTxHash && (
-                      <div>
-                        <span className="meta-label">Refund tx</span>
-                        <strong>{`${bounty.refundedTxHash.slice(0, 10)}...`}</strong>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="chip-row">
-                    {bounty.labels.map((label) => (
-                      <span className="chip" key={label.name}>
-  {label.name}
-</span>
-                    ))}
-                  </div>
-
-                  <p className="status-helper">
-                    <strong>{statusCopy[bounty.status].label}:</strong> {statusCopy[bounty.status].description}
-                  </p>
-
-                  {bounty.submissionUrl && (
-                    <a className="submission-link" href={bounty.submissionUrl} target="_blank" rel="noreferrer">
-                      Review submission <ArrowUpRight size={16} />
-                    </a>
-                  )}
-
-                  <div className="action-row">
-                    {(actionCopy[bounty.status] ?? []).map((action) => renderActionButton(bounty, action))}
-                  </div>
-                </article>
-              ))}
+          <section className="panel profile-panel" id="profile">
+            <div className="panel-header">
+              <div>
+                <span className="panel-kicker">Contributor angle</span>
+                <h2>Contributor profile</h2>
               </div>
+              <UserRound size={18} />
             </div>
-          ))}
-            </div>
-          ) : (
-            <div className="empty-state">
-              <div className="empty-state__content">
-                <h3>No bounties found</h3>
-                <p>
-                  {debouncedSearchQuery && (
-                    <>No bounties match "<strong>{debouncedSearchQuery}</strong>"</>
-                  ) || statusFilter !== "all" || minReward || maxReward || repoFilter ? (
-                    <>No bounties match the current filters</>
-                  ) : (
-                    <>No bounties available yet</>
-                  )}
-                </p>
-                <div className="empty-state__suggestions">
-                  <p><strong>Suggestions:</strong></p>
-                  <ul>
-                    <li>Try adjusting your search terms or filters</li>
-                    <li>Check back later for new bounties</li>
-                    <li>Browse all repositories to see available opportunities</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-          )}
-        </section>
-      </main>
 
-      <section className="panel issues-panel" id="issues">
-        <div className="panel-header">
-          <div>
-            <span className="panel-kicker">Open source angle</span>
-            <h2>Issue drafts to open next</h2>
-          </div>
-          <FolderGit2 size={18} />
-        </div>
+            <div className="profile-controls">
+              <label>
+                Contributor address
+                <input
+                  value={profileContributor}
+                  onChange={(event) => setProfileContributor(event.target.value)}
+                  placeholder="G... (Stellar address)"
+                  inputMode="text"
+                  autoComplete="off"
+                  aria-invalid={Boolean(profileContributor.trim() && validateStellarPublicKey(profileContributor))}
+                />
+                <small className="field-hint">Enter a Stellar public key (starts with 'G', 56 characters)</small>
+                {profileContributor.trim() && validateStellarPublicKey(profileContributor) && (
+                  <small className="field-error">{validateStellarPublicKey(profileContributor)}</small>
+                )}
+              </label>
 
-        <div className="issue-list">
-          {issues.map((issue) => (
-            <article className="issue-card" key={issue.id}>
-              <div className="issue-card__top">
-                <strong>{issue.id}</strong>
-                <span className={`impact-chip impact-chip--${issue.impact}`}>{issue.impact}</span>
-              </div>
-              <h3>{issue.title}</h3>
-              <p> className="items-center text-center"{issue.summary}</p>
-              <div className="chip-row">
-                {issue.labels.map((label) => (
-                  <span className="chip" key={label.name}>
-  {label.name}
-</span>
+              <div className="filter-row" role="tablist" aria-label="Filter by bounty status">
+                {contributorStatuses.map((status) => (
+                  <button
+                    key={status}
+                    type="button"
+                    role="tab"
+                    aria-selected={profileStatus === status}
+                    className={`filter-chip ${profileStatus === status ? "filter-chip--active" : ""}`}
+                    onClick={() => setProfileStatus(status)}
+                    disabled={!contributorMetrics.contributor && status !== "all"}
+                  >
+                    {status}
+                  </button>
                 ))}
               </div>
-            </article>
-          ))}
-        </div>
-      </section>
+            </div>
 
-      <section className="panel profile-panel" id="profile">
-        <div className="panel-header">
-          <div>
-            <span className="panel-kicker">Contributor angle</span>
-            <h2>Contributor profile</h2>
-          </div>
-          <UserRound size={18} />
-        </div>
+            {loading ? (
+              <div className="empty-state">Loading contributor history...</div>
+            ) : !contributorMetrics.contributor ? (
+              <div className="empty-state">
+                Enter a contributor address to see reserved, submitted, and released bounties plus total
+                earnings.
+              </div>
+            ) : contributorMetrics.filtered.length === 0 ? (
+              <div className="empty-state">
+                No bounties found for <strong>{shortAddress(contributorMetrics.contributor)}</strong>
+                {profileStatus === "all" ? "." : ` in "${profileStatus}" status.`}
+              </div>
+            ) : (
+              <div className="profile-grid">
+                <div className="profile-metrics">
+                  <div className="profile-metric">
+                    <span className="meta-label">Reserved</span>
+                    <strong>{contributorMetrics.countsByStatus.get("reserved") ?? 0}</strong>
+                  </div>
+                  <div className="profile-metric">
+                    <span className="meta-label">Submitted</span>
+                    <strong>{contributorMetrics.countsByStatus.get("submitted") ?? 0}</strong>
+                  </div>
+                  <div className="profile-metric">
+                    <span className="meta-label">Released</span>
+                    <strong>{contributorMetrics.countsByStatus.get("released") ?? 0}</strong>
+                  </div>
+                  <div className="profile-metric">
+                    <span className="meta-label">Refunded</span>
+                    <strong>{contributorMetrics.countsByStatus.get("refunded") ?? 0}</strong>
+                  </div>
+                  <div className="profile-metric">
+                    <span className="meta-label">Expired</span>
+                    <strong>{contributorMetrics.countsByStatus.get("expired") ?? 0}</strong>
+                  </div>
+                </div>
 
-        <div className="profile-controls">
-          <label>
-            Contributor address
-            <input
-              value={profileContributor}
-              onChange={(event) => setProfileContributor(event.target.value)}
-              placeholder="G... (Stellar address)"
-              inputMode="text"
-              autoComplete="off"
-              aria-invalid={Boolean(profileContributor.trim() && validateStellarPublicKey(profileContributor))}
-            />
-            <small className="field-hint">Enter a Stellar public key (starts with 'G', 56 characters)</small>
-            {profileContributor.trim() && validateStellarPublicKey(profileContributor) && (
-              <small className="field-error">{validateStellarPublicKey(profileContributor)}</small>
+                <div className="profile-earnings">
+                  <span className="meta-label">Total earnings (released)</span>
+                  <div className="earnings-row">
+                    {Array.from(contributorMetrics.releasedTotalsByAsset.entries()).length === 0 ? (
+                      <strong>0</strong>
+                    ) : (
+                      Array.from(contributorMetrics.releasedTotalsByAsset.entries()).map(([asset, total]) => (
+                        <div className="earnings-chip" key={asset}>
+                          <strong>{total}</strong>
+                          <span>{asset}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                <div className="profile-list">
+                  {contributorMetrics.filtered.map((bounty) => (
+                    <article className="bounty-card" key={bounty.id}>
+                      <div className="bounty-card__top">
+                        <div>
+                          <span className={`status-pill status-pill--${bounty.status}`}>{bounty.status}</span>
+                          <h3>{bounty.title}</h3>
+                        </div>
+                        <div className="amount-chip">
+                          {bounty.amount} {bounty.tokenSymbol}
+                        </div>
+                      </div>
+
+                      <p className="bounty-summary">{bounty.summary}</p>
+
+                      <div className="meta-grid">
+                        <div>
+                          <span className="meta-label">Issue</span>
+                          <strong>
+                            <a
+                              className="inline-link"
+                              href={`https://github.com/${bounty.repo}/issues/${bounty.issueNumber}`}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {bounty.repo} #{bounty.issueNumber}
+                            </a>
+                          </strong>
+                        </div>
+                        <div>
+                          <span className="meta-label">Maintainer</span>
+                          <strong>{shortAddress(bounty.maintainer)}</strong>
+                        </div>
+                        {bounty.submissionUrl && (
+                          <div>
+                            <span className="meta-label">Submission</span>
+                            <strong>
+                              <a className="inline-link" href={bounty.submissionUrl} target="_blank" rel="noreferrer">
+                                View link
+                              </a>
+                            </strong>
+                          </div>
+                        )}
+                        {bounty.status === "released" && bounty.releasedTxHash && (
+                          <div>
+                            <span className="meta-label">Release tx</span>
+                            <strong>{`${bounty.releasedTxHash.slice(0, 10)}...`}</strong>
+                          </div>
+                        )}
+                        {bounty.status === "refunded" && bounty.refundedTxHash && (
+                          <div>
+                            <span className="meta-label">Refund tx</span>
+                            <strong>{`${bounty.refundedTxHash.slice(0, 10)}...`}</strong>
+                          </div>
+                        )}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
             )}
-          </label>
+          </section>
 
-          <div className="filter-row" role="tablist" aria-label="Filter by bounty status">
-            {contributorStatuses.map((status) => (
-              <button
-                key={status}
-                type="button"
-                role="tab"
-                aria-selected={profileStatus === status}
-                className={`filter-chip ${profileStatus === status ? "filter-chip--active" : ""}`}
-                onClick={() => setProfileStatus(status)}
-                disabled={!contributorMetrics.contributor && status !== "all"}
-              >
-                {status}
-              </button>
-            ))}
-          </div>
+          {submissionModalBounty && (
+            <SubmissionChecklistModal
+              bounty={submissionModalBounty}
+              initialData={submissionModalData}
+              submitting={submissionModalSubmitting}
+              error={submissionModalError}
+              onSubmit={(data) => void handleSubmissionConfirm(data)}
+              onClose={() => {
+                if (!submissionModalSubmitting) {
+                  setSubmissionModalBounty(null);
+                  setSubmissionModalError(null);
+                }
+              }}
+            />
+          )}
         </div>
-
-        {loading ? (
-          <div className="empty-state">Loading contributor history...</div>
-        ) : !contributorMetrics.contributor ? (
-          <div className="empty-state">
-            Enter a contributor address to see reserved, submitted, and released bounties plus total
-            earnings.
-          </div>
-        ) : contributorMetrics.filtered.length === 0 ? (
-          <div className="empty-state">
-            No bounties found for <strong>{shortAddress(contributorMetrics.contributor)}</strong>
-            {profileStatus === "all" ? "." : ` in "${profileStatus}" status.`}
-          </div>
-        ) : (
-          <div className="profile-grid">
-            <div className="profile-metrics">
-              <div className="profile-metric">
-                <span className="meta-label">Reserved</span>
-                <strong>{contributorMetrics.countsByStatus.get("reserved") ?? 0}</strong>
-              </div>
-              <div className="profile-metric">
-                <span className="meta-label">Submitted</span>
-                <strong>{contributorMetrics.countsByStatus.get("submitted") ?? 0}</strong>
-              </div>
-              <div className="profile-metric">
-                <span className="meta-label">Released</span>
-                <strong>{contributorMetrics.countsByStatus.get("released") ?? 0}</strong>
-              </div>
-              <div className="profile-metric">
-                <span className="meta-label">Refunded</span>
-                <strong>{contributorMetrics.countsByStatus.get("refunded") ?? 0}</strong>
-              </div>
-              <div className="profile-metric">
-                <span className="meta-label">Expired</span>
-                <strong>{contributorMetrics.countsByStatus.get("expired") ?? 0}</strong>
-              </div>
-            </div>
-
-            <div className="profile-earnings">
-              <span className="meta-label">Total earnings (released)</span>
-              <div className="earnings-row">
-                {Array.from(contributorMetrics.releasedTotalsByAsset.entries()).length === 0 ? (
-                  <strong>0</strong>
-                ) : (
-                  Array.from(contributorMetrics.releasedTotalsByAsset.entries()).map(([asset, total]) => (
-                    <div className="earnings-chip" key={asset}>
-                      <strong>{total}</strong>
-                      <span>{asset}</span>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            <div className="profile-list">
-              {contributorMetrics.filtered.map((bounty) => (
-                <article className="bounty-card" key={bounty.id}>
-                  <div className="bounty-card__top">
-                    <div>
-                      <span className={`status-pill status-pill--${bounty.status}`}>{bounty.status}</span>
-                      <h3>{bounty.title}</h3>
-                    </div>
-                    <BountyAmount bounty={bounty} />
-                  </div>
-
-                  <p className="bounty-summary">{bounty.summary}</p>
-
-                  <div className="meta-grid">
-                    <div>
-                      <span className="meta-label">Issue</span>
-                      <strong>
-                        <a
-                          className="inline-link"
-                          href={`https://github.com/${bounty.repo}/issues/${bounty.issueNumber}`}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          {bounty.repo} #{bounty.issueNumber}
-                        </a>
-                      </strong>
-                    </div>
-                    <div>
-                      <span className="meta-label">Maintainer</span>
-                      <strong>{shortAddress(bounty.maintainer)}</strong>
-                    </div>
-                    {bounty.submissionUrl && (
-                      <div>
-                        <span className="meta-label">Submission</span>
-                        <strong>
-                          <a className="inline-link" href={bounty.submissionUrl} target="_blank" rel="noreferrer">
-                            View link
-                          </a>
-                        </strong>
-                      </div>
-                    )}
-                    {bounty.status === "released" && bounty.releasedTxHash && (
-                      <div>
-                        <span className="meta-label">Release tx</span>
-                        <strong>{`${bounty.releasedTxHash.slice(0, 10)}...`}</strong>
-                      </div>
-                    )}
-                    {bounty.status === "refunded" && bounty.refundedTxHash && (
-                      <div>
-                        <span className="meta-label">Refund tx</span>
-                        <strong>{`${bounty.refundedTxHash.slice(0, 10)}...`}</strong>
-                      </div>
-                    )}
-                  </div>
-                </article>
-              ))}
-            </div>
-          </div>
-        )}
-      </section>
-
-      {submissionModalBounty && (
-        <SubmissionChecklistModal
-          bounty={submissionModalBounty}
-          initialData={submissionModalData}
-          submitting={submissionModalSubmitting}
-          error={submissionModalError}
-          onSubmit={(data) => void handleSubmissionConfirm(data)}
-          onClose={() => {
-            if (!submissionModalSubmitting) {
-              setSubmissionModalBounty(null);
-              setSubmissionModalError(null);
-            }
-          }}
-        />
-      )}
-    </div>
-  );
+    );
 }
 
 export default App;

@@ -11,7 +11,7 @@
     "test": "npm --prefix backend test",
     "test:watch": "npm --prefix backend run test:watch",
     "test:coverage": "npm --prefix backend run test:coverage",
-    "prepare": "husky"
+    "prepare": "husky || true"
   },
   "lint-staged": {
     "frontend/src/**/*.{ts,tsx}": [

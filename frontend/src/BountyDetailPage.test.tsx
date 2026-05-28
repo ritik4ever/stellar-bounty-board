@@ -1,7 +1,7 @@
 import React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import BountyDetailPage from "./BountyDetailPage";
 import type { Bounty, BountyStatus } from "./types";
@@ -42,21 +42,29 @@ const bounty: Bounty = {
   events: [],
 };
 
-function renderDetail() {
+function detailProps(detailBounty: Bounty = bounty) {
+  return {
+    bounty: detailBounty,
+    loading: false,
+    onBack: () => undefined,
+    owner: "ritik4ever",
+    avatarUrl: "",
+    statusCopy,
+    actionCopy,
+    renderActionButton: () => null,
+    formatTimestamp: () => "Jan 1, 2024",
+  };
+}
+
+function renderDetail(detailBounty: Bounty = bounty) {
   return render(
-    <BountyDetailPage
-      bounty={bounty}
-      loading={false}
-      onBack={() => undefined}
-      owner="ritik4ever"
-      avatarUrl=""
-      statusCopy={statusCopy}
-      actionCopy={actionCopy}
-      renderActionButton={() => null}
-      formatTimestamp={() => "Jan 1, 2024"}
-    />,
+    <BountyDetailPage {...detailProps(detailBounty)} />,
   );
 }
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe("BountyDetailPage copy actions", () => {
   it("copies the bounty ID from the detail metadata", async () => {
@@ -68,7 +76,7 @@ describe("BountyDetailPage copy actions", () => {
     await userEvent.click(screen.getByRole("button", { name: /copy bounty id/i }));
 
     expect(writeText).toHaveBeenCalledWith("BNTY-42");
-    await waitFor(() => expect(screen.getByText("Copied")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Copied!")).toBeInTheDocument());
   });
 
   it("copies the maintainer wallet address from the detail metadata", async () => {
@@ -80,6 +88,54 @@ describe("BountyDetailPage copy actions", () => {
     await userEvent.click(screen.getByRole("button", { name: /copy maintainer wallet address/i }));
 
     expect(writeText).toHaveBeenCalledWith(bounty.maintainer);
-    await waitFor(() => expect(screen.getByText("Copied")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Copied!")).toBeInTheDocument());
+  });
+
+  it("prints the detail view from the export button", async () => {
+    const print = vi.fn();
+    Object.defineProperty(window, "print", { value: print, configurable: true });
+
+    renderDetail();
+
+    await userEvent.click(screen.getByRole("button", { name: /print \/ export pdf/i }));
+
+    expect(print).toHaveBeenCalledOnce();
+  });
+
+  it("announces status changes for assistive technology", () => {
+    const { rerender } = renderDetail();
+    const reservedBounty: Bounty = {
+      ...bounty,
+      status: "reserved",
+      reservedAt: 1_700_000_100,
+      version: 2,
+    };
+
+    rerender(<BountyDetailPage {...detailProps(reservedBounty)} />);
+
+    expect(
+      screen.getByText("Bounty #73 status changed to Reserved"),
+    ).toBeInTheDocument();
+  });
+
+  it("clears the status announcement after three seconds", () => {
+    vi.useFakeTimers();
+    const { rerender } = renderDetail();
+    const reservedBounty: Bounty = {
+      ...bounty,
+      status: "reserved",
+      reservedAt: 1_700_000_100,
+      version: 2,
+    };
+
+    rerender(<BountyDetailPage {...detailProps(reservedBounty)} />);
+
+    expect(screen.getByText("Bounty #73 status changed to Reserved")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(3_000);
+    });
+
+    expect(screen.queryByText("Bounty #73 status changed to Reserved")).not.toBeInTheDocument();
   });
 });

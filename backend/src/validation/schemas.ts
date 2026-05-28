@@ -2,12 +2,14 @@ import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
 
 import { githubPrUrlSchema } from "./prUrl";
+import { isValidStellarAddress } from "../utils";
 
 extendZodWithOpenApi(z);
 
 
 const REPO_REGEX = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 const TOKEN_REGEX = /^[A-Za-z0-9]{1,12}$/;
+const SOROBAN_ADDRESS_REGEX = /^C[A-Z2-7]{55}$/;
 
 const STELLAR_EXAMPLE = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 const TX_HASH_REGEX = /^[0-9a-fA-F]{64}$/;
@@ -74,7 +76,7 @@ export const createBountySchema = z
       .openapi({ example: "XLM", description: "Stellar token symbol for payout (1–12 alphanumeric chars)." }),
     amount: z.coerce
       .number()
-      .min(1, "Amount must be at least 1 XLM.")
+      .min(1, "Amount must be at least 1 XLM."),
 
     deadlineDays: z.coerce
       .number()
