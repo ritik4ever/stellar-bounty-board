@@ -60,9 +60,8 @@ export function filterBounties(bounties: Bounty[], filters: FilterState): Bounty
         bounty.repo.toLowerCase().includes(searchLower) ||
         bounty.title.toLowerCase().includes(searchLower) ||
         bounty.summary.toLowerCase().includes(searchLower) ||
-        bounty.labels.some((label) => label.name.toLowerCase().includes(searchLower)) ||
-        bounty.status.toLowerCase().includes(searchLower);
-      
+        bounty.labels.some((label) => label.name.toLowerCase().includes(searchLower));
+
       if (!matchesSearch) {
         return false;
       }

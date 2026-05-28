@@ -51,9 +51,23 @@ describe("filterBounties", () => {
       repo: "stellar/ui",
       summary: "Show relevant rewards when contributors search.",
     }),
+    bountyFixture({
+      id: "label-match",
+      title: "Improve filters",
+      repo: "stellar/ui",
+      summary: "Keep the filter controls predictable.",
+      labels: [{ name: "accessibility", color: "2563eb" }],
+    }),
+    bountyFixture({
+      id: "status-only",
+      title: "Improve payout flow",
+      repo: "stellar/payments",
+      summary: "Make reward handling clearer.",
+      status: "reserved",
+    }),
   ];
 
-  it("matches title, repo, and summary case-insensitively", () => {
+  it("matches title, repo, summary, and labels case-insensitively", () => {
     expect(filterBounties(bounties, defaultFilters("ADVANCED")).map((bounty) => bounty.id)).toEqual([
       "title-match",
     ]);
@@ -63,14 +77,21 @@ describe("filterBounties", () => {
     expect(filterBounties(bounties, defaultFilters("contributors search")).map((bounty) => bounty.id)).toEqual([
       "summary-match",
     ]);
+    expect(filterBounties(bounties, defaultFilters("ACCESSIBILITY")).map((bounty) => bounty.id)).toEqual([
+      "label-match",
+    ]);
   });
 
   it("returns every bounty when the search query is empty", () => {
-    expect(filterBounties(bounties, defaultFilters("   "))).toHaveLength(3);
+    expect(filterBounties(bounties, defaultFilters("   "))).toHaveLength(5);
   });
 
   it("returns an empty list when no bounty matches the search query", () => {
     expect(filterBounties(bounties, defaultFilters("not-here"))).toEqual([]);
+  });
+
+  it("keeps status matching scoped to the status filter", () => {
+    expect(filterBounties(bounties, defaultFilters("reserved"))).toEqual([]);
   });
 });
 
