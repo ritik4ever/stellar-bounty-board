@@ -308,6 +308,7 @@ function App() {
   const [submitting, setSubmitting] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [initialLoadError, setInitialLoadError] = useState<string | null>(null);
 
   const [searchQuery, setSearchQuery] = useState(initialFilters.searchQuery);
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(initialFilters.searchQuery);
@@ -366,12 +367,15 @@ function App() {
   const loadInitialData = useCallback(async (signal?: AbortSignal): Promise<void> => {
     setLoading(true);
     setError(null);
+    setInitialLoadError(null);
 
     try {
       await refresh(signal);
     } catch (err) {
       if (signal?.aborted) return;
-      setError(err instanceof Error ? err.message : "Failed to load project data.");
+      const message = err instanceof Error ? err.message : "Failed to load project data.";
+      setError(message);
+      setInitialLoadError(message);
     } finally {
       if (!signal?.aborted) {
         setLoading(false);
@@ -864,12 +868,18 @@ function App() {
             </article>
           </section>
 
-          {error && (
+          {initialLoadError && (
             <div className="error-banner" role="alert">
-              <span>{error}</span>
+              <span>{initialLoadError}</span>
               <button className="ghost-button" type="button" onClick={() => void loadInitialData()}>
                 Try again
               </button>
+            </div>
+          )}
+
+          {error && !initialLoadError && (
+            <div className="error-banner" role="alert">
+              <span>{error}</span>
             </div>
           )}
 

@@ -24,4 +24,16 @@ describe("scoreMatch", () => {
   it("scores matching skills from bounty labels and text", () => {
     expect(scoreMatch(bounty, ["frontend", "react"])).toBe(1);
   });
+
+  it("scores matching skills from bounty tags", () => {
+    const taggedBounty: Bounty = {
+      ...bounty,
+      labels: [],
+      title: "General improvements",
+      summary: "No explicit skill words here.",
+      tags: ["TypeScript"],
+    };
+
+    expect(scoreMatch(taggedBounty, ["typescript"])).toBe(1);
+  });
 });

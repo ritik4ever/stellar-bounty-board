@@ -282,6 +282,7 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
   margin-bottom: 20px;
   padding: 14px 18px;
@@ -289,6 +290,10 @@ textarea {
   background: #fff0eb;
   border: 1px solid rgba(184, 85, 75, 0.22);
   color: #7a2e25;
+}
+
+.error-banner .ghost-button {
+  flex: 0 0 auto;
 }
 
 .content-grid {
