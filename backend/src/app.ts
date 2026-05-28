@@ -142,11 +142,14 @@ function sendError(res: Response, req: Request, error: unknown, statusCode = 400
   jsonError(res, req, statusCode, message);
 }
 
+const ARBITER_ADDRESS = process.env.ARBITER_ADDRESS?.trim() || undefined;
+
 app.get("/api/health", (_req: Request, res: Response) => {
   res.json({
     service: "stellar-bounty-board-backend",
     status: "ok",
     timestamp: new Date().toISOString(),
+    ...(ARBITER_ADDRESS ? { arbiterAddress: ARBITER_ADDRESS } : {}),
   });
 });
 
