@@ -47,6 +47,7 @@ import BountyDetailPage from "./BountyDetailPage";
 import UsdAmount from "./UsdAmount";
 
 import SkeletonBountyCard from "./SkeletonBountyCard";
+import EmptyState from "./EmptyState";
 
 const STELLAR_PUBLIC_KEY_HINT = "Expected Stellar public key (starts with G and is 56 characters).";
 const STELLAR_PUBLIC_KEY_REGEX = /^G[A-Z2-7]{55}$/;
@@ -1292,28 +1293,14 @@ function App() {
                   ))}
                 </div>
               ) : (
-                <div className="empty-state">
-                  <div className="empty-state__content">
-                    <h3>No bounties found</h3>
-                    <p>
-                      {debouncedSearchQuery && (
-                        <>No bounties match "<strong>{debouncedSearchQuery}</strong>"</>
-                      ) || statusFilter !== "all" || minReward || maxReward || repoFilter ? (
-                        <>No bounties match the current filters</>
-                      ) : (
-                        <>No bounties available yet</>
-                      )}
-                    </p>
-                    <div className="empty-state__suggestions">
-                      <p><strong>Suggestions:</strong></p>
-                      <ul>
-                        <li>Try adjusting your search terms or filters</li>
-                        <li>Check back later for new bounties</li>
-                        <li>Browse all repositories to see available opportunities</li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
+                <EmptyState
+                  searchQuery={debouncedSearchQuery}
+                  statusFilter={statusFilter}
+                  minReward={minReward}
+                  maxReward={maxReward}
+                  repoFilter={repoFilter}
+                  onClearFilters={clearFilters}
+                />
               )}
             </section>
           </main>
