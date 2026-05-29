@@ -88,6 +88,97 @@ Before submitting a PR, verify:
   - How to test/verify the change
   - Link to related issue(s): `Closes #<issue-number>`
 
+## Testing
+
+Both the `backend/` and `frontend/` directories use [Vitest](https://vitest.dev/) as their test runner.
+
+### Running All Tests
+
+```bash
+# Backend tests
+cd backend && npm test
+
+# Frontend tests
+cd frontend && npm test
+```
+
+### Running a Single Test File
+
+```bash
+# Run only the bounty store tests
+cd backend && npx vitest run test/bountyStore.test.ts
+
+# Run only the utils tests
+cd frontend && npx vitest run src/utils.test.ts
+```
+
+### Watch Mode
+
+Watch mode re-runs tests automatically when you save a file — great during development:
+
+```bash
+cd backend && npx vitest        # or: npm run test:watch
+cd frontend && npx vitest
+```
+
+### Coverage Reports
+
+Generate a coverage report to see which lines are exercised by tests:
+
+```bash
+cd backend && npm run test:coverage
+```
+
+This produces:
+- A **text summary** printed to the terminal
+- An **HTML report** in `backend/coverage/` — open `index.html` in a browser to drill into per-file line coverage
+
+The backend coverage config (in `vitest.config.ts`) includes all `src/**/*.ts` files except `src/index.ts`.
+
+### Writing Tests
+
+#### Test File Location
+
+- **Backend:** place test files in `backend/test/` with the naming pattern `<name>.test.ts`
+- **Frontend:** place test files alongside the source in `frontend/src/` with the pattern `<name>.test.ts` or `<name>.test.tsx`
+
+#### Using Fixtures
+
+Shared test data lives in `backend/test/fixtures.ts`. Import constants like `MAINTAINER`, `CONTRIBUTOR`, and `validCreateBody` rather than duplicating test data:
+
+```ts
+import { MAINTAINER, validCreateBody } from "./fixtures";
+```
+
+#### Unit vs. Integration vs. E2E
+
+| Type | When to Use | Example |
+|------|-------------|---------|
+| **Unit** | Test a single function or module in isolation | `utils.test.ts` — date formatting helpers |
+| **Integration** | Test API endpoints with a real Express app | `api.test.ts` — supertest against `app` |
+| **E2E** | Test full user flows across frontend + backend | Playwright tests (future) |
+
+**Guidelines:**
+- Prefer **unit tests** for pure logic (utilities, validators, formatters)
+- Use **integration tests** for API routes, middleware, and database interactions
+- Reserve **E2E tests** for critical user journeys (bounty creation, reservation flow)
+
+#### Snapshot Tests
+
+For UI components, use Vitest snapshot tests to catch unintended visual regressions:
+
+```tsx
+import { render } from "@testing-library/react";
+import { expect, it } from "vitest";
+
+it("renders correctly", () => {
+  const { container } = render(<MyComponent />);
+  expect(container).toMatchSnapshot();
+});
+```
+
+Update snapshots intentionally with `npx vitest --update` when the change is deliberate.
+
 ## Getting Help
 
 - **New to the project?** Start with [ONBOARDING.md](./ONBOARDING.md)
