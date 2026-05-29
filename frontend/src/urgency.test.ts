@@ -82,6 +82,16 @@ describe("getUrgencyLevel", () => {
     expect(getUrgencyLevel(bounty, NOW)).toBe("urgent");
   });
 
+  it("returns 'warning' for reserved bounty with >7 days remaining", () => {
+    const bounty = makeBounty({
+      status: "reserved",
+      deadlineAt: NOW + 10 * 24 * 60 * 60, // 10 days left
+    });
+    // "plenty" (green) is reserved for "open" bounties only;
+    // "reserved" bounties always show at least "warning" to indicate active assignment.
+    expect(getUrgencyLevel(bounty, NOW)).toBe("warning");
+  });
+
   it("returns 'ended' for expired bounty", () => {
     const bounty = makeBounty({ status: "expired" });
     expect(getUrgencyLevel(bounty, NOW)).toBe("ended");

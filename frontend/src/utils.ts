@@ -6,8 +6,8 @@ export type UrgencyLevel = "plenty" | "warning" | "urgent" | "ended" | "disputed
 /**
  * Determine the urgency level of a bounty based on its status and time remaining.
  *
- * - Green (`plenty`): open with >7 days remaining
- * - Yellow (`warning`): open or reserved with 1–7 days remaining
+ * - Green (`plenty`): open only, with >7 days remaining
+ * - Yellow (`warning`): open or reserved with 1–7 days; reserved with >7 days
  * - Red (`urgent`): open or reserved with <24 hours remaining
  * - Grey (`ended`): expired, released, or refunded
  * - Blue (`disputed`): disputed status
@@ -44,6 +44,12 @@ export function getUrgencyLevel(bounty: Bounty, nowSeconds?: number): UrgencyLev
   const daysRemaining = secondsRemaining / (24 * 60 * 60);
 
   if (daysRemaining <= 7) {
+    return "warning";
+  }
+
+  // Only "open" bounties qualify for "plenty" (green).
+  // "reserved" bounties always show at least "warning" to indicate active assignment.
+  if (bounty.status === "reserved") {
     return "warning";
   }
 
