@@ -1,0 +1,86 @@
+name: Weekly Backend Load Test
+
+on:
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend-load-test:
+    name: Backend autocannon load test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm --prefix backend ci --ignore-scripts
+
+      - name: Prepare temporary bounty store
+        run: |
+          echo "[]" > "$RUNNER_TEMP/bounties.json"
+          echo "[]" > "$RUNNER_TEMP/bounties.audit.json"
+
+      - name: Start backend
+        run: |
+          cd backend
+          NODE_ENV=test \
+          PORT=3001 \
+          BOUNTY_STORE_PATH="$RUNNER_TEMP/bounties.json" \
+          BOUNTY_AUDIT_STORE_PATH="$RUNNER_TEMP/bounties.audit.json" \
+            npm exec -- tsx src/index.ts > ../backend-load-test.log 2>&1 &
+          echo "$!" > ../backend.pid
+
+      - name: Wait for backend health check
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3001/api/health > /dev/null; then
+              echo "Backend is healthy."
+              exit 0
+            fi
+            echo "Attempt $i/30 failed; retrying in 2s..."
+            sleep 2
+          done
+          echo "Backend did not become healthy."
+          cat backend-load-test.log
+          exit 1
+
+      - name: Run weekly autocannon load test
+        env:
+          BASE_URL: http://127.0.0.1:3001
+          LOAD_TEST_CONNECTIONS: "20"
+          LOAD_TEST_DURATION_SECONDS: "30"
+          LOAD_TEST_MAX_P99_MS: "500"
+          LOAD_TEST_MAX_ERROR_RATE: "1"
+          LOAD_TEST_SUMMARY_PATH: ../load-test-summary.md
+        run: npm --prefix backend run load:test:weekly
+
+      - name: Upload load test summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-backend-load-test-summary
+          path: |
+            load-test-summary.md
+            backend-load-test.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Stop backend
+        if: always()
+        run: |
+          if [ -f backend.pid ]; then
+            kill "$(cat backend.pid)" 2>/dev/null || true
+          fi
