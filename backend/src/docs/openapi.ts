@@ -77,6 +77,31 @@ registry.registerPath({
 
 registry.registerPath({
   method: "get",
+  path: "/api/metrics",
+  tags: ["System"],
+  summary: "Prometheus metrics",
+  description:
+    "Returns process, HTTP request duration, and bounty lifecycle metrics in Prometheus text format. " +
+    "This endpoint is intentionally available without auth and is not rate-limited so external monitors can scrape it.",
+  responses: {
+    200: {
+      description: "Prometheus text metrics.",
+      content: {
+        "text/plain": {
+          schema: z.string().openapi({
+            example:
+              "# HELP process_cpu_seconds_total Total user and system CPU time spent in seconds.\\n" +
+              "# TYPE process_cpu_seconds_total counter\\n" +
+              "process_cpu_seconds_total 1.23\\n",
+          }),
+        },
+      },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
   path: "/api/bounties",
   tags: ["Bounties"],
   summary: "List all bounties",
