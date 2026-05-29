@@ -18,6 +18,7 @@ async function loadValidator() {
 
 afterEach(() => {
   delete process.env.BOUNTY_STORE_PATH;
+  delete process.env.BOUNTY_AUDIT_STORE_PATH;
   vi.restoreAllMocks();
 
   for (const root of tempRoots.splice(0)) {
@@ -55,6 +56,22 @@ describe("bounty store path startup validation", () => {
     const blockedParent = path.join(root, "not-a-directory");
     fs.writeFileSync(blockedParent, "blocks nested paths", "utf8");
     process.env.BOUNTY_STORE_PATH = path.join(blockedParent, "bounties.json");
+    const exit = vi.fn((code: number): never => {
+      throw new Error(`exit:${code}`);
+    });
+
+    const { validateBountyStorePath } = await loadValidator();
+
+    expect(() => validateBountyStorePath({ exit })).toThrow("exit:1");
+    expect(exit).toHaveBeenCalledWith(1);
+  });
+
+  it("logs a fatal startup error and exits when the audit store path cannot be written", async () => {
+    const root = makeTempRoot();
+    process.env.BOUNTY_STORE_PATH = path.join(root, "bounties.json");
+    const blockedParent = path.join(root, "not-a-directory");
+    fs.writeFileSync(blockedParent, "blocks nested paths", "utf8");
+    process.env.BOUNTY_AUDIT_STORE_PATH = path.join(blockedParent, "bounties.audit.json");
     const exit = vi.fn((code: number): never => {
       throw new Error(`exit:${code}`);
     });

@@ -98,20 +98,27 @@ function getStorePath(): string {
   return path.resolve(__dirname, "../../data/bounties.json");
 }
 
+function assertWritableFilePath(filePath: string): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const file = fs.openSync(filePath, "a");
+  try {
+    fs.writeSync(file, "");
+  } finally {
+    fs.closeSync(file);
+  }
+}
+
 export function validateBountyStorePath(options: ValidateBountyStorePathOptions = {}): void {
   const storePath = getStorePath();
+  const auditStorePath = getAuditStorePath();
 
   try {
-    fs.mkdirSync(path.dirname(storePath), { recursive: true });
-    const file = fs.openSync(storePath, "a");
-    try {
-      fs.writeSync(file, "");
-    } finally {
-      fs.closeSync(file);
-    }
+    assertWritableFilePath(storePath);
+    assertWritableFilePath(auditStorePath);
   } catch (error) {
     logStructured("fatal", "bounty_store_path_invalid", {
       storePath,
+      auditStorePath,
       error: error instanceof Error ? error.message : String(error),
     });
     (options.exit ?? process.exit)(1);
