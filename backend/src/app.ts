@@ -15,6 +15,7 @@ import {
   reserveBounty,
   submitBounty,
   getBountyEvents,
+  getBountyEventsPaginated,
   getMaintainerMetrics,
   getGlobalMetrics,
   getLeaderboard,
@@ -351,8 +352,10 @@ app.get("/api/open-issues", (_req: Request, res: Response) => {
 
 app.get("/api/bounties/:id/events", (req: Request, res: Response) => {
   try {
-    const events = getBountyEvents(parseId(req.params.id));
-    res.json({ data: events });
+    const page = parsePaginationValue(req.query.page, "page", 1, 1);
+    const pageSize = parsePaginationValue(req.query.pageSize, "pageSize", 20, 1, 50);
+    const result = getBountyEventsPaginated(parseId(req.params.id), { page, pageSize });
+    res.json(result);
   } catch (error) {
     sendError(res, req, error);
   }
@@ -367,7 +370,10 @@ app.get("/api/bounties/:id", (req: Request, res: Response) => {
       jsonError(res, req, 404, "Bounty not found.");
       return;
     }
-    res.json({ data: bounty });
+    // Only include the last 10 events for backward compat; full list via /events endpoint
+    const events = bounty.events ?? [];
+    const recentEvents = events.length <= 10 ? events : events.slice(-10);
+    res.json({ data: { ...bounty, events: recentEvents } });
   } catch (error) {
     sendError(res, req, error, 400);
   }

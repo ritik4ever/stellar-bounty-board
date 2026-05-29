@@ -686,6 +686,32 @@ export function getBountyEvents(bountyId: string): BountyEvent[] {
   return bounty.events ?? [];
 }
 
+export interface PaginatedEvents {
+  data: BountyEvent[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export function getBountyEventsPaginated(
+  bountyId: string,
+  options: { page?: number; pageSize?: number } = {},
+): PaginatedEvents {
+  const { page = 1, pageSize = 20 } = options;
+  const records = listBounties();
+  const bounty = records.find((b) => b.id === bountyId);
+  if (!bounty) {
+    throw new Error(`Bounty ${bountyId} not found.`);
+  }
+
+  const allEvents = [...(bounty.events ?? [])].sort((a, b) => b.timestamp - a.timestamp);
+  const total = allEvents.length;
+  const start = (page - 1) * pageSize;
+  const data = allEvents.slice(start, start + pageSize);
+
+  return { data, total, page, pageSize };
+}
+
 export interface MaintainerMetrics {
   totalBounties: number;
   openCount: number;

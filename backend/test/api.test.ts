@@ -297,6 +297,78 @@ describe("API — bounty lifecycle routes", () => {
   });
 });
 
+describe("GET /api/bounties/:id/events (paginated)", () => {
+  it("returns paginated events with default params", async () => {
+    const app = await getApp();
+    const { body: created } = await request(app).post("/api/bounties").send(validCreateBody).expect(201);
+    const id = created.data.id as string;
+
+    // Reserve to generate a second event
+    await request(app).post(`/api/bounties/${id}/reserve`).send({ contributor: CONTRIBUTOR }).expect(200);
+
+    const res = await request(app).get(`/api/bounties/${id}/events`).expect(200);
+    expect(res.body.data).toHaveLength(2);
+    expect(res.body.total).toBe(2);
+    expect(res.body.page).toBe(1);
+    expect(res.body.pageSize).toBe(20);
+  });
+
+  it("events are ordered by timestamp descending", async () => {
+    const app = await getApp();
+    const { body: created } = await request(app).post("/api/bounties").send(validCreateBody).expect(201);
+    const id = created.data.id as string;
+
+    await request(app).post(`/api/bounties/${id}/reserve`).send({ contributor: CONTRIBUTOR }).expect(200);
+    await request(app)
+      .post(`/api/bounties/${id}/submit`)
+      .send({ contributor: CONTRIBUTOR, submissionUrl: "https://github.com/owner/repo/pull/1" })
+      .expect(200);
+
+    const res = await request(app).get(`/api/bounties/${id}/events`).expect(200);
+    const timestamps = res.body.data.map((e: { timestamp: number }) => e.timestamp);
+    for (let i = 1; i < timestamps.length; i++) {
+      expect(timestamps[i - 1]).toBeGreaterThanOrEqual(timestamps[i]);
+    }
+  });
+
+  it("supports page and pageSize params", async () => {
+    const app = await getApp();
+    const { body: created } = await request(app).post("/api/bounties").send(validCreateBody).expect(201);
+    const id = created.data.id as string;
+
+    await request(app).post(`/api/bounties/${id}/reserve`).send({ contributor: CONTRIBUTOR }).expect(200);
+    await request(app)
+      .post(`/api/bounties/${id}/submit`)
+      .send({ contributor: CONTRIBUTOR, submissionUrl: "https://github.com/owner/repo/pull/1" })
+      .expect(200);
+
+    const page1 = await request(app).get(`/api/bounties/${id}/events`).query({ page: 1, pageSize: 1 }).expect(200);
+    expect(page1.body.data).toHaveLength(1);
+    expect(page1.body.total).toBe(3);
+    expect(page1.body.page).toBe(1);
+    expect(page1.body.pageSize).toBe(1);
+
+    const page2 = await request(app).get(`/api/bounties/${id}/events`).query({ page: 2, pageSize: 1 }).expect(200);
+    expect(page2.body.data).toHaveLength(1);
+    expect(page2.body.page).toBe(2);
+  });
+
+  it("returns 400 for pageSize above 50", async () => {
+    const app = await getApp();
+    const { body: created } = await request(app).post("/api/bounties").send(validCreateBody).expect(201);
+    const id = created.data.id as string;
+
+    const res = await request(app).get(`/api/bounties/${id}/events`).query({ pageSize: 51 }).expect(400);
+    expect(res.body.error).toMatch(/pageSize/i);
+  });
+
+  it("returns 400 for unknown bounty id", async () => {
+    const app = await getApp();
+    const res = await request(app).get("/api/bounties/BNT-9999/events").expect(400);
+    expect(res.body.error).toMatch(/not found/i);
+  });
+});
+
 describe("GET /api/leaderboard", () => {
   it("returns empty array when no bounties exist", async () => {
     const app = await getApp();
