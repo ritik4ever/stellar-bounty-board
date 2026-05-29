@@ -91,7 +91,7 @@ export const logger = pino(
 export type LogFields = Record<string, string | number | boolean | null | undefined>;
 
 export function logStructured(
-  level: "info" | "warn" | "error",
+  level: "info" | "warn" | "error" | "fatal",
   msg: string,
   fields: LogFields = {},
 ): void {
