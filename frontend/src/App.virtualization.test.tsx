@@ -125,7 +125,12 @@ beforeEach(() => {
 
 describe("virtualized bounty board", () => {
   it("only mounts the visible bounty cards plus overscan for large lists", async () => {
-    vi.mocked(api.listBounties).mockResolvedValue(Array.from({ length: 500 }, (_, index) => makeBounty(index)));
+    vi.mocked(api.listBounties).mockResolvedValue(
+      Array.from({ length: 500 }, (_, index) => ({
+        ...makeBounty(index),
+        repo: `ritik4ever/stellar-bounty-board-${Math.floor(index / 50)}`,
+      })),
+    );
 
     const { container } = render(<App />);
 

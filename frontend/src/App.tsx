@@ -674,6 +674,7 @@ function App() {
   }, [groupedBounties]);
 
   const boardVirtualizerParentRef = useRef<HTMLDivElement | null>(null);
+  const getBoardRowSize = (row?: BoardRow) => (row?.type === "repo" ? 142 : 360);
   const boardVirtualizer = useVirtualizer({
     count: boardRows.length,
     getScrollElement: () => boardVirtualizerParentRef.current,
@@ -681,12 +682,11 @@ function App() {
       const row = boardRows[index];
       return row?.type === "repo" ? `repo:${row.repo}` : `bounty:${row?.bounty.id ?? index}`;
     },
-    estimateSize: (index) => (boardRows[index]?.type === "repo" ? 142 : 360),
+    estimateSize: (index) => getBoardRowSize(boardRows[index]),
     overscan: 5,
     initialRect: { height: 800, width: 0 },
   });
   const virtualBoardRows = boardVirtualizer.getVirtualItems();
-  const getBoardRowSize = (row: BoardRow) => (row.type === "repo" ? 142 : 360);
   const renderedBoardRows =
     virtualBoardRows.length > 0
       ? virtualBoardRows
