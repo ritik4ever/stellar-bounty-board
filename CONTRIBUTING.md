@@ -2,6 +2,8 @@
 
 This project is intentionally scoped as an MVP with obvious upgrade paths.
 
+Please follow the project [Code of Conduct](CODE_OF_CONDUCT.md) in all issues, pull requests, discussions, and other community spaces.
+
 If you want to seed good open-source work quickly:
 1. Pick one of the drafts in `docs/issues`.
 2. Open it as a GitHub issue with the suggested labels.

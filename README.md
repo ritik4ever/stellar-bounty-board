@@ -142,6 +142,8 @@ These errors are invoked via `panic_with_error!` and surface as `Error(Contract,
 
 Contribution-ready issue drafts live in `docs/issues`.
 
+Community behavior expectations are documented in [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+
 Suggested first issues:
 
 - Wallet-authenticated maintainer actions
