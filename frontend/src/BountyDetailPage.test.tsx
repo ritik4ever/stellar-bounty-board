@@ -106,6 +106,29 @@ describe("BountyDetailPage social metadata", () => {
       "Patch a critical edge case. - 250 USDC bounty",
     );
   });
+
+  it("restores previous title and social tags when unmounted", () => {
+    document.title = "Original title";
+    const previousOgTitle = document.createElement("meta");
+    previousOgTitle.setAttribute("property", "og:title");
+    previousOgTitle.setAttribute("content", "Original OG title");
+    document.head.appendChild(previousOgTitle);
+
+    const { unmount } = renderDetail();
+
+    expect(document.title).toBe("Copy button test bounty | Stellar Bounty Board");
+    expect(document.head.querySelector('meta[property="og:title"]')).toHaveAttribute("content", bounty.title);
+    expect(document.head.querySelector('meta[property="og:description"]')).toHaveAttribute(
+      "content",
+      "Make important identifiers easy to copy. - 150 XLM bounty",
+    );
+
+    unmount();
+
+    expect(document.title).toBe("Original title");
+    expect(document.head.querySelector('meta[property="og:title"]')).toHaveAttribute("content", "Original OG title");
+    expect(document.head.querySelector('meta[property="og:description"]')).not.toBeInTheDocument();
+  });
 });
 
 describe("BountyDetailPage copy actions", () => {
