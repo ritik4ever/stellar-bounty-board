@@ -350,6 +350,11 @@ export interface ListBountiesOptions {
   q?: string;
 }
 
+/**
+ * List all bounties with optional filters.
+ * @param options - Filters: q, status, maintainer, contributor, sort
+ * @returns Filtered bounty records
+ */
 export function listBounties(options: ListBountiesOptions = {}): BountyRecord[] {
   const records = normalizeRecords(readStore());
   let sorted = [...records].sort((a, b) => b.createdAt - a.createdAt);
@@ -424,6 +429,11 @@ async function withGlobalLock<T>(fn: () => T | Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * Create a new bounty record.
+ * @param input - Bounty creation parameters
+ * @returns The created bounty record
+ */
 export async function createBounty(input: CreateBountyInput): Promise<BountyRecord> {
   return withGlobalLock(async () => {
     const records = listBounties();
@@ -468,6 +478,13 @@ export async function createBounty(input: CreateBountyInput): Promise<BountyReco
   });
 }
 
+/**
+ * Reserve a bounty for a contributor.
+ * @param id - Bounty ID
+ * @param contributor - Stellar public key of the contributor
+ * @param expectedVersion - Optional expected version for optimistic concurrency
+ * @returns Updated bounty record
+ */
 export async function reserveBounty(id: string, contributor: string, expectedVersion?: number): Promise<BountyRecord> {
   return withGlobalLock(async () => {
     const records = listBounties();
@@ -507,6 +524,14 @@ export async function reserveBounty(id: string, contributor: string, expectedVer
   });
 }
 
+/**
+ * Submit a PR URL for a reserved bounty.
+ * @param id - Bounty ID
+ * @param contributor - Contributor Stellar public key
+ * @param submissionUrl - URL of the submitted PR
+ * @param notes - Optional submission notes
+ * @returns Updated bounty record
+ */
 export async function submitBounty(
   id: string,
   contributor: string,
@@ -554,6 +579,13 @@ export async function submitBounty(
   });
 }
 
+/**
+ * Release payment for a submitted bounty.
+ * @param id - Bounty ID
+ * @param maintainer - Maintainer Stellar public key
+ * @param transactionHash - Stellar transaction hash
+ * @returns Released bounty record
+ */
 export async function releaseBounty(
   id: string,
   maintainer: string,
@@ -598,6 +630,13 @@ export async function releaseBounty(
   });
 }
 
+/**
+ * Refund a reserved or submitted bounty.
+ * @param id - Bounty ID
+ * @param maintainer - Maintainer Stellar public key
+ * @param transactionHash - Optional refund transaction hash
+ * @returns Refunded bounty record
+ */
 export async function refundBounty(
   id: string,
   maintainer: string,
@@ -656,6 +695,12 @@ export interface AuditLogPage {
   };
 }
 
+/**
+ * List audit log entries for a specific bounty.
+ * @param bountyId - Bounty ID
+ * @param page - Pagination: { limit, offset }
+ * @returns Paginated audit log entries
+ */
 export function listBountyAuditLogs(
   bountyId: string,
   options: { limit?: number; offset?: number } = {},
@@ -677,6 +722,11 @@ export function listBountyAuditLogs(
   };
 }
 
+/**
+ * Get all lifecycle events for a bounty.
+ * @param bountyId - Bounty ID
+ * @returns Array of bounty events
+ */
 export function getBountyEvents(bountyId: string): BountyEvent[] {
   const records = listBounties();
   const bounty = records.find((b) => b.id === bountyId);
@@ -699,6 +749,11 @@ export interface MaintainerMetrics {
   averageRewardAmount: number;
 }
 
+/**
+ * Get metrics for a specific maintainer.
+ * @param maintainer - Maintainer Stellar public key
+ * @returns Maintainer metrics
+ */
 export function getMaintainerMetrics(maintainer: string): MaintainerMetrics {
   const bounties = listBounties().filter((b) => b.maintainer === maintainer);
   const totalFunded = bounties.reduce((sum, b) => sum + b.amount, 0);
@@ -732,6 +787,10 @@ export interface GlobalMetrics {
   uniqueContributors: number;
 }
 
+/**
+ * Get global bounty statistics.
+ * @returns Global metrics across all bounties
+ */
 export function getGlobalMetrics(): GlobalMetrics {
   const bounties = listBounties();
   const totalFunded = bounties.reduce((sum, b) => sum + b.amount, 0);
@@ -763,6 +822,11 @@ export interface LeaderboardEntry {
   bountiesCompleted: number;
 }
 
+/**
+ * Get contributor leaderboard sorted by total earned.
+ * @param limit - Maximum number of entries (default 10)
+ * @returns Leaderboard entries
+ */
 export function getLeaderboard(limit = 10): LeaderboardEntry[] {
   const entries = new Map<string, LeaderboardEntry>();
 
