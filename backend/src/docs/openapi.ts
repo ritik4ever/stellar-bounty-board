@@ -267,8 +267,8 @@ registry.registerPath({
         example: "owner/repo",
         description: "GitHub repository in owner/repo format.",
       }),
-      issue: z.string().trim().min(1).openapi({
-        example: "42",
+      issue: z.coerce.number().int().positive().openapi({
+        example: 42,
         description: "GitHub issue number (positive integer).",
       }),
     }),
