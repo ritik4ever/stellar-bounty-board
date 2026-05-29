@@ -350,6 +350,12 @@ export interface ListBountiesOptions {
   q?: string;
 }
 
+/**
+  * List bounties with optional filtering and sorting.
+  *
+  * @param options - Filtering and sorting options
+  * @returns Array of matching bounty records
+ */
 export function listBounties(options: ListBountiesOptions = {}): BountyRecord[] {
   const records = normalizeRecords(readStore());
   let sorted = [...records].sort((a, b) => b.createdAt - a.createdAt);
@@ -404,6 +410,12 @@ export async function listBountiesCached(
 }
 
 /** Drop the cached bounty list so the next read reflects a mutation (#361). */
+/**
+  * Invalidate the bounty list cache.
+  *
+  * @param cache - Cache adapter instance (defaults to global cache)
+  * @returns Promise that resolves when cache is cleared
+ */
 export async function invalidateBountyCache(cache: CacheAdapter = getCache()): Promise<void> {
   await cache.del(BOUNTY_LIST_CACHE_KEY);
 }
@@ -424,6 +436,12 @@ async function withGlobalLock<T>(fn: () => T | Promise<T>): Promise<T> {
   }
 }
 
+/**
+  * Create a new bounty record and append a creation event.
+  *
+  * @param input - Bounty creation input data
+  * @returns The newly created bounty record
+ */
 export async function createBounty(input: CreateBountyInput): Promise<BountyRecord> {
   return withGlobalLock(async () => {
     const records = listBounties();
@@ -468,6 +486,15 @@ export async function createBounty(input: CreateBountyInput): Promise<BountyReco
   });
 }
 
+/**
+  * Reserve a bounty for a contributor. Uses optimistic locking via version number.
+  *
+  * @param id - Bounty ID
+  * @param contributor - Contributor Stellar public key
+  * @param expectedVersion - Expected version for optimistic concurrency control (optional)
+  * @returns The updated bounty record
+  * @throws Error if bounty is not open or version mismatch
+ */
 export async function reserveBounty(id: string, contributor: string, expectedVersion?: number): Promise<BountyRecord> {
   return withGlobalLock(async () => {
     const records = listBounties();
@@ -507,6 +534,15 @@ export async function reserveBounty(id: string, contributor: string, expectedVer
   });
 }
 
+/**
+  * Submit work on a reserved bounty with a submission URL.
+  *
+  * @param id - Bounty ID
+  * @param submissionUrl - URL to the submitted work
+  * @param maintainer - Maintainer Stellar public key
+  * @returns The updated bounty record
+  * @throws Error if bounty is not reserved or caller is not the maintainer
+ */
 export async function submitBounty(
   id: string,
   contributor: string,
@@ -554,6 +590,15 @@ export async function submitBounty(
   });
 }
 
+/**
+  * Release funds for a submitted bounty. Marks the bounty as released.
+  *
+  * @param id - Bounty ID
+  * @param releasedTxHash - Transaction hash of the release payment
+  * @param maintainer - Maintainer Stellar public key
+  * @returns The updated bounty record
+  * @throws Error if bounty is not submitted or caller is not authorized
+ */
 export async function releaseBounty(
   id: string,
   maintainer: string,
@@ -598,6 +643,14 @@ export async function releaseBounty(
   });
 }
 
+/**
+  * Refund a reserved or submitted bounty. Returns the bounty to open state.
+  *
+  * @param id - Bounty ID
+  * @param maintainer - Maintainer Stellar public key
+  * @returns The updated bounty record
+  * @throws Error if bounty is not in a refundable state
+ */
 export async function refundBounty(
   id: string,
   maintainer: string,
@@ -656,6 +709,12 @@ export interface AuditLogPage {
   };
 }
 
+/**
+  * List audit log entries for a specific bounty.
+  *
+  * @param bountyId - Bounty ID
+  * @returns Array of audit log records
+ */
 export function listBountyAuditLogs(
   bountyId: string,
   options: { limit?: number; offset?: number } = {},
@@ -677,6 +736,12 @@ export function listBountyAuditLogs(
   };
 }
 
+/**
+  * Get the full event history for a bounty.
+  *
+  * @param bountyId - Bounty ID
+  * @returns Array of bounty events
+ */
 export function getBountyEvents(bountyId: string): BountyEvent[] {
   const records = listBounties();
   const bounty = records.find((b) => b.id === bountyId);
@@ -699,6 +764,12 @@ export interface MaintainerMetrics {
   averageRewardAmount: number;
 }
 
+/**
+  * Get aggregate metrics for a maintainer.
+  *
+  * @param maintainer - Maintainer Stellar public key
+  * @returns Maintainer metrics including counts and totals
+ */
 export function getMaintainerMetrics(maintainer: string): MaintainerMetrics {
   const bounties = listBounties().filter((b) => b.maintainer === maintainer);
   const totalFunded = bounties.reduce((sum, b) => sum + b.amount, 0);
@@ -732,6 +803,11 @@ export interface GlobalMetrics {
   uniqueContributors: number;
 }
 
+/**
+  * Get global platform metrics.
+  *
+  * @returns Global metrics object
+ */
 export function getGlobalMetrics(): GlobalMetrics {
   const bounties = listBounties();
   const totalFunded = bounties.reduce((sum, b) => sum + b.amount, 0);
@@ -763,6 +839,12 @@ export interface LeaderboardEntry {
   bountiesCompleted: number;
 }
 
+/**
+  * Get the contributor leaderboard sorted by completed bounties.
+  *
+  * @param limit - Maximum number of leaderboard entries (default: 10)
+  * @returns Array of leaderboard entries
+ */
 export function getLeaderboard(limit = 10): LeaderboardEntry[] {
   const entries = new Map<string, LeaderboardEntry>();
 
