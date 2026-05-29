@@ -1118,6 +1118,32 @@ select {
   color: #8b4035;
 }
 
+/* Urgency-based color overrides for open/reserved bounties */
+.status-pill--urgency-plenty {
+  background: var(--mint-soft);
+  color: #0d4736;
+}
+
+.status-pill--urgency-warning {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.status-pill--urgency-urgent {
+  background: #f8d7da;
+  color: #842029;
+}
+
+.status-pill--urgency-ended {
+  background: #e2e3e5;
+  color: #41464b;
+}
+
+.status-pill--urgency-disputed {
+  background: #cfe2ff;
+  color: #084298;
+}
+
 .amount-chip {
   background: var(--ink);
   color: #fff7ef;

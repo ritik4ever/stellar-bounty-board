@@ -3,6 +3,7 @@ import { ArrowUpRight, Star, TrendingUp } from "lucide-react";
 import { BountyRecommendation } from "./recommendations";
 import { statusCopy } from "./constants";
 import UsdAmount from "./UsdAmount";
+import { getUrgencyClass } from "./utils";
 
 interface RecommendedBountiesProps {
   recommendations: BountyRecommendation[];
@@ -59,7 +60,7 @@ function BountyRecommendationCard({ recommendation }: { recommendation: BountyRe
       <div className="bounty-card__top">
         <div>
           <span
-            className={`status-pill status-pill--${bounty.status}`}
+            className={`status-pill status-pill--${bounty.status} status-pill--${getUrgencyClass(bounty)}`}
             title={statusCopy[bounty.status].description}
             aria-label={`${statusCopy[bounty.status].label}: ${statusCopy[bounty.status].description}`}
           >

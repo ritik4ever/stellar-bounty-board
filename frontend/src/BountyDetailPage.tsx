@@ -6,6 +6,7 @@ import CopyIcon from "./CopyIcons";
 import UsdAmount from "./UsdAmount";
 import type { Bounty, BountyEvent, BountyStatus } from "./types";
 import { updateSocialMetaTags } from "./metaTags";
+import { getUrgencyClass } from "./utils";
 
 type BountyAction = "reserve" | "submit" | "release" | "refund";
 
@@ -188,7 +189,7 @@ export default function BountyDetailPage({
               )}
               <div>
                 <span
-                  className={`status-pill status-pill--${bounty.status}`}
+                  className={`status-pill status-pill--${bounty.status} status-pill--${getUrgencyClass(bounty)}`}
                   title={statusCopy[bounty.status].description}
                 >
                   {statusCopy[bounty.status].label}

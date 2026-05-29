@@ -1,6 +1,62 @@
 import { Bounty, BountyStatus } from "./types";
 import { FilterState } from "./constants";
 
+export type UrgencyLevel = "plenty" | "warning" | "urgent" | "ended" | "disputed";
+
+/**
+ * Determine the urgency level of a bounty based on its status and time remaining.
+ *
+ * - Green (`plenty`): open with >7 days remaining
+ * - Yellow (`warning`): open or reserved with 1–7 days remaining
+ * - Red (`urgent`): open or reserved with <24 hours remaining
+ * - Grey (`ended`): expired, released, or refunded
+ * - Blue (`disputed`): disputed status
+ */
+export function getUrgencyLevel(bounty: Bounty, nowSeconds?: number): UrgencyLevel {
+  const now = nowSeconds ?? Math.floor(Date.now() / 1000);
+
+  if (bounty.status === "expired" || bounty.status === "released" || bounty.status === "refunded") {
+    return "ended";
+  }
+
+  // "disputed" is not in the current BountyStatus union but is handled
+  // defensively for forward-compatibility.
+  if ((bounty.status as string) === "disputed") {
+    return "disputed";
+  }
+
+  if (bounty.status !== "open" && bounty.status !== "reserved") {
+    return "plenty";
+  }
+
+  const secondsRemaining = bounty.deadlineAt - now;
+
+  if (secondsRemaining <= 0) {
+    return "ended";
+  }
+
+  const hoursRemaining = secondsRemaining / 3600;
+
+  if (hoursRemaining < 24) {
+    return "urgent";
+  }
+
+  const daysRemaining = secondsRemaining / (24 * 60 * 60);
+
+  if (daysRemaining <= 7) {
+    return "warning";
+  }
+
+  return "plenty";
+}
+
+/**
+ * Returns the CSS modifier class suffix for the given urgency level.
+ * Use with `status-pill--urgency-${modifier}`.
+ */
+export function getUrgencyClass(bounty: Bounty, nowSeconds?: number): string {
+  return `urgency-${getUrgencyLevel(bounty, nowSeconds)}`;
+}
 
 // Simple debounce function for search
 export function debounce<T extends (...args: any[]) => any>(

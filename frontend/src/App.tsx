@@ -39,7 +39,7 @@ import SubmissionChecklistModal, { type SubmissionFormData } from "./SubmissionC
 import { BountyRecommendation, ContributorProfile, createDefaultProfile, generateRecommendations, updateProfileFromBounties } from "./recommendations";
 import RecommendedBounties from "./RecommendedBounties";
 import { statusCopy, actionCopy, readInitialFilters, FilterState, statusOptions, statusGlossary, sortOptions } from "./constants";
-import { filterBounties, getRewardBounds, getActiveRewardLabel, getContributorMetrics, getUniqueRepos, getUniqueTokenSymbols, getRepoMetrics, sortBounties, debounce, SortOption, SortState, xlmToUsd } from "./utils";
+import { filterBounties, getRewardBounds, getActiveRewardLabel, getContributorMetrics, getUniqueRepos, getUniqueTokenSymbols, getRepoMetrics, sortBounties, debounce, SortOption, SortState, xlmToUsd, getUrgencyClass } from "./utils";
 import { Bounty, CreateBountyPayload, OpenIssue, BountyStatus } from "./types";
 
 import GitHubIssuePreviewCard from "./GitHubIssuePreviewCard";
@@ -227,7 +227,7 @@ const BountyCard = memo(function BountyCard({ bounty, onOpen, renderActionButton
       <div className="bounty-card__top">
         <div>
           <span
-            className={`status-pill status-pill--${bounty.status}`}
+            className={`status-pill status-pill--${bounty.status} status-pill--${getUrgencyClass(bounty)}`}
             title={statusCopy[bounty.status].description}
             aria-label={`${statusCopy[bounty.status].label}: ${statusCopy[bounty.status].description}`}
           >
