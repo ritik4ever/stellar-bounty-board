@@ -75,7 +75,25 @@ beforeEach(() => {
 
     observe(target: Element) {
       const height = target.classList?.contains("board-list--virtual") ? 800 : 360;
-      this.callback([{ target, contentRect: { height, width: 1200 } as DOMRectReadOnly } as ResizeObserverEntry], this);
+      this.callback(
+        [
+          {
+            target,
+            contentRect: {
+              bottom: height,
+              height,
+              left: 0,
+              right: 1200,
+              top: 0,
+              width: 1200,
+              x: 0,
+              y: 0,
+              toJSON: () => ({}),
+            } as DOMRectReadOnly,
+          } as ResizeObserverEntry,
+        ],
+        this,
+      );
     }
 
     unobserve() {}
@@ -114,10 +132,15 @@ describe("virtualized bounty board", () => {
     const board = await screen.findByLabelText("Bounty board with 500 bounties");
     fireEvent.scroll(board, { target: { scrollTop: 0 } });
 
+    const viewportHeight = 800;
+    const estimatedCardHeight = 360;
+    const overscan = 5;
+    const maxMountedCards = Math.ceil(viewportHeight / estimatedCardHeight) + overscan * 2 + 5;
+
     await waitFor(() => {
       const mountedCards = container.querySelectorAll(".bounty-card");
       expect(mountedCards.length).toBeGreaterThan(0);
-      expect(mountedCards.length).toBeLessThan(40);
+      expect(mountedCards.length).toBeLessThanOrEqual(maxMountedCards);
     });
 
     expect(screen.queryAllByText(/^Virtual bounty /)).toHaveLength(container.querySelectorAll(".bounty-card").length);

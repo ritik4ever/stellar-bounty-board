@@ -686,13 +686,14 @@ function App() {
     initialRect: { height: 800, width: 0 },
   });
   const virtualBoardRows = boardVirtualizer.getVirtualItems();
+  const getBoardRowSize = (row: BoardRow) => (row.type === "repo" ? 142 : 360);
   const renderedBoardRows =
     virtualBoardRows.length > 0
       ? virtualBoardRows
       : boardRows.slice(0, Math.min(boardRows.length, 8)).map((row, index) => ({
           index,
           key: row.type === "repo" ? `repo:${row.repo}` : `bounty:${row.bounty.id}`,
-          start: index === 0 ? 0 : 142 + (index - 1) * 360,
+          start: boardRows.slice(0, index).reduce((sum, previousRow) => sum + getBoardRowSize(previousRow), 0),
         }));
 
   // Derive whether any filter is currently active so EmptyState knows whether
@@ -1298,6 +1299,7 @@ function App() {
                 >
                   <div
                     className="board-list__virtual-spacer"
+                    role="presentation"
                     style={{ height: `${boardVirtualizer.getTotalSize()}px` }}
                   >
                     {renderedBoardRows.map((virtualRow) => {
