@@ -69,13 +69,13 @@ function makeReservedBounty(reservedSecondsAgo: number) {
 describe("expireStaleReservations", () => {
   it("does not expire a fresh reservation (reserved 1 day ago, TTL 7 days)", async () => {
     const store = await loadStore();
-    const bounty = store.createBounty({
+    const bounty = await store.createBounty({
       repo: "test/repo", issueNumber: 1, title: "Fresh bounty",
       summary: "Summary long enough for validation purposes here.",
       maintainer: MAINTAINER, tokenSymbol: "XLM", amount: 50,
       deadlineDays: 30, labels: [],
     });
-    store.reserveBounty(bounty.id, CONTRIBUTOR);
+    await store.reserveBounty(bounty.id, CONTRIBUTOR);
 
     const { expireStaleReservations } = await loadJob();
     const result = expireStaleReservations(7 * 24 * 60 * 60);
@@ -140,6 +140,44 @@ describe("expireStaleReservations", () => {
     expect(freshUpdated.status).toBe("reserved");
   });
 
+  it("warns for malformed reservedAt records and continues expiring valid reservations", async () => {
+    const stale1 = makeReservedBounty(8 * 24 * 60 * 60);
+    const stale2 = makeReservedBounty(10 * 24 * 60 * 60);
+    const corrupt = {
+      ...makeReservedBounty(9 * 24 * 60 * 60),
+      reservedAt: "not-a-timestamp" as unknown as number,
+    };
+    fs.writeFileSync(storeFile, JSON.stringify([stale1, corrupt, stale2], null, 2));
+
+    const { logger } = await import("../src/logger");
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    const { expireStaleReservations } = await loadJob();
+    const result = expireStaleReservations(7 * 24 * 60 * 60);
+
+    expect(result.expiredCount).toBe(2);
+    expect(result.expiredBountyIds).toContain(stale1.id);
+    expect(result.expiredBountyIds).toContain(stale2.id);
+    expect(result.expiredBountyIds).not.toContain(corrupt.id);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bountyId: corrupt.id,
+        reservedAt: "not-a-timestamp",
+      }),
+      "[ExpirationJob] Skipping reserved bounty with malformed reservedAt",
+    );
+
+    const raw = JSON.parse(fs.readFileSync(storeFile, "utf8"));
+    const stale1Updated = raw.find((b: { id: string }) => b.id === stale1.id);
+    const stale2Updated = raw.find((b: { id: string }) => b.id === stale2.id);
+    const corruptUpdated = raw.find((b: { id: string }) => b.id === corrupt.id);
+    expect(stale1Updated.status).toBe("open");
+    expect(stale2Updated.status).toBe("open");
+    expect(corruptUpdated.status).toBe("reserved");
+    expect(corruptUpdated.reservedAt).toBe("not-a-timestamp");
+
+    warnSpy.mockRestore();
+  });
+
   it("respects RESERVATION_TTL_DAYS env var", async () => {
     process.env.RESERVATION_TTL_DAYS = "3";
     const stale = makeReservedBounty(4 * 24 * 60 * 60); // 4 days > 3 day TTL
@@ -155,14 +193,14 @@ describe("expireStaleReservations", () => {
 
   it("does not touch submitted bounties", async () => {
     const store = await loadStore();
-    const bounty = store.createBounty({
+    const bounty = await store.createBounty({
       repo: "test/repo", issueNumber: 2, title: "Submitted bounty",
       summary: "Summary long enough for validation purposes here.",
       maintainer: MAINTAINER, tokenSymbol: "XLM", amount: 50,
       deadlineDays: 30, labels: [],
     });
-    store.reserveBounty(bounty.id, CONTRIBUTOR);
-    store.submitBounty(bounty.id, CONTRIBUTOR, "https://github.com/pr/1");
+    await store.reserveBounty(bounty.id, CONTRIBUTOR);
+    await store.submitBounty(bounty.id, CONTRIBUTOR, "https://github.com/pr/1");
 
     const { expireStaleReservations } = await loadJob();
     const result = expireStaleReservations(0); // TTL 0 would expire anything reserved

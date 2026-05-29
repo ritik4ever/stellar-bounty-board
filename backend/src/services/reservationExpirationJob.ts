@@ -67,10 +67,27 @@ export function expireStaleReservations(ttlSeconds?: number): ExpirationResult {
   const checkedAt = nowSeconds;
 
   const bounties = listBounties();
+  const malformed = bounties.filter(
+    (b) =>
+      b.status === "reserved" &&
+      (typeof b.reservedAt !== "number" || !Number.isFinite(b.reservedAt)),
+  );
+
+  for (const bounty of malformed) {
+    logger.warn(
+      {
+        bountyId: bounty.id,
+        reservedAt: bounty.reservedAt,
+      },
+      "[ExpirationJob] Skipping reserved bounty with malformed reservedAt",
+    );
+  }
+
   const stale = bounties.filter(
     (b): b is BountyRecord & { reservedAt: number; contributor: string } =>
       b.status === "reserved" &&
       typeof b.reservedAt === "number" &&
+      Number.isFinite(b.reservedAt) &&
       nowSeconds - b.reservedAt > effectiveTtl,
   );
 
