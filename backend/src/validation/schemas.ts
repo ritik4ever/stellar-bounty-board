@@ -10,9 +10,18 @@ extendZodWithOpenApi(z);
 const REPO_REGEX = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 const TOKEN_REGEX = /^[A-Za-z0-9]{1,12}$/;
 const SOROBAN_ADDRESS_REGEX = /^C[A-Z2-7]{55}$/;
+const DEFAULT_ALLOWED_TOKEN_SYMBOLS = ["XLM", "USDC"];
 
 const STELLAR_EXAMPLE = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 const TX_HASH_REGEX = /^[0-9a-fA-F]{64}$/;
+
+export function getAllowedTokenSymbols(): string[] {
+  const configured = process.env.ALLOWED_TOKEN_SYMBOLS?.split(",")
+    .map(symbol => symbol.trim().toUpperCase())
+    .filter(Boolean);
+
+  return configured && configured.length > 0 ? configured : DEFAULT_ALLOWED_TOKEN_SYMBOLS;
+}
 
 export const bountyIdSchema = z
   .string()
@@ -73,10 +82,23 @@ export const createBountySchema = z
       .string()
       .trim()
       .regex(TOKEN_REGEX, "Token symbol must be 1-12 letters or numbers.")
+      .superRefine((symbol, ctx) => {
+        const allowedSymbols = getAllowedTokenSymbols();
+        if (!allowedSymbols.includes(symbol.toUpperCase())) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `Unsupported token symbol. Allowed values: ${allowedSymbols.join(", ")}`,
+          });
+        }
+      })
       .openapi({ example: "XLM", description: "Stellar token symbol for payout (1–12 alphanumeric chars)." }),
     amount: z.coerce
       .number()
-      .min(1, "Amount must be at least 1 XLM."),
+      .min(1, "Amount must be at least 1 XLM.")
+      .max(10000, "Amount cannot exceed 10000 XLM.")
+      .refine(amount => Number.isInteger(amount * 10_000_000), {
+        message: "Amount can have at most 7 decimal places.",
+      }),
 
     deadlineDays: z.coerce
       .number()
@@ -124,6 +146,8 @@ export const submitBountySchema = z
     contributor: stellarAccountSchema.openapi({
       description: "Must match the contributor who reserved the bounty.",
     }),
+
+    submissionUrl: githubPrUrlSchema,
 
     notes: z
       .string()

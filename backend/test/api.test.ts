@@ -17,6 +17,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   delete process.env.BOUNTY_STORE_PATH;
+  delete process.env.ALLOWED_TOKEN_SYMBOLS;
   try {
     fs.unlinkSync(storeFile);
   } catch {
@@ -128,6 +129,39 @@ describe("API — bounty lifecycle routes", () => {
       .send({ ...validCreateBody, amount: 10000 })
       .expect(201);
     expect(res.body.data.amount).toBe(10000);
+  });
+
+  it("POST create rejects token symbols outside the default allowlist", async () => {
+    const app = await getApp();
+    const res = await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, tokenSymbol: "AQUA" })
+      .expect(400);
+
+    expect(res.body.error).toMatch(/Unsupported token symbol/i);
+    expect(res.body.error).toMatch(/XLM, USDC/);
+  });
+
+  it("POST create accepts token symbols configured in ALLOWED_TOKEN_SYMBOLS", async () => {
+    process.env.ALLOWED_TOKEN_SYMBOLS = "XLM,USDC,AQUA";
+    const app = await getApp();
+    const res = await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, tokenSymbol: "AQUA" })
+      .expect(201);
+
+    expect(res.body.data.tokenSymbol).toBe("AQUA");
+  });
+
+  it("POST create uses the default token allowlist when ALLOWED_TOKEN_SYMBOLS is empty", async () => {
+    process.env.ALLOWED_TOKEN_SYMBOLS = " ";
+    const app = await getApp();
+    const res = await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, tokenSymbol: "AQUA" })
+      .expect(400);
+
+    expect(res.body.error).toMatch(/XLM, USDC/);
   });
 
   it("reserve → submit → release flow via HTTP", async () => {
