@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "storybook": "storybook dev -p 6006",
-    "build-storybook": "storybook build"
+    "build-storybook": "storybook build",
+    "lint": "eslint src/"
   },
   "dependencies": {
     "lucide-react": "^1.11.0",

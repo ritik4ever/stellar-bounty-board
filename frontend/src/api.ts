@@ -23,7 +23,7 @@ async function parseResponse<T>(response: Response): Promise<T> {
 
 function parseFilenameFromContentDisposition(header: string | null): string | null {
   if (!header) return null;
-  const match = header.match(/filename\*?=(?:UTF-8''|")?([^\";]+)"?/i);
+  const match = header.match(/filename\*?=(?:UTF-8''|")?([^";]+)"?/i);
   if (!match?.[1]) return null;
   try {
     return decodeURIComponent(match[1]);
@@ -148,7 +148,7 @@ async function requestBlob(path: string, options: RequestOptions = {}): Promise<
   throw formatRetryError(retryLabel, retryAttempts, message);
 }
 
-
+export async function listBounties(signal?: AbortSignal): Promise<Bounty[]> {
   const body = await requestJson<{ data: Bounty[] }>("/bounties", {
     retry: true,
     retryLabel: "Loading bounties",

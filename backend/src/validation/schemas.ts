@@ -1,7 +1,6 @@
 import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
 
-import { githubPrUrlSchema } from "./prUrl";
 import { isValidStellarAddress } from "../utils";
 
 extendZodWithOpenApi(z);
@@ -9,7 +8,6 @@ extendZodWithOpenApi(z);
 
 const REPO_REGEX = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 const TOKEN_REGEX = /^[A-Za-z0-9]{1,12}$/;
-const SOROBAN_ADDRESS_REGEX = /^C[A-Z2-7]{55}$/;
 
 const STELLAR_EXAMPLE = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 const TX_HASH_REGEX = /^[0-9a-fA-F]{64}$/;
@@ -29,16 +27,6 @@ const stellarAccountSchema = z
   .openapi({
     example: STELLAR_EXAMPLE,
     description: "A valid Stellar public key (starts with G, 56 characters, checksum verified).",
-  });
-
-/** Soroban contract address (C... format) */
-const sorobanAddressSchema = z
-  .string()
-  .trim()
-  .regex(SOROBAN_ADDRESS_REGEX, "Must be a valid Soroban contract address.")
-  .openapi({
-    example: "CCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
-    description: "A valid Soroban contract address (starts with C, 56 characters).",
   });
 
 export const createBountySchema = z

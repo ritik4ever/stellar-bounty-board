@@ -1,26 +1,18 @@
-import { FormEvent, ReactNode, Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, ReactNode, Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUpRight,
   Coins,
-  Download,
   ExternalLink,
-  FileText,
-  Filter,
   FolderGit2,
   GitBranch,
   HandCoins,
   Moon,
-  Plus,
   Rocket,
   Search,
   ShieldCheck,
   SlidersHorizontal,
-  Star,
   Sun,
-  Trash2,
-  Upload,
   UserRound,
-  X,
   ArrowUpDown,
 } from "lucide-react";
 import { toast } from 'sonner';
@@ -36,15 +28,13 @@ import {
   submitBounty,
 } from "./api";
 import SubmissionChecklistModal, { type SubmissionFormData } from "./SubmissionChecklistModal";
-import { BountyRecommendation, ContributorProfile, createDefaultProfile, generateRecommendations, updateProfileFromBounties } from "./recommendations";
+import { createDefaultProfile, generateRecommendations } from "./recommendations";
 import RecommendedBounties from "./RecommendedBounties";
-import { statusCopy, actionCopy, readInitialFilters, FilterState, statusOptions, statusGlossary, sortOptions } from "./constants";
-import { filterBounties, getRewardBounds, getActiveRewardLabel, getContributorMetrics, getUniqueRepos, getUniqueTokenSymbols, getRepoMetrics, sortBounties, debounce, SortOption, SortState, xlmToUsd } from "./utils";
+import { statusCopy, actionCopy, readInitialFilters, statusOptions, statusGlossary, sortOptions } from "./constants";
+import { filterBounties, getRewardBounds, getActiveRewardLabel, getContributorMetrics, getUniqueRepos, getUniqueTokenSymbols, sortBounties, debounce, SortOption } from "./utils";
 import { Bounty, CreateBountyPayload, OpenIssue, BountyStatus } from "./types";
 
 import GitHubIssuePreviewCard from "./GitHubIssuePreviewCard";
-import UsdAmount from "./UsdAmount";
-
 import SkeletonBountyCard from "./SkeletonBountyCard";
 import EmptyState from "./EmptyState";
 import { ShortcutsHelpOverlay } from "./ShortcutsHelpOverlay";
@@ -52,9 +42,6 @@ import { ShortcutsHelpOverlay } from "./ShortcutsHelpOverlay";
 // Lazy-load BountyDetailPage — it is only rendered on /bounties/:id routes,
 // so deferring it keeps the initial board bundle smaller.
 const BountyDetailPage = lazy(() => import("./BountyDetailPage"));
-
-const STELLAR_PUBLIC_KEY_HINT = "Expected Stellar public key (starts with G and is 56 characters).";
-const STELLAR_PUBLIC_KEY_REGEX = /^G[A-Z2-7]{55}$/;
 
 const DARK_MODE_KEY = "stellar-bounty-board-theme";
 
@@ -126,15 +113,6 @@ const contributorStatuses: Array<BountyStatus | "all"> = [
   "refunded",
   "expired",
 ];
-const boardStatuses: Array<BountyStatus | "all"> = [
-  "all",
-  "open",
-  "reserved",
-  "submitted",
-  "released",
-  "refunded",
-];
-
 type BountyAction = "reserve" | "submit" | "release" | "refund";
 
 function repoOwner(repo: string): string {
@@ -145,163 +123,6 @@ function formatTimestamp(value?: number): string {
   if (!value) return "-";
   return new Date(value * 1000).toLocaleString();
 }
-
-const BountyAmount = memo(function BountyAmount({ bounty }: { bounty: Bounty }) {
-  const [usdAmount, setUsdAmount] = useState<string | null>(null);
-
-  useEffect(() => {
-    let active = true;
-
-    if (bounty.tokenSymbol.toUpperCase() !== "XLM") {
-      setUsdAmount(null);
-      return () => {
-        active = false;
-      };
-    }
-
-    setUsdAmount(null);
-    void xlmToUsd(bounty.amount).then((value) => {
-      if (active) {
-        setUsdAmount(value);
-      }
-    });
-
-    return () => {
-      active = false;
-    };
-  }, [bounty.amount, bounty.tokenSymbol]);
-
-  return (
-    <div className="amount-chip">
-      <strong>{bounty.amount} {bounty.tokenSymbol}</strong>
-      {usdAmount && <span>{usdAmount}</span>}
-    </div>
-  );
-});
-
-type BountyCardProps = {
-  bounty: Bounty;
-  onOpen: (id: string) => void;
-  renderActionButton: (
-    bounty: Bounty,
-    action: { action: "reserve" | "submit" | "release" | "refund"; label: string; title: string },
-  ) => ReactNode;
-};
-
-// Custom comparator: skip re-renders when the underlying bounty data is
-// unchanged, even if parent recreated callback identities. `statusCopy` and
-// `actionCopy` come from a stable module-scope import.
-function bountyCardPropsEqual(prev: BountyCardProps, next: BountyCardProps): boolean {
-  const a = prev.bounty;
-  const b = next.bounty;
-  return (
-    a.id === b.id &&
-    a.status === b.status &&
-    a.amount === b.amount &&
-    a.tokenSymbol === b.tokenSymbol &&
-    a.contributor === b.contributor &&
-    a.maintainer === b.maintainer &&
-    a.title === b.title &&
-    a.summary === b.summary &&
-    a.deadlineAt === b.deadlineAt &&
-    a.submissionUrl === b.submissionUrl &&
-    a.releasedTxHash === b.releasedTxHash &&
-    a.refundedTxHash === b.refundedTxHash &&
-    a.labels === b.labels
-  );
-}
-
-const BountyCard = memo(function BountyCard({ bounty, onOpen, renderActionButton }: BountyCardProps) {
-  return (
-    <article
-      className="bounty-card"
-      role="link"
-      tabIndex={0}
-      onClick={() => onOpen(bounty.id)}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onOpen(bounty.id);
-        }
-      }}
-    >
-      <div className="bounty-card__top">
-        <div>
-          <span
-            className={`status-pill status-pill--${bounty.status}`}
-            title={statusCopy[bounty.status].description}
-            aria-label={`${statusCopy[bounty.status].label}: ${statusCopy[bounty.status].description}`}
-          >
-            {statusCopy[bounty.status].label}
-          </span>
-          <h3>{bounty.title}</h3>
-        </div>
-      </div>
-
-      <p className="bounty-summary">{bounty.summary}</p>
-
-      <div className="meta-grid">
-        <div>
-          <span className="meta-label">Issue</span>
-          <strong>
-            <a
-              className="inline-link"
-              href={`https://github.com/${bounty.repo}/issues/${bounty.issueNumber}`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              {bounty.repo} #{bounty.issueNumber}
-            </a>
-          </strong>
-        </div>
-        <div>
-          <span className="meta-label">Deadline</span>
-          <strong>{formatRelativeDeadline(bounty.deadlineAt)}</strong>
-        </div>
-        <div>
-          <span className="meta-label">Maintainer</span>
-          <strong>{shortAddress(bounty.maintainer)}</strong>
-        </div>
-        <div>
-          <span className="meta-label">Contributor</span>
-          <strong>{bounty.contributor ? shortAddress(bounty.contributor) : "Open"}</strong>
-        </div>
-        {bounty.status === "released" && bounty.releasedTxHash && (
-          <div>
-            <span className="meta-label">Release tx</span>
-            <strong>{`${bounty.releasedTxHash.slice(0, 10)}...`}</strong>
-          </div>
-        )}
-        {bounty.status === "refunded" && bounty.refundedTxHash && (
-          <div>
-            <span className="meta-label">Refund tx</span>
-            <strong>{`${bounty.refundedTxHash.slice(0, 10)}...`}</strong>
-          </div>
-        )}
-      </div>
-
-      <div className="chip-row">
-        {bounty.labels.map((label) => (
-          <span className="chip" key={label.name}>{label.name}</span>
-        ))}
-      </div>
-
-      <p className="status-helper">
-        <strong>{statusCopy[bounty.status].label}:</strong> {statusCopy[bounty.status].description}
-      </p>
-
-      {bounty.submissionUrl && (
-        <a className="submission-link" href={bounty.submissionUrl} target="_blank" rel="noreferrer">
-          Review submission <ArrowUpRight size={16} />
-        </a>
-      )}
-
-      <div className="action-row">
-        {(actionCopy[bounty.status] ?? []).map((action) => renderActionButton(bounty, action))}
-      </div>
-    </article>
-  );
-}, bountyCardPropsEqual);
 
 function App() {
   const { dark, toggle: toggleDark } = useDarkMode();
@@ -555,7 +376,7 @@ function App() {
     return getContributorMetrics(bounties, profileContributor);
   }, [bounties, profileContributor]);
 
-  const [profile, setProfile] = useState(() => createDefaultProfile());
+  const [profile] = useState(() => createDefaultProfile());
   const recommendations = useMemo(() => {
     return generateRecommendations(bounties, profile);
   }, [bounties, profile]);
@@ -611,13 +432,6 @@ function App() {
       setSubmitting(false);
     }
   }
-
-  const handleOpenBounty = useCallback(
-    (id: string) => {
-      navigate(`/bounties/${encodeURIComponent(id)}`);
-    },
-    [navigate],
-  );
 
   function renderActionButton(
     bounty: Bounty,

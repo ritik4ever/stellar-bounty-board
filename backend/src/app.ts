@@ -391,9 +391,8 @@ app.get("/api/metrics", (_req: Request, res: Response) => {
   try {
     const metrics = getGlobalMetrics();
     res.json({ data: metrics });
-  } catch (error) {
-
-
+  } catch (_error) {
+    // Metrics failure is non-critical; silently ignored.
   }
 });
 

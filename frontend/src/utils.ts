@@ -291,9 +291,7 @@ export async function getXlmRate(): Promise<number | null> {
       cachedRate = data.stellar.usd;
       cacheTimestamp = Date.now();
       return cachedRate;
-    } catch (error) {
-      console.error("Failed to fetch XLM/USD rate:", error);
-      // Fallback to last known rate if available
+    } catch (_error) {
       return cachedRate;
     } finally {
       pendingRequest = null;
