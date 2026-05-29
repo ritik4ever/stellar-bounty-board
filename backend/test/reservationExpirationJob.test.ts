@@ -160,10 +160,15 @@ describe("expireStaleReservations", () => {
     expect(result.expiredBountyIds).not.toContain(corrupt.id);
     expect(warnSpy).toHaveBeenCalledWith(
       expect.objectContaining({
-        bountyId: corrupt.id,
-        reservedAt: "not-a-timestamp",
+        malformedCount: 1,
+        bounties: expect.arrayContaining([
+          expect.objectContaining({
+            bountyId: corrupt.id,
+            reservedAt: "not-a-timestamp",
+          }),
+        ]),
       }),
-      "[ExpirationJob] Skipping reserved bounty with malformed reservedAt",
+      "[ExpirationJob] Skipping reserved bounties with malformed reservedAt",
     );
 
     const raw = JSON.parse(fs.readFileSync(storeFile, "utf8"));

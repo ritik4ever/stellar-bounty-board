@@ -73,13 +73,16 @@ export function expireStaleReservations(ttlSeconds?: number): ExpirationResult {
       (typeof b.reservedAt !== "number" || !Number.isFinite(b.reservedAt)),
   );
 
-  for (const bounty of malformed) {
+  if (malformed.length > 0) {
     logger.warn(
       {
-        bountyId: bounty.id,
-        reservedAt: bounty.reservedAt,
+        malformedCount: malformed.length,
+        bounties: malformed.map((bounty) => ({
+          bountyId: bounty.id,
+          reservedAt: bounty.reservedAt,
+        })),
       },
-      "[ExpirationJob] Skipping reserved bounty with malformed reservedAt",
+      "[ExpirationJob] Skipping reserved bounties with malformed reservedAt",
     );
   }
 
