@@ -1,5 +1,13 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { xlmToUsd, resetXlmToUsdCache, filterBounties, getUniqueTokenSymbols } from "./utils";
+import {
+  xlmToUsd,
+  resetXlmToUsdCache,
+  filterBounties,
+  getUniqueTokenSymbols,
+  computeDeadlineAt,
+  formatAmount,
+  getStatusAtDeadline,
+} from "./utils";
 import type { FilterState } from "./constants";
 import type { Bounty } from "./types";
 
@@ -111,5 +119,34 @@ describe("filterBounties — token filter (#293)", () => {
 
   it("returns all bounties when the token filter is empty ('All Tokens')", () => {
     expect(filterBounties(tokenBounties, baseFilters)).toHaveLength(4);
+  });
+});
+
+describe("utils edge cases (#379)", () => {
+  it("computes deadlines across Feb 29 in a leap year", () => {
+    const createdAt = Date.UTC(2024, 1, 28, 12, 0, 0) / 1000;
+
+    expect(new Date(computeDeadlineAt(createdAt, 1) * 1000).toISOString()).toBe(
+      "2024-02-29T12:00:00.000Z",
+    );
+  });
+
+  it("keeps deadlineDays=0 within the same day", () => {
+    const createdAt = Date.UTC(2026, 4, 29, 9, 30, 0) / 1000;
+    const deadlineAt = computeDeadlineAt(createdAt, 0);
+
+    expect(deadlineAt).toBe(createdAt);
+    expect(new Date(deadlineAt * 1000).toISOString().slice(0, 10)).toBe("2026-05-29");
+  });
+
+  it("expires an active bounty exactly at the deadline timestamp", () => {
+    const deadlineAt = Date.UTC(2026, 4, 29, 12, 0, 0) / 1000;
+
+    expect(getStatusAtDeadline("open", deadlineAt, deadlineAt - 0.001)).toBe("open");
+    expect(getStatusAtDeadline("open", deadlineAt, deadlineAt)).toBe("expired");
+  });
+
+  it("formats zero XLM with seven decimal places", () => {
+    expect(formatAmount(0, "XLM")).toBe("0.0000000 XLM");
   });
 });
