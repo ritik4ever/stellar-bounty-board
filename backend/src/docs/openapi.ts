@@ -252,6 +252,34 @@ registry.registerPath({
 // ---------------------------------------------------------------------------
 // Generator
 // ---------------------------------------------------------------------------
+registry.registerPath({
+  method: "get",
+  path: "/api/bounties/by-issue",
+  tags: ["Bounties"],
+  summary: "Look up a bounty by GitHub repo and issue number",
+  description:
+    "Returns the bounty attached to a specific GitHub issue. " +
+    "Use this when you have a repo (owner/repo) and issue number and need to check " +
+    "whether a bounty exists for it. Returns 404 if no bounty is found.",
+  request: {
+    query: z.object({
+      repo: z.string().trim().min(1).openapi({
+        example: "owner/repo",
+        description: "GitHub repository in owner/repo format.",
+      }),
+      issue: z.string().trim().min(1).openapi({
+        example: "42",
+        description: "GitHub issue number (positive integer).",
+      }),
+    }),
+  },
+  responses: {
+    200: bountyDataResponse("Bounty found for the given repo and issue."),
+    400: errorResponse("Missing or invalid query parameters."),
+    404: errorResponse("No bounty found for the given repo and issue number."),
+  },
+});
+
 export function generateOpenApiDocument() {
   const generator = new OpenApiGeneratorV31(registry.definitions);
   return generator.generateDocument({

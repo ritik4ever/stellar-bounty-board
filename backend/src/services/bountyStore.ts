@@ -677,6 +677,13 @@ export function listBountyAuditLogs(
   };
 }
 
+export function findBountyByIssue(repo: string, issueNumber: number): BountyRecord | undefined {
+  const records = listBounties();
+  return records.find(
+    (b) => b.repo.toLowerCase() === repo.toLowerCase() && b.issueNumber === issueNumber,
+  );
+}
+
 export function getBountyEvents(bountyId: string): BountyEvent[] {
   const records = listBounties();
   const bounty = records.find((b) => b.id === bountyId);

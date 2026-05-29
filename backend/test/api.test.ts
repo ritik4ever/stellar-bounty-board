@@ -297,6 +297,74 @@ describe("API — bounty lifecycle routes", () => {
   });
 });
 
+describe("GET /api/bounties/by-issue", () => {
+  it("returns bounty when found by repo and issue number", async () => {
+    const app = await getApp();
+    const { body: created } = await request(app).post("/api/bounties").send(validCreateBody).expect(201);
+
+    const res = await request(app)
+      .get("/api/bounties/by-issue")
+      .query({ repo: validCreateBody.repo, issue: validCreateBody.issueNumber })
+      .expect(200);
+
+    expect(res.body.data.id).toBe(created.data.id);
+    expect(res.body.data.repo).toBe(validCreateBody.repo);
+    expect(res.body.data.issueNumber).toBe(validCreateBody.issueNumber);
+  });
+
+  it("returns 404 when no bounty matches", async () => {
+    const app = await getApp();
+    const res = await request(app)
+      .get("/api/bounties/by-issue")
+      .query({ repo: "owner/nonexistent", issue: 999 })
+      .expect(404);
+
+    expect(res.body.error).toMatch(/no bounty found/i);
+  });
+
+  it("returns 400 when repo param is missing", async () => {
+    const app = await getApp();
+    const res = await request(app)
+      .get("/api/bounties/by-issue")
+      .query({ issue: 42 })
+      .expect(400);
+
+    expect(res.body.error).toMatch(/repo/i);
+  });
+
+  it("returns 400 when issue param is missing", async () => {
+    const app = await getApp();
+    const res = await request(app)
+      .get("/api/bounties/by-issue")
+      .query({ repo: "owner/repo" })
+      .expect(400);
+
+    expect(res.body.error).toMatch(/issue/i);
+  });
+
+  it("returns 400 when issue is not a positive integer", async () => {
+    const app = await getApp();
+    const res = await request(app)
+      .get("/api/bounties/by-issue")
+      .query({ repo: "owner/repo", issue: "abc" })
+      .expect(400);
+
+    expect(res.body.error).toMatch(/positive integer/i);
+  });
+
+  it("matches repo case-insensitively", async () => {
+    const app = await getApp();
+    await request(app).post("/api/bounties").send(validCreateBody).expect(201);
+
+    const res = await request(app)
+      .get("/api/bounties/by-issue")
+      .query({ repo: "OWNER/REPO-NAME", issue: validCreateBody.issueNumber })
+      .expect(200);
+
+    expect(res.body.data.repo).toBe(validCreateBody.repo);
+  });
+});
+
 describe("GET /api/leaderboard", () => {
   it("returns empty array when no bounties exist", async () => {
     const app = await getApp();

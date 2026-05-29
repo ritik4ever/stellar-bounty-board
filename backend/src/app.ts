@@ -18,6 +18,7 @@ import {
   getMaintainerMetrics,
   getGlobalMetrics,
   getLeaderboard,
+  findBountyByIssue,
 } from "./services/bountyStore";
 import { listOpenIssues } from "./services/openIssues";
 import {
@@ -353,6 +354,37 @@ app.get("/api/bounties/:id/events", (req: Request, res: Response) => {
   try {
     const events = getBountyEvents(parseId(req.params.id));
     res.json({ data: events });
+  } catch (error) {
+    sendError(res, req, error);
+  }
+});
+
+app.get("/api/bounties/by-issue", (req: Request, res: Response) => {
+  try {
+    const repo = typeof req.query.repo === "string" ? req.query.repo.trim() : undefined;
+    const issueRaw = typeof req.query.issue === "string" ? req.query.issue.trim() : undefined;
+
+    if (!repo) {
+      jsonError(res, req, 400, "repo query parameter is required.");
+      return;
+    }
+    if (!issueRaw) {
+      jsonError(res, req, 400, "issue query parameter is required.");
+      return;
+    }
+
+    const issueNumber = Number(issueRaw);
+    if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
+      jsonError(res, req, 400, "issue must be a positive integer.");
+      return;
+    }
+
+    const bounty = findBountyByIssue(repo, issueNumber);
+    if (!bounty) {
+      jsonError(res, req, 404, "No bounty found for the given repo and issue number.");
+      return;
+    }
+    res.json({ data: bounty });
   } catch (error) {
     sendError(res, req, error);
   }
