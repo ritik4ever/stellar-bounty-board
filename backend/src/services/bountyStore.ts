@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
 import { sendNotification, type NotificationRecipient } from "./notificationService";
-import { logStructured } from "../logger";
 import { getCache, type CacheAdapter } from "./cache";
 
 export type BountyStatus =
@@ -462,7 +461,7 @@ export async function createBounty(input: CreateBountyInput): Promise<BountyReco
       maintainer: input.maintainer,
       amount: bounty.amount,
       tokenSymbol: bounty.tokenSymbol,
-    }).catch((err) => console.warn("[createBounty] Notification failed (non-blocking):", err));
+    }).catch((_err) => { /* Notification failure is non-blocking */ });
 
     return bounty;
   });

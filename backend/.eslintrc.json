@@ -3,7 +3,8 @@
   "parser": "@typescript-eslint/parser",
   "parserOptions": {
     "ecmaVersion": 2022,
-    "sourceType": "module"
+    "sourceType": "module",
+    "project": ["./tsconfig.json"]
   },
   "extends": [
     "eslint:recommended",
@@ -27,19 +28,7 @@
   "ignorePatterns": ["dist", "node_modules", "*.config.js", "*.config.ts"],
   "overrides": [
     {
-      "files": ["backend/src/**/*.ts"],
-      "parserOptions": {
-        "project": ["./backend/tsconfig.json"]
-      },
-      "rules": {
-        "no-console": "error"
-      }
-    },
-    {
-      "files": ["frontend/src/**/*.{ts,tsx}"],
-      "parserOptions": {
-        "project": ["./frontend/tsconfig.json"]
-      },
+      "files": ["src/**/*.ts"],
       "rules": {
         "no-console": "error"
       }
