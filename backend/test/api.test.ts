@@ -352,6 +352,24 @@ describe("GET /api/bounties/by-issue", () => {
     expect(res.body.error).toMatch(/positive integer/i);
   });
 
+  it("returns 400 when issue is zero or negative", async () => {
+    const app = await getApp();
+
+    const zeroRes = await request(app)
+      .get("/api/bounties/by-issue")
+      .query({ repo: "owner/repo", issue: 0 })
+      .expect(400);
+
+    expect(zeroRes.body.error).toMatch(/positive/i);
+
+    const negativeRes = await request(app)
+      .get("/api/bounties/by-issue")
+      .query({ repo: "owner/repo", issue: -1 })
+      .expect(400);
+
+    expect(negativeRes.body.error).toMatch(/positive/i);
+  });
+
   it("matches repo case-insensitively", async () => {
     const app = await getApp();
     await request(app).post("/api/bounties").send(validCreateBody).expect(201);
