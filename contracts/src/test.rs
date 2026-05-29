@@ -743,6 +743,24 @@ fn test_extend_deadline_earlier() {
 }
 
 #[test]
+fn test_get_maintainer_bounties_empty() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, _, _, _, _) = setup_test(&env);
+    let bounties = client.get_maintainer_bounties(&maintainer);
+
+    assert_eq!(bounties.len(), 0);
+}
+
+#[test]
+fn test_get_maintainer_bounties_single() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, _, token_id, _, _) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &500);
 
     let bounty_id = client.create_bounty(
         &maintainer,
@@ -751,21 +769,43 @@ fn test_extend_deadline_earlier() {
         &String::from_str(&env, "repo"),
         &1,
         &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32,
+    );
 
-    let bounty_id = client.create_bounty(
-        &maintainer,
-        &token_id,
-        &500,
-        &String::from_str(&env, "repo"),
-        &1,
-        &String::from_str(&env, "title"),
+    let bounties = client.get_maintainer_bounties(&maintainer);
 
-    let bounty_id = client.create_bounty(
-        &maintainer,
-        &token_id,
-        &500,
-        &String::from_str(&env, "repo"),
-        &1,
-        &String::from_str(&env, "title"),
+    assert_eq!(bounties.len(), 1);
+    assert_eq!(bounties.get(0), Some(bounty_id));
+}
 
+#[test]
+fn test_get_maintainer_bounties_multiple_same_maintainer() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, _, token_id, _, _) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &2000);
+
+    let deadline = env.ledger().timestamp() + 1000;
+    for _ in 0..3u8 {
+        client.create_bounty(
+            &maintainer,
+            &token_id,
+            &500,
+            &String::from_str(&env, "repo"),
+            &1,
+            &String::from_str(&env, "title"),
+            &deadline,
+            &0u32,
+        );
+    }
+
+    let bounties = client.get_maintainer_bounties(&maintainer);
+
+    assert_eq!(bounties.len(), 3);
+    assert_eq!(bounties.get(0), Some(1));
+    assert_eq!(bounties.get(1), Some(2));
+    assert_eq!(bounties.get(2), Some(3));
 }
