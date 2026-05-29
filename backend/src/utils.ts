@@ -53,3 +53,40 @@ export const limiter: RequestHandler = mutationLimiter;
 export function isValidStellarAddress(address: string): boolean {
   return StrKey.isValidEd25519PublicKey(address);
 }
+
+/**
+ * Format a token amount with Stellar-standard 7 decimal places.
+ *
+ * @param amount - The numeric amount to format
+ * @param tokenSymbol - The token symbol to append (e.g. "XLM")
+ * @returns Formatted string like "42.5000000 XLM"
+ */
+export function formatAmount(amount: number, tokenSymbol: string): string {
+  return `${amount.toFixed(7)} ${tokenSymbol.toUpperCase()}`;
+}
+
+/**
+ * Compute the deadline timestamp from a creation time and number of days.
+ *
+ * @param createdAt - Unix timestamp in seconds
+ * @param deadlineDays - Number of days until deadline
+ * @returns Unix timestamp in seconds representing the deadline
+ */
+export function computeDeadline(createdAt: number, deadlineDays: number): number {
+  return createdAt + deadlineDays * 24 * 60 * 60;
+}
+
+/**
+ * Check whether a bounty is expired at the given timestamp.
+ *
+ * A bounty is expired when the current time strictly exceeds the deadline
+ * and the bounty status is "open" or "reserved".
+ *
+ * @param deadlineAt - Unix timestamp in seconds when the bounty expires
+ * @param status - Current bounty status
+ * @param now - Current Unix timestamp in seconds
+ * @returns true if the bounty should be marked as expired
+ */
+export function isExpired(deadlineAt: number, status: string, now: number): boolean {
+  return (status === "open" || status === "reserved") && now > deadlineAt;
+}
