@@ -87,11 +87,35 @@ interface CreateAuditLogInput {
   metadata?: Record<string, AuditMetadataValue | undefined>;
 }
 
+interface ValidateBountyStorePathOptions {
+  exit?: (code: number) => never;
+}
+
 function getStorePath(): string {
   if (process.env.BOUNTY_STORE_PATH?.trim()) {
     return path.resolve(process.env.BOUNTY_STORE_PATH.trim());
   }
   return path.resolve(__dirname, "../../data/bounties.json");
+}
+
+export function validateBountyStorePath(options: ValidateBountyStorePathOptions = {}): void {
+  const storePath = getStorePath();
+
+  try {
+    fs.mkdirSync(path.dirname(storePath), { recursive: true });
+    const file = fs.openSync(storePath, "a");
+    try {
+      fs.writeSync(file, "");
+    } finally {
+      fs.closeSync(file);
+    }
+  } catch (error) {
+    logStructured("fatal", "bounty_store_path_invalid", {
+      storePath,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    (options.exit ?? process.exit)(1);
+  }
 }
 
 function getAuditStorePath(): string {
