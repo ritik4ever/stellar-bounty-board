@@ -342,6 +342,29 @@ chmod +x .husky/pre-commit
 - **Local webhook testing?** [ngrok setup guide](./docs/webhook-signatures.md)
 - **Can't figure something out?** Open a Discussion or comment on the issue you're working on
 
+## Bulk-Importing Issues from Drafts
+
+Issue drafts live in `docs/issues/` as Markdown files. To create them as real GitHub issues in one batch:
+
+```bash
+# Set your token (repo scope required)
+export GITHUB_TOKEN=ghp_your_token_here
+
+# Optionally target a different repo (defaults to ritik4ever/stellar-bounty-board)
+export GITHUB_REPOSITORY=ritik4ever/stellar-bounty-board
+
+# Run the import
+npm run issues:import
+```
+
+The script will:
+1. Read every `*.md` file from `docs/issues/`
+2. Parse the title (first `#` heading or frontmatter `title`), labels (inline `` `label` `` list or frontmatter `labels`), and body
+3. Create each as a GitHub issue via the REST API
+4. Skip any draft whose title matches an already-existing issue
+
+Labels are extracted from either a `Labels: \`backend\`, \`help wanted\`` line (most drafts) or YAML frontmatter (issue templates).
+
 We value quality contributions and clear communication. If this guide is missing something, a PR improving it is one of the most valuable contributions you can make.
 
 Happy coding! 🚀
