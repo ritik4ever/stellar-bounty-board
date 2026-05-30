@@ -2,6 +2,114 @@
 
 Use the backend webhook signature utility whenever a third-party service sends data into the API. This keeps webhook routes reusable and prevents unauthenticated traffic from reaching integration logic.
 
+---
+
+## Algorithm: HMAC-SHA256
+
+Every webhook request is authenticated using **HMAC-SHA256** (Hash-based Message Authentication Code with SHA-256).
+
+The sender (GitHub) computes:
+```
+signature = "sha256=" + HMAC_SHA256(key=WEBHOOK_SECRET, message=RAW_REQUEST_BODY)
+```
+
+The receiver (this backend) independently computes the same signature from the raw body and the shared secret, then compares both values in **constant time** to prevent timing attacks.
+
+> ⚠️ **Timing-safe comparison is mandatory.**  
+> A naïve string comparison (`===`) short-circuits on the first mismatched character, leaking information about how many characters match.  
+> Always use `crypto.timingSafeEqual()` (Node.js) or `hmac.compare_digest()` (Python) — both are used in the examples below and in the backend implementation.
+
+---
+
+## Example: Node.js (built-in `crypto`)
+
+```js
+const crypto = require("crypto");
+
+/**
+ * Verify a GitHub-style HMAC-SHA256 webhook signature.
+ * @param {string} secret   - Shared webhook secret
+ * @param {string} payload  - Raw request body (string, not parsed JSON)
+ * @param {string} header   - Value of X-Hub-Signature-256 header, e.g. "sha256=abc123..."
+ * @returns {boolean}
+ */
+function verifyGitHubSignature(secret, payload, header) {
+  if (!header || !header.startsWith("sha256=")) return false;
+
+  const expected = crypto
+    .createHmac("sha256", secret)
+    .update(payload, "utf8")
+    .digest("hex");
+
+  const received = header.slice("sha256=".length);
+
+  // Timing-safe comparison — never use === here
+  return crypto.timingSafeEqual(
+    Buffer.from(expected, "hex"),
+    Buffer.from(received, "hex")
+  );
+}
+
+// Express usage
+app.post("/api/webhooks/github", express.raw({ type: "application/json" }), (req, res) => {
+  const sig = req.headers["x-hub-signature-256"];
+  if (!verifyGitHubSignature(process.env.GITHUB_WEBHOOK_SECRET, req.body.toString("utf8"), sig)) {
+    return res.status(401).json({ error: "Invalid signature" });
+  }
+  res.json({ status: "ok" });
+});
+```
+
+---
+
+## Example: Python (`hmac` + `hashlib`)
+
+```python
+import hmac
+import hashlib
+
+def verify_github_signature(secret: str, payload: bytes, header: str) -> bool:
+    """
+    Verify a GitHub-style HMAC-SHA256 webhook signature.
+
+    :param secret:  Shared webhook secret (plain string)
+    :param payload: Raw request body as bytes
+    :param header:  Value of X-Hub-Signature-256 header, e.g. "sha256=abc123..."
+    :returns:       True if the signature is valid, False otherwise
+    """
+    if not header or not header.startswith("sha256="):
+        return False
+
+    expected = hmac.new(
+        key=secret.encode("utf-8"),
+        msg=payload,
+        digestmod=hashlib.sha256,
+    ).hexdigest()
+
+    received = header[len("sha256="):]
+
+    # Timing-safe comparison — never use == here
+    return hmac.compare_digest(expected, received)
+
+
+# Flask usage
+from flask import Flask, request, abort
+app = Flask(__name__)
+
+@app.post("/api/webhooks/github")
+def github_webhook():
+    sig = request.headers.get("X-Hub-Signature-256", "")
+    if not verify_github_signature(
+        secret=os.environ["GITHUB_WEBHOOK_SECRET"],
+        payload=request.get_data(),
+        header=sig,
+    ):
+        abort(401)
+    return {"status": "ok"}
+```
+
+---
+
 ## What exists today
 
 - `backend/src/webhooks/signatureVerification.ts` provides a generic HMAC signature verifier.
