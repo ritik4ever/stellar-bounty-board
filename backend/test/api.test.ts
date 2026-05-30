@@ -143,14 +143,22 @@ describe("API — bounty lifecycle routes", () => {
   });
 
   it("POST create accepts token symbols configured in ALLOWED_TOKEN_SYMBOLS", async () => {
-    process.env.ALLOWED_TOKEN_SYMBOLS = "XLM,USDC,AQUA";
+    process.env.ALLOWED_TOKEN_SYMBOLS = "XLM,USDC,aqua";
     const app = await getApp();
     const res = await request(app)
       .post("/api/bounties")
-      .send({ ...validCreateBody, tokenSymbol: "AQUA" })
+      .send({ ...validCreateBody, tokenSymbol: "aQuA" })
       .expect(201);
 
     expect(res.body.data.tokenSymbol).toBe("AQUA");
+  });
+
+  it("POST create accepts valid 7-decimal amount precision", async () => {
+    const app = await getApp();
+    await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, amount: 1.0000001 })
+      .expect(201);
   });
 
   it("POST create uses the default token allowlist when ALLOWED_TOKEN_SYMBOLS is empty", async () => {

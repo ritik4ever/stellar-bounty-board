@@ -23,6 +23,11 @@ export function getAllowedTokenSymbols(): string[] {
   return configured && configured.length > 0 ? configured : DEFAULT_ALLOWED_TOKEN_SYMBOLS;
 }
 
+function normalizeTokenSymbol(symbol: string): string {
+  const allowedSymbols = getAllowedTokenSymbols();
+  return allowedSymbols.find(allowedSymbol => allowedSymbol.toUpperCase() === symbol.toUpperCase()) ?? symbol.toUpperCase();
+}
+
 export const bountyIdSchema = z
   .string()
   .trim()
@@ -82,9 +87,10 @@ export const createBountySchema = z
       .string()
       .trim()
       .regex(TOKEN_REGEX, "Token symbol must be 1-12 letters or numbers.")
+      .transform(normalizeTokenSymbol)
       .superRefine((symbol, ctx) => {
         const allowedSymbols = getAllowedTokenSymbols();
-        if (!allowedSymbols.includes(symbol.toUpperCase())) {
+        if (!allowedSymbols.includes(symbol)) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             message: `Unsupported token symbol. Allowed values: ${allowedSymbols.join(", ")}`,
@@ -96,7 +102,10 @@ export const createBountySchema = z
       .number()
       .min(1, "Amount must be at least 1 XLM.")
       .max(10000, "Amount cannot exceed 10000 XLM.")
-      .refine(amount => Number.isInteger(amount * 10_000_000), {
+      .refine(amount => {
+        const scaled = amount * 10_000_000;
+        return Math.abs(scaled - Math.round(scaled)) < 1e-4;
+      }, {
         message: "Amount can have at most 7 decimal places.",
       }),
 
