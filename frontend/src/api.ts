@@ -234,6 +234,20 @@ export async function exportReleasedPayoutsCsv(): Promise<{ blob: Blob; filename
 
 
 
+/**
+ * Fetches details for a single bounty by its ID from the backend.
+ * 
+ * @param id The unique identifier of the bounty to fetch.
+ * @returns A promise resolving to the Bounty data.
+ */
+export async function getBounty(id: string): Promise<Bounty> {
+  const body = await requestJson<{ data: Bounty }>(`/bounties/${id}`, {
+    retry: true,
+    retryLabel: "Loading bounty details",
+  });
+  return body.data;
+}
+
 export async function getBountyEvents(id: string): Promise<BountyEvent[]> {
   const body = await requestJson<{ data: BountyEvent[] }>(`/bounties/${id}/events`, {
     retry: true,

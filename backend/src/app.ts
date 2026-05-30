@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import swaggerUi from "swagger-ui-express";
 import { buildCorsOptions } from "./middleware/corsOptions";
 import { generateOpenApiDocument } from "./docs/openapi";
+import { createStellarSignatureAuthMiddleware } from "./middleware/auth";
 
 import {
   createBounty,
@@ -285,7 +286,7 @@ app.post("/api/bounties/:id/submit", mutationLimiter, async (req: Request, res: 
   }
 });
 
-app.post("/api/bounties/:id/release", mutationLimiter, async (req: Request, res: Response) => {
+app.post("/api/bounties/:id/release", mutationLimiter, createStellarSignatureAuthMiddleware(), async (req: Request, res: Response) => {
   const parsedBody = maintainerActionSchema.safeParse(req.body);
   if (!parsedBody.success) {
     jsonError(res, req, 400, zodErrorMessage(parsedBody.error));
@@ -304,7 +305,7 @@ app.post("/api/bounties/:id/release", mutationLimiter, async (req: Request, res:
   }
 });
 
-app.post("/api/bounties/:id/refund", mutationLimiter, async (req: Request, res: Response) => {
+app.post("/api/bounties/:id/refund", mutationLimiter, createStellarSignatureAuthMiddleware(), async (req: Request, res: Response) => {
   const parsedBody = maintainerActionSchema.safeParse(req.body);
   if (!parsedBody.success) {
     jsonError(res, req, 400, zodErrorMessage(parsedBody.error));
@@ -358,13 +359,19 @@ app.get("/api/bounties/:id/events", (req: Request, res: Response) => {
   }
 });
 
+/**
+ * GET /api/bounties/:id
+ * Fetches a single bounty by its unique identifier.
+ * 
+ * Returns 200 with the bounty JSON on success, or 404 if not found.
+ */
 app.get("/api/bounties/:id", (req: Request, res: Response) => {
   try {
     const id = parseId(req.params.id);
     const bounties = listBounties();
     const bounty = bounties.find((b) => b.id === id);
     if (!bounty) {
-      jsonError(res, req, 404, "Bounty not found.");
+      jsonError(res, req, 404, "not found");
       return;
     }
     res.json({ data: bounty });

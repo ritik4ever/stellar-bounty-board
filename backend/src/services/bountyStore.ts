@@ -3,6 +3,7 @@ import path from "node:path";
 import { sendNotification, type NotificationRecipient } from "./notificationService";
 import { logStructured } from "../logger";
 import { getCache, type CacheAdapter } from "./cache";
+import { expireStaleReservations as expireJob } from "./reservationExpirationJob";
 
 export type BountyStatus =
   | "open"
@@ -785,4 +786,15 @@ export function getLeaderboard(limit = 10): LeaderboardEntry[] {
   return Array.from(entries.values())
     .sort((a, b) => b.totalXlm - a.totalXlm || b.bountiesCompleted - a.bountiesCompleted)
     .slice(0, limit);
+}
+
+/**
+ * expireStaleReservations
+ * Wrapper that runs the reservation expiration job and returns the count of expired reservations.
+ * 
+ * @param ttlSeconds Optional custom TTL in seconds.
+ * @returns The number of expired reservations.
+ */
+export function expireStaleReservations(ttlSeconds?: number): number {
+  return expireJob(ttlSeconds).expiredCount;
 }
