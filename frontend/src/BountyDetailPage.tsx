@@ -74,6 +74,16 @@ const EVENT_LABELS: Record<string, string> = {
   expired: "Bounty expired",
 };
 
+function avatarUrlForSize(source: string, size: number) {
+  try {
+    const url = new URL(source);
+    url.searchParams.set("size", String(size));
+    return url.toString();
+  } catch {
+    return source;
+  }
+}
+
 function BountyTimeline({ events, formatTimestamp }: { events: BountyEvent[]; formatTimestamp: (v?: number) => string }) {
   if (!events || events.length === 0) return null;
 
@@ -119,6 +129,15 @@ export default function BountyDetailPage({
   formatTimestamp,
 }: Props) {
   const statusAnnouncement = useBountyStatusAnnouncement(bounty, statusCopy);
+  const [avatarFailed, setAvatarFailed] = useState(false);
+  const avatarSrc = avatarUrl ? avatarUrlForSize(avatarUrl, 56) : "";
+  const avatarSrcSet = avatarUrl
+    ? `${avatarUrlForSize(avatarUrl, 56)} 56w, ${avatarUrlForSize(avatarUrl, 112)} 112w`
+    : undefined;
+
+  useEffect(() => {
+    setAvatarFailed(false);
+  }, [avatarUrl]);
 
   // Update social meta tags when bounty data changes
   useEffect(() => {
@@ -178,13 +197,27 @@ export default function BountyDetailPage({
         ) : (
           <div className="bounty-detail__content">
             <div className="bounty-detail__hero">
-              {avatarUrl && (
+              {avatarUrl && !avatarFailed ? (
                 <img
                   className="repo-avatar"
-                  src={avatarUrl}
+                  src={avatarSrc}
+                  srcSet={avatarSrcSet}
+                  sizes="56px"
                   alt={owner}
                   loading="lazy"
+                  decoding="async"
+                  width={56}
+                  height={56}
+                  onError={() => setAvatarFailed(true)}
                 />
+              ) : (
+                <div
+                  className="repo-avatar repo-avatar--placeholder"
+                  role="img"
+                  aria-label={owner ? `${owner} avatar placeholder` : "Repository avatar placeholder"}
+                >
+                  <span aria-hidden="true">{owner.slice(0, 2).toUpperCase() || "GH"}</span>
+                </div>
               )}
               <div>
                 <span
