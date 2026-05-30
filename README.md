@@ -113,6 +113,35 @@ Coverage report (Istanbul via Vitest):
 npm run test:coverage
 ```
 
+### Load Testing
+
+The backend includes an autocannon-based load test script at `backend/scripts/load-test.js`. It seeds synthetic bounties and runs a mixed read/write workload:
+
+- 70% `GET /api/bounties`
+- 20% `GET /api/bounties/:id`
+- 10% `POST /api/bounties/:id/reserve`
+
+Prerequisites (install once):
+
+```bash
+cd backend
+npm install --save-dev autocannon
+```
+
+Run the load test (backend must be running on `http://localhost:3001`):
+
+```bash
+npm run load:test
+```
+
+With custom options:
+
+```bash
+npm run load:test -- --connections 50 --duration 60 --bounties 30
+```
+
+Output includes p50, p99, max latency, error rate, and throughput.
+
 ## Contract Notes
 
 The Soroban contract models the escrow lifecycle:
