@@ -503,6 +503,40 @@ textarea:focus {
   color: var(--muted);
 }
 
+/* Board-specific empty state with icon, heading, message, and CTA */
+.empty-state--board {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 48px 36px;
+}
+
+.empty-state__icon {
+  color: var(--muted);
+  opacity: 0.5;
+  flex-shrink: 0;
+}
+
+.empty-state__heading {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.empty-state__message {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+  max-width: 36ch;
+  line-height: 1.5;
+}
+
+.empty-state__cta {
+  margin-top: 4px;
+}
+
 .board-sort {
   display: flex;
   align-items: center;
@@ -1643,4 +1677,62 @@ select {
   flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 16px;
+}
+
+/* ── prefers-reduced-motion ──────────────────────────────────────────────
+   Disable or simplify every animation/transition when the user has opted
+   into reduced motion via their OS accessibility settings.
+   ──────────────────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  /* 1. Kill all keyframe animations globally, then re-enable selectively */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* 2. Skeleton loader — replace the moving shimmer with a static tint.
+        The background-position trick only works when the animation runs;
+        with animation killed we set a plain flat colour instead. */
+  .skeleton-block {
+    background: rgba(54, 63, 59, 0.08);
+    background-size: unset;
+    animation: none !important;
+  }
+
+  /* 3. Card / button hover lifts — remove the translateY so cards stay put */
+  .bounty-card[role="link"]:hover,
+  .primary-link:hover,
+  .secondary-link:hover,
+  .primary-button:hover,
+  .secondary-button:hover,
+  .ghost-button:hover,
+  .filter-chip:hover,
+  .copy-meta-button:hover,
+  .copy-button:hover,
+  .github-issue-card:hover {
+    transform: none;
+  }
+
+  /* 4. Panel / hero entrance animations — show immediately at final state */
+  .panel,
+  .hero,
+  .hero-copy,
+  .hero-panel {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
+  }
+
+  /* 5. Tooltip fade-in — appear instantly */
+  .copy-tooltip {
+    animation: none !important;
+  }
+
+  /* 6. Deadline / countdown text — the text updates via React re-renders
+        (no CSS animation), but any wrapping transition is already covered
+        by the global rule above. No extra rule needed. */
 }

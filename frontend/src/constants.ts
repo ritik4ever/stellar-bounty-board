@@ -62,6 +62,7 @@ export interface FilterState {
   minReward: string;
   maxReward: string;
   repoFilter: string;
+  tokenFilter: string;
   sortOption: SortOption;
   sortDirection: "asc" | "desc";
 }
@@ -74,6 +75,7 @@ export function readInitialFilters(): FilterState {
     minReward: params.get("minReward") ?? "",
     maxReward: params.get("maxReward") ?? "",
     repoFilter: params.get("repo") ?? "",
+    tokenFilter: params.get("tokenSymbol") ?? "",
     sortOption: (params.get("sort") as SortOption) ?? "newest",
     sortDirection: (params.get("direction") as "asc" | "desc") ?? "desc",
   };

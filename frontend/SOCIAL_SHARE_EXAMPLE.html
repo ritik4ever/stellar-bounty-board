@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <!-- Example: What the meta tags look like for a bounty detail page -->
+  <title>Add authentication feature | Stellar Bounty Board</title>
+  
+  <!-- Open Graph meta tags -->
+  <meta property="og:title" content="Add authentication feature" />
+  <meta property="og:description" content="Implement OAuth2 authentication for the API • Reward: 500 XLM" />
+  <meta property="og:url" content="https://stellar-bounty.com/bounties/bounty-123" />
+  <meta property="og:type" content="article" />
+  <meta property="og:image" content="https://github.com/stellar.png?size=400" />
+  
+  <!-- Twitter Card meta tags -->
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="Add authentication feature" />
+  <meta name="twitter:description" content="Implement OAuth2 authentication for the API • Reward: 500 XLM" />
+  <meta name="twitter:image" content="https://github.com/stellar.png?size=400" />
+</head>
+<body>
+  <h1>Example: Bounty Detail Page Meta Tags</h1>
+  <p>This is an example of what the HTML head will look like when viewing a bounty detail page.</p>
+  
+  <h2>Social Media Preview</h2>
+  <p>When this page is shared on social media, platforms will display:</p>
+  <ul>
+    <li><strong>Title:</strong> Add authentication feature</li>
+    <li><strong>Description:</strong> Implement OAuth2 authentication for the API • Reward: 500 XLM</li>
+    <li><strong>Image:</strong> Repository owner's GitHub avatar</li>
+    <li><strong>URL:</strong> https://stellar-bounty.com/bounties/bounty-123</li>
+  </ul>
+  
+  <h2>How It Works</h2>
+  <ol>
+    <li>User navigates to a bounty detail page (e.g., /bounties/bounty-123)</li>
+    <li>React loads the BountyDetailPage component</li>
+    <li>When bounty data is fetched, the useEffect hook calls updateSocialMetaTags()</li>
+    <li>The function dynamically updates all meta tags in the document head</li>
+    <li>Social media crawlers read these tags to generate rich previews</li>
+  </ol>
+  
+  <h2>Default Meta Tags (Homepage)</h2>
+  <p>When not viewing a bounty detail page, the default meta tags are:</p>
+  <ul>
+    <li><strong>Title:</strong> Stellar Bounty Board</li>
+    <li><strong>Description:</strong> Fund GitHub issues with on-chain style escrow</li>
+    <li><strong>Type:</strong> website</li>
+    <li><strong>No image</strong> (uses platform defaults)</li>
+  </ul>
+</body>
+</html>

@@ -5,6 +5,7 @@ import { ArrowUpRight, Clock, Printer } from "lucide-react";
 import CopyIcon from "./CopyIcons";
 import UsdAmount from "./UsdAmount";
 import type { Bounty, BountyEvent, BountyStatus } from "./types";
+import { updateSocialMetaTags } from "./metaTags";
 
 type BountyAction = "reserve" | "submit" | "release" | "refund";
 
@@ -118,6 +119,16 @@ export default function BountyDetailPage({
   formatTimestamp,
 }: Props) {
   const statusAnnouncement = useBountyStatusAnnouncement(bounty, statusCopy);
+
+  // Update social meta tags when bounty data changes
+  useEffect(() => {
+    updateSocialMetaTags(bounty);
+
+    // Cleanup: reset meta tags when component unmounts
+    return () => {
+      updateSocialMetaTags(null);
+    };
+  }, [bounty]);
 
   function handlePrint() {
     window.print();

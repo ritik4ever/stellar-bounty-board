@@ -28,6 +28,7 @@ declare module "lucide-react" {
   export const Plus: LucideIcon;
   export const Rocket: LucideIcon;
   export const Search: LucideIcon;
+  export const SearchX: LucideIcon;
   export const ShieldCheck: LucideIcon;
   export const SlidersHorizontal: LucideIcon;
   export const Sparkles: LucideIcon;
