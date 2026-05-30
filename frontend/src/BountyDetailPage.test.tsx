@@ -66,10 +66,14 @@ afterEach(() => {
   vi.useRealTimers();
   document.head.querySelectorAll("meta[property^='og:'], meta[name='twitter:card']").forEach((meta) => meta.remove());
   document.title = "";
+  window.history.replaceState(null, "", "/");
 });
 
 describe("BountyDetailPage social metadata", () => {
   it("sets Open Graph and Twitter tags when bounty data loads", () => {
+    window.history.replaceState(null, "", "/bounties/BNTY-42?utm_source=test#comments");
+    const expectedCanonicalUrl = new URL("/bounties/BNTY-42", window.location.origin).toString();
+
     render(
       <BountyDetailPage
         {...detailProps(bounty)}
@@ -83,7 +87,7 @@ describe("BountyDetailPage social metadata", () => {
       "content",
       "Make important identifiers easy to copy. - 150 XLM bounty",
     );
-    expect(document.head.querySelector('meta[property="og:url"]')).toHaveAttribute("content", window.location.href);
+    expect(document.head.querySelector('meta[property="og:url"]')).toHaveAttribute("content", expectedCanonicalUrl);
     expect(document.head.querySelector('meta[property="og:image"]')).toHaveAttribute("content", "https://example.com/avatar.png");
     expect(document.head.querySelector('meta[name="twitter:card"]')).toHaveAttribute("content", "summary_large_image");
   });

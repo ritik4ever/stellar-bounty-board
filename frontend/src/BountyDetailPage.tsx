@@ -123,7 +123,10 @@ function useBountySocialMeta(bounty: Bounty | null, avatarUrl: string) {
       };
     });
 
-    const canonicalUrl = window.location.href;
+    const canonical = new URL(window.location.href);
+    canonical.search = "";
+    canonical.hash = "";
+    const canonicalUrl = canonical.toString();
     const imageUrl = avatarUrl || new URL("/og-image.png", window.location.origin).toString();
     const description = `${bounty.summary} - ${bounty.amount} ${bounty.tokenSymbol} bounty`;
     const metaContents = [bounty.title, description, canonicalUrl, imageUrl, "summary_large_image"];
