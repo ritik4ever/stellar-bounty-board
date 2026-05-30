@@ -143,6 +143,15 @@ describe("BountyDetailPage copy actions", () => {
     expect(screen.getByRole("img", { name: "ritik4ever avatar placeholder" })).toHaveTextContent("RI");
   });
 
+  it("reserves stable space for the async USD amount", () => {
+    const { container } = renderDetail();
+
+    const usdAmount = container.querySelector(".usd-amount");
+
+    expect(usdAmount).toBeInTheDocument();
+    expect(usdAmount).toHaveAttribute("aria-hidden", "true");
+  });
+
   it("announces status changes for assistive technology", () => {
     const { rerender } = renderDetail();
     const reservedBounty: Bounty = {

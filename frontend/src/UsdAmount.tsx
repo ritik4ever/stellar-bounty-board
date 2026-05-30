@@ -18,7 +18,12 @@ export default function UsdAmount({ amount }: UsdAmountProps) {
     };
   }, [amount]);
 
-  if (!usdValue) return null;
-
-  return <span className="usd-amount">({usdValue})</span>;
+  return (
+    <span
+      className="usd-amount"
+      aria-hidden={!usdValue ? "true" : undefined}
+    >
+      {usdValue ? `(${usdValue})` : ""}
+    </span>
+  );
 }
