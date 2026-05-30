@@ -1,5 +1,14 @@
 {
-  "*.{ts,tsx,js,jsx}": ["eslint --fix", "prettier --write"],
+  "frontend/src/**/*.{ts,tsx}": [
+    "tsc --noEmit -p frontend/tsconfig.json",
+    "eslint --fix",
+    "prettier --write"
+  ],
+  "backend/src/**/*.ts": [
+    "tsc --noEmit -p backend/tsconfig.json",
+    "eslint --fix",
+    "prettier --write"
+  ],
   "*.{json,md,yaml,yml}": ["prettier --write"],
   "*.sol": ["forge fmt"],
   "*.{rs}": ["rustfmt"]

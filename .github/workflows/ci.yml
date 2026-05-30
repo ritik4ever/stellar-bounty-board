@@ -6,9 +6,8 @@ on:
       - main
 
 jobs:
-  ci:
+  frontend:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -22,14 +21,60 @@ jobs:
       - name: Install dependencies
         run: npm run install:all
 
+      - name: npm audit frontend
+        run: npm audit --prefix frontend --audit-level=high > frontend-audit.log
+
+      - name: Upload frontend audit artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-audit
+          path: frontend-audit.log
+
       - name: TypeScript type-check frontend
         run: npx tsc --noEmit -p frontend/tsconfig.json
+
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm run install:all
+
+      - name: npm audit backend
+        run: npm audit --prefix backend --audit-level=high > backend-audit.log
+
+      - name: Upload backend audit artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-audit
+          path: backend-audit.log
 
       - name: TypeScript type-check backend
         run: npx tsc --noEmit -p backend/tsconfig.json
 
       - name: Run backend tests
         run: npm test
+
+
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Storybook
+        run: npm --prefix frontend run build-storybook
+
 
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -46,6 +91,19 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: cargo audit contract
+        run: cd contracts && cargo audit > ../contract-audit.log
+
+      - name: Upload contract audit artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: contract-audit
+          path: contract-audit.log
 
       - name: Build Soroban contract
         run: cd contracts && cargo build --target wasm32-unknown-unknown --release
