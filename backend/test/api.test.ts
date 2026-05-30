@@ -104,6 +104,15 @@ describe("API — bounty lifecycle routes", () => {
     expect(res.body.error).toMatch(/at most 7 decimal places/i);
   });
 
+  it("POST create rejects string amounts with more than 7 decimal places", async () => {
+    const app = await getApp();
+    const res = await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, amount: "100.12345678" })
+      .expect(400);
+    expect(res.body.error).toMatch(/at most 7 decimal places/i);
+  });
+
   it("POST create with exactly 7 decimal places succeeds", async () => {
     const app = await getApp();
     const res = await request(app)
@@ -111,6 +120,14 @@ describe("API — bounty lifecycle routes", () => {
       .send({ ...validCreateBody, amount: 100.1234567 })
       .expect(201);
     expect(res.body.data.id).toMatch(/^BNT-\d{4}$/);
+  });
+
+  it("POST create accepts string amounts with exactly 7 decimal places", async () => {
+    const app = await getApp();
+    await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, amount: "100.1234567" })
+      .expect(201);
   });
 
   it("POST create with 1 XLM succeeds", async () => {

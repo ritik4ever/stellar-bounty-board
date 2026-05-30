@@ -9,6 +9,7 @@ extendZodWithOpenApi(z);
 
 const REPO_REGEX = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 const TOKEN_REGEX = /^[A-Za-z0-9]{1,12}$/;
+const AMOUNT_PRECISION_REGEX = /^-?\d+(\.\d{1,7})?$/;
 const SOROBAN_ADDRESS_REGEX = /^C[A-Z2-7]{55}$/;
 const DEFAULT_ALLOWED_TOKEN_SYMBOLS = ["XLM", "USDC"];
 
@@ -26,6 +27,11 @@ export function getAllowedTokenSymbols(): string[] {
 function normalizeTokenSymbol(symbol: string): string {
   const allowedSymbols = getAllowedTokenSymbols();
   return allowedSymbols.find(allowedSymbol => allowedSymbol.toUpperCase() === symbol.toUpperCase()) ?? symbol.toUpperCase();
+}
+
+function hasValidAmountPrecision(value: string | number): boolean {
+  const rawAmount = typeof value === "number" ? value.toString() : value.trim();
+  return AMOUNT_PRECISION_REGEX.test(rawAmount);
 }
 
 export const bountyIdSchema = z
@@ -98,16 +104,17 @@ export const createBountySchema = z
         }
       })
       .openapi({ example: "XLM", description: "Stellar token symbol for payout (1–12 alphanumeric chars)." }),
-    amount: z.coerce
-      .number()
-      .min(1, "Amount must be at least 1 XLM.")
-      .max(10000, "Amount cannot exceed 10000 XLM.")
-      .refine(amount => {
-        const scaled = amount * 10_000_000;
-        return Math.abs(scaled - Math.round(scaled)) < 1e-4;
-      }, {
+    amount: z
+      .union([z.string(), z.number()])
+      .refine(hasValidAmountPrecision, {
         message: "Amount can have at most 7 decimal places.",
-      }),
+      })
+      .transform(Number)
+      .pipe(
+        z.number()
+          .min(1, "Amount must be at least 1 XLM.")
+          .max(10000, "Amount cannot exceed 10000 XLM.")
+      ),
 
     deadlineDays: z.coerce
       .number()
