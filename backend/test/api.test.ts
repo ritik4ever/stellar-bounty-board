@@ -201,6 +201,75 @@ describe("API — bounty lifecycle routes", () => {
     expect(res.body.error).toMatch(/limit/i);
   });
 
+  it("GET /api/bounties/:id/events returns a newest-first paginated page", async () => {
+    const app = await getApp();
+    const { body: created } = await request(app).post("/api/bounties").send(validCreateBody).expect(201);
+    const id = created.data.id as string;
+
+    await request(app).post(`/api/bounties/${id}/reserve`).send({ contributor: CONTRIBUTOR }).expect(200);
+    await request(app)
+      .post(`/api/bounties/${id}/submit`)
+      .send({ contributor: CONTRIBUTOR, submissionUrl: "https://github.com/owner/repo-name/pull/1" })
+      .expect(200);
+    await request(app).post(`/api/bounties/${id}/release`).send({ maintainer: MAINTAINER }).expect(200);
+
+    const first = await request(app).get(`/api/bounties/${id}/events`).query({ page: 1, pageSize: 2 }).expect(200);
+    expect(first.body).toMatchObject({ total: 4, page: 1, pageSize: 2 });
+    expect(first.body.data.map((event: { type: string }) => event.type)).toEqual(["released", "submitted"]);
+
+    const second = await request(app).get(`/api/bounties/${id}/events`).query({ page: 2, pageSize: 2 }).expect(200);
+    expect(second.body).toMatchObject({ total: 4, page: 2, pageSize: 2 });
+    expect(second.body.data.map((event: { type: string }) => event.type)).toEqual(["reserved", "created"]);
+  });
+
+  it("GET /api/bounties/:id/events validates pageSize maximum", async () => {
+    const app = await getApp();
+    const { body: created } = await request(app).post("/api/bounties").send(validCreateBody).expect(201);
+    const id = created.data.id as string;
+
+    const res = await request(app).get(`/api/bounties/${id}/events`).query({ pageSize: 51 }).expect(400);
+    expect(res.body.error).toMatch(/pageSize/i);
+  });
+
+  it("GET /api/bounties/:id keeps only the latest 10 embedded events", async () => {
+    const events = Array.from({ length: 12 }, (_, index) => ({
+      type: "created",
+      timestamp: 100 + index,
+    }));
+    fs.writeFileSync(
+      storeFile,
+      JSON.stringify(
+        [
+          {
+            id: "BNT-0001",
+            repo: "owner/repo-name",
+            issueNumber: 99,
+            title: "Embedded event history bounty",
+            summary: "Enough summary text to satisfy persisted bounty shape.",
+            maintainer: MAINTAINER,
+            tokenSymbol: "XLM",
+            amount: 42.5,
+            labels: ["bug"],
+            status: "open",
+            createdAt: 100,
+            deadlineAt: 1910000000,
+            version: 1,
+            events,
+          },
+        ],
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const app = await getApp();
+    const res = await request(app).get("/api/bounties/BNT-0001").expect(200);
+    expect(res.body.data.events).toHaveLength(10);
+    expect(res.body.data.events[0].timestamp).toBe(102);
+    expect(res.body.data.events.at(-1).timestamp).toBe(111);
+  });
+
   it("GET /api/bounties/released/export.csv returns CSV export", async () => {
     const app = await getApp();
     const { body: created } = await request(app).post("/api/bounties").send(validCreateBody).expect(201);
