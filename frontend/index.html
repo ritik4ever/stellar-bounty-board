@@ -4,6 +4,36 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Stellar Bounty Board</title>
+    
+    <!-- Open Graph meta tags for social sharing -->
+    <meta property="og:title" content="Stellar Bounty Board" />
+    <meta property="og:description" content="Fund GitHub issues with on-chain style escrow" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://stellar-bounty.com" />
+    
+    <!-- Twitter Card meta tags -->
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Stellar Bounty Board" />
+    <meta name="twitter:description" content="Fund GitHub issues with on-chain style escrow" />
+
+    <!-- Prevent FOUC by setting theme before React loads -->
+    <script>
+      (function() {
+        try {
+          const stored = localStorage.getItem('stellar-bounty-board-theme');
+          if (stored !== null) {
+            document.documentElement.setAttribute('data-theme', stored);
+          } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            document.documentElement.setAttribute('data-theme', 'dark');
+          } else {
+            document.documentElement.setAttribute('data-theme', 'light');
+          }
+        } catch (e) {
+          // Fallback to light mode if localStorage is unavailable
+          document.documentElement.setAttribute('data-theme', 'light');
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

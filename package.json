@@ -11,17 +11,7 @@
     "test": "npm --prefix backend test",
     "test:watch": "npm --prefix backend run test:watch",
     "test:coverage": "npm --prefix backend run test:coverage",
-    "prepare": "husky || true"
-  },
-  "lint-staged": {
-    "frontend/src/**/*.{ts,tsx}": [
-      "tsc --noEmit -p frontend/tsconfig.json",
-      "eslint --fix"
-    ],
-    "backend/src/**/*.ts": [
-      "tsc --noEmit -p backend/tsconfig.json",
-      "eslint --fix"
-    ]
+    "prepare": "husky install"
   },
   "license": "MIT",
   "dependencies": {
@@ -37,7 +27,12 @@
     "@types/express-rate-limit": "^5.1.3",
     "@types/swagger-ui-express": "^4.1.8",
     "@types/yaml": "^1.9.6",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "eslint": "^8.57.0",
     "husky": "^9.0.0",
-    "prettier": "^3.8.3"
+    "lint-staged": "^15.2.0",
+    "prettier": "^3.8.3",
+    "typescript": "^5.7.2"
   }
 }

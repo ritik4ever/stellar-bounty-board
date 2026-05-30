@@ -19,6 +19,16 @@ export function getUniqueRepos(bounties: Bounty[]): string[] {
   return Array.from(repos).sort();
 }
 
+/** Distinct token symbols across the given bounties, sorted for a stable dropdown (#293). */
+export function getUniqueTokenSymbols(bounties: Bounty[]): string[] {
+  const tokens = new Set(
+    bounties
+      .map((bounty) => bounty.tokenSymbol?.trim().toUpperCase())
+      .filter((symbol): symbol is string => Boolean(symbol)),
+  );
+  return Array.from(tokens).sort();
+}
+
 export function getRepoMetrics(bounties: Bounty[], repo: string) {
   const repoBounties = bounties.filter((bounty) => bounty.repo === repo);
   const openBounties = repoBounties.filter((bounty) => bounty.status === "open");
@@ -50,6 +60,14 @@ export function filterBounties(bounties: Bounty[], filters: FilterState): Bounty
 
     // Repo filter
     if (filters.repoFilter.trim() !== "" && bounty.repo !== filters.repoFilter) {
+      return false;
+    }
+
+    // Token filter (AND with status/other filters) (#293)
+    if (
+      filters.tokenFilter.trim() !== "" &&
+      bounty.tokenSymbol?.toUpperCase() !== filters.tokenFilter.toUpperCase()
+    ) {
       return false;
     }
 

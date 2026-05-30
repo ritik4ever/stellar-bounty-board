@@ -9,6 +9,7 @@ import {
   createBounty,
   listBountyAuditLogs,
   listBounties,
+  listBountiesCached,
   refundBounty,
   releaseBounty,
   reserveBounty,
@@ -28,7 +29,7 @@ import {
   zodErrorMessage,
 } from "./validation/schemas";
 import { logStructured } from "./logger";
-import { limiter } from "./utils";
+import { readLimiter, mutationLimiter } from "./utils";
 import {
   captureRawBody,
   createGitHubWebhookSignatureMiddleware,
@@ -83,6 +84,9 @@ app.use(
   }),
 );
 app.use(requestContextMiddleware);
+
+// Global read limit (GET only); mutation routes carry a stricter limit (#349).
+app.use(readLimiter);
 
 const swaggerDoc = generateOpenApiDocument();
 app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerDoc));
@@ -154,9 +158,9 @@ app.get("/worker/health", (_req: Request, res: Response) => {
   });
 });
 
-app.get("/api/bounties", (req: Request, res: Response) => {
+app.get("/api/bounties", async (req: Request, res: Response) => {
   const q = typeof req.query.q === "string" ? req.query.q : undefined;
-  res.json({ data: listBounties({ q }) });
+  res.json({ data: await listBountiesCached({ q }) });
 });
 
 app.get("/api/leaderboard", (_req: Request, res: Response) => {
@@ -231,7 +235,7 @@ app.get("/api/bounties/released/export.csv", (req: Request, res: Response) => {
   }
 });
 
-app.post("/api/bounties", limiter, async (req: Request, res: Response) => {
+app.post("/api/bounties", mutationLimiter, async (req: Request, res: Response) => {
   const parsed = createBountySchema.safeParse(req.body);
   if (!parsed.success) {
     jsonError(res, req, 400, zodErrorMessage(parsed.error));
@@ -246,7 +250,7 @@ app.post("/api/bounties", limiter, async (req: Request, res: Response) => {
   }
 });
 
-app.post("/api/bounties/:id/reserve", limiter, async (req: Request, res: Response) => {
+app.post("/api/bounties/:id/reserve", mutationLimiter, async (req: Request, res: Response) => {
   const parsedBody = reserveBountySchema.safeParse(req.body);
   if (!parsedBody.success) {
     jsonError(res, req, 400, zodErrorMessage(parsedBody.error));
@@ -261,7 +265,7 @@ app.post("/api/bounties/:id/reserve", limiter, async (req: Request, res: Respons
   }
 });
 
-app.post("/api/bounties/:id/submit", limiter, async (req: Request, res: Response) => {
+app.post("/api/bounties/:id/submit", mutationLimiter, async (req: Request, res: Response) => {
   const parsedBody = submitBountySchema.safeParse(req.body);
   if (!parsedBody.success) {
     jsonError(res, req, 400, zodErrorMessage(parsedBody.error));
@@ -281,7 +285,7 @@ app.post("/api/bounties/:id/submit", limiter, async (req: Request, res: Response
   }
 });
 
-app.post("/api/bounties/:id/release", limiter, async (req: Request, res: Response) => {
+app.post("/api/bounties/:id/release", mutationLimiter, async (req: Request, res: Response) => {
   const parsedBody = maintainerActionSchema.safeParse(req.body);
   if (!parsedBody.success) {
     jsonError(res, req, 400, zodErrorMessage(parsedBody.error));
@@ -300,7 +304,7 @@ app.post("/api/bounties/:id/release", limiter, async (req: Request, res: Respons
   }
 });
 
-app.post("/api/bounties/:id/refund", limiter, async (req: Request, res: Response) => {
+app.post("/api/bounties/:id/refund", mutationLimiter, async (req: Request, res: Response) => {
   const parsedBody = maintainerActionSchema.safeParse(req.body);
   if (!parsedBody.success) {
     jsonError(res, req, 400, zodErrorMessage(parsedBody.error));

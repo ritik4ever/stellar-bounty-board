@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, ReactNode, Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUpRight,
   Coins,
@@ -39,19 +39,24 @@ import SubmissionChecklistModal, { type SubmissionFormData } from "./SubmissionC
 import { BountyRecommendation, ContributorProfile, createDefaultProfile, generateRecommendations, updateProfileFromBounties } from "./recommendations";
 import RecommendedBounties from "./RecommendedBounties";
 import { statusCopy, actionCopy, readInitialFilters, FilterState, statusOptions, statusGlossary, sortOptions } from "./constants";
-import { filterBounties, getRewardBounds, getActiveRewardLabel, getContributorMetrics, getUniqueRepos, getRepoMetrics, sortBounties, debounce, SortOption, SortState } from "./utils";
+import { filterBounties, getRewardBounds, getActiveRewardLabel, getContributorMetrics, getUniqueRepos, getUniqueTokenSymbols, getRepoMetrics, sortBounties, debounce, SortOption, SortState } from "./utils";
 import { Bounty, CreateBountyPayload, OpenIssue, BountyStatus } from "./types";
 
 import GitHubIssuePreviewCard from "./GitHubIssuePreviewCard";
-import BountyDetailPage from "./BountyDetailPage";
 import UsdAmount from "./UsdAmount";
 
 import SkeletonBountyCard from "./SkeletonBountyCard";
+import EmptyState from "./EmptyState";
+import { ShortcutsHelpOverlay } from "./ShortcutsHelpOverlay";
+
+// Lazy-load BountyDetailPage — it is only rendered on /bounties/:id routes,
+// so deferring it keeps the initial board bundle smaller.
+const BountyDetailPage = lazy(() => import("./BountyDetailPage"));
 
 const STELLAR_PUBLIC_KEY_HINT = "Expected Stellar public key (starts with G and is 56 characters).";
 const STELLAR_PUBLIC_KEY_REGEX = /^G[A-Z2-7]{55}$/;
 
-const DARK_MODE_KEY = "stellar-bounty-board:theme";
+const DARK_MODE_KEY = "stellar-bounty-board-theme";
 
 function useDarkMode() {
   const [dark, setDark] = useState<boolean>(() => {
@@ -284,6 +289,7 @@ function App() {
   const [submitting, setSubmitting] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showShortcutsOverlay, setShowShortcutsOverlay] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState(initialFilters.searchQuery);
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(initialFilters.searchQuery);
@@ -298,6 +304,7 @@ function App() {
   const [minReward, setMinReward] = useState(initialFilters.minReward);
   const [maxReward, setMaxReward] = useState(initialFilters.maxReward);
   const [repoFilter, setRepoFilter] = useState(initialFilters.repoFilter);
+  const [tokenFilter, setTokenFilter] = useState(initialFilters.tokenFilter);
   const [sortOption, setSortOption] = useState(initialFilters.sortOption);
   const [sortDirection, setSortDirection] = useState(initialFilters.sortDirection);
   const [pathname, setPathname] = useState(window.location.pathname);
@@ -397,6 +404,10 @@ function App() {
       params.set("repo", repoFilter);
     }
 
+    if (tokenFilter !== "") {
+      params.set("tokenSymbol", tokenFilter);
+    }
+
     if (sortOption !== "newest") {
       params.set("sort", sortOption);
     }
@@ -408,7 +419,7 @@ function App() {
     const nextSearch = params.toString();
     const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`;
     window.history.replaceState(null, "", nextUrl);
-  }, [maxReward, minReward, pathname, debouncedSearchQuery, statusFilter, repoFilter, sortOption, sortDirection]);
+  }, [maxReward, minReward, pathname, debouncedSearchQuery, statusFilter, repoFilter, tokenFilter, sortOption, sortDirection]);
 
   useEffect(() => {
     function handlePopState() {
@@ -422,6 +433,7 @@ function App() {
       setMinReward(filters.minReward);
       setMaxReward(filters.maxReward);
       setRepoFilter(filters.repoFilter);
+      setTokenFilter(filters.tokenFilter);
       setSortOption(filters.sortOption);
       setSortDirection(filters.sortDirection);
     }
@@ -429,6 +441,57 @@ function App() {
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
+
+  // ─── Keyboard shortcut handler ───────────────────────────────────────────
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    function handleGlobalKeyDown(event: KeyboardEvent) {
+      // Never intercept shortcuts while typing inside a form element
+      const target = event.target as HTMLElement;
+      const tag = target.tagName;
+      if (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+
+      const statusMap: Record<string, "all" | BountyStatus> = {
+        "1": "all",
+        "2": "open",
+        "3": "reserved",
+        "4": "submitted",
+        "5": "released",
+      };
+
+      switch (event.key) {
+        case "?":
+          event.preventDefault();
+          setShowShortcutsOverlay((prev) => !prev);
+          break;
+        case "/":
+          event.preventDefault();
+          searchInputRef.current?.focus();
+          break;
+        case "1":
+        case "2":
+        case "3":
+        case "4":
+        case "5":
+          setStatusFilter(statusMap[event.key] as "all" | BountyStatus);
+          break;
+        default:
+          break;
+      }
+    }
+
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, []);
+  // ─────────────────────────────────────────────────────────────────────────
 
   function navigate(nextPath: string) {
     if (nextPath === window.location.pathname) return;
@@ -450,6 +513,10 @@ function App() {
 
   const uniqueRepos = useMemo(() => {
     return getUniqueRepos(bounties);
+  }, [bounties]);
+
+  const uniqueTokens = useMemo(() => {
+    return getUniqueTokenSymbols(bounties);
   }, [bounties]);
 
   const rewardBounds = useMemo(() => {
@@ -475,6 +542,7 @@ function App() {
     setMinReward("");
     setMaxReward("");
     setRepoFilter("");
+    setTokenFilter("");
     setSortOption("newest");
     setSortDirection("desc");
   }
@@ -600,13 +668,14 @@ function App() {
       minReward,
       maxReward,
       repoFilter: effectiveRepoFilter,
+      tokenFilter,
       sortOption,
       sortDirection,
     });
 
     // Apply sorting
     return sortBounties(filtered, { option: sortOption, direction: sortDirection });
-  }, [bounties, debouncedSearchQuery, statusFilter, minReward, maxReward, repoFilter, repoRoute, sortOption, sortDirection]);
+  }, [bounties, debouncedSearchQuery, statusFilter, minReward, maxReward, repoFilter, tokenFilter, repoRoute, sortOption, sortDirection]);
 
   const groupedBounties = useMemo(() => {
     if (repoRoute) {
@@ -622,23 +691,88 @@ function App() {
     return groups;
   }, [filteredBounties, repoRoute]);
 
+  // Derive whether any filter is currently active so EmptyState knows whether
+  // to show the "Clear filters" CTA.
+  const hasActiveFilters =
+    debouncedSearchQuery.trim() !== "" ||
+    statusFilter !== "all" ||
+    minReward !== "" ||
+    maxReward !== "" ||
+    repoFilter !== "";
+
+  // Build a context-aware heading and supporting message for the empty board.
+  const { emptyStateHeading, emptyStateMessage } = useMemo((): {
+    emptyStateHeading: string;
+    emptyStateMessage: string;
+  } => {
+    // Token search: user typed something like "XLM" or "USDC"
+    const tokenMatch = debouncedSearchQuery.trim().match(/^[A-Z]{2,6}$/);
+    if (tokenMatch) {
+      return {
+        emptyStateHeading: `No ${tokenMatch[0]} bounties`,
+        emptyStateMessage: `There are no bounties denominated in ${tokenMatch[0]} right now.`,
+      };
+    }
+
+    // Status filter active
+    if (statusFilter !== "all") {
+      const label = statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1);
+      return {
+        emptyStateHeading: `No ${label.toLowerCase()} bounties`,
+        emptyStateMessage: `There are no bounties with status "${label.toLowerCase()}" matching your current filters.`,
+      };
+    }
+
+    // Repo filter active
+    if (repoFilter) {
+      return {
+        emptyStateHeading: "No bounties in this repo",
+        emptyStateMessage: `No bounties found for repository "${repoFilter}".`,
+      };
+    }
+
+    // Generic search query
+    if (debouncedSearchQuery.trim()) {
+      return {
+        emptyStateHeading: `No bounties found for "${debouncedSearchQuery.trim()}"`,
+        emptyStateMessage: "Try a different search term or clear your filters.",
+      };
+    }
+
+    // Reward range filter only
+    if (minReward || maxReward) {
+      return {
+        emptyStateHeading: "No bounties in this reward range",
+        emptyStateMessage: "Try widening the min/max reward range.",
+      };
+    }
+
+    // No filters at all — board is genuinely empty
+    return {
+      emptyStateHeading: "No bounties yet",
+      emptyStateMessage: "Be the first to create a bounty using the form above.",
+    };
+  }, [debouncedSearchQuery, statusFilter, repoFilter, minReward, maxReward]);
+
   if (detailId) {
     const bounty = detailBounty;
     const owner = bounty ? repoOwner(bounty.repo) : "";
     const avatarUrl = bounty ? `https://github.com/${owner}.png?size=72` : "";
 
     return (
-      <BountyDetailPage
-        bounty={bounty}
-        loading={detailLoading}
-        onBack={() => navigate("/")}
-        owner={owner}
-        avatarUrl={avatarUrl}
-        statusCopy={statusCopy}
-        actionCopy={actionCopy}
-        renderActionButton={renderActionButton}
-        formatTimestamp={formatTimestamp}
-      />
+      <Suspense fallback={<div className="empty-state">Loading bounty...</div>}>
+        <BountyDetailPage
+          bounty={bounty}
+          loading={detailLoading}
+          onBack={() => navigate("/")}
+          owner={owner}
+          avatarUrl={avatarUrl}
+          statusCopy={statusCopy}
+          actionCopy={actionCopy}
+          renderActionButton={renderActionButton}
+          formatTimestamp={formatTimestamp}
+        />
+      </Suspense>
     );
   }
 
@@ -763,6 +897,15 @@ function App() {
                   onClick={() => void handleExportReleasedPayouts()}
                 >
                   {exporting ? "Exporting..." : "Export released payouts (CSV)"}
+                </button>
+                <button
+                  type="button"
+                  className="secondary-link"
+                  onClick={toggleDark}
+                  aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+                  title={dark ? "Switch to light mode" : "Switch to dark mode"}
+                >
+                  {dark ? <Sun size={16} /> : <Moon size={16} />}
                 </button>
               </div>
             </div>
@@ -1008,9 +1151,11 @@ function App() {
                     <div className="input-with-icon">
                       <Search size={16} />
                       <input
+                        ref={searchInputRef}
                         value={searchQuery}
                         onChange={(event) => setSearchQuery(event.target.value)}
                         placeholder="Search repo, title, labels, status"
+                        aria-keyshortcuts="/"
                       />
                     </div>
                   </label>
@@ -1044,6 +1189,25 @@ function App() {
                         {uniqueRepos.map((repo) => (
                           <option key={repo} value={repo}>
                             {repo}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </label>
+
+                  <label className="filter-field">
+                    <span>Token</span>
+                    <div className="input-with-icon">
+                      <Coins size={16} />
+                      <select
+                        aria-label="Filter by token"
+                        value={tokenFilter}
+                        onChange={(event) => setTokenFilter(event.target.value)}
+                      >
+                        <option value="">All Tokens</option>
+                        {uniqueTokens.map((token) => (
+                          <option key={token} value={token}>
+                            {token}
                           </option>
                         ))}
                       </select>
@@ -1269,28 +1433,12 @@ function App() {
                   ))}
                 </div>
               ) : (
-                <div className="empty-state">
-                  <div className="empty-state__content">
-                    <h3>No bounties found</h3>
-                    <p>
-                      {debouncedSearchQuery && (
-                        <>No bounties match "<strong>{debouncedSearchQuery}</strong>"</>
-                      ) || statusFilter !== "all" || minReward || maxReward || repoFilter ? (
-                        <>No bounties match the current filters</>
-                      ) : (
-                        <>No bounties available yet</>
-                      )}
-                    </p>
-                    <div className="empty-state__suggestions">
-                      <p><strong>Suggestions:</strong></p>
-                      <ul>
-                        <li>Try adjusting your search terms or filters</li>
-                        <li>Check back later for new bounties</li>
-                        <li>Browse all repositories to see available opportunities</li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
+                <EmptyState
+                  heading={emptyStateHeading}
+                  message={emptyStateMessage}
+                  hasFilters={hasActiveFilters}
+                  onClearFilters={clearFilters}
+                />
               )}
             </section>
           </main>
@@ -1500,6 +1648,11 @@ function App() {
               }}
             />
           )}
+
+          <ShortcutsHelpOverlay
+            isOpen={showShortcutsOverlay}
+            onClose={() => setShowShortcutsOverlay(false)}
+          />
         </div>
     );
 }

@@ -208,4 +208,5 @@ docker run -d \
 ## Need Help?
 
 - Check the [ONBOARDING.md](../ONBOARDING.md) for local setup.
+- See [RUNBOOK.md](../RUNBOOK.md) for common operational tasks and emergency procedures.
 - Open an issue or discussion in the repo for deployment help.
