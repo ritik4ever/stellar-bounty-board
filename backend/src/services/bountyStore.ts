@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { sendNotification, type NotificationRecipient } from "./notificationService";
 import { logStructured } from "../logger";
+import { getCache, type CacheAdapter } from "./cache";
 import { expireStaleReservations as expireJob } from "./reservationExpirationJob";
 
 export type BountyStatus =
@@ -367,6 +368,47 @@ export function listBounties(options: ListBountiesOptions = {}): BountyRecord[] 
   return sorted;
 }
 
+// ── Cached list for the public board (#361) ──────────────────────────────────
+
+const BOUNTY_LIST_CACHE_KEY = "bounties:list";
+const BOUNTY_LIST_TTL_SECONDS = 5;
+
+/**
+ * Cache-backed variant of {@link listBounties} for the hot `/api/bounties` read
+ * path. The full normalized+sorted list is cached (5s TTL) so it is shared
+ * across replicas via Redis; the cheap `q` filter is applied to the cached list
+ * per request. Writes call {@link invalidateBountyCache}.
+ */
+export async function listBountiesCached(
+  options: ListBountiesOptions = {},
+  cache: CacheAdapter = getCache(),
+): Promise<BountyRecord[]> {
+  let records: BountyRecord[];
+  const cached = await cache.get(BOUNTY_LIST_CACHE_KEY);
+  if (cached) {
+    records = JSON.parse(cached) as BountyRecord[];
+  } else {
+    records = listBounties();
+    await cache.set(BOUNTY_LIST_CACHE_KEY, JSON.stringify(records), BOUNTY_LIST_TTL_SECONDS);
+  }
+
+  const q = options.q?.trim().toLowerCase();
+  if (!q) {
+    return records;
+  }
+  return records.filter(
+    (b) =>
+      b.title.toLowerCase().includes(q) ||
+      b.summary.toLowerCase().includes(q) ||
+      b.labels.some((l) => l.toLowerCase().includes(q)),
+  );
+}
+
+/** Drop the cached bounty list so the next read reflects a mutation (#361). */
+export async function invalidateBountyCache(cache: CacheAdapter = getCache()): Promise<void> {
+  await cache.del(BOUNTY_LIST_CACHE_KEY);
+}
+
 let globalLock: Promise<void> = Promise.resolve();
 
 async function withGlobalLock<T>(fn: () => T | Promise<T>): Promise<T> {
@@ -384,7 +426,7 @@ async function withGlobalLock<T>(fn: () => T | Promise<T>): Promise<T> {
 }
 
 export async function createBounty(input: CreateBountyInput): Promise<BountyRecord> {
-  return withGlobalLock(() => {
+  return withGlobalLock(async () => {
     const records = listBounties();
     const createdAt = nowInSeconds();
     const bounty: BountyRecord = {
@@ -406,6 +448,7 @@ export async function createBounty(input: CreateBountyInput): Promise<BountyReco
     };
 
     writeStore([bounty, ...records]);
+    await invalidateBountyCache();
 
     // Trigger notification on create
     const recipients: NotificationRecipient[] = [{ role: "maintainer", address: input.maintainer }];
@@ -427,7 +470,7 @@ export async function createBounty(input: CreateBountyInput): Promise<BountyReco
 }
 
 export async function reserveBounty(id: string, contributor: string, expectedVersion?: number): Promise<BountyRecord> {
-  return withGlobalLock(() => {
+  return withGlobalLock(async () => {
     const records = listBounties();
     const bounty = findBounty(records, id);
 
@@ -460,6 +503,7 @@ export async function reserveBounty(id: string, contributor: string, expectedVer
         actor: contributor,
       },
     ]);
+    await invalidateBountyCache();
     return persisted;
   });
 }
@@ -470,7 +514,7 @@ export async function submitBounty(
   submissionUrl: string,
   notes?: string,
 ): Promise<BountyRecord> {
-  return withGlobalLock(() => {
+  return withGlobalLock(async () => {
     const records = listBounties();
     const bounty = findBounty(records, id);
 
@@ -506,6 +550,7 @@ export async function submitBounty(
         },
       },
     ]);
+    await invalidateBountyCache();
     return persisted;
   });
 }
@@ -515,7 +560,7 @@ export async function releaseBounty(
   maintainer: string,
   transactionHash?: string,
 ): Promise<BountyRecord> {
-  return withGlobalLock(() => {
+  return withGlobalLock(async () => {
     const records = listBounties();
     const bounty = findBounty(records, id);
 
@@ -549,6 +594,7 @@ export async function releaseBounty(
         },
       },
     ]);
+    await invalidateBountyCache();
     return persisted;
   });
 }
@@ -558,7 +604,7 @@ export async function refundBounty(
   maintainer: string,
   transactionHash?: string,
 ): Promise<BountyRecord> {
-  return withGlobalLock(() => {
+  return withGlobalLock(async () => {
     const records = listBounties();
     const bounty = findBounty(records, id);
 
@@ -595,6 +641,7 @@ export async function refundBounty(
         },
       },
     ]);
+    await invalidateBountyCache();
     return persisted;
   });
 }
@@ -717,33 +764,28 @@ export interface LeaderboardEntry {
   bountiesCompleted: number;
 }
 
-/**
- * getLeaderboard
- * Aggregates and returns the top contributors by total XLM earned from released bounties.
- * 
- * @param limit Optional maximum number of entries to return (default: 10).
- * @returns An array of LeaderboardEntry items sorted by total XLM descending.
- */
 export function getLeaderboard(limit = 10): LeaderboardEntry[] {
-  const bounties = listBounties().filter((b) => b.status === "released" && b.contributor);
-  const aggregates: Record<string, { totalXlm: number; bountiesCompleted: number }> = {};
+  const entries = new Map<string, LeaderboardEntry>();
 
-  for (const b of bounties) {
-    const addr = b.contributor!;
-    if (!aggregates[addr]) {
-      aggregates[addr] = { totalXlm: 0, bountiesCompleted: 0 };
+  for (const bounty of listBounties()) {
+    if (bounty.status !== "released" || !bounty.contributor) {
+      continue;
     }
-    aggregates[addr].totalXlm += b.amount;
-    aggregates[addr].bountiesCompleted += 1;
+
+    const entry = entries.get(bounty.contributor) ?? {
+      address: bounty.contributor,
+      totalXlm: 0,
+      bountiesCompleted: 0,
+    };
+
+    entry.totalXlm += bounty.amount;
+    entry.bountiesCompleted += 1;
+    entries.set(bounty.contributor, entry);
   }
 
-  const entries = Object.entries(aggregates).map(([address, data]) => ({
-    address,
-    totalXlm: Number(data.totalXlm.toFixed(2)),
-    bountiesCompleted: data.bountiesCompleted,
-  }));
-
-  return entries.sort((a, b) => b.totalXlm - a.totalXlm).slice(0, limit);
+  return Array.from(entries.values())
+    .sort((a, b) => b.totalXlm - a.totalXlm || b.bountiesCompleted - a.bountiesCompleted)
+    .slice(0, limit);
 }
 
 /**

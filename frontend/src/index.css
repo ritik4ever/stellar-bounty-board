@@ -308,6 +308,32 @@ textarea {
   margin-bottom: 20px;
 }
 
+.panel-header__actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.print-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .panel-header h2 {
   margin: 6px 0 0;
   font-size: 1.6rem;
@@ -475,6 +501,40 @@ textarea:focus {
   border: 1px dashed var(--line);
   text-align: center;
   color: var(--muted);
+}
+
+/* Board-specific empty state with icon, heading, message, and CTA */
+.empty-state--board {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 48px 36px;
+}
+
+.empty-state__icon {
+  color: var(--muted);
+  opacity: 0.5;
+  flex-shrink: 0;
+}
+
+.empty-state__heading {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.empty-state__message {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+  max-width: 36ch;
+  line-height: 1.5;
+}
+
+.empty-state__cta {
+  margin-top: 4px;
 }
 
 .board-sort {
@@ -1242,6 +1302,70 @@ select {
   }
 }
 
+@media print {
+  @page {
+    margin: 0.6in;
+  }
+
+  body,
+  [data-theme="dark"] body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  .page-shell {
+    max-width: none;
+    padding: 0;
+  }
+
+  .glow,
+  .panel-header__actions,
+  .action-row,
+  .copy-button-wrapper,
+  .submission-modal {
+    display: none !important;
+  }
+
+  .panel,
+  .bounty-detail {
+    border: 0;
+    box-shadow: none;
+    background: #fff;
+    border-radius: 0;
+    padding: 0;
+    max-width: none;
+  }
+
+  .bounty-detail__content {
+    gap: 18px;
+  }
+
+  .bounty-detail__hero,
+  .meta-grid--detail {
+    break-inside: avoid;
+  }
+
+  .bounty-detail__hero {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .repo-avatar {
+    display: none;
+  }
+
+  .meta-grid--detail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .status-pill,
+  .amount-chip,
+  .chip {
+    border: 1px solid #999;
+    background: transparent !important;
+    color: #000 !important;
+  }
+}
+
 /* ---- Submission checklist modal ---- */
 
 .submission-modal {
@@ -1553,4 +1677,62 @@ select {
   flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 16px;
+}
+
+/* ── prefers-reduced-motion ──────────────────────────────────────────────
+   Disable or simplify every animation/transition when the user has opted
+   into reduced motion via their OS accessibility settings.
+   ──────────────────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  /* 1. Kill all keyframe animations globally, then re-enable selectively */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* 2. Skeleton loader — replace the moving shimmer with a static tint.
+        The background-position trick only works when the animation runs;
+        with animation killed we set a plain flat colour instead. */
+  .skeleton-block {
+    background: rgba(54, 63, 59, 0.08);
+    background-size: unset;
+    animation: none !important;
+  }
+
+  /* 3. Card / button hover lifts — remove the translateY so cards stay put */
+  .bounty-card[role="link"]:hover,
+  .primary-link:hover,
+  .secondary-link:hover,
+  .primary-button:hover,
+  .secondary-button:hover,
+  .ghost-button:hover,
+  .filter-chip:hover,
+  .copy-meta-button:hover,
+  .copy-button:hover,
+  .github-issue-card:hover {
+    transform: none;
+  }
+
+  /* 4. Panel / hero entrance animations — show immediately at final state */
+  .panel,
+  .hero,
+  .hero-copy,
+  .hero-panel {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
+  }
+
+  /* 5. Tooltip fade-in — appear instantly */
+  .copy-tooltip {
+    animation: none !important;
+  }
+
+  /* 6. Deadline / countdown text — the text updates via React re-renders
+        (no CSS animation), but any wrapping transition is already covered
+        by the global rule above. No extra rule needed. */
 }

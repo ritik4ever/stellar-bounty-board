@@ -3,14 +3,13 @@ import { z } from "zod";
 import { StrKey } from "@stellar/stellar-sdk";
 
 import { githubPrUrlSchema } from "./prUrl";
+import { isValidStellarAddress } from "../utils";
 
 extendZodWithOpenApi(z);
 
-const SOROBAN_ADDRESS_REGEX = /^C[A-Z2-7]{55}$/;
-const isValidStellarAddress = (val: string): boolean => StrKey.isValidEd25519PublicKey(val);
-
 const REPO_REGEX = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 const TOKEN_REGEX = /^[A-Za-z0-9]{1,12}$/;
+const SOROBAN_ADDRESS_REGEX = /^C[A-Z2-7]{55}$/;
 
 const STELLAR_EXAMPLE = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 const TX_HASH_REGEX = /^[0-9a-fA-F]{64}$/;

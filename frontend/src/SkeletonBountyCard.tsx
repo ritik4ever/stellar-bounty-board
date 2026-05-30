@@ -1,9 +1,11 @@
+import { memo } from "react";
+
 /**
  * Skeleton placeholder that mirrors the dimensions of a real bounty-card.
  * Rendered while the initial bounty list is loading to prevent layout shift
  * and provide a smoother first render.
  */
-function SkeletonBountyCard() {
+function SkeletonBountyCardBase() {
   return (
     <article className="bounty-card skeleton-card" aria-hidden="true">
       <div className="bounty-card__top">
@@ -48,5 +50,7 @@ function SkeletonBountyCard() {
     </article>
   );
 }
+
+const SkeletonBountyCard = memo(SkeletonBountyCardBase);
 
 export default SkeletonBountyCard;
