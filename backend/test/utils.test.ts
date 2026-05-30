@@ -72,9 +72,9 @@ describe("isExpired", () => {
 
   it("past deadline is expired", () => {
     vi.useFakeTimers();
-    const now = Date.now();
-    const deadlineAt = now - 1;
+    const now = new Date("2024-06-15T12:00:00Z").getTime();
     vi.setSystemTime(now);
+    const deadlineAt = now - 1;
 
     expect(isExpired(deadlineAt)).toBe(true);
     vi.useRealTimers();
