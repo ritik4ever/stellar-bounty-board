@@ -53,3 +53,29 @@ export const limiter: RequestHandler = mutationLimiter;
 export function isValidStellarAddress(address: string): boolean {
   return StrKey.isValidEd25519PublicKey(address);
 }
+
+const TOKEN_DECIMALS: Record<string, number> = {
+  XLM: 7,
+  USDC: 6,
+};
+
+export function formatAmount(amount: number, tokenSymbol: string): string {
+  const decimals = TOKEN_DECIMALS[tokenSymbol] ?? 7;
+  return `${amount.toFixed(decimals)} ${tokenSymbol}`;
+}
+
+export function computeDeadline(deadlineDays: number): number {
+  if (deadlineDays < 0) {
+    throw new Error("deadlineDays must be non-negative");
+  }
+  const now = Date.now();
+  return now + deadlineDays * 24 * 60 * 60 * 1000;
+}
+
+export function isExpired(deadlineAt: number): boolean {
+  return Date.now() >= deadlineAt;
+}
+
+export function isLeapYear(year: number): boolean {
+  return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+}
