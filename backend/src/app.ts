@@ -438,13 +438,49 @@ app.get("/api/maintainers/:maintainer/metrics", (req: Request, res: Response) =>
   }
 });
 
-app.get("/api/metrics", (_req: Request, res: Response) => {
+app.get("/api/metrics", (req: Request, res: Response) => {
   try {
-    const metrics = getGlobalMetrics();
-    res.json({ data: metrics });
+    const m = getGlobalMetrics();
+    const lines = [
+      "# HELP bounty_total Total number of bounties ever created.",
+      "# TYPE bounty_total gauge",
+      `bounty_total ${m.totalBounties}`,
+      "# HELP bounty_open Current number of open bounties.",
+      "# TYPE bounty_open gauge",
+      `bounty_open ${m.openCount}`,
+      "# HELP bounty_reserved Current number of reserved bounties.",
+      "# TYPE bounty_reserved gauge",
+      `bounty_reserved ${m.reservedCount}`,
+      "# HELP bounty_submitted Current number of submitted bounties awaiting review.",
+      "# TYPE bounty_submitted gauge",
+      `bounty_submitted ${m.submittedCount}`,
+      "# HELP bounty_released_total Total number of released (paid-out) bounties.",
+      "# TYPE bounty_released_total counter",
+      `bounty_released_total ${m.releasedCount}`,
+      "# HELP bounty_refunded_total Total number of refunded bounties.",
+      "# TYPE bounty_refunded_total counter",
+      `bounty_refunded_total ${m.refundedCount}`,
+      "# HELP bounty_expired_total Total number of expired bounties.",
+      "# TYPE bounty_expired_total counter",
+      `bounty_expired_total ${m.expiredCount}`,
+      "# HELP bounty_funded_stroops_total Total XLM (in stroops) ever funded across all bounties.",
+      "# TYPE bounty_funded_stroops_total counter",
+      `bounty_funded_stroops_total ${m.totalFunded}`,
+      "# HELP bounty_released_stroops_total Total XLM (in stroops) paid out to contributors.",
+      "# TYPE bounty_released_stroops_total counter",
+      `bounty_released_stroops_total ${m.totalReleased}`,
+      "# HELP bounty_unique_maintainers Number of unique maintainer addresses.",
+      "# TYPE bounty_unique_maintainers gauge",
+      `bounty_unique_maintainers ${m.uniqueMaintainers}`,
+      "# HELP bounty_unique_contributors Number of unique contributor addresses.",
+      "# TYPE bounty_unique_contributors gauge",
+      `bounty_unique_contributors ${m.uniqueContributors}`,
+    ];
+    res.set("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+    res.send(lines.join("\n") + "\n");
   } catch (error) {
-
-
+    const message = error instanceof Error ? error.message : "Failed to collect metrics";
+    sendError(res, req, new Error(message), 500);
   }
 });
 
