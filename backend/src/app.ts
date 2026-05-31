@@ -29,6 +29,11 @@ import {
   zodErrorMessage,
 } from "./validation/schemas";
 import { logStructured } from "./logger";
+import {
+  buildCreateBountySignaturePayload,
+  createStellarSignatureAuthMiddleware,
+  verifyStellarSignedPayload,
+} from "./middleware/auth";
 import { readLimiter, mutationLimiter } from "./utils";
 import {
   captureRawBody,
@@ -90,6 +95,7 @@ app.use(readLimiter);
 
 const swaggerDoc = generateOpenApiDocument();
 app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerDoc));
+const stellarSignatureAuth = createStellarSignatureAuthMiddleware();
 
 function parseId(raw: string | string[] | undefined): string {
   return bountyIdSchema.parse(Array.isArray(raw) ? raw[0] : raw);
@@ -242,6 +248,20 @@ app.post("/api/bounties", mutationLimiter, async (req: Request, res: Response) =
     return;
   }
 
+  if (process.env.NODE_ENV !== "test") {
+    const signatureHeader = req.header("x-stellar-signature");
+    if (!signatureHeader) {
+      jsonError(res, req, 401, "Missing x-stellar-signature header.");
+      return;
+    }
+
+    const signedPayload = buildCreateBountySignaturePayload(parsed.data);
+    if (!verifyStellarSignedPayload(parsed.data.maintainer, signedPayload, signatureHeader)) {
+      jsonError(res, req, 401, "Invalid Stellar signature for bounty maintainer.");
+      return;
+    }
+  }
+
   try {
     const bounty = await createBounty(parsed.data);
     res.status(201).json({ data: bounty });
@@ -285,7 +305,7 @@ app.post("/api/bounties/:id/submit", mutationLimiter, async (req: Request, res: 
   }
 });
 
-app.post("/api/bounties/:id/release", mutationLimiter, async (req: Request, res: Response) => {
+app.post("/api/bounties/:id/release", mutationLimiter, stellarSignatureAuth, async (req: Request, res: Response) => {
   const parsedBody = maintainerActionSchema.safeParse(req.body);
   if (!parsedBody.success) {
     jsonError(res, req, 400, zodErrorMessage(parsedBody.error));
@@ -304,7 +324,7 @@ app.post("/api/bounties/:id/release", mutationLimiter, async (req: Request, res:
   }
 });
 
-app.post("/api/bounties/:id/refund", mutationLimiter, async (req: Request, res: Response) => {
+app.post("/api/bounties/:id/refund", mutationLimiter, stellarSignatureAuth, async (req: Request, res: Response) => {
   const parsedBody = maintainerActionSchema.safeParse(req.body);
   if (!parsedBody.success) {
     jsonError(res, req, 400, zodErrorMessage(parsedBody.error));
