@@ -350,6 +350,14 @@ export interface ListBountiesOptions {
   q?: string;
 }
 
+export interface PaginatedBounties {
+  data: BountyRecord[];
+  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+}
+
 export function listBounties(options: ListBountiesOptions = {}): BountyRecord[] {
   const records = normalizeRecords(readStore());
   let sorted = [...records].sort((a, b) => b.createdAt - a.createdAt);
@@ -785,4 +793,24 @@ export function getLeaderboard(limit = 10): LeaderboardEntry[] {
   return Array.from(entries.values())
     .sort((a, b) => b.totalXlm - a.totalXlm || b.bountiesCompleted - a.bountiesCompleted)
     .slice(0, limit);
+}
+
+export async function listBountiesPage(
+  options: ListBountiesOptions & { page?: number; pageSize?: number } = {},
+  cache: CacheAdapter = getCache(),
+): Promise<PaginatedBounties> {
+  const page = options.page ?? 1;
+  const pageSize = options.pageSize ?? 20;
+  const records = await listBountiesCached({ q: options.q }, cache);
+  const total = records.length;
+  const offset = (page - 1) * pageSize;
+  const data = records.slice(offset, offset + pageSize);
+
+  return {
+    data,
+    total,
+    page,
+    pageSize,
+    hasMore: offset + pageSize < total,
+  };
 }
