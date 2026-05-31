@@ -41,6 +41,7 @@ import RecommendedBounties from "./RecommendedBounties";
 import { statusCopy, actionCopy, readInitialFilters, FilterState, statusOptions, statusGlossary, sortOptions } from "./constants";
 import { filterBounties, getRewardBounds, getActiveRewardLabel, getContributorMetrics, getUniqueRepos, getUniqueTokenSymbols, getRepoMetrics, sortBounties, debounce, SortOption, SortState, xlmToUsd } from "./utils";
 import { Bounty, CreateBountyPayload, OpenIssue, BountyStatus } from "./types";
+import { estimateCreateBountyFee, type SorobanFeeEstimate } from "./sorobanFee";
 
 import GitHubIssuePreviewCard from "./GitHubIssuePreviewCard";
 import UsdAmount from "./UsdAmount";
@@ -57,6 +58,11 @@ const STELLAR_PUBLIC_KEY_HINT = "Expected Stellar public key (starts with G and 
 const STELLAR_PUBLIC_KEY_REGEX = /^G[A-Z2-7]{55}$/;
 
 const DARK_MODE_KEY = "stellar-bounty-board-theme";
+
+interface CreateFeePreview {
+  payload: CreateBountyPayload;
+  fee: SorobanFeeEstimate;
+}
 
 function useDarkMode() {
   const [dark, setDark] = useState<boolean>(() => {
@@ -80,6 +86,24 @@ function useDarkMode() {
   }, [dark]);
 
   return { dark, toggle: () => setDark((d) => !d) };
+}
+
+function normalizeCreateBountyPayload(payload: CreateBountyPayload): CreateBountyPayload {
+  return {
+    ...payload,
+    repo: payload.repo.trim(),
+    title: payload.title.trim(),
+    summary: payload.summary.trim(),
+    maintainer: payload.maintainer.trim(),
+    tokenSymbol: payload.tokenSymbol.trim().toUpperCase(),
+    labels: payload.labels.filter((label) => label.name.trim() !== ""),
+  };
+}
+
+function formatStreamRate(payload: CreateBountyPayload): string {
+  const days = Math.max(payload.deadlineDays, 1);
+  const dailyRate = payload.amount / days;
+  return `${dailyRate.toFixed(4)} ${payload.tokenSymbol}/day`;
 }
 
 const initialForm: CreateBountyPayload = {
@@ -313,6 +337,8 @@ function App() {
   const [submitting, setSubmitting] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [feePreview, setFeePreview] = useState<CreateFeePreview | null>(null);
+  const [feePreviewError, setFeePreviewError] = useState<string | null>(null);
   const [showShortcutsOverlay, setShowShortcutsOverlay] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState(initialFilters.searchQuery);
@@ -589,21 +615,36 @@ function App() {
     event.preventDefault();
     setSubmitting(true);
     setError(null);
+    setFeePreviewError(null);
     try {
       const maintainerError = validateStellarPublicKey(form.maintainer);
       if (maintainerError) {
         setError(`Maintainer address: ${maintainerError}`);
         return;
       }
-      await createBounty({
-        ...form,
-        maintainer: form.maintainer.trim(),
-        labels: form.labels.filter(Boolean),
-      });
+      const payload = normalizeCreateBountyPayload(form);
+      const fee = await estimateCreateBountyFee(payload);
+      setFeePreview({ payload, fee });
+    } catch (err) {
+      setFeePreviewError(err instanceof Error ? err.message : "Failed to estimate the network fee.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function confirmCreateBounty() {
+    if (!feePreview) return;
+
+    setSubmitting(true);
+    setError(null);
+    setFeePreviewError(null);
+    try {
+      await createBounty(feePreview.payload);
       setForm({
         ...initialForm,
-        issueNumber: form.issueNumber + 1,
+        issueNumber: feePreview.payload.issueNumber + 1,
       });
+      setFeePreview(null);
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create bounty.");
@@ -1140,10 +1181,68 @@ function App() {
                   labels={form.labels}
                 />
 
+                {feePreviewError && <small className="field-error" role="alert">{feePreviewError}</small>}
+
                 <button className="primary-button" disabled={submitting}>
-                  {submitting ? "Publishing..." : "Publish bounty"}
+                  {submitting ? "Estimating fee..." : "Preview fee"}
                 </button>
               </form>
+
+              {feePreview && (
+                <dialog className="submission-modal" open aria-labelledby="fee-preview-title" aria-modal="true">
+                  <div className="submission-modal__inner">
+                    <div className="submission-modal__header">
+                      <div>
+                        <span className="panel-kicker">Network fee preview</span>
+                        <h2 id="fee-preview-title">Confirm bounty creation</h2>
+                      </div>
+                      <button
+                        className="modal-close-btn"
+                        type="button"
+                        aria-label="Cancel fee preview"
+                        onClick={() => setFeePreview(null)}
+                        disabled={submitting}
+                      >
+                        <X size={18} />
+                      </button>
+                    </div>
+
+                    <dl className="fee-preview-list">
+                      <div>
+                        <dt>Total amount</dt>
+                        <dd>{feePreview.payload.amount} {feePreview.payload.tokenSymbol}</dd>
+                      </div>
+                      <div>
+                        <dt>Stream rate</dt>
+                        <dd>{formatStreamRate(feePreview.payload)}</dd>
+                      </div>
+                      <div>
+                        <dt>Network fee estimate</dt>
+                        <dd>{feePreview.fee.feeXlm} XLM</dd>
+                      </div>
+                    </dl>
+
+                    <div className="submission-modal__actions">
+                      <button
+                        className="ghost-button"
+                        type="button"
+                        onClick={() => setFeePreview(null)}
+                        disabled={submitting}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        className="primary-button"
+                        type="button"
+                        onClick={() => void confirmCreateBounty()}
+                        disabled={submitting}
+                      >
+                        {submitting ? "Publishing..." : "Confirm"}
+                      </button>
+                    </div>
+                  </div>
+                </dialog>
+              )}
             </section>
 
             <section className="panel board-panel">

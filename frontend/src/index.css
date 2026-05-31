@@ -1428,6 +1428,34 @@ select {
   line-height: 1.55;
 }
 
+.fee-preview-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.fee-preview-list div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid rgba(54, 63, 59, 0.12);
+  border-radius: 14px;
+  padding: 14px 16px;
+}
+
+.fee-preview-list dt {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.fee-preview-list dd {
+  margin: 0;
+  color: var(--ink);
+  font-weight: 700;
+  text-align: right;
+}
+
 .submission-modal__form {
   display: grid;
   gap: 14px;
