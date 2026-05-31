@@ -10,6 +10,22 @@ interface RawBodyRequest extends Request {
   rawBody?: Buffer;
 }
 
+export interface CreateBountySignaturePayload {
+  repo: string;
+  issueNumber: number;
+  amount: number;
+  tokenSymbol: string;
+  deadline: number;
+}
+
+export interface CreateBountySignatureInput {
+  repo: string;
+  issueNumber: number;
+  amount: number;
+  tokenSymbol: string;
+  deadlineDays: number;
+}
+
 function normalizeHeaderValue(headerValue: string | string[] | undefined): string | undefined {
   if (!headerValue) {
     return undefined;
@@ -70,6 +86,24 @@ function verifyStellarSignature(publicKey: string, payload: Buffer, signatureHea
   }
 
   return false;
+}
+
+export function buildCreateBountySignaturePayload(input: CreateBountySignatureInput): CreateBountySignaturePayload {
+  return {
+    repo: input.repo,
+    issueNumber: input.issueNumber,
+    amount: input.amount,
+    tokenSymbol: input.tokenSymbol,
+    deadline: input.deadlineDays,
+  };
+}
+
+export function verifyStellarSignedPayload(
+  publicKey: string,
+  payload: unknown,
+  signatureHeader: string,
+): boolean {
+  return verifyStellarSignature(publicKey, Buffer.from(JSON.stringify(payload), "utf8"), signatureHeader);
 }
 
 export function createStellarSignatureAuthMiddleware(): RequestHandler {
