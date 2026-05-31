@@ -49,6 +49,37 @@ describe("API — health and listing", () => {
     expect(Array.isArray(res.body.data)).toBe(true);
   });
 
+  it("GET /api/bounties filters by amount range", async () => {
+    const app = await getApp();
+
+    await request(app).post("/api/bounties").send({ ...validCreateBody, title: "Small", amount: 50 }).expect(201);
+    await request(app).post("/api/bounties").send({ ...validCreateBody, title: "Medium", amount: 150 }).expect(201);
+    await request(app).post("/api/bounties").send({ ...validCreateBody, title: "Large", amount: 600 }).expect(201);
+
+    const minOnly = await request(app).get("/api/bounties?minAmount=100").expect(200);
+    expect(minOnly.body.data.every((b: { amount: number }) => b.amount >= 100)).toBe(true);
+    expect(minOnly.body.data.some((b: { title: string }) => b.title === "Medium")).toBe(true);
+    expect(minOnly.body.data.some((b: { title: string }) => b.title === "Large")).toBe(true);
+    expect(minOnly.body.data.some((b: { title: string }) => b.title === "Small")).toBe(false);
+
+    const maxOnly = await request(app).get("/api/bounties?maxAmount=500").expect(200);
+    expect(maxOnly.body.data.every((b: { amount: number }) => b.amount <= 500)).toBe(true);
+    expect(maxOnly.body.data.some((b: { title: string }) => b.title === "Small")).toBe(true);
+    expect(maxOnly.body.data.some((b: { title: string }) => b.title === "Medium")).toBe(true);
+    expect(maxOnly.body.data.some((b: { title: string }) => b.title === "Large")).toBe(false);
+
+    const range = await request(app).get("/api/bounties?minAmount=100&maxAmount=500").expect(200);
+    expect(range.body.data.map((b: { title: string }) => b.title)).toContain("Medium");
+    expect(range.body.data.some((b: { title: string }) => b.title === "Small")).toBe(false);
+    expect(range.body.data.some((b: { title: string }) => b.title === "Large")).toBe(false);
+  });
+
+  it("GET /api/bounties rejects non-numeric amount filters", async () => {
+    const app = await getApp();
+    await request(app).get("/api/bounties?minAmount=abc").expect(400);
+    await request(app).get("/api/bounties?maxAmount=abc").expect(400);
+  });
+
   it("GET /api/open-issues returns data", async () => {
     const app = await getApp();
     const res = await request(app).get("/api/open-issues").expect(200);

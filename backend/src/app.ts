@@ -142,6 +142,18 @@ function sendError(res: Response, req: Request, error: unknown, statusCode = 400
   jsonError(res, req, statusCode, message);
 }
 
+function parseOptionalAmountQuery(value: unknown, name: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(`${name} must be a number.`);
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`${name} must be a number.`);
+  }
+  return parsed;
+}
+
 app.get("/api/health", (_req: Request, res: Response) => {
   res.json({
     service: "stellar-bounty-board-backend",
@@ -159,8 +171,14 @@ app.get("/worker/health", (_req: Request, res: Response) => {
 });
 
 app.get("/api/bounties", async (req: Request, res: Response) => {
-  const q = typeof req.query.q === "string" ? req.query.q : undefined;
-  res.json({ data: await listBountiesCached({ q }) });
+  try {
+    const q = typeof req.query.q === "string" ? req.query.q : undefined;
+    const minAmount = parseOptionalAmountQuery(req.query.minAmount, "minAmount");
+    const maxAmount = parseOptionalAmountQuery(req.query.maxAmount, "maxAmount");
+    res.json({ data: await listBountiesCached({ q, minAmount, maxAmount }) });
+  } catch (error) {
+    sendError(res, req, error);
+  }
 });
 
 app.get("/api/leaderboard", (_req: Request, res: Response) => {
