@@ -184,6 +184,14 @@ export default function BountyDetailPage({
                   src={avatarUrl}
                   alt={owner}
                   loading="lazy"
+                  decoding="async"
+                  width="48"
+                  height="48"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    target.onerror = null;
+                    target.src = 'https://ui-avatars.com/api/?name=Placeholder';
+                  }}
                 />
               )}
               <div>
