@@ -76,6 +76,30 @@ describe("API — bounty lifecycle routes", () => {
     expect(res.body.error).toBeDefined();
   });
 
+  it("POST create with oversized JSON returns structured 413", async () => {
+    const app = await getApp();
+    const res = await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, summary: "x".repeat(33 * 1024) })
+      .expect(413);
+
+    expect(res.body).toMatchObject({
+      error: "Payload too large",
+      maxBytes: 32768,
+    });
+  });
+
+  it("POST create with malformed JSON returns structured 400", async () => {
+    const app = await getApp();
+    const res = await request(app)
+      .post("/api/bounties")
+      .set("Content-Type", "application/json")
+      .send("{")
+      .expect(400);
+
+    expect(res.body.error).toBe("Invalid JSON");
+  });
+
   it("POST create with amount below 1 XLM returns 400", async () => {
     const app = await getApp();
     const res = await request(app)

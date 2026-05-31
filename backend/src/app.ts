@@ -37,8 +37,14 @@ import {
 import { handleGitHubPrEvent } from "./webhooks/githubPrHandler";
 
 const INCOMING_REQUEST_ID = /^[a-zA-Z0-9-]{1,128}$/;
+const JSON_BODY_LIMIT_BYTES = 32 * 1024;
+const JSON_BODY_LIMIT = "32kb";
 
-
+type JsonBodyParserError = Error & {
+  type?: string;
+  status?: number;
+  statusCode?: number;
+};
 
 function resolveRequestId(req: Request): string {
   const raw = req.headers["x-request-id"];
@@ -76,14 +82,33 @@ function requestContextMiddleware(req: Request, res: Response, next: NextFunctio
 export const app = express();
 
 app.use(cors(buildCorsOptions()));
+app.use(requestContextMiddleware);
 
 // Parse JSON bodies; capture raw body for webhook signature verification
 app.use(
   express.json({
+    limit: JSON_BODY_LIMIT,
     verify: captureRawBody,
   }),
 );
-app.use(requestContextMiddleware);
+
+app.use((error: JsonBodyParserError, req: Request, res: Response, next: NextFunction) => {
+  if (error.type === "entity.too.large") {
+    res.status(413).json({
+      error: "Payload too large",
+      maxBytes: JSON_BODY_LIMIT_BYTES,
+      requestId: req.requestId,
+    });
+    return;
+  }
+
+  if (error.type === "entity.parse.failed" || error instanceof SyntaxError) {
+    res.status(400).json({ error: "Invalid JSON", requestId: req.requestId });
+    return;
+  }
+
+  next(error);
+});
 
 // Global read limit (GET only); mutation routes carry a stricter limit (#349).
 app.use(readLimiter);
