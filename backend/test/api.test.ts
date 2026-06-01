@@ -43,10 +43,35 @@ describe("API — health and listing", () => {
     expect(res.body.service).toContain("bounty-board");
   });
 
-  it("GET /api/bounties returns data array", async () => {
+  it("GET /api/bounties returns a paginated data array", async () => {
     const app = await getApp();
     const res = await request(app).get("/api/bounties").expect(200);
     expect(Array.isArray(res.body.data)).toBe(true);
+    expect(res.body).toMatchObject({ total: 0, page: 1, pageSize: 20, hasMore: false });
+    expect(res.headers["x-total-count"]).toBe("0");
+  });
+
+  it("GET /api/bounties paginates results and validates pageSize", async () => {
+    const app = await getApp();
+    for (let i = 0; i < 3; i += 1) {
+      await request(app)
+        .post("/api/bounties")
+        .send({ ...validCreateBody, issueNumber: validCreateBody.issueNumber + i })
+        .expect(201);
+    }
+
+    const first = await request(app).get("/api/bounties").query({ page: 1, pageSize: 2 }).expect(200);
+    expect(first.body.data).toHaveLength(2);
+    expect(first.body.total).toBe(3);
+    expect(first.body.hasMore).toBe(true);
+    expect(first.headers["x-total-count"]).toBe("3");
+
+    const second = await request(app).get("/api/bounties").query({ page: 2, pageSize: 2 }).expect(200);
+    expect(second.body.data).toHaveLength(1);
+    expect(second.body.hasMore).toBe(false);
+
+    const invalid = await request(app).get("/api/bounties").query({ pageSize: 101 }).expect(400);
+    expect(invalid.body.error).toMatch(/pageSize/i);
   });
 
   it("GET /api/open-issues returns data", async () => {

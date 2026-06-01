@@ -12,6 +12,7 @@ import {
   listBountyAuditLogs,
   listBounties,
   listBountiesCached,
+  listBountiesPage,
   refundBounty,
   releaseBounty,
   reserveBounty,
@@ -225,8 +226,16 @@ app.get("/worker/health", (_req: Request, res: Response) => {
 });
 
 app.get("/api/bounties", async (req: Request, res: Response) => {
-  const q = typeof req.query.q === "string" ? req.query.q : undefined;
-  res.json({ data: await listBountiesCached({ q }) });
+  try {
+    const q = typeof req.query.q === "string" ? req.query.q : undefined;
+    const page = parsePaginationValue(req.query.page, "page", 1, 1);
+    const pageSize = parsePaginationValue(req.query.pageSize, "pageSize", 20, 1, 100);
+    const payload = await listBountiesPage({ q, page, pageSize });
+    res.setHeader("X-Total-Count", String(payload.total));
+    res.json(payload);
+  } catch (error) {
+    sendError(res, req, error);
+  }
 });
 
 app.get("/api/leaderboard", (_req: Request, res: Response) => {
