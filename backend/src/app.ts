@@ -29,6 +29,11 @@ import {
   zodErrorMessage,
 } from "./validation/schemas";
 import { logStructured } from "./logger";
+import {
+  createHttpMetricsMiddleware,
+  metricsRegistry,
+  syncBountyMetrics,
+} from "./metrics";
 import { readLimiter, mutationLimiter } from "./utils";
 import {
   captureRawBody,
@@ -85,6 +90,17 @@ app.use(
   }),
 );
 app.use(requestContextMiddleware);
+app.use(createHttpMetricsMiddleware());
+
+app.get("/api/metrics", async (_req: Request, res: Response) => {
+  try {
+    syncBountyMetrics(getGlobalMetrics());
+    res.setHeader("Content-Type", metricsRegistry.contentType);
+    res.status(200).send(await metricsRegistry.metrics());
+  } catch (error) {
+    sendError(res, _req, error, 500);
+  }
+});
 
 // Global read limit (GET only); mutation routes carry a stricter limit (#349).
 app.use(readLimiter);
@@ -435,16 +451,6 @@ app.get("/api/maintainers/:maintainer/metrics", (req: Request, res: Response) =>
     res.json({ data: metrics });
   } catch (error) {
     sendError(res, req, error);
-  }
-});
-
-app.get("/api/metrics", (_req: Request, res: Response) => {
-  try {
-    const metrics = getGlobalMetrics();
-    res.json({ data: metrics });
-  } catch (error) {
-
-
   }
 });
 

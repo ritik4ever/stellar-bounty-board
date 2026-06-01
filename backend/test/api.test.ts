@@ -54,6 +54,37 @@ describe("API — health and listing", () => {
     const res = await request(app).get("/api/open-issues").expect(200);
     expect(res.body).toHaveProperty("data");
   });
+
+  it("GET /api/metrics returns Prometheus text metrics", async () => {
+    const app = await getApp();
+    const res = await request(app).get("/api/metrics").expect(200);
+
+    expect(res.headers["content-type"]).toContain("text/plain");
+    expect(res.text).toContain("process_cpu_seconds_total");
+    expect(res.text).toContain("process_resident_memory_bytes");
+    expect(res.text).toContain("http_request_duration_seconds");
+    expect(res.text).toContain("bounties_created_total");
+    expect(res.text).toContain("bounties_released_total");
+    expect(res.text).toContain("bounties_disputed_total");
+  });
+
+  it("GET /api/metrics exposes bounty lifecycle counters", async () => {
+    const app = await getApp();
+    const { body: created } = await request(app).post("/api/bounties").send(validCreateBody).expect(201);
+    const id = created.data.id as string;
+
+    await request(app).post(`/api/bounties/${id}/reserve`).send({ contributor: CONTRIBUTOR }).expect(200);
+    await request(app)
+      .post(`/api/bounties/${id}/submit`)
+      .send({ contributor: CONTRIBUTOR, submissionUrl: "https://github.com/owner/repo-name/pull/1" })
+      .expect(200);
+    await request(app).post(`/api/bounties/${id}/release`).send({ maintainer: MAINTAINER }).expect(200);
+
+    const res = await request(app).get("/api/metrics").expect(200);
+    expect(res.text).toMatch(/^bounties_created_total 1$/m);
+    expect(res.text).toMatch(/^bounties_released_total 1$/m);
+    expect(res.text).toMatch(/^bounties_disputed_total 0$/m);
+  });
 });
 
 describe("API — bounty lifecycle routes", () => {
