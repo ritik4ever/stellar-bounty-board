@@ -17,6 +17,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   delete process.env.BOUNTY_STORE_PATH;
+  delete process.env.ALLOWED_TOKEN_SYMBOLS;
   try {
     fs.unlinkSync(storeFile);
   } catch {
@@ -103,6 +104,15 @@ describe("API — bounty lifecycle routes", () => {
     expect(res.body.error).toMatch(/at most 7 decimal places/i);
   });
 
+  it("POST create rejects string amounts with more than 7 decimal places", async () => {
+    const app = await getApp();
+    const res = await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, amount: "100.12345678" })
+      .expect(400);
+    expect(res.body.error).toMatch(/at most 7 decimal places/i);
+  });
+
   it("POST create with exactly 7 decimal places succeeds", async () => {
     const app = await getApp();
     const res = await request(app)
@@ -110,6 +120,14 @@ describe("API — bounty lifecycle routes", () => {
       .send({ ...validCreateBody, amount: 100.1234567 })
       .expect(201);
     expect(res.body.data.id).toMatch(/^BNT-\d{4}$/);
+  });
+
+  it("POST create accepts string amounts with exactly 7 decimal places", async () => {
+    const app = await getApp();
+    await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, amount: "100.1234567" })
+      .expect(201);
   });
 
   it("POST create with 1 XLM succeeds", async () => {
@@ -128,6 +146,47 @@ describe("API — bounty lifecycle routes", () => {
       .send({ ...validCreateBody, amount: 10000 })
       .expect(201);
     expect(res.body.data.amount).toBe(10000);
+  });
+
+  it("POST create rejects token symbols outside the default allowlist", async () => {
+    const app = await getApp();
+    const res = await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, tokenSymbol: "AQUA" })
+      .expect(400);
+
+    expect(res.body.error).toMatch(/Unsupported token symbol/i);
+    expect(res.body.error).toMatch(/XLM, USDC/);
+  });
+
+  it("POST create accepts token symbols configured in ALLOWED_TOKEN_SYMBOLS", async () => {
+    process.env.ALLOWED_TOKEN_SYMBOLS = "XLM,USDC,aqua";
+    const app = await getApp();
+    const res = await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, tokenSymbol: "aQuA" })
+      .expect(201);
+
+    expect(res.body.data.tokenSymbol).toBe("AQUA");
+  });
+
+  it("POST create accepts valid 7-decimal amount precision", async () => {
+    const app = await getApp();
+    await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, amount: 1.0000001 })
+      .expect(201);
+  });
+
+  it("POST create uses the default token allowlist when ALLOWED_TOKEN_SYMBOLS is empty", async () => {
+    process.env.ALLOWED_TOKEN_SYMBOLS = " ";
+    const app = await getApp();
+    const res = await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, tokenSymbol: "AQUA" })
+      .expect(400);
+
+    expect(res.body.error).toMatch(/XLM, USDC/);
   });
 
   it("reserve → submit → release flow via HTTP", async () => {

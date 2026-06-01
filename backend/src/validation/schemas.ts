@@ -9,10 +9,30 @@ extendZodWithOpenApi(z);
 
 const REPO_REGEX = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 const TOKEN_REGEX = /^[A-Za-z0-9]{1,12}$/;
+const AMOUNT_PRECISION_REGEX = /^-?\d+(\.\d{1,7})?$/;
 const SOROBAN_ADDRESS_REGEX = /^C[A-Z2-7]{55}$/;
+const DEFAULT_ALLOWED_TOKEN_SYMBOLS = ["XLM", "USDC"];
 
 const STELLAR_EXAMPLE = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 const TX_HASH_REGEX = /^[0-9a-fA-F]{64}$/;
+
+export function getAllowedTokenSymbols(): string[] {
+  const configured = process.env.ALLOWED_TOKEN_SYMBOLS?.split(",")
+    .map(symbol => symbol.trim().toUpperCase())
+    .filter(Boolean);
+
+  return configured && configured.length > 0 ? configured : DEFAULT_ALLOWED_TOKEN_SYMBOLS;
+}
+
+function normalizeTokenSymbol(symbol: string): string {
+  const allowedSymbols = getAllowedTokenSymbols();
+  return allowedSymbols.find(allowedSymbol => allowedSymbol.toUpperCase() === symbol.toUpperCase()) ?? symbol.toUpperCase();
+}
+
+function hasValidAmountPrecision(value: string | number): boolean {
+  const rawAmount = typeof value === "number" ? value.toString() : value.trim();
+  return AMOUNT_PRECISION_REGEX.test(rawAmount);
+}
 
 export const bountyIdSchema = z
   .string()
@@ -73,10 +93,28 @@ export const createBountySchema = z
       .string()
       .trim()
       .regex(TOKEN_REGEX, "Token symbol must be 1-12 letters or numbers.")
+      .transform(normalizeTokenSymbol)
+      .superRefine((symbol, ctx) => {
+        const allowedSymbols = getAllowedTokenSymbols();
+        if (!allowedSymbols.includes(symbol)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `Unsupported token symbol. Allowed values: ${allowedSymbols.join(", ")}`,
+          });
+        }
+      })
       .openapi({ example: "XLM", description: "Stellar token symbol for payout (1–12 alphanumeric chars)." }),
-    amount: z.coerce
-      .number()
-      .min(1, "Amount must be at least 1 XLM."),
+    amount: z
+      .union([z.string(), z.number()])
+      .refine(hasValidAmountPrecision, {
+        message: "Amount can have at most 7 decimal places.",
+      })
+      .transform(Number)
+      .pipe(
+        z.number()
+          .min(1, "Amount must be at least 1 XLM.")
+          .max(10000, "Amount cannot exceed 10000 XLM.")
+      ),
 
     deadlineDays: z.coerce
       .number()
@@ -124,6 +162,8 @@ export const submitBountySchema = z
     contributor: stellarAccountSchema.openapi({
       description: "Must match the contributor who reserved the bounty.",
     }),
+
+    submissionUrl: githubPrUrlSchema,
 
     notes: z
       .string()
