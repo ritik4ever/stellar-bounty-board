@@ -1,8 +1,8 @@
 import cors from "cors";
-import express, { Request, Response, NextFunction } from "express";
-import { randomUUID } from "node:crypto";
+import express, { Request, Response } from "express";
 import swaggerUi from "swagger-ui-express";
 import { buildCorsOptions } from "./middleware/corsOptions";
+import { requestContextMiddleware } from "./middleware/requestContext";
 import { generateOpenApiDocument } from "./docs/openapi";
 
 import {
@@ -28,7 +28,6 @@ import {
   submitBountySchema,
   zodErrorMessage,
 } from "./validation/schemas";
-import { logStructured } from "./logger";
 import { readLimiter, mutationLimiter } from "./utils";
 import {
   captureRawBody,
@@ -36,43 +35,6 @@ import {
 } from "./webhooks/signatureVerification";
 import { createBountyCreationSignatureMiddleware, createStellarSignatureAuthMiddleware } from "./middleware/auth";
 import { handleGitHubPrEvent } from "./webhooks/githubPrHandler";
-
-const INCOMING_REQUEST_ID = /^[a-zA-Z0-9-]{1,128}$/;
-
-
-
-function resolveRequestId(req: Request): string {
-  const raw = req.headers["x-request-id"];
-  if (typeof raw === "string") {
-    const trimmed = raw.trim();
-    if (INCOMING_REQUEST_ID.test(trimmed)) {
-      return trimmed;
-    }
-  }
-  return randomUUID();
-}
-
-function requestContextMiddleware(req: Request, res: Response, next: NextFunction): void {
-  const requestId = resolveRequestId(req);
-  req.requestId = requestId;
-  res.setHeader("X-Request-ID", requestId);
-
-  const start = process.hrtime.bigint();
-
-  res.on("finish", () => {
-    const durationNs = process.hrtime.bigint() - start;
-    const durationMs = Number(durationNs) / 1e6;
-    logStructured("info", "http_request", {
-      requestId,
-      method: req.method,
-      path: req.path || "/",
-      status: res.statusCode,
-      durationMs: Math.round(durationMs * 1000) / 1000,
-    });
-  });
-
-  next();
-}
 
 export const app = express();
 

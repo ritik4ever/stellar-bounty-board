@@ -43,6 +43,32 @@ describe("API — health and listing", () => {
     expect(res.body.service).toContain("bounty-board");
   });
 
+  it("echoes a valid X-Request-ID response header", async () => {
+    const app = await getApp();
+    const res = await request(app).get("/api/health").set("X-Request-ID", "trace-123").expect(200);
+    expect(res.headers["x-request-id"]).toBe("trace-123");
+  });
+
+  it("generates an X-Request-ID when the incoming header is invalid", async () => {
+    const app = await getApp();
+    const res = await request(app).get("/api/health").set("X-Request-ID", "bad id with spaces").expect(200);
+    expect(res.headers["x-request-id"]).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+  });
+
+  it("includes the requestId from X-Request-ID in JSON error responses", async () => {
+    const app = await getApp();
+    const res = await request(app)
+      .get("/api/bounties/released/export.csv")
+      .query({ issueNumber: "not-a-number" })
+      .set("X-Request-ID", "export-trace-1")
+      .expect(400);
+    expect(res.headers["x-request-id"]).toBe("export-trace-1");
+    expect(res.body.requestId).toBe("export-trace-1");
+    expect(res.body.error).toMatch(/issueNumber/i);
+  });
+
   it("GET /api/bounties returns data array", async () => {
     const app = await getApp();
     const res = await request(app).get("/api/bounties").expect(200);
