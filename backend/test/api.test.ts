@@ -112,6 +112,32 @@ describe("API — bounty lifecycle routes", () => {
     expect(res.body.data.id).toMatch(/^BNT-\d{4}$/);
   });
 
+  it("GET /api/bounties filters by amount range", async () => {
+    const app = await getApp();
+
+    await request(app).post("/api/bounties").send({ ...validCreateBody, amount: 75, title: "Small bounty" }).expect(201);
+    await request(app).post("/api/bounties").send({ ...validCreateBody, amount: 250, title: "Target bounty" }).expect(201);
+    await request(app).post("/api/bounties").send({ ...validCreateBody, amount: 750, title: "Large bounty" }).expect(201);
+
+    const minOnly = await request(app).get("/api/bounties?minAmount=250").expect(200);
+    expect(minOnly.body.data.map((b: { amount: number }) => b.amount)).toEqual(expect.arrayContaining([250, 750]));
+    expect(minOnly.body.data.some((b: { amount: number }) => b.amount === 75)).toBe(false);
+
+    const maxOnly = await request(app).get("/api/bounties?maxAmount=250").expect(200);
+    expect(maxOnly.body.data.map((b: { amount: number }) => b.amount)).toEqual(expect.arrayContaining([75, 250]));
+    expect(maxOnly.body.data.some((b: { amount: number }) => b.amount === 750)).toBe(false);
+
+    const combined = await request(app).get("/api/bounties?minAmount=100&maxAmount=500").expect(200);
+    expect(combined.body.data.map((b: { amount: number }) => b.amount)).toEqual([250]);
+  });
+
+  it("GET /api/bounties returns 400 for non-numeric amount filters", async () => {
+    const app = await getApp();
+
+    const res = await request(app).get("/api/bounties?minAmount=abc").expect(400);
+    expect(res.body.error).toMatch(/minAmount must be a number/i);
+  });
+
   it("POST create with 1 XLM succeeds", async () => {
     const app = await getApp();
     const res = await request(app)

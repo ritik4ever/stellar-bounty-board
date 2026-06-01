@@ -349,6 +349,10 @@ function persistUpdated(records: BountyRecord[], updated: BountyRecord): BountyR
 export interface ListBountiesOptions {
   /** Case-insensitive substring filter applied to title, summary, and labels. */
   q?: string;
+  /** Minimum bounty amount, inclusive. */
+  minAmount?: number;
+  /** Maximum bounty amount, inclusive. */
+  maxAmount?: number;
 }
 
 export function listBounties(options: ListBountiesOptions = {}): BountyRecord[] {
@@ -363,6 +367,14 @@ export function listBounties(options: ListBountiesOptions = {}): BountyRecord[] 
         b.summary.toLowerCase().includes(q) ||
         b.labels.some((l) => l.toLowerCase().includes(q)),
     );
+  }
+
+  if (options.minAmount !== undefined) {
+    sorted = sorted.filter((b) => b.amount >= options.minAmount!);
+  }
+
+  if (options.maxAmount !== undefined) {
+    sorted = sorted.filter((b) => b.amount <= options.maxAmount!);
   }
 
   return sorted;
@@ -392,16 +404,27 @@ export async function listBountiesCached(
     await cache.set(BOUNTY_LIST_CACHE_KEY, JSON.stringify(records), BOUNTY_LIST_TTL_SECONDS);
   }
 
+  let filtered = records;
+
   const q = options.q?.trim().toLowerCase();
-  if (!q) {
-    return records;
+  if (q) {
+    filtered = filtered.filter(
+      (b) =>
+        b.title.toLowerCase().includes(q) ||
+        b.summary.toLowerCase().includes(q) ||
+        b.labels.some((l) => l.toLowerCase().includes(q)),
+    );
   }
-  return records.filter(
-    (b) =>
-      b.title.toLowerCase().includes(q) ||
-      b.summary.toLowerCase().includes(q) ||
-      b.labels.some((l) => l.toLowerCase().includes(q)),
-  );
+
+  if (options.minAmount !== undefined) {
+    filtered = filtered.filter((b) => b.amount >= options.minAmount!);
+  }
+
+  if (options.maxAmount !== undefined) {
+    filtered = filtered.filter((b) => b.amount <= options.maxAmount!);
+  }
+
+  return filtered;
 }
 
 /** Drop the cached bounty list so the next read reflects a mutation (#361). */
