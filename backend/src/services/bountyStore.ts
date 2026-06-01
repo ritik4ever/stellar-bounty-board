@@ -349,15 +349,18 @@ function persistUpdated(records: BountyRecord[], updated: BountyRecord): BountyR
 export interface ListBountiesOptions {
   /** Case-insensitive substring filter applied to title, summary, and labels. */
   q?: string;
+  /** Minimum bounty amount, inclusive. */
+  minAmount?: number;
+  /** Maximum bounty amount, inclusive. */
+  maxAmount?: number;
 }
 
-export function listBounties(options: ListBountiesOptions = {}): BountyRecord[] {
-  const records = normalizeRecords(readStore());
-  let sorted = [...records].sort((a, b) => b.createdAt - a.createdAt);
+function applyBountyFilters(records: BountyRecord[], options: ListBountiesOptions = {}): BountyRecord[] {
+  let filtered = records;
 
   const q = options.q?.trim().toLowerCase();
   if (q) {
-    sorted = sorted.filter(
+    filtered = filtered.filter(
       (b) =>
         b.title.toLowerCase().includes(q) ||
         b.summary.toLowerCase().includes(q) ||
@@ -365,7 +368,22 @@ export function listBounties(options: ListBountiesOptions = {}): BountyRecord[] 
     );
   }
 
-  return sorted;
+  const { minAmount, maxAmount } = options;
+  if (minAmount !== undefined) {
+    filtered = filtered.filter((bounty) => bounty.amount >= minAmount);
+  }
+
+  if (maxAmount !== undefined) {
+    filtered = filtered.filter((bounty) => bounty.amount <= maxAmount);
+  }
+
+  return filtered;
+}
+
+export function listBounties(options: ListBountiesOptions = {}): BountyRecord[] {
+  const records = normalizeRecords(readStore());
+  const sorted = [...records].sort((a, b) => b.createdAt - a.createdAt);
+  return applyBountyFilters(sorted, options);
 }
 
 // ── Cached list for the public board (#361) ──────────────────────────────────
@@ -376,7 +394,7 @@ const BOUNTY_LIST_TTL_SECONDS = 5;
 /**
  * Cache-backed variant of {@link listBounties} for the hot `/api/bounties` read
  * path. The full normalized+sorted list is cached (5s TTL) so it is shared
- * across replicas via Redis; the cheap `q` filter is applied to the cached list
+ * across replicas via Redis; cheap request filters are applied to the cached list
  * per request. Writes call {@link invalidateBountyCache}.
  */
 export async function listBountiesCached(
@@ -392,16 +410,7 @@ export async function listBountiesCached(
     await cache.set(BOUNTY_LIST_CACHE_KEY, JSON.stringify(records), BOUNTY_LIST_TTL_SECONDS);
   }
 
-  const q = options.q?.trim().toLowerCase();
-  if (!q) {
-    return records;
-  }
-  return records.filter(
-    (b) =>
-      b.title.toLowerCase().includes(q) ||
-      b.summary.toLowerCase().includes(q) ||
-      b.labels.some((l) => l.toLowerCase().includes(q)),
-  );
+  return applyBountyFilters(records, options);
 }
 
 /** Drop the cached bounty list so the next read reflects a mutation (#361). */
