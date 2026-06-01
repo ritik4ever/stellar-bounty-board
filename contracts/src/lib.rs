@@ -36,6 +36,10 @@ pub struct Bounty {
     pub dispute_raised_at: u64,
 }
 
+// 10B XLM expressed in stroops. This keeps bounty and protocol-fee math inside
+// a documented operational ceiling instead of accepting arbitrary i128 values.
+pub const MAX_BOUNTY_AMOUNT: i128 = 10_000_000_000_0000000;
+
 #[contracttype]
 enum DataKey {
     NextBountyId,
@@ -174,7 +178,7 @@ impl StellarBountyBoardContract {
     ) -> u64 {
         maintainer.require_auth();
 
-        if amount <= 0 {
+        if amount <= 0 || amount > MAX_BOUNTY_AMOUNT {
             panic_error(ContractError::InvalidAmount);
         }
         if deadline <= env.ledger().timestamp() {
