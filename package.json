@@ -11,7 +11,8 @@
     "test": "npm --prefix backend test",
     "test:watch": "npm --prefix backend run test:watch",
     "test:coverage": "npm --prefix backend run test:coverage",
-    "prepare": "husky install"
+    "prepare": "husky install",
+    "load:test": "node scripts/load-test.js"
   },
   "license": "MIT",
   "dependencies": {
@@ -29,6 +30,7 @@
     "@types/yaml": "^1.9.6",
     "@typescript-eslint/eslint-plugin": "^6.21.0",
     "@typescript-eslint/parser": "^6.21.0",
+    "autocannon": "^8.0.0",
     "eslint": "^8.57.0",
     "husky": "^9.0.0",
     "lint-staged": "^15.2.0",

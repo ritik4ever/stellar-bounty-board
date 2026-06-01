@@ -148,7 +148,10 @@ export const submitBountySchema = z
       .string()
       .trim()
       .url("Submission URL must be a valid URL.")
-      .openapi({ example: "https://github.com/owner/repo/pull/99", description: "Submission link for review." }),
+      .openapi({
+        example: "https://github.com/owner/repo/pull/123",
+        description: "GitHub pull request URL for the submission.",
+      }),
     notes: z
       .string()
       .trim()
