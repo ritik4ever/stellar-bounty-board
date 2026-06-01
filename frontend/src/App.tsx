@@ -212,6 +212,28 @@ function bountyCardPropsEqual(prev: BountyCardProps, next: BountyCardProps): boo
 }
 
 const BountyCard = memo(function BountyCard({ bounty, onOpen, renderActionButton }: BountyCardProps) {
+  const getStatusColor = (status: BountyStatus, deadlineAt: number): string => {
+    if (status === "expired" || status === "released" || status === "refunded") {
+      return "grey";
+    }
+    if (status === "disputed") {
+      return "blue";
+    }
+    
+    const now = Date.now();
+    const timeRemaining = deadlineAt - now;
+    
+    if (timeRemaining < 24 * 60 * 60 * 1000) {
+      return "red";
+    }
+    if (timeRemaining < 7 * 24 * 60 * 60 * 1000) {
+      return "yellow";
+    }
+    return "green";
+  };
+
+  const statusColor = getStatusColor(bounty.status, bounty.deadlineAt);
+
   return (
     <article
       className="bounty-card"
@@ -228,7 +250,7 @@ const BountyCard = memo(function BountyCard({ bounty, onOpen, renderActionButton
       <div className="bounty-card__top">
         <div>
           <span
-            className={`status-pill status-pill--${bounty.status}`}
+            className={`status-pill status-pill--${statusColor}`}
             title={statusCopy[bounty.status].description}
             aria-label={`${statusCopy[bounty.status].label}: ${statusCopy[bounty.status].description}`}
           >
