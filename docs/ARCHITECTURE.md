@@ -168,6 +168,74 @@ Soroban contract implementing on-chain escrow logic for trustless bounty payouts
   ─────────────────────────────────────────────────────────────────────────────
 ```
 
+## Full Lifecycle Sequence
+
+This sequence shows the end-to-end path from bounty creation to settlement. The
+backend owns the current MVP API and JSON persistence, while the contract lane
+shows the target escrow flow and the dispute branch already modeled in
+`contracts/src/lib.rs`.
+
+```mermaid
+sequenceDiagram
+    actor Maintainer
+    actor Contributor
+    actor Arbiter
+    participant Backend
+    participant Contract
+
+    Maintainer->>Backend: Create bounty with repo, issue, token, amount
+    Backend->>Backend: Validate request and persist OPEN bounty
+    Backend->>Contract: create_bounty(maintainer, token, amount, deadline)
+    Contract-->>Backend: BountyCreated event
+    Backend-->>Maintainer: Bounty is OPEN
+
+    alt Maintainer cancels before contributor submission
+        Maintainer->>Backend: Refund bounty before submission
+        Backend->>Backend: Verify bounty is OPEN or RESERVED
+        Backend->>Contract: refund_bounty(bounty_id, maintainer)
+        Contract-->>Maintainer: Return escrowed tokens
+        Contract-->>Backend: BountyRefunded event
+        Backend-->>Maintainer: Bounty is REFUNDED
+    else Contributor completes bounty work
+        Contributor->>Backend: Reserve bounty
+        Backend->>Backend: Verify status is OPEN
+        Backend->>Contract: reserve_bounty(bounty_id, contributor)
+        Contract-->>Backend: BountyReserved event
+        Backend-->>Contributor: Bounty is RESERVED
+
+        Contributor->>Backend: Submit work with PR URL
+        Backend->>Backend: Verify contributor owns reservation
+        Backend->>Contract: submit_bounty(bounty_id, contributor)
+        Contract-->>Backend: BountySubmitted event
+        Backend-->>Maintainer: Bounty is SUBMITTED for review
+
+        alt Maintainer approves submitted work
+            Maintainer->>Backend: Release payout
+            Backend->>Backend: Record release timestamp and tx hash
+            Backend->>Contract: release_bounty(bounty_id, maintainer)
+            Contract-->>Contributor: Transfer escrowed tokens
+            Contract-->>Backend: BountyReleased event
+            Backend-->>Maintainer: Bounty is RELEASED
+        else Contributor disputes review outcome
+            Contributor->>Backend: Request dispute
+            Backend->>Contract: dispute_bounty(bounty_id, arbiter)
+            Contract-->>Backend: BountyDisputed event
+            Backend-->>Arbiter: Dispute requires resolution
+            Arbiter->>Backend: Resolve dispute
+            Backend->>Contract: resolve_dispute(bounty_id, release)
+            alt Arbiter releases payout
+                Contract-->>Contributor: Transfer escrowed tokens
+                Contract-->>Backend: BountyResolved(release=true)
+            else Arbiter refunds maintainer
+                Contract-->>Maintainer: Return escrowed tokens
+                Contract-->>Backend: BountyResolved(release=false)
+            end
+            Backend-->>Maintainer: Final status synced from contract event
+            Backend-->>Contributor: Final status synced from contract event
+        end
+    end
+```
+
 ## Interaction Sequence Diagrams
 
 The following Mermaid diagrams show the detailed sequence of interactions for each bounty lifecycle action.
