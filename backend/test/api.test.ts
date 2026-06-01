@@ -123,22 +123,22 @@ describe("API — bounty lifecycle routes", () => {
     expect(res.body.error).toBeDefined();
   });
 
-  it("POST create with amount below 1 XLM returns 400", async () => {
+  it("POST create with amount below 1 token returns 400", async () => {
     const app = await getApp();
     const res = await request(app)
       .post("/api/bounties")
       .send({ ...validCreateBody, amount: 0.5 })
       .expect(400);
-    expect(res.body.error).toMatch(/at least 1 XLM/i);
+    expect(res.body.error).toMatch(/at least 1 token/i);
   });
 
-  it("POST create with amount above 10000 XLM returns 400", async () => {
+  it("POST create with amount above 10000 tokens returns 400", async () => {
     const app = await getApp();
     const res = await request(app)
       .post("/api/bounties")
       .send({ ...validCreateBody, amount: 10001 })
       .expect(400);
-    expect(res.body.error).toMatch(/exceed 10000 XLM/i);
+    expect(res.body.error).toMatch(/exceed 10000 tokens/i);
   });
 
   it("POST create with more than 7 decimal places returns 400", async () => {

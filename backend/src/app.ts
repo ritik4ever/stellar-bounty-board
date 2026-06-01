@@ -29,12 +29,12 @@ import {
   zodErrorMessage,
 } from "./validation/schemas";
 import { logStructured } from "./logger";
-import { createStellarSignatureAuthMiddleware } from "./middleware/auth";
 import { readLimiter, mutationLimiter } from "./utils";
 import {
   captureRawBody,
   createGitHubWebhookSignatureMiddleware,
 } from "./webhooks/signatureVerification";
+import { createBountyCreationSignatureMiddleware, createStellarSignatureAuthMiddleware } from "./middleware/auth";
 import { handleGitHubPrEvent } from "./webhooks/githubPrHandler";
 
 const INCOMING_REQUEST_ID = /^[a-zA-Z0-9-]{1,128}$/;
@@ -144,6 +144,56 @@ function sendError(res: Response, req: Request, error: unknown, statusCode = 400
   jsonError(res, req, statusCode, message);
 }
 
+// ─── SEO: robots.txt (issue #373) ────────────────────────────────────────────
+// Allow all user agents to crawl bounty pages; disallow admin/internal paths.
+app.get("/robots.txt", (_req: Request, res: Response) => {
+  const FRONTEND_URL = process.env.FRONTEND_URL ?? "https://stellar-bounty-board.vercel.app";
+  res.type("text/plain").send(
+    [
+      "User-agent: *",
+      "Allow: /",
+      "Disallow: /api/",
+      "Disallow: /admin/",
+      "",
+      `Sitemap: ${FRONTEND_URL}/sitemap.xml`,
+    ].join("\n")
+  );
+});
+
+// ─── SEO: dynamic sitemap.xml (issue #373) ───────────────────────────────────
+// Lists every released/open bounty with its canonical URL so search engines
+// can efficiently discover and index individual bounty pages.
+app.get("/sitemap.xml", (_req: Request, res: Response) => {
+  const FRONTEND_URL = process.env.FRONTEND_URL ?? "https://stellar-bounty-board.vercel.app";
+  const allBounties = listBounties();
+  const indexable = allBounties.filter(
+    (b) => b.status === "open" || b.status === "released"
+  );
+
+  const urlset = indexable
+    .map((b) => {
+      const lastmod = b.releasedAt ?? b.createdAt ?? new Date().toISOString();
+      return [
+        "  <url>",
+        `    <loc>${FRONTEND_URL}/bounties/${b.id}</loc>`,
+        `    <lastmod>${new Date(lastmod).toISOString().split("T")[0]}</lastmod>`,
+        "    <changefreq>weekly</changefreq>",
+        "    <priority>0.7</priority>",
+        "  </url>",
+      ].join("\n");
+    })
+    .join("\n");
+
+  const xml = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    urlset,
+    "</urlset>",
+  ].join("\n");
+
+  res.type("application/xml").send(xml);
+});
+
 app.get("/api/health", (_req: Request, res: Response) => {
   res.json({
     service: "stellar-bounty-board-backend",
@@ -237,7 +287,7 @@ app.get("/api/bounties/released/export.csv", (req: Request, res: Response) => {
   }
 });
 
-app.post("/api/bounties", mutationLimiter, async (req: Request, res: Response) => {
+app.post("/api/bounties", mutationLimiter, createBountyCreationSignatureMiddleware(), async (req: Request, res: Response) => {
   const parsed = createBountySchema.safeParse(req.body);
   if (!parsed.success) {
     jsonError(res, req, 400, zodErrorMessage(parsed.error));
