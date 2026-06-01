@@ -24,6 +24,7 @@ import {
   ArrowUpDown,
 } from "lucide-react";
 import { toast } from 'sonner';
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   createBounty,
   exportReleasedPayoutsCsv,
@@ -136,6 +137,9 @@ const boardStatuses: Array<BountyStatus | "all"> = [
 ];
 
 type BountyAction = "reserve" | "submit" | "release" | "refund";
+type BoardRow =
+  | { type: "repo"; repo: string; bounties: Bounty[] }
+  | { type: "bounty"; bounty: Bounty };
 
 function repoOwner(repo: string): string {
   return repo.split("/")[0] ?? repo;
@@ -714,6 +718,36 @@ function App() {
     });
     return groups;
   }, [filteredBounties, repoRoute]);
+
+  const boardRows = useMemo<BoardRow[]>(() => {
+    return Object.entries(groupedBounties).flatMap(([repo, repoBounties]) => [
+      { type: "repo" as const, repo, bounties: repoBounties },
+      ...repoBounties.map((bounty) => ({ type: "bounty" as const, bounty })),
+    ]);
+  }, [groupedBounties]);
+
+  const boardVirtualizerParentRef = useRef<HTMLDivElement | null>(null);
+  const getBoardRowSize = (row?: BoardRow) => (row?.type === "repo" ? 142 : 360);
+  const boardVirtualizer = useVirtualizer({
+    count: boardRows.length,
+    getScrollElement: () => boardVirtualizerParentRef.current,
+    getItemKey: (index) => {
+      const row = boardRows[index];
+      return row?.type === "repo" ? `repo:${row.repo}` : `bounty:${row?.bounty.id ?? index}`;
+    },
+    estimateSize: (index) => getBoardRowSize(boardRows[index]),
+    overscan: 5,
+    initialRect: { height: 800, width: 0 },
+  });
+  const virtualBoardRows = boardVirtualizer.getVirtualItems();
+  const renderedBoardRows =
+    virtualBoardRows.length > 0
+      ? virtualBoardRows
+      : boardRows.slice(0, Math.min(boardRows.length, 8)).map((row, index) => ({
+          index,
+          key: row.type === "repo" ? `repo:${row.repo}` : `bounty:${row.bounty.id}`,
+          start: boardRows.slice(0, index).reduce((sum, previousRow) => sum + getBoardRowSize(previousRow), 0),
+        }));
 
   // Derive whether any filter is currently active so EmptyState knows whether
   // to show the "Clear filters" CTA.
@@ -1320,140 +1354,84 @@ function App() {
                     <SkeletonBountyCard key={i} />
                   ))}
                 </div>
-              ) : Object.keys(groupedBounties).length > 0 ? (
-                <div className="board-list">
-                  {Object.entries(groupedBounties).map(([repo, repoBounties]) => (
-                    <div key={repo} className="repo-group">
-                      <div className="repo-group__header">
-                        <h3
-                          className="repo-group__title"
-                          onClick={() => navigate(`/repo/${repo.split('/')[0]}/${repo.split('/')[1]}`)}
-                          role="link"
-                          tabIndex={0}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter" || event.key === " ") {
-                              event.preventDefault();
-                              navigate(`/repo/${repo.split('/')[0]}/${repo.split('/')[1]}`);
-                            }
-                          }}
+              ) : boardRows.length > 0 ? (
+                <div
+                  className="board-list board-list--virtual"
+                  ref={boardVirtualizerParentRef}
+                  role="list"
+                  aria-label={`Bounty board with ${filteredBounties.length} bounties`}
+                >
+                  <div
+                    className="board-list__virtual-spacer"
+                    role="presentation"
+                    style={{ height: `${boardVirtualizer.getTotalSize()}px` }}
+                  >
+                    {renderedBoardRows.map((virtualRow) => {
+                      const row = boardRows[virtualRow.index];
+                      if (!row) return null;
+
+                      return (
+                        <div
+                          className="board-list__virtual-row"
+                          data-index={virtualRow.index}
+                          key={virtualRow.key}
+                          ref={boardVirtualizer.measureElement}
+                          role="listitem"
+                          style={{ transform: `translateY(${virtualRow.start}px)` }}
                         >
-                          {repo}
-                        </h3>
-                        <span className="repo-count">{repoBounties.length} bounties</span>
-                      </div>
-                      <div className="repo-group__metrics">
-                        <div className="repo-metric">
-                          <span className="repo-metric__label">Open</span>
-                          <span className="repo-metric__value">{repoBounties.filter(b => b.status === 'open').length}</span>
-                        </div>
-                        <div className="repo-metric">
-                          <span className="repo-metric__label">Funded</span>
-                          <span className="repo-metric__value">{repoBounties.reduce((sum, b) => sum + b.amount, 0)} XLM</span>
-                        </div>
-                        <div className="repo-metric">
-                          <span className="repo-metric__label">Paid</span>
-                          <span className="repo-metric__value">{repoBounties.filter(b => b.status === 'released').reduce((sum, b) => sum + b.amount, 0)} XLM</span>
-                        </div>
-                      </div>
-                      <div className="repo-group__bounties">
-                        {repoBounties.map((bounty) => (
-                          <article
-                            className="bounty-card"
-                            key={bounty.id}
-                            role="link"
-                            tabIndex={0}
-                            onClick={() => navigate(`/bounties/${encodeURIComponent(bounty.id)}`)}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter" || event.key === " ") {
-                                event.preventDefault();
-                                navigate(`/bounties/${encodeURIComponent(bounty.id)}`);
-                              }
-                            }}
-                          >
-                            <div className="bounty-card__top">
-                              <div>
-                                <span
-                                  className={`status-pill status-pill--${bounty.status}`}
-                                  title={statusCopy[bounty.status].description}
-                                  aria-label={`${statusCopy[bounty.status].label}: ${statusCopy[bounty.status].description}`}
+                          {row.type === "repo" ? (
+                            <div className="repo-group">
+                              <div className="repo-group__header">
+                                <h3
+                                  className="repo-group__title"
+                                  onClick={() => navigate(`/repo/${row.repo.split('/')[0]}/${row.repo.split('/')[1]}`)}
+                                  role="link"
+                                  tabIndex={0}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter" || event.key === " ") {
+                                      event.preventDefault();
+                                      navigate(`/repo/${row.repo.split('/')[0]}/${row.repo.split('/')[1]}`);
+                                    }
+                                  }}
                                 >
-                                  {statusCopy[bounty.status].label}
-                                </span>
-                                <h3>{bounty.title}</h3>
+                                  {row.repo}
+                                </h3>
+                                <span className="repo-count">{row.bounties.length} bounties</span>
                               </div>
-                              <div className="amount-chip">
-                                {bounty.amount} {bounty.tokenSymbol}
-                              </div>
-                            </div>
-
-                            <p className="bounty-summary">{bounty.summary}</p>
-
-                            <div className="meta-grid">
-                              <div>
-                                <span className="meta-label">Issue</span>
-                                <strong>
-                                  <a
-                                    className="inline-link"
-                                    href={`https://github.com/${bounty.repo}/issues/${bounty.issueNumber}`}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                  >
-                                    {bounty.repo} #{bounty.issueNumber}
-                                  </a>
-                                </strong>
-                              </div>
-                              <div>
-                                <span className="meta-label">Deadline</span>
-                                <strong>{formatRelativeDeadline(bounty.deadlineAt)}</strong>
-                              </div>
-                              <div>
-                                <span className="meta-label">Maintainer</span>
-                                <strong>{shortAddress(bounty.maintainer)}</strong>
-                              </div>
-                              <div>
-                                <span className="meta-label">Contributor</span>
-                                <strong>{bounty.contributor ? shortAddress(bounty.contributor) : "Open"}</strong>
-                              </div>
-                              {bounty.status === "released" && bounty.releasedTxHash && (
-                                <div>
-                                  <span className="meta-label">Release tx</span>
-                                  <strong>{`${bounty.releasedTxHash.slice(0, 10)}...`}</strong>
+                              <div className="repo-group__metrics">
+                                <div className="repo-metric">
+                                  <span className="repo-metric__label">Open</span>
+                                  <span className="repo-metric__value">
+                                    {row.bounties.filter((bounty) => bounty.status === "open").length}
+                                  </span>
                                 </div>
-                              )}
-                              {bounty.status === "refunded" && bounty.refundedTxHash && (
-                                <div>
-                                  <span className="meta-label">Refund tx</span>
-                                  <strong>{`${bounty.refundedTxHash.slice(0, 10)}...`}</strong>
+                                <div className="repo-metric">
+                                  <span className="repo-metric__label">Funded</span>
+                                  <span className="repo-metric__value">
+                                    {row.bounties.reduce((sum, bounty) => sum + bounty.amount, 0)} XLM
+                                  </span>
                                 </div>
-                              )}
+                                <div className="repo-metric">
+                                  <span className="repo-metric__label">Paid</span>
+                                  <span className="repo-metric__value">
+                                    {row.bounties
+                                      .filter((bounty) => bounty.status === "released")
+                                      .reduce((sum, bounty) => sum + bounty.amount, 0)} XLM
+                                  </span>
+                                </div>
+                              </div>
                             </div>
-
-                            <div className="chip-row">
-                              {bounty.labels.map((label) => (
-                                <span className="chip" key={label.name}>
-                                  {label.name}
-                                </span>
-                              ))}
-                            </div>
-
-                            <p className="status-helper">
-                              <strong>{statusCopy[bounty.status].label}:</strong> {statusCopy[bounty.status].description}
-                            </p>
-
-                            {bounty.submissionUrl && (
-                              <a className="submission-link" href={bounty.submissionUrl} target="_blank" rel="noreferrer">
-                                Review submission <ArrowUpRight size={16} />
-                              </a>
-                            )}
-
-                            <div className="action-row">
-                              {(actionCopy[bounty.status] ?? []).map((action) => renderActionButton(bounty, action))}
-                            </div>
-                          </article>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
+                          ) : (
+                            <BountyCard
+                              bounty={row.bounty}
+                              onOpen={handleOpenBounty}
+                              renderActionButton={renderActionButton}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               ) : (
                 <EmptyState
