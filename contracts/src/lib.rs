@@ -38,7 +38,7 @@ pub struct Bounty {
 
 // 10B XLM expressed in stroops. This keeps bounty and protocol-fee math inside
 // a documented operational ceiling instead of accepting arbitrary i128 values.
-pub const MAX_BOUNTY_AMOUNT: i128 = 10_000_000_000_0000000;
+pub const MAX_BOUNTY_AMOUNT: i128 = 100_000_000_000_000_000;
 
 #[contracttype]
 enum DataKey {
