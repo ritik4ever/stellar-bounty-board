@@ -92,8 +92,8 @@ export const createBountySchema = z
       }),
     amount: z.coerce
       .number()
-      .min(1, "Amount must be at least 1 XLM.")
-      .max(10000, "Amount cannot exceed 10000 XLM.")
+      .min(1, "Amount must be at least 1 token.")
+      .max(10000, "Amount cannot exceed 10000 tokens.")
       .refine((value) => hasAtMostDecimalPlaces(value, 7), {
         message: "Amount can have at most 7 decimal places.",
       }),
