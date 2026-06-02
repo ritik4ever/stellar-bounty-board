@@ -4,7 +4,6 @@ import express, { Request, Response, NextFunction } from "express";
 import { randomUUID } from "node:crypto";
 import swaggerUi from "swagger-ui-express";
 import { buildCorsOptions } from "./middleware/corsOptions";
-import { createStellarSignatureAuthMiddleware } from "./middleware/auth";
 import { generateOpenApiDocument } from "./docs/openapi";
 import { getMetrics, httpRequestDuration } from "./metrics";
 

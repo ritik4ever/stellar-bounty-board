@@ -154,16 +154,6 @@ export const submitBountySchema = z
       example: "https://github.com/owner/repo/pull/99",
       description: "GitHub pull request URL for the bounty submission.",
     }),
-
-    submissionUrl: z
-      .string()
-      .trim()
-      .url()
-      .openapi({ 
-        example: "https://github.com/owner/repo/pull/123",
-        description: "GitHub pull request URL for the submission." 
-      }),
-
     notes: z
       .string()
       .trim()
@@ -225,6 +215,29 @@ export const bountyRecordSchema = z
     refundedTxHash: z.string().optional().openapi({ example: "0".repeat(64) }),
     submissionUrl: z.string().optional().openapi({ example: "https://github.com/owner/repo/pull/99" }),
     notes: z.string().optional(),
+    version: z.number().int().positive().openapi({
+      example: 1,
+      description: "Optimistic concurrency version for bounty mutations.",
+    }),
+    events: z
+      .array(
+        z.object({
+          type: z.enum(["created", "reserved", "submitted", "released", "refunded", "expired"]),
+          timestamp: z.number().openapi({ example: 1710003600, description: "Unix timestamp (seconds)." }),
+          actor: z.string().optional().openapi({ example: STELLAR_EXAMPLE }),
+          details: z.record(z.unknown()).optional(),
+        }),
+      )
+      .openapi({
+        example: [{ type: "created", timestamp: 1710000000 }],
+        description: "Append-only lifecycle event history.",
+      }),
+    reservationTimeoutSeconds: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .openapi({ example: 604800, description: "Reservation timeout in seconds." }),
   })
   .openapi("BountyRecord");
 
