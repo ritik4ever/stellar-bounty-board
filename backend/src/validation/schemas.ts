@@ -155,6 +155,15 @@ export const submitBountySchema = z
       description: "GitHub pull request URL for the bounty submission.",
     }),
 
+    submissionUrl: z
+      .string()
+      .trim()
+      .url()
+      .openapi({ 
+        example: "https://github.com/owner/repo/pull/123",
+        description: "GitHub pull request URL for the submission." 
+      }),
+
     notes: z
       .string()
       .trim()
