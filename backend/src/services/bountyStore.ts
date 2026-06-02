@@ -286,8 +286,10 @@ function normalizeRecords(records: BountyRecord[]): BountyRecord[] {
     // Check for expired reservation (timeout without submission)
     if (
       record.status === "reserved" &&
-      record.reservedAt &&
-      record.reservationTimeoutSeconds &&
+      typeof record.reservedAt === "number" &&
+      Number.isFinite(record.reservedAt) &&
+      typeof record.reservationTimeoutSeconds === "number" &&
+      Number.isFinite(record.reservationTimeoutSeconds) &&
       now > record.reservedAt + record.reservationTimeoutSeconds
     ) {
       changed = true;
