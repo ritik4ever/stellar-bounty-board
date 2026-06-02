@@ -112,6 +112,15 @@ describe("API — bounty lifecycle routes", () => {
     expect(res.body.data.id).toMatch(/^BNT-\d{4}$/);
   });
 
+  it("POST create accepts valid 7-decimal amounts without float multiplication drift", async () => {
+    const app = await getApp();
+    const res = await request(app)
+      .post("/api/bounties")
+      .send({ ...validCreateBody, amount: 1.0000001 })
+      .expect(201);
+    expect(res.body.data.id).toMatch(/^BNT-\d{4}$/);
+  });
+
   it("POST create with 1 XLM succeeds", async () => {
     const app = await getApp();
     const res = await request(app)

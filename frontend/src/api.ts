@@ -157,10 +157,11 @@ export async function listBounties(signal?: AbortSignal): Promise<Bounty[]> {
   return body.data;
 }
 
-export async function getBounty(id: string): Promise<Bounty> {
+export async function getBounty(id: string, signal?: AbortSignal): Promise<Bounty> {
   const body = await requestJson<{ data: Bounty }>(`/bounties/${id}`, {
     retry: true,
     retryLabel: "Loading bounty",
+    signal,
   });
   return body.data;
 }
