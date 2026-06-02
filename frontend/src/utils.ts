@@ -176,12 +176,31 @@ const XLM_USD_PRICE_URL =
 const XLM_USD_CACHE_MS = 5 * 60 * 1000;
 
 let cachedXlmUsdRate: { rate: number; fetchedAt: number } | null = null;
+let pendingXlmUsdRate: Promise<number> | null = null;
+
+function formatUsd(amount: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
 
 async function fetchXlmUsdRate(): Promise<number> {
   if (cachedXlmUsdRate && Date.now() - cachedXlmUsdRate.fetchedAt < XLM_USD_CACHE_MS) {
     return cachedXlmUsdRate.rate;
   }
 
+  if (pendingXlmUsdRate) {
+    return pendingXlmUsdRate;
+  }
+
+  pendingXlmUsdRate = requestXlmUsdRate();
+  return pendingXlmUsdRate;
+}
+
+async function requestXlmUsdRate(): Promise<number> {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), 5000);
 
@@ -200,20 +219,32 @@ async function fetchXlmUsdRate(): Promise<number> {
 
     cachedXlmUsdRate = { rate, fetchedAt: Date.now() };
     return rate;
+  } catch (error) {
+    if (cachedXlmUsdRate) {
+      return cachedXlmUsdRate.rate;
+    }
+
+    throw error;
   } finally {
     window.clearTimeout(timeoutId);
+    pendingXlmUsdRate = null;
   }
 }
 
-export async function xlmToUsd(amount: number): Promise<string> {
+export async function xlmToUsd(amount: number, tokenSymbol = "XLM"): Promise<string> {
+  const normalizedToken = tokenSymbol.toUpperCase();
+
+  if (normalizedToken === "USDC") {
+    return formatUsd(amount);
+  }
+
+  if (normalizedToken !== "XLM") {
+    return "USD unavailable";
+  }
+
   try {
     const rate = await fetchXlmUsdRate();
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(amount * rate);
+    return formatUsd(amount * rate);
   } catch {
     return "USD unavailable";
   }
@@ -221,6 +252,7 @@ export async function xlmToUsd(amount: number): Promise<string> {
 
 export function resetXlmToUsdCache(): void {
   cachedXlmUsdRate = null;
+  pendingXlmUsdRate = null;
 }
 
 export function getContributorMetrics(bounties: Bounty[], contributorAddress?: string) {

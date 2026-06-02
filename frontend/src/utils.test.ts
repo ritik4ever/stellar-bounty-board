@@ -13,6 +13,7 @@ describe("xlmToUsd", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -39,6 +40,29 @@ describe("xlmToUsd", () => {
     await expect(xlmToUsd(25)).resolves.toBe("$5.00");
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the last known XLM/USD rate when a refresh fails", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-28T00:00:00.000Z"));
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ stellar: { usd: 0.2 } }),
+    });
+
+    await expect(xlmToUsd(10)).resolves.toBe("$2.00");
+
+    vi.setSystemTime(new Date("2026-05-28T00:06:00.000Z"));
+    fetchMock.mockRejectedValueOnce(new Error("network unavailable"));
+
+    await expect(xlmToUsd(25)).resolves.toBe("$5.00");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("formats USDC bounties 1:1 without fetching XLM/USD", async () => {
+    await expect(xlmToUsd(42.5, "USDC")).resolves.toBe("$42.50");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("falls back gracefully when the rate fetch fails", async () => {

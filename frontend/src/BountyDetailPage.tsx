@@ -212,9 +212,7 @@ export default function BountyDetailPage({
               </div>
               <div className="amount-chip">
                 {bounty.amount} {bounty.tokenSymbol}
-                {bounty.tokenSymbol === "XLM" && (
-                  <UsdAmount amount={bounty.amount} />
-                )}
+                <UsdAmount amount={bounty.amount} tokenSymbol={bounty.tokenSymbol} />
               </div>
             </div>
 
