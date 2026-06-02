@@ -14,6 +14,11 @@ const SOROBAN_ADDRESS_REGEX = /^C[A-Z2-7]{55}$/;
 const STELLAR_EXAMPLE = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 const TX_HASH_REGEX = /^[0-9a-fA-F]{64}$/;
 
+function hasAtMostSevenDecimalPlaces(amount: number): boolean {
+  const decimal = amount.toString().split(".")[1];
+  return decimal === undefined || decimal.length <= 7;
+}
+
 export const bountyIdSchema = z
   .string()
   .trim()
@@ -76,7 +81,11 @@ export const createBountySchema = z
       .openapi({ example: "XLM", description: "Stellar token symbol for payout (1–12 alphanumeric chars)." }),
     amount: z.coerce
       .number()
-      .min(1, "Amount must be at least 1 XLM."),
+      .min(1, "Amount must be at least 1 XLM.")
+      .max(10000, "Amount must not exceed 10000 XLM.")
+      .refine(hasAtMostSevenDecimalPlaces, {
+        message: "Amount can have at most 7 decimal places.",
+      }),
 
     deadlineDays: z.coerce
       .number()
@@ -124,16 +133,10 @@ export const submitBountySchema = z
     contributor: stellarAccountSchema.openapi({
       description: "Must match the contributor who reserved the bounty.",
     }),
-
-    submissionUrl: z
-      .string()
-      .trim()
-      .url()
-      .openapi({ 
-        example: "https://github.com/owner/repo/pull/123",
-        description: "GitHub pull request URL for the submission." 
-      }),
-
+    submissionUrl: githubPrUrlSchema.openapi({
+      example: "https://github.com/owner/repo/pull/99",
+      description: "GitHub pull request URL for the bounty submission.",
+    }),
     notes: z
       .string()
       .trim()
@@ -195,6 +198,29 @@ export const bountyRecordSchema = z
     refundedTxHash: z.string().optional().openapi({ example: "0".repeat(64) }),
     submissionUrl: z.string().optional().openapi({ example: "https://github.com/owner/repo/pull/99" }),
     notes: z.string().optional(),
+    version: z.number().int().positive().openapi({
+      example: 1,
+      description: "Optimistic concurrency version for bounty mutations.",
+    }),
+    events: z
+      .array(
+        z.object({
+          type: z.enum(["created", "reserved", "submitted", "released", "refunded", "expired"]),
+          timestamp: z.number().openapi({ example: 1710003600, description: "Unix timestamp (seconds)." }),
+          actor: z.string().optional().openapi({ example: STELLAR_EXAMPLE }),
+          details: z.record(z.unknown()).optional(),
+        }),
+      )
+      .openapi({
+        example: [{ type: "created", timestamp: 1710000000 }],
+        description: "Append-only lifecycle event history.",
+      }),
+    reservationTimeoutSeconds: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .openapi({ example: 604800, description: "Reservation timeout in seconds." }),
   })
   .openapi("BountyRecord");
 

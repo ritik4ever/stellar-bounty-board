@@ -87,7 +87,7 @@ async function createSignedBounty(app: any) {
   return body.data.id as string;
 }
 
-describe("POST /api/bounties — Stellar signature requirement (#366)", () => {
+describe("POST /api/bounties - Stellar signature requirement (#366)", () => {
   it("returns 401 when x-stellar-signature header is missing", async () => {
     const app = await getApp();
     const res = await request(app)
@@ -100,7 +100,6 @@ describe("POST /api/bounties — Stellar signature requirement (#366)", () => {
   it("returns 401 when signature is signed by a key that does not match maintainer", async () => {
     const app = await getApp();
     const canonical = bountyCreationCanonical(baseCreateBody);
-    // Signed by mismatchedKeypair, but maintainer in body is validMaintainerPublicKey
     const signature = signPayload(mismatchedKeypair, canonical);
     const res = await request(app)
       .post("/api/bounties")
@@ -124,7 +123,7 @@ describe("POST /api/bounties — Stellar signature requirement (#366)", () => {
   });
 });
 
-describe("Stellar auth middleware — release/refund routes", () => {
+describe("Stellar auth middleware - release/refund routes", () => {
   it("returns 401 when Stellar signature headers are missing on release", async () => {
     const app = await getApp();
     const id = await createSignedBounty(app);
@@ -144,7 +143,7 @@ describe("Stellar auth middleware — release/refund routes", () => {
     await request(app).post(`/api/bounties/${id}/reserve`).send({ contributor: validMaintainerPublicKey }).expect(200);
     await request(app)
       .post(`/api/bounties/${id}/submit`)
-      .send({ contributor: validMaintainerPublicKey, submissionUrl: "https://example.com/pr/1" })
+      .send({ contributor: validMaintainerPublicKey, submissionUrl: "https://github.com/owner/repo/pull/1" })
       .expect(200);
 
     const payload = { maintainer: validMaintainerPublicKey, transactionHash: "a".repeat(64) };

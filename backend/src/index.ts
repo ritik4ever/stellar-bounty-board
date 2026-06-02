@@ -20,7 +20,7 @@ server.headersTimeout = headersTimeout;
 function startIndexerWorker() {
   const workerPath = path.join(__dirname, "..", "worker", "indexer.js");
   let backoff = 1000;
-  let worker;
+  let worker: Worker;
 
   const spawn = () => {
     worker = new Worker(workerPath);
