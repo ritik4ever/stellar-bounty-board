@@ -152,6 +152,11 @@ function nowInSeconds(): number {
   return Math.floor(Date.now() / 1000);
 }
 
+function reservationTtlSeconds(): number {
+  const days = Number(process.env.RESERVATION_TTL_DAYS ?? "7");
+  return Number.isFinite(days) && days > 0 ? Math.floor(days * 24 * 60 * 60) : 7 * 24 * 60 * 60;
+}
+
 function ensureStore(): void {
   const storePath = getStorePath();
   fs.mkdirSync(path.dirname(storePath), { recursive: true });
@@ -366,6 +371,59 @@ export function listBounties(options: ListBountiesOptions = {}): BountyRecord[] 
   }
 
   return sorted;
+}
+
+interface BountyStoreExpirationResult {
+  expiredCount: number;
+  expiredBountyIds: string[];
+  checkedAt: number;
+}
+
+function expireStaleReservationRecords(ttlSeconds?: number): BountyStoreExpirationResult {
+  const effectiveTtl = ttlSeconds ?? reservationTtlSeconds();
+  const checkedAt = nowInSeconds();
+  const records = readStore();
+  const expiredBountyIds: string[] = [];
+
+  const next = records.map((record) => {
+    if (
+      record.status !== "reserved" ||
+      typeof record.reservedAt !== "number" ||
+      checkedAt - record.reservedAt <= effectiveTtl
+    ) {
+      return record;
+    }
+
+    expiredBountyIds.push(record.id);
+    return {
+      ...record,
+      status: "open" as const,
+      contributor: undefined,
+      reservedAt: undefined,
+      version: (record.version ?? 1) + 1,
+      events: [
+        ...(record.events ?? []),
+        {
+          type: "expired" as const,
+          timestamp: checkedAt,
+          details: {
+            reason: "reservation_ttl_exceeded",
+            ttlSeconds: effectiveTtl,
+          },
+        },
+      ],
+    };
+  });
+
+  if (expiredBountyIds.length > 0) {
+    writeStore(next);
+  }
+
+  return { expiredCount: expiredBountyIds.length, expiredBountyIds, checkedAt };
+}
+
+export function expireStaleReservations(ttlSeconds?: number): number {
+  return expireStaleReservationRecords(ttlSeconds).expiredCount;
 }
 
 // ── Cached list for the public board (#361) ──────────────────────────────────

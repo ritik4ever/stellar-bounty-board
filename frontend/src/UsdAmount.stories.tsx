@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from "@storybook/react";
+import type { Meta, StoryFn, StoryObj } from "@storybook/react";
 import UsdAmount from "./UsdAmount";
 
 /**
@@ -14,7 +14,7 @@ const meta: Meta<typeof UsdAmount> = {
   title: "Components/UsdAmount",
   component: UsdAmount,
   decorators: [
-    (Story) => (
+    (Story: StoryFn) => (
       <span style={{ fontSize: "1.25rem", fontFamily: "sans-serif" }}>
         250 XLM <Story />
       </span>

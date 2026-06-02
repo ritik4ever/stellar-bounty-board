@@ -12,6 +12,7 @@ import {
   bountyAuditLogListResponseSchema,
 } from '../src/validation/schemas';
 import { z } from 'zod';
+import { CONTRIBUTOR, MAINTAINER } from './fixtures';
 
 describe('OpenAPI contract — responses match zod schemas', () => {
   it('GET /api/health matches health schema', async () => {
@@ -26,7 +27,7 @@ describe('OpenAPI contract — responses match zod schemas', () => {
       issueNumber: 123,
       title: 'Contract test bounty',
       summary: 'A sufficiently long summary for the contract test.',
-      maintainer: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
+      maintainer: MAINTAINER,
       tokenSymbol: 'XLM',
       amount: 10,
       deadlineDays: 7,
@@ -38,7 +39,7 @@ describe('OpenAPI contract — responses match zod schemas', () => {
     const bounty = bountyRecordSchema.strict().parse(createRes.body.data);
 
     // Reserve
-    const reserveBody = { contributor: 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGKCEL9LGAQLHFLQ2GN7SY' };
+    const reserveBody = { contributor: CONTRIBUTOR };
     reserveBountySchema.parse(reserveBody);
     const reserveRes = await request(app).post(`/api/bounties/${bounty.id}/reserve`).send(reserveBody).expect(200);
     bountyRecordSchema.strict().parse(reserveRes.body.data);

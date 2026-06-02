@@ -66,6 +66,7 @@ function useDarkMode() {
     } catch {
       // ignore
     }
+    if (typeof window.matchMedia !== "function") return false;
     return window.matchMedia("(prefers-color-scheme: dark)").matches;
   });
 
@@ -1118,7 +1119,7 @@ function App() {
                   <label>
                     Labels
                     <input
-                      value={form.labels.join(", ")}
+                      value={form.labels.map((label) => label.name).join(", ")}
                       onChange={(event) =>
                         setForm({
                           ...form,
