@@ -65,7 +65,7 @@ function requestContextMiddleware(req: Request, res: Response, next: NextFunctio
     const durationNs = process.hrtime.bigint() - start;
     const durationMs = Number(durationNs) / 1e6;
     const durationSec = durationMs / 1000;
-    
+
     // Record HTTP request duration for Prometheus
     httpRequestDuration.observe(
       {
@@ -75,7 +75,7 @@ function requestContextMiddleware(req: Request, res: Response, next: NextFunctio
       },
       durationSec
     );
-    
+
     logStructured("info", "http_request", {
       requestId,
       method: req.method,
@@ -106,6 +106,7 @@ app.use(readLimiter);
 
 const swaggerDoc = generateOpenApiDocument();
 app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerDoc));
+const maintainerAuthMiddleware = createStellarSignatureAuthMiddleware();
 
 function parseId(raw: string | string[] | undefined): string {
   return bountyIdSchema.parse(Array.isArray(raw) ? raw[0] : raw);
@@ -361,7 +362,7 @@ app.post("/api/bounties/:id/submit", mutationLimiter, async (req: Request, res: 
   }
 });
 
-app.post("/api/bounties/:id/release", mutationLimiter, createStellarSignatureAuthMiddleware(), async (req: Request, res: Response) => {
+app.post("/api/bounties/:id/release", mutationLimiter, maintainerAuthMiddleware, async (req: Request, res: Response) => {
   const parsedBody = maintainerActionSchema.safeParse(req.body);
   if (!parsedBody.success) {
     jsonError(res, req, 400, zodErrorMessage(parsedBody.error));
@@ -380,7 +381,7 @@ app.post("/api/bounties/:id/release", mutationLimiter, createStellarSignatureAut
   }
 });
 
-app.post("/api/bounties/:id/refund", mutationLimiter, createStellarSignatureAuthMiddleware(), async (req: Request, res: Response) => {
+app.post("/api/bounties/:id/refund", mutationLimiter, maintainerAuthMiddleware, async (req: Request, res: Response) => {
   const parsedBody = maintainerActionSchema.safeParse(req.body);
   if (!parsedBody.success) {
     jsonError(res, req, 400, zodErrorMessage(parsedBody.error));

@@ -1,7 +1,6 @@
 import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
 
-import { githubPrUrlSchema } from "./prUrl";
 import { isValidStellarAddress } from "../utils";
 
 extendZodWithOpenApi(z);
@@ -13,6 +12,20 @@ const SOROBAN_ADDRESS_REGEX = /^C[A-Z2-7]{55}$/;
 
 const STELLAR_EXAMPLE = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 const TX_HASH_REGEX = /^[0-9a-fA-F]{64}$/;
+
+function hasAtMostDecimalPlaces(value: number, maxPlaces: number): boolean {
+  if (!Number.isFinite(value)) return false;
+
+  const normalized = value.toString().toLowerCase();
+  if (!normalized.includes("e")) {
+    const [, fraction = ""] = normalized.split(".");
+    return fraction.length <= maxPlaces;
+  }
+
+  const fixed = value.toFixed(maxPlaces + 1).replace(/0+$/, "");
+  const [, fraction = ""] = fixed.split(".");
+  return fraction.length <= maxPlaces;
+}
 
 export const bountyIdSchema = z
   .string()
@@ -73,10 +86,17 @@ export const createBountySchema = z
       .string()
       .trim()
       .regex(TOKEN_REGEX, "Token symbol must be 1-12 letters or numbers.")
-      .openapi({ example: "XLM", description: "Stellar token symbol for payout (1–12 alphanumeric chars)." }),
+      .openapi({
+        example: "XLM",
+        description: "Stellar token symbol for payout. The backend resolves it via BOUNTY_TOKEN_ADDRESS_MAP.",
+      }),
     amount: z.coerce
       .number()
-      .min(1, "Amount must be at least 1 XLM."),
+      .min(1, "Amount must be at least 1 token.")
+      .max(10000, "Amount cannot exceed 10000 tokens.")
+      .refine((value) => hasAtMostDecimalPlaces(value, 7), {
+        message: "Amount can have at most 7 decimal places.",
+      }),
 
     deadlineDays: z.coerce
       .number()
@@ -124,16 +144,14 @@ export const submitBountySchema = z
     contributor: stellarAccountSchema.openapi({
       description: "Must match the contributor who reserved the bounty.",
     }),
-
     submissionUrl: z
       .string()
       .trim()
-      .url()
-      .openapi({ 
+      .url("Submission URL must be a valid URL.")
+      .openapi({
         example: "https://github.com/owner/repo/pull/123",
-        description: "GitHub pull request URL for the submission." 
+        description: "GitHub pull request URL for the submission.",
       }),
-
     notes: z
       .string()
       .trim()
@@ -180,6 +198,10 @@ export const bountyRecordSchema = z
     maintainer: z.string().openapi({ example: STELLAR_EXAMPLE }),
     contributor: z.string().optional().openapi({ example: STELLAR_EXAMPLE }),
     tokenSymbol: z.string().openapi({ example: "XLM" }),
+    tokenAddress: sorobanAddressSchema.optional().openapi({
+      example: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      description: "Resolved SEP-41 token contract address used for escrow/release.",
+    }),
     amount: z.number().openapi({ example: 100 }),
     labels: z.array(z.string()).openapi({ example: ["bug", "help wanted"] }),
     status: z
