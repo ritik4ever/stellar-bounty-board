@@ -67,6 +67,7 @@ function useDarkMode() {
     } catch {
       // ignore
     }
+    if (typeof window.matchMedia !== "function") return false;
     return window.matchMedia("(prefers-color-scheme: dark)").matches;
   });
 
