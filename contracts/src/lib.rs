@@ -5,8 +5,10 @@ mod test;
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short,
-    token::Client as TokenClient, Address, Env, String,
+    token::Client as TokenClient, Address, Env, String, Vec,
 };
+
+const MAX_MAINTAINER_BOUNTIES: u32 = 500;
 
 #[contracttype]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,6 +45,7 @@ enum DataKey {
     FeeRecipient,
     Arbiter,
     DisputeWindow,
+    MaintainerIndex(Address),
 }
 
 #[contracttype]
@@ -129,6 +132,7 @@ pub enum ContractError {
     BountyNotFound,
     NotArbiter,
     DisputeWindowNotMet,
+    MaintainerBountyLimitReached,
 }
 
 fn panic_error(error: ContractError) -> ! {
@@ -188,6 +192,16 @@ impl StellarBountyBoardContract {
             panic!("fee recipient not set");
         }
 
+        let maintainer_index_key = DataKey::MaintainerIndex(maintainer.clone());
+        let mut maintainer_bounties: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&maintainer_index_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        if maintainer_bounties.len() >= MAX_MAINTAINER_BOUNTIES {
+            panic_error(ContractError::MaintainerBountyLimitReached);
+        }
+
         let token_client = TokenClient::new(&env, &token);
         let contract_address = env.current_contract_address();
         token_client.transfer(&maintainer, &contract_address, &amount);
@@ -213,12 +227,17 @@ impl StellarBountyBoardContract {
             dispute_raised_at: 0,
         };
 
+        maintainer_bounties.push_back(next_id);
+
         env.storage()
             .persistent()
             .set(&DataKey::NextBountyId, &next_id);
         env.storage()
             .persistent()
             .set(&DataKey::Bounty(next_id), &bounty);
+        env.storage()
+            .persistent()
+            .set(&maintainer_index_key, &maintainer_bounties);
 
         env.events().publish(
             (symbol_short!("Bounty"), symbol_short!("Create")),
@@ -523,6 +542,13 @@ impl StellarBountyBoardContract {
         let mut bounty = read_bounty(&env, bounty_id);
         expire_if_needed(&env, &mut bounty);
         bounty
+    }
+
+    pub fn get_maintainer_bounties(env: Env, maintainer: Address) -> Vec<u64> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::MaintainerIndex(maintainer))
+            .unwrap_or_else(|| Vec::new(&env))
     }
 
     pub fn get_next_bounty_id(env: Env) -> u64 {
