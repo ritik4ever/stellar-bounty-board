@@ -24,6 +24,19 @@ function getReservationTtlSeconds(): number {
   return Math.floor(days * 24 * 60 * 60);
 }
 
+function getBountyReservationTtlSeconds(
+  bounty: BountyRecord,
+  fallbackTtlSeconds: number
+): number {
+  const ttlSeconds = bounty.reservationTimeoutSeconds;
+
+  if (typeof ttlSeconds === 'number' && Number.isFinite(ttlSeconds) && ttlSeconds > 0) {
+    return Math.floor(ttlSeconds);
+  }
+
+  return fallbackTtlSeconds;
+}
+
 function getStorePath(): string {
   if (process.env.BOUNTY_STORE_PATH?.trim()) {
     return path.resolve(process.env.BOUNTY_STORE_PATH.trim());
@@ -87,10 +100,11 @@ export function expireStaleReservations(ttlSeconds?: number): ExpirationResult {
   const expiredBountyIds: string[] = [];
 
   const updated = bounties.map((bounty) => {
+    const reservationTtlSeconds = getBountyReservationTtlSeconds(bounty, ttl);
     const isStaleReservation =
       bounty.status === 'reserved' &&
       typeof bounty.reservedAt === 'number' &&
-      checkedAt - bounty.reservedAt > ttl;
+      checkedAt - bounty.reservedAt > reservationTtlSeconds;
 
     if (!isStaleReservation) {
       return bounty;
@@ -106,7 +120,7 @@ export function expireStaleReservations(ttlSeconds?: number): ExpirationResult {
 
     expiredBountyIds.push(bounty.id);
 
-    return expireReservation(bounty, checkedAt, ttl);
+    return expireReservation(bounty, checkedAt, reservationTtlSeconds);
   });
 
   writeBounties(updated);
