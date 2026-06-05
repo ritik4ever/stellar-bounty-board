@@ -182,6 +182,51 @@ fn test_create_bounty_negative_amount() {
 }
 
 #[test]
+fn test_create_bounty_max_amount_allowed() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, _, token_id, _, _) = setup_test(&env);
+    let token = TokenClient::new(&env, &token_id);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &MAX_BOUNTY_AMOUNT);
+
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &MAX_BOUNTY_AMOUNT,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32,
+    );
+
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.amount, MAX_BOUNTY_AMOUNT);
+    assert_eq!(token.balance(&client.address), MAX_BOUNTY_AMOUNT);
+}
+
+#[test]
+#[should_panic(expected = "InvalidAmount")]
+fn test_create_bounty_above_max_amount_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, maintainer, _, token_id, _, _) = setup_test(&env);
+
+    client.create_bounty(
+        &maintainer,
+        &token_id,
+        &(MAX_BOUNTY_AMOUNT + 1),
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32,
+    );
+}
+
+#[test]
 #[should_panic(expected = "DeadlineMustBeInTheFuture")]
 fn test_create_bounty_past_deadline() {
     let env = Env::default();
@@ -608,7 +653,7 @@ fn test_double_reserve_bounty() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, contributor, token_id) = setup_test(&env);
+    let (client, maintainer, contributor, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
 
@@ -620,6 +665,7 @@ fn test_double_reserve_bounty() {
         &1,
         &String::from_str(&env, "title"),
         &(env.ledger().timestamp() + 1000),
+        &0u32,
     );
 
     // First reservation should succeed
@@ -740,32 +786,4 @@ fn test_extend_deadline_earlier() {
     // Attempting to set a deadline earlier than the initial one
     let earlier_deadline = initial_deadline - 100;
     client.extend_deadline(&bounty_id, &maintainer, &earlier_deadline);
-}
-
-#[test]
-
-    let bounty_id = client.create_bounty(
-        &maintainer,
-        &token_id,
-        &500,
-        &String::from_str(&env, "repo"),
-        &1,
-        &String::from_str(&env, "title"),
-
-    let bounty_id = client.create_bounty(
-        &maintainer,
-        &token_id,
-        &500,
-        &String::from_str(&env, "repo"),
-        &1,
-        &String::from_str(&env, "title"),
-
-    let bounty_id = client.create_bounty(
-        &maintainer,
-        &token_id,
-        &500,
-        &String::from_str(&env, "repo"),
-        &1,
-        &String::from_str(&env, "title"),
-
 }
