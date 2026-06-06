@@ -82,9 +82,23 @@ registry.registerPath({
   summary: "List all bounties",
   description:
     "Returns every bounty record sorted by creation date (newest first). " +
-    "Bounties whose deadline has passed are automatically transitioned to `expired` before the list is returned.",
+    "Bounties whose deadline has passed are automatically transitioned to `expired` before the list is returned. " +
+    "Optionally filter by `?contributor=<stellar_address>` or `?maintainer=<stellar_address>`.",
+  request: {
+    query: z.object({
+      q: z.string().optional().openapi({ description: "Substring filter on title, summary, and labels." }),
+      contributor: z.string().optional().openapi({
+        example: "GBBB...BBB",
+        description: "Stellar address of the contributor to filter by. Returns bounties in Reserved, Submitted, Released, or Refunded statuses.",
+      }),
+      maintainer: z.string().optional().openapi({
+        example: "GAAA...AAA",
+        description: "Stellar address of the maintainer to filter by.",
+      }),
+    }),
+  },
   responses: {
-    200: jsonResponse("Array of all bounty records.", z.object({ data: z.array(bountyRecordSchema) })),
+    200: jsonResponse("Array of all matching bounty records.", z.object({ data: z.array(bountyRecordSchema) })),
   },
 });
 
@@ -219,6 +233,27 @@ registry.registerPath({
     "Returns a curated static list of open feature requests and contribution opportunities for the Stellar Bounty Board project itself.",
   responses: {
     200: jsonResponse("Array of open issues.", z.object({ data: z.array(openIssueSchema) })),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/bounties/by-issue",
+  tags: ["Bounties"],
+  summary: "Lookup bounty by GitHub repo and issue number",
+  description:
+    "Returns a single bounty matching the given `repo` (owner/repo slug) and `issue` (positive integer) query parameters. " +
+    "Returns 400 if either parameter is missing or invalid. Returns 404 if no bounty matches.",
+  request: {
+    query: z.object({
+      repo: z.string().openapi({ example: "ritik4ever/stellar-stream", description: "Full GitHub repo slug (owner/repo)." }),
+      issue: z.string().openapi({ example: "41", description: "GitHub issue number (positive integer)." }),
+    }),
+  },
+  responses: {
+    200: jsonResponse("Matching bounty record.", z.object({ data: bountyRecordSchema })),
+    400: errorResponse("Missing or invalid query parameters."),
+    404: errorResponse("No bounty found for the given repo and issue."),
   },
 });
 

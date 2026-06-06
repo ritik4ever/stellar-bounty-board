@@ -262,8 +262,21 @@ app.get('/worker/health', (_req: Request, res: Response) => {
 
 app.get('/api/bounties', async (req: Request, res: Response) => {
   const q = typeof req.query.q === 'string' ? req.query.q : undefined;
-  res.json({ data: await listBountiesCached({ q }) });
+  const contributor = typeof req.query.contributor === 'string' ? req.query.contributor.trim() : undefined;
+  const maintainer = typeof req.query.maintainer === 'string' ? req.query.maintainer.trim() : undefined;
+
+  let bounties = await listBountiesCached({ q });
+
+  if (contributor) {
+    bounties = bounties.filter((b) => b.contributor === contributor);
+  }
+  if (maintainer) {
+    bounties = bounties.filter((b) => b.maintainer === maintainer);
+  }
+
+  res.json({ data: bounties });
 });
+
 
 app.get('/api/leaderboard', (req: Request, res: Response) => {
   try {
@@ -499,6 +512,38 @@ app.post(
     });
   }
 );
+
+app.get('/api/bounties/by-issue', (req: Request, res: Response) => {
+  try {
+    const repo = typeof req.query.repo === 'string' ? req.query.repo.trim() : undefined;
+    const issue = typeof req.query.issue === 'string' ? req.query.issue.trim() : undefined;
+
+    if (!repo || !issue) {
+      jsonError(res, req, 400, 'Query parameters "repo" and "issue" are required.');
+      return;
+    }
+
+    const issueNumber = Number(issue);
+    if (!Number.isFinite(issueNumber) || !Number.isInteger(issueNumber) || issueNumber <= 0) {
+      jsonError(res, req, 400, '"issue" must be a positive integer.');
+      return;
+    }
+
+    const bounties = listBounties();
+    const bounty = bounties.find(
+      (b) => b.repo.toLowerCase() === repo.toLowerCase() && b.issueNumber === issueNumber,
+    );
+
+    if (!bounty) {
+      jsonError(res, req, 404, 'No bounty found for the given repo and issue.');
+      return;
+    }
+
+    res.json({ data: bounty });
+  } catch (error) {
+    sendError(res, req, error);
+  }
+});
 
 app.get('/api/open-issues', async (_req: Request, res: Response) => {
 
