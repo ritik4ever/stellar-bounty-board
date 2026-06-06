@@ -1,11 +1,12 @@
 #![no_std]
+#![allow(deprecated, clippy::too_many_arguments)]
 
 #[cfg(test)]
 mod test;
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short,
-    token::Client as TokenClient, Address, Env, String,
+    contract, contractimpl, contracttype, symbol_short, token::Client as TokenClient, Address, Env,
+    String, Vec,
 };
 
 #[contracttype]
@@ -293,11 +294,7 @@ impl StellarBountyBoardContract {
             panic_error(ContractError::BountyMustBeSubmitted);
         }
 
-        let contributor = bounty
-            .contributor
-            .clone()
-            .unwrap();
-
+        let contributor = bounty.contributor.clone().unwrap();
 
         let token_client = TokenClient::new(&env, &bounty.token);
         let contract_address = env.current_contract_address();
@@ -523,6 +520,31 @@ impl StellarBountyBoardContract {
         let mut bounty = read_bounty(&env, bounty_id);
         expire_if_needed(&env, &mut bounty);
         bounty
+    }
+
+    pub fn get_all_bounties(env: Env, start: u64, limit: u32) -> Vec<Bounty> {
+        let mut bounties = Vec::new(&env);
+        if start == 0 || limit == 0 {
+            return bounties;
+        }
+
+        let next_id = Self::get_next_bounty_id(env.clone());
+        if start > next_id {
+            return bounties;
+        }
+
+        let capped_limit = limit.min(50) as u64;
+        let end = start.saturating_add(capped_limit).min(next_id + 1);
+
+        let mut bounty_id = start;
+        while bounty_id < end {
+            let mut bounty = read_bounty(&env, bounty_id);
+            expire_if_needed(&env, &mut bounty);
+            bounties.push_back(bounty);
+            bounty_id += 1;
+        }
+
+        bounties
     }
 
     pub fn get_next_bounty_id(env: Env) -> u64 {

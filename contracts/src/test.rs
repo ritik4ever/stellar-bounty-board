@@ -1,10 +1,9 @@
-#![cfg(test)]
+#![allow(deprecated, clippy::needless_borrow)]
 
 use super::*;
 use soroban_sdk::{
-    symbol_short,
-    testutils::{Address as _, Events, Ledger},
-    Address, Env, IntoVal, String,
+    testutils::{Address as _, Ledger},
+    Address, Env, String,
 };
 
 // ─── Shared setup ────────────────────────────────────────────────────────────
@@ -608,7 +607,7 @@ fn test_double_reserve_bounty() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, contributor, token_id) = setup_test(&env);
+    let (client, maintainer, contributor, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
 
@@ -620,6 +619,7 @@ fn test_double_reserve_bounty() {
         &1,
         &String::from_str(&env, "title"),
         &(env.ledger().timestamp() + 1000),
+        &0u32,
     );
 
     // First reservation should succeed
@@ -743,29 +743,98 @@ fn test_extend_deadline_earlier() {
 }
 
 #[test]
+fn test_get_all_bounties_empty_page() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, _, _, _) = setup_test(&env);
 
-    let bounty_id = client.create_bounty(
+    let bounties = client.get_all_bounties(&1, &10);
+
+    assert_eq!(bounties.len(), 0);
+}
+
+#[test]
+fn test_get_all_bounties_full_and_partial_pages() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, maintainer, _, token_id, _, _) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &5_000);
+    let deadline = env.ledger().timestamp() + 1000;
+
+    for issue_number in 1..=5u32 {
+        client.create_bounty(
+            &maintainer,
+            &token_id,
+            &100,
+            &String::from_str(&env, "repo"),
+            &issue_number,
+            &String::from_str(&env, "title"),
+            &deadline,
+            &0u32,
+        );
+    }
+
+    let full_page = client.get_all_bounties(&1, &5);
+    assert_eq!(full_page.len(), 5);
+    assert_eq!(full_page.get(0).unwrap().issue_number, 1);
+    assert_eq!(full_page.get(4).unwrap().issue_number, 5);
+
+    let partial_page = client.get_all_bounties(&3, &10);
+    assert_eq!(partial_page.len(), 3);
+    assert_eq!(partial_page.get(0).unwrap().issue_number, 3);
+    assert_eq!(partial_page.get(2).unwrap().issue_number, 5);
+}
+
+#[test]
+fn test_get_all_bounties_enforces_limit_cap() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, maintainer, _, token_id, _, _) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &10_000);
+    let deadline = env.ledger().timestamp() + 1000;
+
+    for issue_number in 1..=55u32 {
+        client.create_bounty(
+            &maintainer,
+            &token_id,
+            &100,
+            &String::from_str(&env, "repo"),
+            &issue_number,
+            &String::from_str(&env, "title"),
+            &deadline,
+            &0u32,
+        );
+    }
+
+    let bounties = client.get_all_bounties(&1, &100);
+
+    assert_eq!(bounties.len(), 50);
+    assert_eq!(bounties.get(49).unwrap().issue_number, 50);
+}
+
+#[test]
+fn test_get_all_bounties_out_of_bounds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, maintainer, _, token_id, _, _) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1_000);
+    let deadline = env.ledger().timestamp() + 1000;
+
+    client.create_bounty(
         &maintainer,
         &token_id,
-        &500,
+        &100,
         &String::from_str(&env, "repo"),
         &1,
         &String::from_str(&env, "title"),
+        &deadline,
+        &0u32,
+    );
 
-    let bounty_id = client.create_bounty(
-        &maintainer,
-        &token_id,
-        &500,
-        &String::from_str(&env, "repo"),
-        &1,
-        &String::from_str(&env, "title"),
-
-    let bounty_id = client.create_bounty(
-        &maintainer,
-        &token_id,
-        &500,
-        &String::from_str(&env, "repo"),
-        &1,
-        &String::from_str(&env, "title"),
-
+    assert_eq!(client.get_all_bounties(&2, &10).len(), 0);
+    assert_eq!(client.get_all_bounties(&0, &10).len(), 0);
+    assert_eq!(client.get_all_bounties(&1, &0).len(), 0);
 }
