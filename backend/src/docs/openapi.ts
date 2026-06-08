@@ -6,6 +6,7 @@ import {
   bountyAuditLogSchema,
   bountyRecordSchema,
   createBountySchema,
+  deepHealthResponseSchema,
   errorResponseSchema,
   healthResponseSchema,
   maintainerActionSchema,
@@ -30,6 +31,7 @@ registry.register("MaintainerActionRequest", maintainerActionSchema);
 registry.register("ErrorResponse", errorResponseSchema);
 registry.register("OpenIssue", openIssueSchema);
 registry.register("HealthResponse", healthResponseSchema);
+registry.register("DeepHealthResponse", deepHealthResponseSchema);
 
 // ---------------------------------------------------------------------------
 // Reusable inline helpers
@@ -72,6 +74,20 @@ registry.registerPath({
   description: "Returns the service name and current server timestamp. Use this to verify the API is reachable.",
   responses: {
     200: jsonResponse("Service is healthy.", z.object({ data: healthResponseSchema })),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/health/deep",
+  tags: ["System"],
+  summary: "Deep dependency health check",
+  description:
+    "Checks JSON store read/write, Soroban RPC reachability, contract ID configuration, " +
+    "and maintainer/arbiter auth configuration. This endpoint is excluded from rate limiting.",
+  responses: {
+    200: jsonResponse("All critical components are up.", deepHealthResponseSchema),
+    503: jsonResponse("At least one critical component is down.", deepHealthResponseSchema),
   },
 });
 

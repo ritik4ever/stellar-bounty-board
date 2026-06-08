@@ -493,7 +493,7 @@
         "properties": {
           "service": {
             "type": "string",
-            "example": "stellar-bounty-board-backend"
+            "example": "stellar-bounty-board-api"
           },
           "status": {
             "type": "string",
@@ -508,6 +508,72 @@
           "service",
           "status",
           "timestamp"
+        ]
+      },
+      "DeepHealthResponse": {
+        "type": "object",
+        "properties": {
+          "overall": {
+            "type": "string",
+            "enum": [
+              "up",
+              "down"
+            ],
+            "example": "up",
+            "description": "Overall status. Down when any critical component is down."
+          },
+          "components": {
+            "type": "object",
+            "description": "Per-component dependency status.",
+            "properties": {
+              "store": {
+                "type": "string",
+                "enum": [
+                  "up",
+                  "down"
+                ],
+                "example": "up",
+                "description": "JSON bounty store read/write health."
+              },
+              "soroban": {
+                "type": "string",
+                "enum": [
+                  "up",
+                  "down"
+                ],
+                "example": "up",
+                "description": "Soroban RPC getHealth reachability."
+              },
+              "contract": {
+                "type": "string",
+                "enum": [
+                  "up",
+                  "down"
+                ],
+                "example": "up",
+                "description": "Required contract ID configuration presence."
+              },
+              "auth": {
+                "type": "string",
+                "enum": [
+                  "up",
+                  "down"
+                ],
+                "example": "up",
+                "description": "Required maintainer and arbiter auth configuration presence."
+              }
+            },
+            "required": [
+              "store",
+              "soroban",
+              "contract",
+              "auth"
+            ]
+          }
+        },
+        "required": [
+          "overall",
+          "components"
         ]
       }
     },
@@ -952,6 +1018,37 @@
                   "required": [
                     "data"
                   ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health/deep": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Deep dependency health check",
+        "description": "Checks JSON store read/write, Soroban RPC reachability, contract ID configuration, and maintainer/arbiter auth configuration. This endpoint is excluded from rate limiting.",
+        "responses": {
+          "200": {
+            "description": "All critical components are up.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeepHealthResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "At least one critical component is down.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeepHealthResponse"
                 }
               }
             }

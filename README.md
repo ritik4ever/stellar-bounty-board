@@ -72,6 +72,7 @@ Base URL:
 Routes:
 
 - `GET /api/health`
+- `GET /api/health/deep`
 - `GET /api/bounties`
 - `POST /api/bounties`
 - `POST /api/bounties/:id/reserve`
@@ -79,6 +80,10 @@ Routes:
 - `POST /api/bounties/:id/release`
 - `POST /api/bounties/:id/refund`
 - `GET /api/open-issues`
+
+`GET /api/health/deep` returns dependency status for the JSON store, Soroban
+RPC, contract configuration, and auth configuration. It responds with `503` when
+any critical component is down and is excluded from API rate limiting.
 
 ## Run Locally
 
