@@ -5,12 +5,24 @@ import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CONTRIBUTOR, MAINTAINER } from './fixtures';
 
+const loggerMock = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+}));
+
+vi.mock('../src/logger', () => ({
+  logger: loggerMock,
+  logStructured: vi.fn(),
+}));
+
 let storeFile: string;
 
 beforeEach(() => {
   storeFile = path.join(os.tmpdir(), `expiration-test-${randomUUID()}.json`);
   fs.writeFileSync(storeFile, '[]', 'utf8');
   process.env.BOUNTY_STORE_PATH = storeFile;
+  loggerMock.info.mockClear();
+  loggerMock.warn.mockClear();
   vi.resetModules();
 });
 
@@ -31,10 +43,6 @@ afterEach(() => {
     // best-effort cleanup
   }
 });
-
-async function loadStore() {
-  return import('../src/services/bountyStore');
-}
 
 async function loadJob() {
   return import('../src/services/reservationExpirationJob');
@@ -77,9 +85,8 @@ function makeReservedBounty(reservedSecondsAgo: number) {
 
 describe('expireStaleReservations', () => {
   it('does not expire a fresh reservation', async () => {
-    const store = await loadStore();
-
-    await store.reserveBounty(bounty.id, CONTRIBUTOR);
+    const fresh = makeReservedBounty(1 * 24 * 60 * 60);
+    fs.writeFileSync(storeFile, JSON.stringify([fresh], null, 2));
 
     const { expireStaleReservations } = await loadJob();
     const result = expireStaleReservations(7 * 24 * 60 * 60);
@@ -87,7 +94,9 @@ describe('expireStaleReservations', () => {
     expect(result.expiredCount).toBe(0);
     expect(result.expiredBountyIds).toHaveLength(0);
 
-    const after = store.listBounties().find((item) => item.id === bounty.id);
+    const raw = JSON.parse(fs.readFileSync(storeFile, 'utf8'));
+    const after = raw.find((item: { id: string }) => item.id === fresh.id);
+
     expect(after?.status).toBe('reserved');
   });
 
@@ -144,6 +153,31 @@ describe('expireStaleReservations', () => {
     expect(freshUpdated.status).toBe('reserved');
   });
 
+  it('logs a structured summary after expiring two reservations', async () => {
+    const stale1 = makeReservedBounty(8 * 24 * 60 * 60);
+    const stale2 = makeReservedBounty(10 * 24 * 60 * 60);
+    const fresh = makeReservedBounty(1 * 24 * 60 * 60);
+
+    fs.writeFileSync(storeFile, JSON.stringify([stale1, stale2, fresh], null, 2));
+
+    const { expireStaleReservations } = await loadJob();
+    const result = expireStaleReservations(7 * 24 * 60 * 60);
+
+    expect(result.checkedCount).toBe(3);
+    expect(result.expiredCount).toBe(2);
+    expect(result.errorCount).toBe(0);
+    expect(result.durationMs).toEqual(expect.any(Number));
+    expect(loggerMock.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        checked: 3,
+        expired: 2,
+        errors: 0,
+        durationMs: expect.any(Number),
+      }),
+      '[ExpirationJob] Reservation expiration run completed'
+    );
+  });
+
   it('respects RESERVATION_TTL_DAYS env var', async () => {
     process.env.RESERVATION_TTL_DAYS = '3';
 
@@ -158,16 +192,21 @@ describe('expireStaleReservations', () => {
   });
 
   it('does not touch submitted bounties', async () => {
-    const store = await loadStore();
-
+    const submitted = {
+      ...makeReservedBounty(8 * 24 * 60 * 60),
+      status: 'submitted' as const,
+      submittedAt: nowSeconds(),
+    };
+    fs.writeFileSync(storeFile, JSON.stringify([submitted], null, 2));
 
     const { expireStaleReservations } = await loadJob();
     const result = expireStaleReservations(0);
 
-    const after = store.listBounties().find((item) => item.id === bounty.id);
+    const raw = JSON.parse(fs.readFileSync(storeFile, 'utf8'));
+    const after = raw.find((item: { id: string }) => item.id === submitted.id);
 
     expect(after?.status).toBe('submitted');
-    expect(result.expiredBountyIds).not.toContain(bounty.id);
+    expect(result.expiredBountyIds).not.toContain(submitted.id);
   });
 
   it('returns checkedAt timestamp', async () => {
