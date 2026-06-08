@@ -43,6 +43,7 @@ enum DataKey {
     FeeRecipient,
     Arbiter,
     DisputeWindow,
+    Paused,
 }
 
 #[contracttype]
@@ -113,6 +114,12 @@ pub struct BountyDeadlineExtended {
 
 #[contracttype]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ContractPaused {
+    pub paused: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ContractError {
     InvalidAmount,
     DeadlineMustBeInTheFuture,
@@ -129,6 +136,7 @@ pub enum ContractError {
     BountyNotFound,
     NotArbiter,
     DisputeWindowNotMet,
+    ContractPaused,
 }
 
 fn panic_error(error: ContractError) -> ! {
@@ -161,6 +169,32 @@ impl StellarBountyBoardContract {
             .unwrap_or_else(|| panic!("not initialized"))
     }
 
+    pub fn set_paused(env: Env, paused: bool) {
+        let fee_recipient: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::FeeRecipient)
+            .unwrap_or_else(|| panic!("not initialized"));
+
+        fee_recipient.require_auth();
+        env.storage().persistent().set(&DataKey::Paused, &paused);
+
+        let event_name = if paused {
+            symbol_short!("Paused")
+        } else {
+            symbol_short!("Unpaused")
+        };
+
+        env.events().publish(
+            (symbol_short!("Contract"), event_name),
+            ContractPaused { paused },
+        );
+    }
+
+    pub fn is_paused(env: Env) -> bool {
+        is_contract_paused(&env)
+    }
+
     pub fn create_bounty(
         env: Env,
         maintainer: Address,
@@ -172,6 +206,7 @@ impl StellarBountyBoardContract {
         deadline: u64,
         protocol_fee_bps: u32,
     ) -> u64 {
+        require_not_paused(&env);
         maintainer.require_auth();
 
         if amount <= 0 {
@@ -237,6 +272,7 @@ impl StellarBountyBoardContract {
     }
 
     pub fn reserve_bounty(env: Env, bounty_id: u64, contributor: Address) {
+        require_not_paused(&env);
         contributor.require_auth();
         let mut bounty = read_bounty(&env, bounty_id);
         expire_if_needed(&env, &mut bounty);
@@ -259,6 +295,7 @@ impl StellarBountyBoardContract {
     }
 
     pub fn submit_bounty(env: Env, bounty_id: u64, contributor: Address) {
+        require_not_paused(&env);
         contributor.require_auth();
         let mut bounty = read_bounty(&env, bounty_id);
         expire_if_needed(&env, &mut bounty);
@@ -283,6 +320,7 @@ impl StellarBountyBoardContract {
     }
 
     pub fn release_bounty(env: Env, bounty_id: u64, maintainer: Address) {
+        require_not_paused(&env);
         maintainer.require_auth();
         let mut bounty = read_bounty(&env, bounty_id);
 
@@ -293,11 +331,7 @@ impl StellarBountyBoardContract {
             panic_error(ContractError::BountyMustBeSubmitted);
         }
 
-        let contributor = bounty
-            .contributor
-            .clone()
-            .unwrap();
-
+        let contributor = bounty.contributor.clone().unwrap();
 
         let token_client = TokenClient::new(&env, &bounty.token);
         let contract_address = env.current_contract_address();
@@ -345,6 +379,7 @@ impl StellarBountyBoardContract {
     }
 
     pub fn refund_bounty(env: Env, bounty_id: u64, maintainer: Address) {
+        require_not_paused(&env);
         maintainer.require_auth();
         let mut bounty = read_bounty(&env, bounty_id);
 
@@ -412,6 +447,7 @@ impl StellarBountyBoardContract {
     }
 
     pub fn dispute_bounty(env: Env, bounty_id: u64, arbiter: Address) {
+        require_not_paused(&env);
         let mut bounty = read_bounty(&env, bounty_id);
         let contributor = bounty
             .contributor
@@ -449,6 +485,7 @@ impl StellarBountyBoardContract {
     }
 
     pub fn resolve_dispute(env: Env, bounty_id: u64, release: bool) {
+        require_not_paused(&env);
         let arbiter: Address = env
             .storage()
             .persistent()
@@ -544,6 +581,19 @@ fn write_bounty(env: &Env, bounty_id: u64, bounty: &Bounty) {
     env.storage()
         .persistent()
         .set(&DataKey::Bounty(bounty_id), bounty);
+}
+
+fn is_contract_paused(env: &Env) -> bool {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Paused)
+        .unwrap_or(false)
+}
+
+fn require_not_paused(env: &Env) {
+    if is_contract_paused(env) {
+        panic_error(ContractError::ContractPaused);
+    }
 }
 
 fn expire_if_needed(env: &Env, bounty: &mut Bounty) {
