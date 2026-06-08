@@ -7,6 +7,9 @@ export interface ExpirationResult {
   expiredCount: number;
   expiredBountyIds: string[];
   checkedAt: number;
+  checkedCount: number;
+  errorCount: number;
+  durationMs: number;
 }
 
 function getReservationTtlSeconds(): number {
@@ -80,11 +83,13 @@ function expireReservation(
 }
 
 export function expireStaleReservations(ttlSeconds?: number): ExpirationResult {
+  const startedAt = Date.now();
   const checkedAt = Math.floor(Date.now() / 1000);
   const ttl = ttlSeconds ?? getReservationTtlSeconds();
   const bounties = readBounties();
 
   const expiredBountyIds: string[] = [];
+  let errorCount = 0;
 
   const updated = bounties.map((bounty) => {
     const isStaleReservation =
@@ -104,17 +109,45 @@ export function expireStaleReservations(ttlSeconds?: number): ExpirationResult {
       '[ExpirationJob] Expiring stale reservation'
     );
 
-    expiredBountyIds.push(bounty.id);
+    try {
+      const expired = expireReservation(bounty, checkedAt, ttl);
+      expiredBountyIds.push(bounty.id);
 
-    return expireReservation(bounty, checkedAt, ttl);
+      return expired;
+    } catch (error) {
+      errorCount += 1;
+      logger.warn(
+        {
+          bountyId: bounty.id,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        '[ExpirationJob] Failed to expire stale reservation'
+      );
+
+      return bounty;
+    }
   });
 
   writeBounties(updated);
+  const durationMs = Date.now() - startedAt;
+
+  logger.info(
+    {
+      checked: bounties.length,
+      expired: expiredBountyIds.length,
+      errors: errorCount,
+      durationMs,
+    },
+    '[ExpirationJob] Reservation expiration run completed'
+  );
 
   return {
     expiredCount: expiredBountyIds.length,
     expiredBountyIds,
     checkedAt,
+    checkedCount: bounties.length,
+    errorCount,
+    durationMs,
   };
 }
 
