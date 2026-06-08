@@ -2,10 +2,14 @@ import compression from 'compression';
 import cors from 'cors';
 import express, { Request, Response, NextFunction } from 'express';
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import swaggerUi from 'swagger-ui-express';
 import { buildCorsOptions } from './middleware/corsOptions';
 import { generateOpenApiDocument } from './docs/openapi';
+import { logStructured } from './logger';
 import { getMetrics, httpRequestDuration } from './metrics';
+import { mutationLimiter, readLimiter } from './utils';
 
 import {
   createBounty,
@@ -22,7 +26,6 @@ import {
   getMaintainerMetrics,
   getGlobalMetrics,
   getLeaderboard,
-  listBountiesCached,
 } from './services/bountyStore';
 
 import {
@@ -32,6 +35,7 @@ import {
   reserveBountySchema,
   submitBountySchema,
   zodErrorMessage,
+} from './validation/schemas';
 
 import {
   captureRawBody,
@@ -44,6 +48,92 @@ import {
 import { handleGitHubPrEvent } from './webhooks/githubPrHandler';
 
 const INCOMING_REQUEST_ID = /^[a-zA-Z0-9-]{1,128}$/;
+const DEFAULT_SOROBAN_RPC_URL = 'https://rpc-futurenet.stellar.org';
+
+type ComponentStatus = 'up' | 'down';
+
+interface DeepHealthResponse {
+  overall: ComponentStatus;
+  components: {
+    store: ComponentStatus;
+    soroban: ComponentStatus;
+    contract: ComponentStatus;
+    auth: ComponentStatus;
+  };
+}
+
+function resolveStorePath(): string {
+  if (process.env.BOUNTY_STORE_PATH?.trim()) {
+    return path.resolve(process.env.BOUNTY_STORE_PATH.trim());
+  }
+
+  return path.resolve(__dirname, '../data/bounties.json');
+}
+
+function checkStoreHealth(): ComponentStatus {
+  const storePath = resolveStorePath();
+  fs.mkdirSync(path.dirname(storePath), { recursive: true });
+
+  if (!fs.existsSync(storePath)) {
+    fs.writeFileSync(storePath, '[]\n', 'utf8');
+  }
+
+  const raw = fs.readFileSync(storePath, 'utf8');
+  JSON.parse(raw.trim() || '[]');
+  fs.writeFileSync(storePath, raw, 'utf8');
+
+  return 'up';
+}
+
+async function checkSorobanHealth(): Promise<ComponentStatus> {
+  const rpcUrl = process.env.SOROBAN_RPC_URL?.trim() || DEFAULT_SOROBAN_RPC_URL;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 2000);
+
+  try {
+    const response = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 'health', method: 'getHealth' }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      return 'down';
+    }
+
+    const body = (await response.json()) as { error?: unknown };
+    return body.error ? 'down' : 'up';
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function hasAnyEnv(...names: string[]): boolean {
+  return names.some((name) => Boolean(process.env[name]?.trim()));
+}
+
+async function buildDeepHealth(): Promise<DeepHealthResponse> {
+  const checks = await Promise.allSettled([checkStoreHealth(), checkSorobanHealth()]);
+  const store = checks[0].status === 'fulfilled' ? checks[0].value : 'down';
+  const soroban = checks[1].status === 'fulfilled' ? checks[1].value : 'down';
+  const contract = hasAnyEnv('CONTRACT_ID', 'SOROBAN_CONTRACT_ID') ? 'up' : 'down';
+  const auth =
+    hasAnyEnv('MAINTAINER_PUBLIC_KEY', 'MAINTAINER_PUBLIC_KEYS') &&
+    hasAnyEnv('ARBITER_ADDRESS')
+      ? 'up'
+      : 'down';
+
+  const components = { store, soroban, contract, auth };
+  const overall = Object.values(components).every((status) => status === 'up') ? 'up' : 'down';
+
+  return { overall, components };
+}
+
+async function deepHealthHandler(_req: Request, res: Response): Promise<void> {
+  const health = await buildDeepHealth();
+  res.status(health.overall === 'up' ? 200 : 503).json(health);
+}
 
 function resolveRequestId(req: Request): string {
   const raw = req.headers['x-request-id'];
@@ -103,6 +193,7 @@ app.use(
 );
 
 app.use(requestContextMiddleware);
+app.get('/api/health/deep', deepHealthHandler);
 app.use(readLimiter);
 
 const swaggerDoc = generateOpenApiDocument();
@@ -250,7 +341,6 @@ const healthHandler = (_req: Request, res: Response) => {
 };
 
 app.get('/api/health', healthHandler);
-app.get('/api/health/deep', healthHandler);
 
 app.get('/worker/health', (_req: Request, res: Response) => {
   res.json({

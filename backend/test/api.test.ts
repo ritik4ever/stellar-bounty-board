@@ -17,6 +17,13 @@ beforeEach(async () => {
 
 afterEach(() => {
   delete process.env.BOUNTY_STORE_PATH;
+  delete process.env.SOROBAN_RPC_URL;
+  delete process.env.CONTRACT_ID;
+  delete process.env.SOROBAN_CONTRACT_ID;
+  delete process.env.MAINTAINER_PUBLIC_KEY;
+  delete process.env.MAINTAINER_PUBLIC_KEYS;
+  delete process.env.ARBITER_ADDRESS;
+  vi.unstubAllGlobals();
   try {
     fs.unlinkSync(storeFile);
   } catch {
@@ -41,6 +48,59 @@ describe("API — health and listing", () => {
     const res = await request(app).get("/api/health").expect(200);
     expect(res.body.status).toBe("ok");
     expect(res.body.service).toContain("bounty-board");
+  });
+
+  it("GET /api/health/deep returns component status when dependencies are healthy", async () => {
+    process.env.SOROBAN_RPC_URL = "https://rpc.example.test";
+    process.env.CONTRACT_ID = "contract-123";
+    process.env.MAINTAINER_PUBLIC_KEY = MAINTAINER;
+    process.env.ARBITER_ADDRESS = OTHER_ACCOUNT;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ jsonrpc: "2.0", id: "health", result: "healthy" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+
+    const app = await getApp();
+    const res = await request(app).get("/api/health/deep").expect(200);
+
+    expect(res.body).toEqual({
+      overall: "up",
+      components: {
+        store: "up",
+        soroban: "up",
+        contract: "up",
+        auth: "up",
+      },
+    });
+  });
+
+  it("GET /api/health/deep returns 503 when critical config is missing", async () => {
+    process.env.SOROBAN_RPC_URL = "https://rpc.example.test";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ jsonrpc: "2.0", id: "health", result: "healthy" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+
+    const app = await getApp();
+    const res = await request(app).get("/api/health/deep").expect(503);
+
+    expect(res.body.overall).toBe("down");
+    expect(res.body.components).toMatchObject({
+      store: "up",
+      soroban: "up",
+      contract: "down",
+      auth: "down",
+    });
   });
 
   it("GET /api/bounties returns data array", async () => {

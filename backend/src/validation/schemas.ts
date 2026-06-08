@@ -257,9 +257,44 @@ export const bountyAuditLogListResponseSchema = z
 
 export const healthResponseSchema = z
   .object({
-
+    service: z.string().openapi({ example: 'stellar-bounty-board-api' }),
+    status: z.string().openapi({ example: 'ok' }),
+    timestamp: z.string().openapi({ example: '2026-03-24T19:00:00.000Z' }),
   })
   .openapi('HealthResponse');
+
+const componentHealthSchema = z.enum(['up', 'down']);
+
+export const deepHealthResponseSchema = z
+  .object({
+    overall: componentHealthSchema.openapi({
+      example: 'up',
+      description: 'Overall status. Down when any critical component is down.',
+    }),
+    components: z
+      .object({
+        store: componentHealthSchema.openapi({
+          example: 'up',
+          description: 'JSON bounty store read/write health.',
+        }),
+        soroban: componentHealthSchema.openapi({
+          example: 'up',
+          description: 'Soroban RPC getHealth reachability.',
+        }),
+        contract: componentHealthSchema.openapi({
+          example: 'up',
+          description: 'Required contract ID configuration presence.',
+        }),
+        auth: componentHealthSchema.openapi({
+          example: 'up',
+          description: 'Required maintainer and arbiter auth configuration presence.',
+        }),
+      })
+      .openapi({
+        description: 'Per-component dependency status.',
+      }),
+  })
+  .openapi('DeepHealthResponse');
 
 export function zodErrorMessage(error: z.ZodError): string {
   return error.issues
