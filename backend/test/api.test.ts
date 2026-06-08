@@ -77,6 +77,9 @@ describe("API — health and listing", () => {
         auth: "up",
       },
     });
+
+    await request(app).get("/api/health/deep").expect(200);
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("GET /api/health/deep returns 503 when critical config is missing", async () => {
@@ -100,6 +103,34 @@ describe("API — health and listing", () => {
       soroban: "up",
       contract: "down",
       auth: "down",
+    });
+  });
+
+  it("GET /api/health/deep returns 503 when the bounty store is malformed", async () => {
+    fs.writeFileSync(storeFile, "{not-json", "utf8");
+    process.env.SOROBAN_RPC_URL = "https://rpc.example.test";
+    process.env.CONTRACT_ID = "contract-123";
+    process.env.MAINTAINER_PUBLIC_KEY = MAINTAINER;
+    process.env.ARBITER_ADDRESS = OTHER_ACCOUNT;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ jsonrpc: "2.0", id: "health", result: "healthy" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+
+    const app = await getApp();
+    const res = await request(app).get("/api/health/deep").expect(503);
+
+    expect(res.body.overall).toBe("down");
+    expect(res.body.components).toMatchObject({
+      store: "down",
+      soroban: "up",
+      contract: "up",
+      auth: "up",
     });
   });
 

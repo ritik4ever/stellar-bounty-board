@@ -49,6 +49,7 @@ import { handleGitHubPrEvent } from './webhooks/githubPrHandler';
 
 const INCOMING_REQUEST_ID = /^[a-zA-Z0-9-]{1,128}$/;
 const DEFAULT_SOROBAN_RPC_URL = 'https://rpc-futurenet.stellar.org';
+const DEEP_HEALTH_CACHE_MS = 10_000;
 
 type ComponentStatus = 'up' | 'down';
 
@@ -61,6 +62,8 @@ interface DeepHealthResponse {
     auth: ComponentStatus;
   };
 }
+
+let deepHealthCache: { expiresAt: number; value: DeepHealthResponse } | null = null;
 
 function resolveStorePath(): string {
   if (process.env.BOUNTY_STORE_PATH?.trim()) {
@@ -114,7 +117,10 @@ function hasAnyEnv(...names: string[]): boolean {
 }
 
 async function buildDeepHealth(): Promise<DeepHealthResponse> {
-  const checks = await Promise.allSettled([checkStoreHealth(), checkSorobanHealth()]);
+  const checks = await Promise.allSettled([
+    Promise.resolve().then(() => checkStoreHealth()),
+    Promise.resolve().then(() => checkSorobanHealth()),
+  ]);
   const store = checks[0].status === 'fulfilled' ? checks[0].value : 'down';
   const soroban = checks[1].status === 'fulfilled' ? checks[1].value : 'down';
   const contract = hasAnyEnv('CONTRACT_ID', 'SOROBAN_CONTRACT_ID') ? 'up' : 'down';
@@ -130,8 +136,21 @@ async function buildDeepHealth(): Promise<DeepHealthResponse> {
   return { overall, components };
 }
 
+async function getDeepHealthCached(): Promise<DeepHealthResponse> {
+  const now = Date.now();
+
+  if (deepHealthCache && deepHealthCache.expiresAt > now) {
+    return deepHealthCache.value;
+  }
+
+  const value = await buildDeepHealth();
+  deepHealthCache = { value, expiresAt: now + DEEP_HEALTH_CACHE_MS };
+
+  return value;
+}
+
 async function deepHealthHandler(_req: Request, res: Response): Promise<void> {
-  const health = await buildDeepHealth();
+  const health = await getDeepHealthCached();
   res.status(health.overall === 'up' ? 200 : 503).json(health);
 }
 
