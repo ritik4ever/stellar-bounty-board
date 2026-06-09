@@ -137,6 +137,11 @@ This project uses Vitest for testing. Tests are organized by type and located in
 
 ### Running Tests
 
+Backend tests run with `NODE_ENV=test`. In that environment the API rate-limit
+middleware is intentionally replaced with a no-op passthrough so high-volume
+integration tests can exercise routes without flaky `429` responses. Production
+and development keep the configured read and mutation limits active.
+
 **Run all tests:**
 ```bash
 npm test
