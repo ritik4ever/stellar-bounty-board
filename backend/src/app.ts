@@ -22,6 +22,7 @@ import {
   getMaintainerMetrics,
   getGlobalMetrics,
   getLeaderboard,
+  getBountyEventsPaginated,
   listBountiesCached,
 } from './services/bountyStore';
 
@@ -279,7 +280,19 @@ app.get('/api/bounties/:id/audit-logs', (req: Request, res: Response) => {
   try {
     const limit = parsePaginationValue(req.query.limit, 'limit', 20, 1, 100);
     const offset = parsePaginationValue(req.query.offset, 'offset', 0, 0);
-    const page = listBountyAuditLogs(parseId(req.params.id), { limit, offset });
+    const page = listBountyAuditLogs(parseId(req.params.id), { limit, offset })
+
+app.get('/api/bounties/:id/events', (req: Request, res: Response) => {
+  try {
+    const limit = parsePaginationValue(req.query.limit, 'limit', 20, 1, 100);
+    const offset = parsePaginationValue(req.query.offset, 'offset', 0, 0);
+    const page = getBountyEventsPaginated(parseId(req.params.id), { limit, offset });
+    res.json(page);
+  } catch (error) {
+    sendError(res, req, error);
+  }
+});
+;
 
     res.json(page);
   } catch (error) {
