@@ -1,4 +1,20 @@
-import compression from 'compression';
+i
+
+app.patch('/api/bounties/:id/metadata', async (req: Request, res: Response) => {
+  try {
+    const id = parseId(req.params.id);
+    const { maintainer, title } = req.body;
+    if (!maintainer || !title) {
+      jsonError(res, req, 400, 'maintainer and title are required.');
+      return;
+    }
+    const updated = await updateBountyMetadata(id, maintainer, title);
+    res.json({ data: updated });
+  } catch (error) {
+    sendError(res, req, error);
+  }
+});
+mport compression from 'compression';
 import cors from 'cors';
 import express, { Request, Response, NextFunction } from 'express';
 import { randomUUID } from 'node:crypto';
@@ -22,6 +38,7 @@ import {
   getMaintainerMetrics,
   getGlobalMetrics,
   getLeaderboard,
+  updateBountyMetadata,
   listBountiesCached,
 } from './services/bountyStore';
 
