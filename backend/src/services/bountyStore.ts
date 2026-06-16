@@ -877,7 +877,27 @@ export interface AuditLogPage {
  * @param {number} [options.offset=0] - The starting index for pagination.
  * @returns {AuditLogPage} An object containing the requested page of audit logs and pagination metadata.
  */
+
+export function listAllAuditLogs(options: { limit?: number; offset?: number } = {}): AuditLogPage {
+  const { limit = 50, offset = 0 } = options;
+  const all = readAuditStore();
+  const total = all.length;
+  const data = all.slice(offset, offset + limit);
+  const hasMore = offset + limit < total;
+  return {
+    data,
+    pagination: {
+      limit,
+      offset,
+      total,
+      hasMore,
+      nextOffset: hasMore ? offset + limit : null,
+    },
+  };
+}
+
 export function listBountyAuditLogs(
+
   bountyId: string,
   options: { limit?: number; offset?: number } = {},
 ): AuditLogPage {
@@ -900,6 +920,43 @@ export function listBountyAuditLogs(
 
 /**
 
+
+export interface BountyEventPage {
+  data: BountyEvent[];
+  pagination: {
+    limit: number;
+    offset: number;
+    total: number;
+    hasMore: boolean;
+    nextOffset: number | null;
+  };
+}
+
+export function getBountyEventsPaginated(
+  bountyId: string,
+  options: { limit?: number; offset?: number } = {},
+): BountyEventPage {
+  const { limit = 20, offset = 0 } = options;
+  const records = listBounties();
+  const bounty = records.find((b) => b.id === bountyId);
+  if (!bounty) {
+    throw new Error(`Bounty ${bountyId} not found.`);
+  }
+  const allEvents = bounty.events ?? [];
+  const total = allEvents.length;
+  const data = allEvents.slice(offset, offset + limit);
+  const hasMore = offset + limit < total;
+  return {
+    data,
+    pagination: {
+      limit,
+      offset,
+      total,
+      hasMore,
+      nextOffset: hasMore ? offset + limit : null,
+    },
+  };
+}
 export function getBountyEvents(bountyId: string): BountyEvent[] {
   const records = listBounties();
   const bounty = records.find((b) => b.id === bountyId);
