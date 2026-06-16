@@ -549,6 +549,53 @@ async function withGlobalLock<T>(fn: () => T | Promise<T>): Promise<T> {
   }
 }
 
+
+export async function updateBountyMetadata(
+  id: string,
+  maintainer: string,
+  newTitle: string,
+): Promise<BountyRecord> {
+  return withGlobalLock(async () => {
+    const records = listBounties();
+    const bounty = findBounty(records, id);
+
+    if (bounty.maintainer !== maintainer) {
+      throw new Error('Only the original maintainer can update metadata.');
+    }
+    if (['released', 'refunded', 'expired'].includes(bounty.status)) {
+      throw new Error('Cannot update metadata for finalized bounties.');
+    }
+
+    const updated: BountyRecord = {
+      ...bounty,
+      title: newTitle,
+      version: bounty.version + 1,
+      events: [
+        ...bounty.events,
+        { 
+          type: 'updated' as any, 
+          timestamp: Math.floor(Date.now() / 1000), 
+          details: { oldTitle: bounty.title, newTitle } 
+        },
+      ],
+    };
+
+    const persisted = persistUpdated(records, updated);
+    appendAuditLogs([
+      {
+        bountyId: id,
+        fromStatus: bounty.status,
+        toStatus: bounty.status,
+        transition: 'update' as any,
+        actor: maintainer,
+        metadata: { oldTitle: bounty.title, newTitle },
+      },
+    ]);
+    await invalidateBountyCache();
+    return persisted;
+  });
+}
+
 export async function createBounty(
   input: CreateBountyInput,
 ): Promise<BountyRecord> {
