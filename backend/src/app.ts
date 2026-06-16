@@ -13,6 +13,7 @@ import {
   listAllAuditLogs,
   listBounties,
   listBountiesCached,
+  findBountyByIssue,
   invalidateBountyCache,
   refundBounty,
   releaseBounty,
@@ -23,6 +24,7 @@ import {
   getGlobalMetrics,
   getLeaderboard,
   listBountiesCached,
+  findBountyByIssue,
 } from './services/bountyStore';
 
 import {
@@ -262,7 +264,26 @@ app.get('/worker/health', (_req: Request, res: Response) => {
 
 app.get('/api/bounties', async (req: Request, res: Response) => {
   const q = typeof req.query.q === 'string' ? req.query.q : undefined;
-  res.json({ data: await listBountiesCached({ q }) });
+  res.json({ data: await listBountiesCached({ q }) })
+
+app.get('/api/bounties/by-issue', (req: Request, res: Response) => {
+  try {
+    const { repo, issue } = req.query;
+    if (!repo || !issue) {
+      jsonError(res, req, 400, 'repo and issue parameters are required.');
+      return;
+    }
+    const bounty = findBountyByIssue(typeof repo === 'string' ? repo : '', Number(issue));
+    if (!bounty) {
+      jsonError(res, req, 404, 'Bounty for this issue not found.');
+      return;
+    }
+    res.json({ data: bounty });
+  } catch (error) {
+    sendError(res, req, error);
+  }
+});
+;
 });
 
 app.get('/api/leaderboard', (req: Request, res: Response) => {

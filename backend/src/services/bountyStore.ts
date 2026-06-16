@@ -436,6 +436,12 @@ function nextId(records: BountyRecord[]): string {
   return `BNT-${String(max + 1).padStart(4, "0")}`;
 }
 
+
+export function findBountyByIssue(repo: string, issueNumber: number): BountyRecord | undefined {
+  const records = listBounties();
+  return records.find((b) => b.repo.toLowerCase() === repo.toLowerCase() && b.issueNumber === issueNumber);
+}
+
 function findBounty(records: BountyRecord[], id: string): BountyRecord {
   const bounty = records.find((record) => record.id === id);
   if (!bounty) {
