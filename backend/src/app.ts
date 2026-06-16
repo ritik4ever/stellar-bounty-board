@@ -293,8 +293,22 @@ app.get('/api/bounties/by-issue', async (req: Request, res: Response) => {
 });
 
 app.get('/api/bounties', async (req: Request, res: Response) => {
-  const q = typeof req.query.q === 'string' ? req.query.q : undefined;
-  res.json({ data: await listBountiesCached({ q }) });
+  try {
+    const q = typeof req.query.q === 'string' ? req.query.q : undefined;
+    const contributor = typeof req.query.contributor === 'string' ? req.query.contributor : undefined;
+    
+    const bounties = await listBountiesCached({ q });
+    
+    if (contributor) {
+      const filtered = bounties.filter(b => b.contributor?.toLowerCase() === contributor.toLowerCase());
+      res.json({ data: filtered });
+      return;
+    }
+    
+    res.json({ data: bounties });
+  } catch (error) {
+    sendError(res, req, error);
+  }
 });
 
 app.get('/api/leaderboard', (req: Request, res: Response) => {
