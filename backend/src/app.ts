@@ -296,16 +296,19 @@ app.get('/api/bounties', async (req: Request, res: Response) => {
   try {
     const q = typeof req.query.q === 'string' ? req.query.q : undefined;
     const contributor = typeof req.query.contributor === 'string' ? req.query.contributor : undefined;
+    const maintainer = typeof req.query.maintainer === 'string' ? req.query.maintainer : undefined;
     
     const bounties = await listBountiesCached({ q });
     
+    let filtered = bounties;
     if (contributor) {
-      const filtered = bounties.filter(b => b.contributor?.toLowerCase() === contributor.toLowerCase());
-      res.json({ data: filtered });
-      return;
+      filtered = filtered.filter(b => b.contributor?.toLowerCase() === contributor.toLowerCase());
+    }
+    if (maintainer) {
+      filtered = filtered.filter(b => b.maintainer.toLowerCase() === maintainer.toLowerCase());
     }
     
-    res.json({ data: bounties });
+    res.json({ data: filtered });
   } catch (error) {
     sendError(res, req, error);
   }
