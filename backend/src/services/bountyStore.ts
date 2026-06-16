@@ -772,9 +772,65 @@ export async function releaseBounty(
       },
     ]);
     await invalidateBountyCache();
+    return persisted;
+  });
+}
 
-    // Increment Prometheus counter for bounty release
-    bountiesReleasedTotal.inc();
+export async function updateBountyMetadata(
+  id: string,
+  maintainer: string,
+  newTitle: string,
+): Promise<BountyRecord> {
+  return withGlobalLock(async () => {
+    const records = listBounties();
+    const bounty = findBounty(records, id);
+
+    if (bounty.maintainer !== maintainer) {
+      throw new Error("Only the original maintainer can update bounty metadata.");
+    }
+
+    if (["released", "refunded", "expired"].includes(bounty.status)) {
+      throw new Error("Bounty metadata cannot be updated after finalization.");
+    }
+
+    const oldTitle = bounty.title;
+    const updated: BountyRecord = {
+      ...bounty,
+      title: newTitle,
+      version: bounty.version + 1,
+      events: [
+        ...bounty.events,
+        {
+          type: "created" as any, 
+          timestamp: nowInSeconds(),
+          actor: maintainer,
+          details: {
+            event: "BountyMetadataUpdated",
+            oldTitle,
+            newTitle,
+          },
+        },
+      ],
+    };
+
+    const persisted = persistUpdated(records, updated);
+    appendAuditLogs([
+      {
+        bountyId: id,
+        fromStatus: bounty.status,
+        toStatus: bounty.status,
+        transition: "create" as any, 
+        actor: maintainer,
+        metadata: {
+          oldTitle,
+          newTitle,
+        },
+      },
+    ]);
+    await invalidateBountyCache();
+    return persisted;
+  });
+}
 
     return persisted;
   });
@@ -798,54 +854,110 @@ export async function releaseBounty(
 export async function refundBounty(
   id: string,
   maintainer: string,
-  transactionHash?: string,
-): Promise<BountyRecord> {
-  return withGlobalLock(async () => {
-    const records = listBounties();
-    const bounty = findBounty(records, id);
+  export async function releaseBounty(
+    id: string,
+    maintainer: string,
+    transactionHash?: string,
+  ): Promise<BountyRecord> {
+    return withGlobalLock(async () => {
+      const records = listBounties();
+      const bounty = findBounty(records, id);
 
-    if (bounty.maintainer !== maintainer) {
-      throw new Error("Maintainer address does not match this bounty.");
-    }
-    if (bounty.status === "released" || bounty.status === "refunded") {
-      throw new Error("This bounty is already finalized.");
-    }
-    if (bounty.status === "submitted") {
-      throw new Error("Submitted bounties must be reviewed before refund.");
-    }
+      if (bounty.maintainer !== maintainer) {
+        throw new Error("Maintainer address does not match this bounty.");
+      }
+      if (bounty.status !== "submitted") {
+        throw new Error("Only submitted bounties can be released.");
+      }
 
-    const now = nowInSeconds();
-    const updated: BountyRecord = {
-      ...bounty,
-      status: "refunded",
-      refundedAt: now,
-      refundedTxHash: transactionHash?.trim()
-        ? transactionHash.trim()
-        : bounty.refundedTxHash,
-      version: bounty.version + 1,
-      events: [
-        ...bounty.events,
-        { type: "refunded", timestamp: now, actor: maintainer },
-      ],
-    };
+      const now = nowInSeconds();
+      const updated: BountyRecord = {
+        ...bounty,
+        status: "released",
+        releasedAt: now,
+        releasedTxHash: transactionHash?.trim()
+          ? transactionHash.trim()
+          : bounty.releasedTxHash,
+        version: bounty.version + 1,
+        events: [
+          ...bounty.events,
+          { type: "released", timestamp: now, actor: maintainer },
+        ],
+      };
 
-    const persisted = persistUpdated(records, updated);
-    appendAuditLogs([
-      {
-        bountyId: id,
-        fromStatus: bounty.status,
-        toStatus: "refunded",
-        transition: "refund",
-        actor: maintainer,
-        metadata: {
-          transactionHash: updated.refundedTxHash,
+      const persisted = persistUpdated(records, updated);
+      appendAuditLogs([
+        {
+          bountyId: id,
+          fromStatus: bounty.status,
+          toStatus: "released",
+          transition: "release",
+          actor: maintainer,
+          metadata: {
+            transactionHash: updated.releasedTxHash,
+          },
         },
-      },
-    ]);
-    await invalidateBountyCache();
-    return persisted;
-  });
-}
+      ]);
+      await invalidateBountyCache();
+      return persisted;
+    });
+  }
+
+  export async function updateBountyMetadata(
+    id: string,
+    maintainer: string,
+    newTitle: string,
+  ): Promise<BountyRecord> {
+    return withGlobalLock(async () => {
+      const records = listBounties();
+      const bounty = findBounty(records, id);
+
+      if (bounty.maintainer !== maintainer) {
+        throw new Error("Only the original maintainer can update bounty metadata.");
+      }
+
+      if (["released", "refunded", "expired"].includes(bounty.status)) {
+        throw new Error("Bounty metadata cannot be updated after finalization.");
+      }
+
+      const oldTitle = bounty.title;
+      const updated: BountyRecord = {
+        ...bounty,
+        title: newTitle,
+        version: bounty.version + 1,
+        events: [
+          ...bounty.events,
+          {
+            type: "created" as any, 
+            timestamp: nowInSeconds(),
+            actor: maintainer,
+            details: {
+              event: "BountyMetadataUpdated",
+              oldTitle,
+              newTitle,
+            },
+          },
+        ],
+      };
+
+      const persisted = persistUpdated(records, updated);
+      appendAuditLogs([
+        {
+          bountyId: id,
+          fromStatus: bounty.status,
+          toStatus: bounty.status,
+          transition: "create" as any, 
+          actor: maintainer,
+          metadata: {
+            oldTitle,
+            newTitle,
+          },
+        },
+      ]);
+      await invalidateBountyCache();
+      return persisted;
+    });
+  }
 
 /**
  * Paginated response structure containing a slice of bounty audit logs.
@@ -900,13 +1012,18 @@ export function listBountyAuditLogs(
 
 /**
 
-export function getBountyEvents(bountyId: string): BountyEvent[] {
+export function getBountyEvents(
+  bountyId: string,
+  options: { limit?: number; offset?: number } = {},
+): BountyEvent[] {
+  const { limit = 20, offset = 0 } = options;
   const records = listBounties();
   const bounty = records.find((b) => b.id === bountyId);
   if (!bounty) {
     throw new Error(`Bounty ${bountyId} not found.`);
   }
-  return bounty.events ?? [];
+  const events = bounty.events ?? [];
+  return events.slice(offset, offset + limit);
 }
 
 /**
