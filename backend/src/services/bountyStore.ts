@@ -458,6 +458,7 @@ function persistUpdated(
 export interface ListBountiesOptions {
   /** Case-insensitive substring filter applied to title, summary, and labels. */
   q?: string;
+  contributor?: string;
 }
 
 export function listBounties(options: ListBountiesOptions = {}): BountyRecord[] {
