@@ -506,7 +506,9 @@ app.get('/api/open-issues', async (_req: Request, res: Response) => {
 
 app.get('/api/bounties/:id/events', (req: Request, res: Response) => {
   try {
-    const events = getBountyEvents(parseId(req.params.id));
+    const limit = parsePaginationValue(req.query.limit, 'limit', 20, 1, 100);
+    const offset = parsePaginationValue(req.query.offset, 'offset', 0, 0);
+    const events = getBountyEvents(parseId(req.params.id), { limit, offset });
     res.json({ data: events });
   } catch (error) {
     sendError(res, req, error);
