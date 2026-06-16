@@ -260,9 +260,55 @@ app.get('/worker/health', (_req: Request, res: Response) => {
   });
 });
 
+app.get('/api/bounties/by-issue', async (req: Request, res: Response) => {
+  try {
+    const { repo, issue } = req.query;
+    if (!repo || !issue) {
+      jsonError(res, req, 400, 'Both repo and issue parameters are required.');
+      return;
+    }
+    const repoStr = typeof repo === 'string' ? repo : (repo as string[])[0];
+    const issueStr = typeof issue === 'string' ? issue : (issue as string[])[0];
+    const issueNum = Number(issueStr);
+
+    if (!repoStr || isNaN(issueNum)) {
+      jsonError(res, req, 400, 'Invalid repo or issue format.');
+      return;
+    }
+
+    const bounties = listBounties();
+    const bounty = bounties.find(
+      (b) => b.repo.toLowerCase() === repoStr.toLowerCase() && b.issueNumber === issueNum,
+    );
+
+    if (!bounty) {
+      jsonError(res, req, 404, 'Bounty not found for the given repo and issue.');
+      return;
+    }
+
+    res.json({ data: bounty });
+  } catch (error) {
+    sendError(res, req, error);
+  }
+});
+
 app.get('/api/bounties', async (req: Request, res: Response) => {
-  const q = typeof req.query.q === 'string' ? req.query.q : undefined;
-  res.json({ data: await listBountiesCached({ q }) });
+  try {
+    const q = typeof req.query.q === 'string' ? req.query.q : undefined;
+    const contributor = typeof req.query.contributor === 'string' ? req.query.contributor : undefined;
+    
+    const bounties = await listBountiesCached({ q });
+    
+    if (contributor) {
+      const filtered = bounties.filter(b => b.contributor?.toLowerCase() === contributor.toLowerCase());
+      res.json({ data: filtered });
+      return;
+    }
+    
+    res.json({ data: bounties });
+  } catch (error) {
+    sendError(res, req, error);
+  }
 });
 
 app.get('/api/leaderboard', (req: Request, res: Response) => {
@@ -504,9 +550,23 @@ app.get('/api/open-issues', async (_req: Request, res: Response) => {
 
 });
 
+app.get('/api/bounties/:id/audit-log', (req: Request, res: Response) => {
+  try {
+    const limit = parsePaginationValue(req.query.limit, 'limit', 20, 1, 100);
+    const offset = parsePaginationValue(req.query.offset, 'offset', 0, 0);
+    const page = listBountyAuditLogs(parseId(req.params.id), { limit, offset });
+
+    res.json(page);
+  } catch (error) {
+    sendError(res, req, error);
+  }
+});
+
 app.get('/api/bounties/:id/events', (req: Request, res: Response) => {
   try {
-    const events = getBountyEvents(parseId(req.params.id));
+    const limit = parsePaginationValue(req.query.limit, 'limit', 20, 1, 100);
+    const offset = parsePaginationValue(req.query.offset, 'offset', 0, 0);
+    const events = getBountyEvents(parseId(req.params.id), { limit, offset });
     res.json({ data: events });
   } catch (error) {
     sendError(res, req, error);
