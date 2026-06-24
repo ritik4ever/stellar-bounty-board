@@ -252,6 +252,9 @@ export async function xlmToUsd(amount: number): Promise<string> {
 
 export function resetXlmToUsdCache(): void {
   cachedXlmUsdRate = null;
+  cachedRate = null;
+  cacheTimestamp = 0;
+  pendingRequest = null;
 }
 
 export function getContributorMetrics(bounties: Bounty[], contributorAddress?: string) {

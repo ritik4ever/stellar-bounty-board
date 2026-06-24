@@ -1,53 +1,58 @@
 import { useEffect, useState } from "react";
-import { xlmToUsd } from "./utils";
+import { getXlmRate } from "./utils";
 
 interface UsdAmountProps {
   amount: number;
   tokenSymbol?: string;
 }
 
+const formatUsd = (value: number) =>
+  new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+
 export default function UsdAmount({ amount, tokenSymbol = "XLM" }: UsdAmountProps) {
-  const [usdValue, setUsdValue] = useState<string>("");
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const normalizedToken = tokenSymbol.toUpperCase();
+  const [usdValue, setUsdValue] = useState<string | null>(
+    normalizedToken === "USDC" ? formatUsd(amount) : null,
+  );
+  const [isLoading, setIsLoading] = useState(normalizedToken === "XLM");
 
   useEffect(() => {
     let active = true;
-    setIsLoading(true);
 
-    if (tokenSymbol.toUpperCase() === "USDC") {
-      const formatted = new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency: "USD",
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }).format(amount);
-      setUsdValue(formatted);
+    if (normalizedToken === "USDC") {
+      setUsdValue(formatUsd(amount));
       setIsLoading(false);
-      return;
+      return () => {
+        active = false;
+      };
     }
 
-    xlmToUsd(amount)
-      .then((value) => {
-        if (active) {
-          setUsdValue(value);
-          setIsLoading(false);
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setIsLoading(false);
-        }
-      });
+    if (normalizedToken !== "XLM") {
+      setUsdValue(null);
+      setIsLoading(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    setIsLoading(true);
+    getXlmRate().then((rate) => {
+      if (!active) return;
+      setUsdValue(rate === null ? null : formatUsd(amount * rate));
+      setIsLoading(false);
+    });
 
     return () => {
       active = false;
     };
-  }, [amount, tokenSymbol]);
+  }, [amount, normalizedToken]);
 
-  if (isLoading) {
-    return <span className="usd-amount">(Loading...)</span>;
-  }
-
+  if (isLoading) return <span className="usd-amount">(loading USD...)</span>;
   if (!usdValue) return null;
 
   return <span className="usd-amount">({usdValue})</span>;
