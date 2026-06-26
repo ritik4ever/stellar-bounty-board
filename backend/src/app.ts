@@ -15,6 +15,7 @@ import {
   listBounties,
   listBountiesCached,
   invalidateBountyCache,
+  resolveDisputeBounty,
   refundBounty,
   releaseBounty,
   reserveBounty,
@@ -23,7 +24,6 @@ import {
   getMaintainerMetrics,
   getGlobalMetrics,
   getLeaderboard,
-  listBountiesCached,
 } from './services/bountyStore';
 
 import {
@@ -32,6 +32,7 @@ import {
   disputeBountySchema,
   maintainerActionSchema,
   reserveBountySchema,
+  resolveDisputeSchema,
   submitBountySchema,
   zodErrorMessage,
 } from './validation/schemas';
@@ -114,6 +115,18 @@ app.use(readLimiter);
 
 const swaggerDoc = generateOpenApiDocument();
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerDoc));
+
+const maintainerSignatureAuth = createStellarSignatureAuthMiddleware();
+const contributorSignatureAuth = createStellarSignatureAuthMiddleware({
+  bodyPublicKeyField: 'contributor',
+  requireConfiguredPublicKey: false,
+  requireReplayFields: false,
+});
+const arbiterSignatureAuth = createStellarSignatureAuthMiddleware({
+  allowedPublicKeyEnv: 'ARBITER_ADDRESS',
+  allowedPublicKeysEnv: 'ARBITER_ADDRESSES',
+  bodyPublicKeyField: 'arbiter',
+});
 
 function parseId(raw: string | string[] | undefined): string {
   return bountyIdSchema.parse(Array.isArray(raw) ? raw[0] : raw);
@@ -450,7 +463,7 @@ app.post(
   '/api/bounties/:id/release',
   mutationLimiter,
   idempotencyMiddleware,
-  createStellarSignatureAuthMiddleware(),
+  maintainerSignatureAuth,
   async (req: Request, res: Response) => {
     const parsedBody = maintainerActionSchema.safeParse(req.body);
 
@@ -477,7 +490,7 @@ app.post(
   '/api/bounties/:id/refund',
   mutationLimiter,
   idempotencyMiddleware,
-  createStellarSignatureAuthMiddleware(),
+  maintainerSignatureAuth,
   async (req: Request, res: Response) => {
     const parsedBody = maintainerActionSchema.safeParse(req.body);
 
@@ -503,7 +516,7 @@ app.post(
 app.post(
   '/api/bounties/:id/dispute',
   mutationLimiter,
-  createStellarSignatureAuthMiddleware(),
+  contributorSignatureAuth,
   async (req: Request, res: Response) => {
     const parsedBody = disputeBountySchema.safeParse(req.body);
 
@@ -517,6 +530,33 @@ app.post(
         parseId(req.params.id),
         parsedBody.data.contributor,
         parsedBody.data.reason
+      );
+
+      res.json({ data: bounty });
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  }
+);
+
+app.post(
+  '/api/bounties/:id/resolve-dispute',
+  mutationLimiter,
+  arbiterSignatureAuth,
+  async (req: Request, res: Response) => {
+    const parsedBody = resolveDisputeSchema.safeParse(req.body);
+
+    if (!parsedBody.success) {
+      jsonError(res, req, 400, zodErrorMessage(parsedBody.error));
+      return;
+    }
+
+    try {
+      const bounty = await resolveDisputeBounty(
+        parseId(req.params.id),
+        parsedBody.data.arbiter,
+        parsedBody.data.release,
+        parsedBody.data.resolution_notes,
       );
 
       res.json({ data: bounty });
