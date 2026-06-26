@@ -135,6 +135,8 @@ export interface BountyRecord {
   disputedAt?: number;
   /** Reason provided by the contributor for disputing the bounty. */
   disputeReason?: string;
+  /** Notes recorded by the arbiter when resolving a dispute. */
+  resolutionNotes?: string;
   // Race condition prevention
   /** Version number of the record used for optimistic locking. */
   version: number;
@@ -933,6 +935,99 @@ export async function disputeBounty(
       console.warn("[disputeBounty] Notification failed (non-blocking):", err),
     );
 
+    return persisted;
+  });
+}
+
+/**
+ * Resolves a disputed bounty, transitioning it to either released or refunded.
+ *
+ * @param {string} id - The unique ID of the bounty.
+ * @param {string} arbiter - The Stellar address of the arbiter resolving the dispute.
+ * @param {boolean} release - When true, release funds to contributor; otherwise refund maintainer.
+ * @param {string} [resolutionNotes] - Optional notes from the arbiter.
+ */
+export async function resolveDisputeBounty(
+  id: string,
+  arbiter: string,
+  release: boolean,
+  resolutionNotes?: string,
+): Promise<BountyRecord> {
+  return withGlobalLock(async () => {
+    const records = listBounties();
+    const bounty = findBounty(records, id);
+
+    if (bounty.status !== "disputed") {
+      throw new Error("Only disputed bounties can be resolved.");
+    }
+
+    const configuredArbiter = process.env.ARBITER_ADDRESS?.trim();
+    if (configuredArbiter && arbiter !== configuredArbiter) {
+      throw new Error("Arbiter address is not authorized to resolve this dispute.");
+    }
+
+    const now = nowInSeconds();
+    const trimmedNotes = resolutionNotes?.trim() || undefined;
+
+    if (release) {
+      const updated: BountyRecord = {
+        ...bounty,
+        status: "released",
+        releasedAt: now,
+        resolutionNotes: trimmedNotes,
+        version: bounty.version + 1,
+        events: [
+          ...bounty.events,
+          { type: "released", timestamp: now, actor: arbiter },
+        ],
+      };
+
+      const persisted = persistUpdated(records, updated);
+      appendAuditLogs([
+        {
+          bountyId: id,
+          fromStatus: "disputed",
+          toStatus: "released",
+          transition: "release",
+          actor: arbiter,
+          metadata: {
+            release: true,
+            ...(trimmedNotes ? { resolutionNotes: trimmedNotes } : {}),
+          },
+        },
+      ]);
+      await invalidateBountyCache();
+      bountiesReleasedTotal.inc();
+      return persisted;
+    }
+
+    const updated: BountyRecord = {
+      ...bounty,
+      status: "refunded",
+      refundedAt: now,
+      resolutionNotes: trimmedNotes,
+      version: bounty.version + 1,
+      events: [
+        ...bounty.events,
+        { type: "refunded", timestamp: now, actor: arbiter },
+      ],
+    };
+
+    const persisted = persistUpdated(records, updated);
+    appendAuditLogs([
+      {
+        bountyId: id,
+        fromStatus: "disputed",
+        toStatus: "refunded",
+        transition: "refund",
+        actor: arbiter,
+        metadata: {
+          release: false,
+          ...(trimmedNotes ? { resolutionNotes: trimmedNotes } : {}),
+        },
+      },
+    ]);
+    await invalidateBountyCache();
     return persisted;
   });
 }

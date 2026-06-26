@@ -2,9 +2,11 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
+import type { Express } from "express";
+import { Keypair } from "@stellar/stellar-sdk";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CONTRIBUTOR, MAINTAINER, OTHER_ACCOUNT, validCreateBody } from "./fixtures";
+import { ARBITER, CONTRIBUTOR, MAINTAINER, OTHER_ACCOUNT, validCreateBody } from "./fixtures";
 
 let storeFile: string;
 
@@ -65,6 +67,15 @@ async function fullCycle(app: Express.Application): Promise<string> {
   return id;
 }
 
+async function disputedBounty(app: Express.Application): Promise<string> {
+  const id = await fullCycle(app);
+  await request(app)
+    .post(`/api/bounties/${id}/dispute`)
+    .send({ contributor: CONTRIBUTOR, reason: "Maintainer did not review within the agreed timeframe." })
+    .expect(200);
+  return id;
+}
+
 describe("POST /api/bounties/:id/dispute", () => {
   it("disputes a submitted bounty successfully", async () => {
     const app = await getApp();
@@ -81,8 +92,7 @@ describe("POST /api/bounties/:id/dispute", () => {
     expect(res.body.data.version).toBeGreaterThan(1);
 
     // Verify the event log contains the disputed event
-    const eventsRes = await request(app).get(`/api/bounties/${id}/events`).expect(200);
-    const disputedEvent = eventsRes.body.data.find(
+    const disputedEvent = res.body.data.events.find(
       (e: { type: string }) => e.type === "disputed",
     );
     expect(disputedEvent).toBeDefined();
@@ -161,5 +171,116 @@ describe("POST /api/bounties/:id/dispute", () => {
       .expect(400);
 
     expect(res.body.error).toMatch(/not found/i);
+  });
+});
+
+describe("POST /api/bounties/:id/resolve-dispute", () => {
+  it("resolves a disputed bounty with release=true and records audit log", async () => {
+    const app = await getApp();
+    const id = await disputedBounty(app);
+
+    const res = await request(app)
+      .post(`/api/bounties/${id}/resolve-dispute`)
+      .send({ arbiter: ARBITER, release: true, resolution_notes: "Work meets acceptance criteria." })
+      .expect(200);
+
+    expect(res.body.data.status).toBe("released");
+    expect(res.body.data.releasedAt).toBeGreaterThan(0);
+    expect(res.body.data.resolutionNotes).toBe("Work meets acceptance criteria.");
+
+    const auditRes = await request(app)
+      .get(`/api/bounties/${id}/audit-logs`)
+      .query({ limit: 10, offset: 0 })
+      .expect(200);
+
+    expect(auditRes.body.data.map((entry: { transition: string }) => entry.transition)).toEqual([
+      "reserve",
+      "submit",
+      "dispute",
+      "release",
+    ]);
+
+    const resolveAudit = auditRes.body.data.find(
+      (entry: { transition: string }) => entry.transition === "release",
+    );
+    expect(resolveAudit).toBeDefined();
+    expect(resolveAudit.fromStatus).toBe("disputed");
+    expect(resolveAudit.toStatus).toBe("released");
+    expect(resolveAudit.actor).toBe(ARBITER);
+    expect(resolveAudit.metadata.release).toBe(true);
+  });
+
+  it("resolves a disputed bounty with release=false and records audit log", async () => {
+    const app = await getApp();
+    const id = await disputedBounty(app);
+
+    const res = await request(app)
+      .post(`/api/bounties/${id}/resolve-dispute`)
+      .send({ arbiter: ARBITER, release: false, resolution_notes: "Submission does not meet requirements." })
+      .expect(200);
+
+    expect(res.body.data.status).toBe("refunded");
+    expect(res.body.data.refundedAt).toBeGreaterThan(0);
+    expect(res.body.data.resolutionNotes).toBe("Submission does not meet requirements.");
+
+    const auditRes = await request(app)
+      .get(`/api/bounties/${id}/audit-logs`)
+      .query({ limit: 10, offset: 0 })
+      .expect(200);
+
+    expect(auditRes.body.data.map((entry: { transition: string }) => entry.transition)).toEqual([
+      "reserve",
+      "submit",
+      "dispute",
+      "refund",
+    ]);
+
+    const resolveAudit = auditRes.body.data.find(
+      (entry: { transition: string }) => entry.transition === "refund",
+    );
+    expect(resolveAudit).toBeDefined();
+    expect(resolveAudit.fromStatus).toBe("disputed");
+    expect(resolveAudit.toStatus).toBe("refunded");
+    expect(resolveAudit.actor).toBe(ARBITER);
+    expect(resolveAudit.metadata.release).toBe(false);
+  });
+});
+
+describe("POST /api/bounties/:id/resolve-dispute — arbiter auth", () => {
+  const arbiterKeypair = Keypair.random();
+  const wrongKeypair = Keypair.random();
+
+  function signPayload(keypair: Keypair, payload: unknown): string {
+    const message = Buffer.from(JSON.stringify(payload), "utf8");
+    return keypair.sign(message).toString("base64");
+  }
+
+  it("returns 401 when resolve-dispute is signed by a non-arbiter key", async () => {
+    const app = await getApp();
+    const id = await disputedBounty(app);
+
+    process.env.NODE_ENV = "production";
+    process.env.ARBITER_ADDRESS = arbiterKeypair.publicKey();
+
+    const payload = {
+      arbiter: wrongKeypair.publicKey(),
+      release: true,
+      action: "resolve-dispute",
+      bountyId: id,
+      timestamp: Math.floor(Date.now() / 1000),
+    };
+    const signature = signPayload(wrongKeypair, payload);
+
+    const res = await request(app)
+      .post(`/api/bounties/${id}/resolve-dispute`)
+      .set("X-Stellar-Public-Key", wrongKeypair.publicKey())
+      .set("X-Stellar-Signature", signature)
+      .send(payload)
+      .expect(401);
+
+    expect(res.body.error).toMatch(/unauthorized/i);
+
+    delete process.env.ARBITER_ADDRESS;
+    process.env.NODE_ENV = "test";
   });
 });

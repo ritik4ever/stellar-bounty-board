@@ -144,6 +144,27 @@ export const disputeBountySchema = z
   })
   .openapi('DisputeBountyRequest');
 
+export const resolveDisputeSchema = z
+  .object({
+    arbiter: stellarAccountSchema.openapi({
+      description: 'Stellar public key of the arbiter resolving the dispute.',
+    }),
+    release: z.boolean().openapi({
+      example: true,
+      description: 'When true, release funds to the contributor; otherwise refund the maintainer.',
+    }),
+    resolution_notes: z
+      .string()
+      .trim()
+      .max(500, 'Resolution notes must be at most 500 characters.')
+      .optional()
+      .openapi({
+        example: 'Contributor work meets acceptance criteria.',
+        description: 'Optional arbiter notes (max 500 chars).',
+      }),
+  })
+  .openapi('ResolveDisputeRequest');
+
 export const maintainerActionSchema = z
   .object({
     maintainer: stellarAccountSchema.openapi({
@@ -186,7 +207,7 @@ export const bountyRecordSchema = z
     amount: z.number().openapi({ example: 100 }),
     labels: z.array(z.string()).openapi({ example: ['bug', 'help wanted'] }),
     status: z
-      .enum(['open', 'reserved', 'submitted', 'released', 'refunded', 'expired'])
+      .enum(['open', 'reserved', 'submitted', 'disputed', 'released', 'refunded', 'expired'])
       .openapi({ example: 'open' }),
     createdAt: z
       .number()
@@ -211,6 +232,9 @@ export const bountyRecordSchema = z
       .optional()
       .openapi({ example: 'https://github.com/owner/repo/pull/99' }),
     notes: z.string().optional(),
+    disputedAt: z.number().optional(),
+    disputeReason: z.string().optional(),
+    resolutionNotes: z.string().optional(),
 
   })
   .openapi('BountyRecord');
@@ -236,13 +260,13 @@ export const bountyAuditLogSchema = z
     id: z.string().openapi({ example: 'AUD-000001' }),
     bountyId: z.string().openapi({ example: 'BNT-0001' }),
     fromStatus: z
-      .enum(['open', 'reserved', 'submitted', 'released', 'refunded', 'expired'])
+      .enum(['open', 'reserved', 'submitted', 'disputed', 'released', 'refunded', 'expired'])
       .openapi({ example: 'open' }),
     toStatus: z
-      .enum(['open', 'reserved', 'submitted', 'released', 'refunded', 'expired'])
+      .enum(['open', 'reserved', 'submitted', 'disputed', 'released', 'refunded', 'expired'])
       .openapi({ example: 'reserved' }),
     transition: z
-      .enum(['reserve', 'submit', 'release', 'refund', 'expire'])
+      .enum(['reserve', 'submit', 'dispute', 'release', 'refund', 'expire'])
       .openapi({ example: 'reserve' }),
     actor: z.string().openapi({ example: STELLAR_EXAMPLE }),
     timestamp: z
