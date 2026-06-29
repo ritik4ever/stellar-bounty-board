@@ -32,10 +32,6 @@ afterEach(() => {
   }
 });
 
-async function loadStore() {
-  return import('../src/services/bountyStore');
-}
-
 async function loadJob() {
   return import('../src/services/reservationExpirationJob');
 }
@@ -44,10 +40,10 @@ function nowSeconds() {
   return Math.floor(Date.now() / 1000);
 }
 
-function makeReservedBounty(reservedSecondsAgo: number) {
+function makeReservedBounty(reservedSecondsAgo: number, reservationTimeoutSeconds?: number) {
   const now = nowSeconds();
 
-  return {
+  const bounty = {
     id: `BNT-TEST-${randomUUID()}`,
     repo: 'test/repo',
     issueNumber: 1,
@@ -71,15 +67,17 @@ function makeReservedBounty(reservedSecondsAgo: number) {
         actor: CONTRIBUTOR,
       },
     ],
-    reservationTimeoutSeconds: 999999999,
   };
+
+  return reservationTimeoutSeconds === undefined
+    ? bounty
+    : { ...bounty, reservationTimeoutSeconds };
 }
 
 describe('expireStaleReservations', () => {
   it('does not expire a fresh reservation', async () => {
-    const store = await loadStore();
-
-    await store.reserveBounty(bounty.id, CONTRIBUTOR);
+    const fresh = makeReservedBounty(1 * 24 * 60 * 60);
+    fs.writeFileSync(storeFile, JSON.stringify([fresh], null, 2));
 
     const { expireStaleReservations } = await loadJob();
     const result = expireStaleReservations(7 * 24 * 60 * 60);
@@ -87,7 +85,8 @@ describe('expireStaleReservations', () => {
     expect(result.expiredCount).toBe(0);
     expect(result.expiredBountyIds).toHaveLength(0);
 
-    const after = store.listBounties().find((item) => item.id === bounty.id);
+    const raw = JSON.parse(fs.readFileSync(storeFile, 'utf8'));
+    const after = raw.find((item: { id: string }) => item.id === fresh.id);
     expect(after?.status).toBe('reserved');
   });
 
@@ -157,17 +156,55 @@ describe('expireStaleReservations', () => {
     expect(result.expiredBountyIds).toContain(stale.id);
   });
 
-  it('does not touch submitted bounties', async () => {
-    const store = await loadStore();
+  it('prefers each bounty reservationTimeoutSeconds over the global TTL', async () => {
+    const shortTimeout = makeReservedBounty(90, 60);
+    const longTimeout = makeReservedBounty(90, 120);
+    fs.writeFileSync(storeFile, JSON.stringify([shortTimeout, longTimeout], null, 2));
 
+    const { expireStaleReservations } = await loadJob();
+    const result = expireStaleReservations(7 * 24 * 60 * 60);
+
+    expect(result.expiredCount).toBe(1);
+    expect(result.expiredBountyIds).toContain(shortTimeout.id);
+    expect(result.expiredBountyIds).not.toContain(longTimeout.id);
+
+    const raw = JSON.parse(fs.readFileSync(storeFile, 'utf8'));
+    const expired = raw.find((item: { id: string }) => item.id === shortTimeout.id);
+    const stillReserved = raw.find((item: { id: string }) => item.id === longTimeout.id);
+
+    expect(expired.status).toBe('open');
+    expect(expired.events.at(-1).details.ttlSeconds).toBe(60);
+    expect(stillReserved.status).toBe('reserved');
+  });
+
+  it('falls back to the global TTL when a bounty has no reservationTimeoutSeconds', async () => {
+    const stale = makeReservedBounty(8 * 24 * 60 * 60);
+    fs.writeFileSync(storeFile, JSON.stringify([stale], null, 2));
+
+    const { expireStaleReservations } = await loadJob();
+    const result = expireStaleReservations(7 * 24 * 60 * 60);
+
+    expect(result.expiredCount).toBe(1);
+    expect(result.expiredBountyIds).toContain(stale.id);
+  });
+
+  it('does not touch submitted bounties', async () => {
+    const submitted = {
+      ...makeReservedBounty(8 * 24 * 60 * 60),
+      status: 'submitted' as const,
+      submittedAt: nowSeconds(),
+      submissionUrl: 'https://github.com/test/repo/pull/1',
+    };
+    fs.writeFileSync(storeFile, JSON.stringify([submitted], null, 2));
 
     const { expireStaleReservations } = await loadJob();
     const result = expireStaleReservations(0);
 
-    const after = store.listBounties().find((item) => item.id === bounty.id);
+    const raw = JSON.parse(fs.readFileSync(storeFile, 'utf8'));
+    const after = raw.find((item: { id: string }) => item.id === submitted.id);
 
     expect(after?.status).toBe('submitted');
-    expect(result.expiredBountyIds).not.toContain(bounty.id);
+    expect(result.expiredBountyIds).not.toContain(submitted.id);
   });
 
   it('returns checkedAt timestamp', async () => {
