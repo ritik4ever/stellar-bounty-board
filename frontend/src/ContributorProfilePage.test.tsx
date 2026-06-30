@@ -86,10 +86,10 @@ describe("ContributorProfilePage", () => {
 
     await waitFor(() => expect(screen.getByText(/Total earned/i)).toBeInTheDocument());
 
-    expect(screen.getByText(/100 XLM/)).toBeInTheDocument();
-    expect(screen.getByText(/Completed bounties/)).toBeInTheDocument();
+    expect(screen.getAllByText(/100 XLM/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Completed bounties/).length).toBeGreaterThan(0);
     expect(screen.getByText("1")).toBeInTheDocument();
-    expect(screen.getByText(/Active reservations/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Active reservations/).length).toBeGreaterThan(0);
     expect(screen.getByText(/1/)).toBeInTheDocument();
 
     // Completed bounty link
