@@ -1,5 +1,15 @@
 # Stellar Bounty Board Contract
 
+## Optimized release build
+
+Run the contract production build from the `contracts/` directory:
+
+```bash
+./build.sh
+```
+
+This runs the contract tests, compiles the contract for `wasm32v1-none`, applies `wasm-opt -Oz`, and refreshes `BENCHMARKS.md` with the binary size before and after optimization.
+
 ## Error Codes
 
 The contract uses named error codes for all invalid operations. These codes are emitted as panic messages in tests.

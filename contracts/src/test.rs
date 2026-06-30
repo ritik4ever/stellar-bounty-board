@@ -1,6 +1,7 @@
 #![cfg(test)]
 
 use super::*;
+
 use soroban_sdk::{
     symbol_short,
     testutils::{Address as _, Events, Ledger},
@@ -8,6 +9,7 @@ use soroban_sdk::{
 };
 
 // ─── Shared setup ────────────────────────────────────────────────────────────
+
 fn setup_test(
     env: &Env,
 ) -> (
@@ -50,13 +52,14 @@ fn create_bounty_with_state(
     status: BountyStatus,
 ) -> u64 {
     let deadline = env.ledger().timestamp() + 1000;
+
     let bounty_id = client.create_bounty(
         &maintainer,
         &token_id,
         &500,
-        &String::from_str(&env, "repo"),
+        &String::from_str(env, "repo"),
         &1,
-        &String::from_str(&env, "title"),
+        &String::from_str(env, "title"),
         &deadline,
         &0u32,
     );
@@ -105,6 +108,7 @@ macro_rules! invalid_transition_test {
         fn $name() {
             let env = Env::default();
             env.mock_all_auths();
+
             let (client, maintainer, contributor, token_id, _, _) = setup_test(&env);
             let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
             token_admin.mint(&maintainer, &1000);
@@ -117,6 +121,7 @@ macro_rules! invalid_transition_test {
                 token_id.clone(),
                 $status,
             );
+
             let action = $action;
             action(&client, bounty_id, maintainer, contributor);
         }
@@ -158,6 +163,7 @@ fn test_create_bounty() {
     assert_eq!(bounty.amount, amount);
     assert_eq!(bounty.status, BountyStatus::Open);
     assert_eq!(bounty.protocol_fee_bps, 0);
+
     assert_eq!(token.balance(&client.address), amount);
     assert_eq!(token.balance(&maintainer), 500);
 }
@@ -167,6 +173,7 @@ fn test_create_bounty() {
 fn test_create_bounty_negative_amount() {
     let env = Env::default();
     env.mock_all_auths();
+
     let (client, maintainer, _, token_id, _, _) = setup_test(&env);
 
     client.create_bounty(
@@ -186,6 +193,7 @@ fn test_create_bounty_negative_amount() {
 fn test_create_bounty_past_deadline() {
     let env = Env::default();
     env.mock_all_auths();
+
     let (client, maintainer, _, token_id, _, _) = setup_test(&env);
 
     client.create_bounty(
@@ -208,6 +216,7 @@ fn test_full_lifecycle() {
     let (client, maintainer, contributor, token_id, _fee_recipient, _arbiter) = setup_test(&env);
     let token = TokenClient::new(&env, &token_id);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+
     token_admin.mint(&maintainer, &1000);
 
     let bounty_id = client.create_bounty(
@@ -222,15 +231,18 @@ fn test_full_lifecycle() {
     );
 
     client.reserve_bounty(&bounty_id, &contributor);
+
     let bounty = client.get_bounty(&bounty_id);
     assert_eq!(bounty.status, BountyStatus::Reserved);
     assert_eq!(bounty.contributor, Some(contributor.clone()));
 
     client.submit_bounty(&bounty_id, &contributor);
+
     let bounty = client.get_bounty(&bounty_id);
     assert_eq!(bounty.status, BountyStatus::Submitted);
 
     client.release_bounty(&bounty_id, &maintainer);
+
     let bounty = client.get_bounty(&bounty_id);
     assert_eq!(bounty.status, BountyStatus::Released);
 
@@ -247,9 +259,11 @@ fn test_refund_reserved_before_deadline_fails() {
 
     let (client, maintainer, contributor, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+
     token_admin.mint(&maintainer, &1000);
 
     let deadline = env.ledger().timestamp() + 1000;
+
     let bounty_id = client.create_bounty(
         &maintainer,
         &token_id,
@@ -273,9 +287,11 @@ fn test_refund_after_deadline_reserved_succeeds() {
     let (client, maintainer, _contributor, token_id, _fee_recipient, _arbiter) = setup_test(&env);
     let token = TokenClient::new(&env, &token_id);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+
     token_admin.mint(&maintainer, &1000);
 
     let deadline = env.ledger().timestamp() + 1000;
+
     let bounty_id = client.create_bounty(
         &maintainer,
         &token_id,
@@ -288,10 +304,11 @@ fn test_refund_after_deadline_reserved_succeeds() {
     );
 
     env.ledger().set_timestamp(deadline + 1);
-
     client.refund_bounty(&bounty_id, &maintainer);
+
     let bounty = client.get_bounty(&bounty_id);
     assert_eq!(bounty.status, BountyStatus::Refunded);
+
     // Refund returns full amount — no fee deducted
     assert_eq!(token.balance(&maintainer), 1000);
 }
@@ -302,6 +319,7 @@ invalid_transition_test!(reserve_reserved, BountyStatus::Reserved, "BountyNotOpe
      _maintainer: Address,
      contributor: Address| { client.reserve_bounty(&bounty_id, &contributor) }
 });
+
 invalid_transition_test!(
     reserve_submitted,
     BountyStatus::Submitted,
@@ -313,18 +331,21 @@ invalid_transition_test!(
          contributor: Address| { client.reserve_bounty(&bounty_id, &contributor) }
     }
 );
+
 invalid_transition_test!(reserve_released, BountyStatus::Released, "BountyNotOpen", {
     |client: &StellarBountyBoardContractClient<'static>,
      bounty_id: u64,
      _maintainer: Address,
      contributor: Address| { client.reserve_bounty(&bounty_id, &contributor) }
 });
+
 invalid_transition_test!(reserve_refunded, BountyStatus::Refunded, "BountyNotOpen", {
     |client: &StellarBountyBoardContractClient<'static>,
      bounty_id: u64,
      _maintainer: Address,
      contributor: Address| { client.reserve_bounty(&bounty_id, &contributor) }
 });
+
 invalid_transition_test!(reserve_expired, BountyStatus::Expired, "BountyNotOpen", {
     |client: &StellarBountyBoardContractClient<'static>,
      bounty_id: u64,
@@ -338,6 +359,7 @@ invalid_transition_test!(submit_open, BountyStatus::Open, "BountyMustBeReserved"
      _maintainer: Address,
      contributor: Address| { client.submit_bounty(&bounty_id, &contributor) }
 });
+
 invalid_transition_test!(
     submit_submitted,
     BountyStatus::Submitted,
@@ -349,6 +371,7 @@ invalid_transition_test!(
          contributor: Address| { client.submit_bounty(&bounty_id, &contributor) }
     }
 );
+
 invalid_transition_test!(
     submit_released,
     BountyStatus::Released,
@@ -360,6 +383,7 @@ invalid_transition_test!(
          contributor: Address| { client.submit_bounty(&bounty_id, &contributor) }
     }
 );
+
 invalid_transition_test!(
     submit_refunded,
     BountyStatus::Refunded,
@@ -371,6 +395,7 @@ invalid_transition_test!(
          contributor: Address| { client.submit_bounty(&bounty_id, &contributor) }
     }
 );
+
 invalid_transition_test!(
     submit_expired,
     BountyStatus::Expired,
@@ -389,6 +414,7 @@ invalid_transition_test!(release_open, BountyStatus::Open, "BountyMustBeSubmitte
      maintainer: Address,
      _contributor: Address| { client.release_bounty(&bounty_id, &maintainer) }
 });
+
 invalid_transition_test!(
     release_reserved,
     BountyStatus::Reserved,
@@ -400,6 +426,7 @@ invalid_transition_test!(
          _contributor: Address| { client.release_bounty(&bounty_id, &maintainer) }
     }
 );
+
 invalid_transition_test!(
     release_released,
     BountyStatus::Released,
@@ -411,6 +438,7 @@ invalid_transition_test!(
          _contributor: Address| { client.release_bounty(&bounty_id, &maintainer) }
     }
 );
+
 invalid_transition_test!(
     release_refunded,
     BountyStatus::Refunded,
@@ -422,6 +450,7 @@ invalid_transition_test!(
          _contributor: Address| { client.release_bounty(&bounty_id, &maintainer) }
     }
 );
+
 invalid_transition_test!(
     release_expired,
     BountyStatus::Expired,
@@ -440,6 +469,7 @@ invalid_transition_test!(refund_open, BountyStatus::Open, "BountyNotExpiredYet",
      maintainer: Address,
      _contributor: Address| { client.refund_bounty(&bounty_id, &maintainer) }
 });
+
 invalid_transition_test!(
     refund_reserved,
     BountyStatus::Reserved,
@@ -451,6 +481,7 @@ invalid_transition_test!(
          _contributor: Address| { client.refund_bounty(&bounty_id, &maintainer) }
     }
 );
+
 invalid_transition_test!(
     refund_submitted,
     BountyStatus::Submitted,
@@ -462,6 +493,7 @@ invalid_transition_test!(
          _contributor: Address| { client.refund_bounty(&bounty_id, &maintainer) }
     }
 );
+
 invalid_transition_test!(
     refund_released,
     BountyStatus::Released,
@@ -473,6 +505,7 @@ invalid_transition_test!(
          _contributor: Address| { client.refund_bounty(&bounty_id, &maintainer) }
     }
 );
+
 invalid_transition_test!(
     refund_refunded,
     BountyStatus::Refunded,
@@ -498,6 +531,7 @@ invalid_transition_test!(
         }
     }
 );
+
 invalid_transition_test!(
     extend_refunded,
     BountyStatus::Refunded,
@@ -511,6 +545,7 @@ invalid_transition_test!(
         }
     }
 );
+
 invalid_transition_test!(
     extend_expired,
     BountyStatus::Expired,
@@ -533,6 +568,7 @@ fn test_concurrent_reservation_race_fails() {
 
     let (client, maintainer, contributor, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+
     token_admin.mint(&maintainer, &1000);
 
     let bounty_id = client.create_bounty(
@@ -558,6 +594,7 @@ fn test_release_without_submit() {
 
     let (client, maintainer, contributor, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+
     token_admin.mint(&maintainer, &1000);
 
     let bounty_id = client.create_bounty(
@@ -582,9 +619,11 @@ fn test_expiration() {
 
     let (client, maintainer, _contributor, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+
     token_admin.mint(&maintainer, &1000);
 
     let deadline = env.ledger().timestamp() + 1000;
+
     let bounty_id = client.create_bounty(
         &maintainer,
         &token_id,
@@ -608,8 +647,9 @@ fn test_double_reserve_bounty() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, contributor, token_id) = setup_test(&env);
+    let (client, maintainer, contributor, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+
     token_admin.mint(&maintainer, &1000);
 
     let bounty_id = client.create_bounty(
@@ -620,15 +660,16 @@ fn test_double_reserve_bounty() {
         &1,
         &String::from_str(&env, "title"),
         &(env.ledger().timestamp() + 1000),
+        &0u32,
     );
 
     // First reservation should succeed
     client.reserve_bounty(&bounty_id, &contributor);
+
     let bounty = client.get_bounty(&bounty_id);
     assert_eq!(bounty.status, BountyStatus::Reserved);
 
-    // Second reservation attempt should panic with Error::BountyNotOpen
-    // because the bounty is no longer in Open status
+    // Second reservation attempt should panic
     client.reserve_bounty(&bounty_id, &contributor);
 }
 
@@ -640,9 +681,11 @@ fn test_reserve_expired_bounty() {
 
     let (client, maintainer, contributor, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+
     token_admin.mint(&maintainer, &1000);
 
     let deadline = env.ledger().timestamp() + 1000;
+
     let bounty_id = client.create_bounty(
         &maintainer,
         &token_id,
@@ -655,7 +698,6 @@ fn test_reserve_expired_bounty() {
     );
 
     env.ledger().set_timestamp(deadline + 1);
-
     client.reserve_bounty(&bounty_id, &contributor);
 }
 
@@ -666,9 +708,11 @@ fn test_extend_deadline_success() {
 
     let (client, maintainer, _, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+
     token_admin.mint(&maintainer, &1000);
 
     let initial_deadline = env.ledger().timestamp() + 1000;
+
     let bounty_id = client.create_bounty(
         &maintainer,
         &token_id,
@@ -695,9 +739,11 @@ fn test_extend_deadline_wrong_caller() {
 
     let (client, maintainer, contributor, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+
     token_admin.mint(&maintainer, &1000);
 
     let initial_deadline = env.ledger().timestamp() + 1000;
+
     let bounty_id = client.create_bounty(
         &maintainer,
         &token_id,
@@ -723,9 +769,11 @@ fn test_extend_deadline_earlier() {
 
     let (client, maintainer, _, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+
     token_admin.mint(&maintainer, &1000);
 
     let initial_deadline = env.ledger().timestamp() + 1000;
+
     let bounty_id = client.create_bounty(
         &maintainer,
         &token_id,
@@ -740,32 +788,4 @@ fn test_extend_deadline_earlier() {
     // Attempting to set a deadline earlier than the initial one
     let earlier_deadline = initial_deadline - 100;
     client.extend_deadline(&bounty_id, &maintainer, &earlier_deadline);
-}
-
-#[test]
-
-    let bounty_id = client.create_bounty(
-        &maintainer,
-        &token_id,
-        &500,
-        &String::from_str(&env, "repo"),
-        &1,
-        &String::from_str(&env, "title"),
-
-    let bounty_id = client.create_bounty(
-        &maintainer,
-        &token_id,
-        &500,
-        &String::from_str(&env, "repo"),
-        &1,
-        &String::from_str(&env, "title"),
-
-    let bounty_id = client.create_bounty(
-        &maintainer,
-        &token_id,
-        &500,
-        &String::from_str(&env, "repo"),
-        &1,
-        &String::from_str(&env, "title"),
-
 }

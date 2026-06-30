@@ -2,11 +2,11 @@ name: Soroban Contract CI
 
 on:
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   soroban:
-    name: "Soroban contract: clippy & test"
+    name: 'Soroban contract: clippy & test'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,7 +42,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
-          target: wasm32-unknown-unknown
+          target: wasm32v1-none
           components: clippy
           profile: minimal
           override: true
@@ -58,13 +58,16 @@ jobs:
         working-directory: contracts
         run: cargo test --all --verbose
 
+      - name: Install wasm-opt
+        run: sudo apt-get update && sudo apt-get install -y binaryen
+
       - name: Build release wasm
         working-directory: contracts
-        run: cargo build --release --target wasm32-unknown-unknown
+        run: ./build.sh
 
       - name: Report WASM size in summary
         run: |
-          WASM_FILE=$(ls contracts/target/wasm32-unknown-unknown/release/*.wasm 2>/dev/null || true)
+          WASM_FILE=$(ls contracts/target/wasm32v1-none/release/*.wasm 2>/dev/null || true)
           if [ -n "$WASM_FILE" ]; then
             echo "### WASM binary size" >> $GITHUB_STEP_SUMMARY
             SIZE=$(stat -c%s "$WASM_FILE")
