@@ -221,10 +221,15 @@ export async function listBounties(signal?: AbortSignal): Promise<Bounty[]> {
   return body.data;
 }
 
-export async function getBounty(id: string, signal?: AbortSignal): Promise<Bounty> {
-  const body = await requestJson<{ data: Bounty }>(`/bounties/${id}`, {
-    retry: true,
+function encodeBountyId(id: string): string {
+  return encodeURIComponent(id);
+}
 
+export async function getBounty(id: string, signal?: AbortSignal): Promise<Bounty> {
+  const encodedId = encodeBountyId(id);
+  const body = await requestJson<{ data: Bounty }>(`/bounties/${encodedId}`, {
+    retry: true,
+    retryLabel: 'Loading bounty',
     signal,
   });
 
@@ -246,7 +251,8 @@ export async function reserveBounty(
   contributor: string,
   expectedVersion?: number
 ): Promise<Bounty> {
-  const body = await requestJson<{ data: Bounty }>(`/bounties/${id}/reserve`, {
+  const encodedId = encodeBountyId(id);
+  const body = await requestJson<{ data: Bounty }>(`/bounties/${encodedId}/reserve`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ contributor, expectedVersion }),
@@ -261,7 +267,8 @@ export async function submitBounty(
   submissionUrl: string,
   notes?: string
 ): Promise<Bounty> {
-  const body = await requestJson<{ data: Bounty }>(`/bounties/${id}/submit`, {
+  const encodedId = encodeBountyId(id);
+  const body = await requestJson<{ data: Bounty }>(`/bounties/${encodedId}/submit`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ contributor, submissionUrl, notes }),
@@ -275,7 +282,8 @@ export async function releaseBounty(
   maintainer: string,
   transactionHash?: string
 ): Promise<Bounty> {
-  const body = await requestJson<{ data: Bounty }>(`/bounties/${id}/release`, {
+  const encodedId = encodeBountyId(id);
+  const body = await requestJson<{ data: Bounty }>(`/bounties/${encodedId}/release`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ maintainer, transactionHash }),
@@ -289,7 +297,8 @@ export async function refundBounty(
   maintainer: string,
   transactionHash?: string
 ): Promise<Bounty> {
-  const body = await requestJson<{ data: Bounty }>(`/bounties/${id}/refund`, {
+  const encodedId = encodeBountyId(id);
+  const body = await requestJson<{ data: Bounty }>(`/bounties/${encodedId}/refund`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ maintainer, transactionHash }),
@@ -321,7 +330,8 @@ export async function exportReleasedPayoutsCsv(): Promise<{
 }
 
 export async function getBountyEvents(id: string): Promise<BountyEvent[]> {
-  const body = await requestJson<{ data: BountyEvent[] }>(`/bounties/${id}/events`, {
+  const encodedId = encodeBountyId(id);
+  const body = await requestJson<{ data: BountyEvent[] }>(`/bounties/${encodedId}/events`, {
     retry: true,
     retryLabel: 'Loading bounty events',
   });
