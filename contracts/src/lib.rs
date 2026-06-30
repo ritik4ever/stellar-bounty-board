@@ -37,12 +37,21 @@ pub struct Bounty {
 }
 
 #[contracttype]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ContributorStats {
+    pub completed: u32,
+    pub disputed: u32,
+    pub refunded: u32,
+}
+
+#[contracttype]
 enum DataKey {
     NextBountyId,
     Bounty(u64),
     FeeRecipient,
     Arbiter,
     DisputeWindow,
+    ContribStats(Address),
 }
 
 #[contracttype]
@@ -333,6 +342,12 @@ impl StellarBountyBoardContract {
         bounty.status = BountyStatus::Released;
         write_bounty(&env, bounty_id, &bounty);
 
+        // ── Update contributor stats ─────────────────────────────────────
+        let mut stats = read_contributor_stats(&env, &contributor);
+        stats.completed += 1;
+        write_contributor_stats(&env, &contributor, &stats);
+        // ────────────────────────────────────────────────────────────────
+
         env.events().publish(
             (symbol_short!("Bounty"), symbol_short!("Releas")),
             BountyReleased {
@@ -365,6 +380,14 @@ impl StellarBountyBoardContract {
         let contract_address = env.current_contract_address();
         // Refund returns the FULL original amount there is no fee on refunds
         token_client.transfer(&contract_address, &maintainer, &bounty.amount);
+
+        // ── Update contributor stats (only if a contributor was assigned) ─
+        if let Some(ref contributor) = bounty.contributor {
+            let mut stats = read_contributor_stats(&env, contributor);
+            stats.refunded += 1;
+            write_contributor_stats(&env, contributor, &stats);
+        }
+        // ────────────────────────────────────────────────────────────────
 
         bounty.status = BountyStatus::Refunded;
         write_bounty(&env, bounty_id, &bounty);
@@ -476,12 +499,23 @@ impl StellarBountyBoardContract {
         let token_client = TokenClient::new(&env, &bounty.token);
         let contract_address = env.current_contract_address();
 
-        if release {
-            let contributor = bounty
-                .contributor
-                .clone()
-                .unwrap_or_else(|| panic_error(ContractError::MissingContributor));
+        let contributor = bounty
+            .contributor
+            .clone()
+            .unwrap_or_else(|| panic_error(ContractError::MissingContributor));
 
+        // ── Update contributor stats ─────────────────────────────────────
+        let mut stats = read_contributor_stats(&env, &contributor);
+        stats.disputed += 1;
+        if release {
+            stats.completed += 1;
+        } else {
+            stats.refunded += 1;
+        }
+        write_contributor_stats(&env, &contributor, &stats);
+        // ────────────────────────────────────────────────────────────────
+
+        if release {
             let fee_amount: i128 = if bounty.protocol_fee_bps == 0 {
                 0
             } else {
@@ -525,6 +559,10 @@ impl StellarBountyBoardContract {
         bounty
     }
 
+    pub fn get_contributor_stats(env: Env, contributor: Address) -> ContributorStats {
+        read_contributor_stats(&env, &contributor)
+    }
+
     pub fn get_next_bounty_id(env: Env) -> u64 {
         env.storage()
             .persistent()
@@ -544,6 +582,23 @@ fn write_bounty(env: &Env, bounty_id: u64, bounty: &Bounty) {
     env.storage()
         .persistent()
         .set(&DataKey::Bounty(bounty_id), bounty);
+}
+
+fn read_contributor_stats(env: &Env, contributor: &Address) -> ContributorStats {
+    env.storage()
+        .persistent()
+        .get(&DataKey::ContribStats(contributor.clone()))
+        .unwrap_or(ContributorStats {
+            completed: 0,
+            disputed: 0,
+            refunded: 0,
+        })
+}
+
+fn write_contributor_stats(env: &Env, contributor: &Address, stats: &ContributorStats) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::ContribStats(contributor.clone()), stats);
 }
 
 fn expire_if_needed(env: &Env, bounty: &mut Bounty) {
