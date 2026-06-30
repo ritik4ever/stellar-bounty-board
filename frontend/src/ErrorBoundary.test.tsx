@@ -1,11 +1,13 @@
 import React from "react";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { test, expect, vi } from "vitest";
 import ErrorBoundary from "./ErrorBoundary";
 import * as logger from "./logger";
 
 function Bomb() {
   throw new Error("boom");
+  return null;
 }
 
 test("shows fallback UI and logs error when child throws", async () => {

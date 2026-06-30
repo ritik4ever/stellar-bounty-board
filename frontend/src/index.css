@@ -2138,3 +2138,87 @@ select {
   font-weight: bold;
   opacity: 1;
 }
+
+/* ── Wallet connect header styles ─────────────────────────────────────── */
+.wallet-pill-container {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.network-warning-badge {
+  background-color: var(--rose);
+  color: white;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  animation: wallet-pulse 2s infinite;
+}
+
+@keyframes wallet-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(184, 85, 75, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(184, 85, 75, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(184, 85, 75, 0);
+  }
+}
+
+.wallet-pill {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--surface-strong);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  padding: 0.5rem 0.75rem;
+  border-radius: 100px;
+  font-size: 0.875rem;
+  font-family: "IBM Plex Mono", monospace;
+  font-weight: 500;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.wallet-pill:hover {
+  background: var(--rose);
+  color: white;
+  border-color: var(--rose);
+}
+
+.wallet-pill:focus-visible {
+  outline: 3px solid var(--mint);
+  outline-offset: 2px;
+}
+
+.wallet-pill--warning {
+  border-color: var(--rose);
+}
+
+.disconnect-hover-text {
+  display: none;
+}
+
+.wallet-pill:hover .wallet-address,
+.wallet-pill:hover .network-indicator {
+  display: none;
+}
+
+.wallet-pill:hover .disconnect-hover-text {
+  display: inline;
+}
+
+.wallet-connect-btn {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.875rem !important;
+  padding: 0.5rem 1rem !important;
+}
+
