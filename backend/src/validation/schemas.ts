@@ -220,6 +220,23 @@ export const extendDeadlineSchema = z
   })
   .openapi('ExtendDeadlineRequest');
 
+export const updateMetadataSchema = z
+  .object({
+    maintainer: stellarAccountSchema.openapi({
+      description: 'Must match the maintainer address on the bounty.',
+    }),
+    newTitle: z
+      .string()
+      .trim()
+      .min(5, 'Title must be at least 5 characters.')
+      .max(120, 'Title must be at most 120 characters.')
+      .openapi({
+        example: 'Fix login redirect bug',
+        description: 'New bounty title (5–120 chars).',
+      }),
+  })
+  .openapi('UpdateMetadataRequest');
+
 // ---------------------------------------------------------------------------
 // Shared response schemas
 // ---------------------------------------------------------------------------
@@ -231,7 +248,7 @@ export const errorResponseSchema = z
   .openapi('ErrorResponse');
 
 export const bountyEventSchema = z.object({
-  type: z.enum(['created', 'reserved', 'submitted', 'released', 'refunded', 'expired', 'disputed']),
+  type: z.enum(['created', 'reserved', 'submitted', 'released', 'refunded', 'expired', 'disputed', 'metadata_updated']),
   timestamp: z.number(),
   actor: z.string().optional(),
   details: z.record(z.any()).optional(),
@@ -319,7 +336,7 @@ export const bountyAuditLogSchema = z
       .enum(['open', 'reserved', 'submitted', 'released', 'refunded', 'expired'])
       .openapi({ example: 'reserved' }),
     transition: z
-      .enum(['reserve', 'submit', 'release', 'refund', 'cancel', 'expire', 'dispute', 'update_notes'])
+      .enum(['reserve', 'submit', 'release', 'refund', 'cancel', 'expire', 'dispute', 'update_notes', 'update_metadata'])
       .openapi({ example: 'reserve' }),
     actor: z.string().openapi({ example: STELLAR_EXAMPLE }),
     timestamp: z

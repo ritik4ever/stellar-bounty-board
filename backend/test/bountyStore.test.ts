@@ -450,6 +450,137 @@ describe("bountyStore — invalid transitions and errors", () => {
   });
 });
 
+describe("bountyStore — update metadata", () => {
+  it("updates title for maintainer and records event/audit log", async () => {
+    const { createBounty, updateBountyMetadata, getBountyEvents, listBountyAuditLogs } =
+      await loadStore();
+
+    const created = await createBounty({
+      repo: "acme/widget",
+      issueNumber: 60,
+      title: "Old bounty title with enough chars",
+      summary: "Summary with twenty or more characters here.",
+      maintainer: MAINTAINER,
+      tokenSymbol: "XLM",
+      amount: 10,
+      deadlineDays: 30,
+      labels: [],
+    });
+
+    const updated = await updateBountyMetadata(created.id, MAINTAINER, "New corrected title");
+    expect(updated.title).toBe("New corrected title");
+    expect(updated.version).toBe(created.version + 1);
+
+    const events = getBountyEvents(created.id);
+    const metadataEvent = events.find((e) => e.type === "metadata_updated");
+    expect(metadataEvent).toBeDefined();
+    expect(metadataEvent?.actor).toBe(MAINTAINER);
+    expect(metadataEvent?.details).toMatchObject({
+      oldTitle: "Old bounty title with enough chars",
+      newTitle: "New corrected title",
+    });
+
+    const audit = listBountyAuditLogs(created.id);
+    const auditEntry = audit.data.find((entry) => entry.transition === "update_metadata");
+    expect(auditEntry).toBeDefined();
+    expect(auditEntry?.actor).toBe(MAINTAINER);
+    expect(auditEntry?.metadata).toMatchObject({
+      oldTitle: "Old bounty title with enough chars",
+      newTitle: "New corrected title",
+    });
+  });
+
+  it("rejects update from non-maintainer", async () => {
+    const { createBounty, updateBountyMetadata } = await loadStore();
+
+    const created = await createBounty({
+      repo: "acme/widget",
+      issueNumber: 61,
+      title: "Wrong maintainer metadata title",
+      summary: "Summary with twenty or more characters here.",
+      maintainer: MAINTAINER,
+      tokenSymbol: "XLM",
+      amount: 10,
+      deadlineDays: 30,
+      labels: [],
+    });
+
+    await expect(
+      async () => await updateBountyMetadata(created.id, OTHER_ACCOUNT, "New title"),
+    ).rejects.toThrow(/maintainer address/i);
+  });
+
+  it("rejects update when bounty is released", async () => {
+    const { createBounty, reserveBounty, submitBounty, releaseBounty, updateBountyMetadata } =
+      await loadStore();
+
+    const created = await createBounty({
+      repo: "acme/widget",
+      issueNumber: 62,
+      title: "Released metadata guard title",
+      summary: "Summary with twenty or more characters here.",
+      maintainer: MAINTAINER,
+      tokenSymbol: "XLM",
+      amount: 10,
+      deadlineDays: 30,
+      labels: [],
+    });
+
+    await reserveBounty(created.id, CONTRIBUTOR);
+    await submitBounty(created.id, CONTRIBUTOR, "https://github.com/acme/widget/pull/62");
+    await releaseBounty(created.id, MAINTAINER);
+
+    await expect(
+      async () => await updateBountyMetadata(created.id, MAINTAINER, "New title"),
+    ).rejects.toThrow(/finalized/i);
+  });
+
+  it("rejects update when bounty is refunded", async () => {
+    const { createBounty, refundBounty, updateBountyMetadata } = await loadStore();
+
+    const created = await createBounty({
+      repo: "acme/widget",
+      issueNumber: 63,
+      title: "Refunded metadata guard title",
+      summary: "Summary with twenty or more characters here.",
+      maintainer: MAINTAINER,
+      tokenSymbol: "XLM",
+      amount: 10,
+      deadlineDays: 30,
+      labels: [],
+    });
+
+    await refundBounty(created.id, MAINTAINER);
+
+    await expect(
+      async () => await updateBountyMetadata(created.id, MAINTAINER, "New title"),
+    ).rejects.toThrow(/finalized/i);
+  });
+
+  it("rejects update when bounty is expired", async () => {
+    const { createBounty, updateBountyMetadata, listBounties } = await loadStore();
+
+    const created = await createBounty({
+      repo: "acme/widget",
+      issueNumber: 64,
+      title: "Expired metadata guard title",
+      summary: "Summary with twenty or more characters here.",
+      maintainer: MAINTAINER,
+      tokenSymbol: "XLM",
+      amount: 10,
+      deadlineDays: -1,
+      labels: [],
+    });
+
+    // normalizeRecords marks past-deadline bounties as expired
+    listBounties();
+
+    await expect(
+      async () => await updateBountyMetadata(created.id, MAINTAINER, "New title"),
+    ).rejects.toThrow(/finalized/i);
+  });
+});
+
 
 describe("bountyStore — event history and metrics", () => {
   it("getBountyEvents returns event history", async () => {

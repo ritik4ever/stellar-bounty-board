@@ -11,6 +11,7 @@ import {
   disputeBounty,
   extendDeadline,
   updateBountyNotes,
+  updateBountyMetadata,
   listBountyAuditLogs,
   listAllAuditLogs,
   listBounties,
@@ -21,7 +22,6 @@ import {
   releaseBounty,
   reserveBounty,
   submitBounty,
-  updateBountyNotes,
   getBountyEvents,
   getMaintainerMetrics,
   getGlobalMetrics,
@@ -41,6 +41,7 @@ import {
   reserveBountySchema,
   submitBountySchema,
   updateNotesSchema,
+  updateMetadataSchema,
 } from './validation/schemas';
 import { validateBody } from './middleware/validateBody';
 import { isValidStellarAddress } from './utils';
@@ -687,6 +688,27 @@ app.patch(
         parseId(req.params.id),
         req.body.maintainer,
         req.body.notes
+      );
+
+      res.json({ data: bounty });
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  }
+);
+
+app.patch(
+  '/api/bounties/:id/metadata',
+  mutationLimiter,
+  requireJsonContentType,
+  createStellarSignatureAuthMiddleware(),
+  validateBody(updateMetadataSchema),
+  async (req: Request, res: Response) => {
+    try {
+      const bounty = await updateBountyMetadata(
+        parseId(req.params.id),
+        req.body.maintainer,
+        req.body.newTitle
       );
 
       res.json({ data: bounty });

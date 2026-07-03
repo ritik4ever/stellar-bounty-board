@@ -54,14 +54,15 @@ export type BountyTransitionType =
   | "expire"
   | "dispute"
   | "update_notes"
-  | "extend_deadline";
+  | "extend_deadline"
+  | "update_metadata";
 
 /**
  * Represents a historical event in the lifecycle of a bounty.
  */
 export interface BountyEvent {
   /** The type of event (usually matches the resulting status or "created"). */
-  type: BountyStatus | "created" | "notes_updated" | "deadline_extended";
+  type: BountyStatus | "created" | "notes_updated" | "deadline_extended" | "metadata_updated";
   /** Unix timestamp in seconds when the event occurred. */
   timestamp: number;
   /** Stellar public key of the actor who triggered the event. */
@@ -1195,6 +1196,66 @@ export async function updateBountyNotes(
         transition: "update_notes",
         actor: maintainer,
         metadata: { notes },
+      },
+    ]);
+    await invalidateBountyCache();
+
+    return persisted;
+  });
+}
+
+/**
+ * Updates a bounty's title metadata. Only the original maintainer may call this,
+ * and only while the bounty is not in a finalized state (released, refunded, or
+ * expired). Records a `metadata_updated` event with the old and new titles.
+ */
+export async function updateBountyMetadata(
+  id: string,
+  maintainer: string,
+  newTitle: string,
+): Promise<BountyRecord> {
+  return withStoreLock(async () => {
+    const records = listBounties();
+    const bounty = findBounty(records, id);
+
+    if (bounty.maintainer !== maintainer) {
+      throw new Error("Maintainer address does not match this bounty.");
+    }
+
+    if (
+      bounty.status === "released" ||
+      bounty.status === "refunded" ||
+      bounty.status === "expired"
+    ) {
+      throw new Error("Cannot update metadata for a finalized bounty.");
+    }
+
+    const oldTitle = bounty.title;
+    const now = nowInSeconds();
+    const updated: BountyRecord = {
+      ...bounty,
+      title: newTitle,
+      version: bounty.version + 1,
+      events: [
+        ...bounty.events,
+        {
+          type: "metadata_updated",
+          timestamp: now,
+          actor: maintainer,
+          details: { oldTitle, newTitle },
+        },
+      ],
+    };
+
+    const persisted = persistUpdated(records, updated);
+    appendAuditLogs([
+      {
+        bountyId: id,
+        fromStatus: bounty.status,
+        toStatus: bounty.status,
+        transition: "update_metadata",
+        actor: maintainer,
+        metadata: { oldTitle, newTitle },
       },
     ]);
     await invalidateBountyCache();

@@ -863,8 +863,124 @@ fn test_extend_deadline_earlier() {
     client.extend_deadline(&bounty_id, &maintainer, &earlier_deadline);
 }
 
+#[test]
+fn test_update_metadata_success() {
+    let env = Env::default();
+    env.mock_all_auths();
 
+    let (client, maintainer, _, token_id, _, _) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
 
-    // Dispute after deadline should fail
-    client.dispute_bounty(&bounty_id, &arbiter);
+    let deadline = env.ledger().timestamp() + 1000;
+    let old_title = String::from_str(&env, "Old Title");
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &old_title,
+        &deadline,
+        &0u32,
+    );
+
+    let new_title = String::from_str(&env, "New Title");
+    client.update_metadata(&bounty_id, &maintainer, &new_title);
+
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.title, new_title);
+
+    let events = env.events().all();
+    let update_event = events.last().unwrap();
+    assert_eq!(
+        update_event,
+        (
+            client.address.clone(),
+            (symbol_short!("Bounty"), symbol_short!("UpdMeta")).into_val(&env),
+            BountyMetadataUpdated {
+                bounty_id,
+                old_title,
+                new_title,
+            }
+            .into_val(&env)
+        )
+    );
 }
+
+#[test]
+#[should_panic(expected = "MaintainerMismatch")]
+fn test_update_metadata_wrong_maintainer() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, contributor, token_id, _, _) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    let deadline = env.ledger().timestamp() + 1000;
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &deadline,
+        &0u32,
+    );
+
+    client.update_metadata(&bounty_id, &contributor, &String::from_str(&env, "New Title"));
+}
+
+invalid_transition_test!(
+    update_metadata_released,
+    BountyStatus::Released,
+    "CannotUpdateFinalizedBounty",
+    {
+        |client: &StellarBountyBoardContractClient<'static>,
+         bounty_id: u64,
+         maintainer: Address,
+         _contributor: Address| {
+            client.update_metadata(
+                &bounty_id,
+                &maintainer,
+                &String::from_str(&client.env, "New Title"),
+            )
+        }
+    }
+);
+invalid_transition_test!(
+    update_metadata_refunded,
+    BountyStatus::Refunded,
+    "CannotUpdateFinalizedBounty",
+    {
+        |client: &StellarBountyBoardContractClient<'static>,
+         bounty_id: u64,
+         maintainer: Address,
+         _contributor: Address| {
+            client.update_metadata(
+                &bounty_id,
+                &maintainer,
+                &String::from_str(&client.env, "New Title"),
+            )
+        }
+    }
+);
+invalid_transition_test!(
+    update_metadata_expired,
+    BountyStatus::Expired,
+    "CannotUpdateFinalizedBounty",
+    {
+        |client: &StellarBountyBoardContractClient<'static>,
+         bounty_id: u64,
+         maintainer: Address,
+         _contributor: Address| {
+            client.update_metadata(
+                &bounty_id,
+                &maintainer,
+                &String::from_str(&client.env, "New Title"),
+            )
+        }
+    }
+);

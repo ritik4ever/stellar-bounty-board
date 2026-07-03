@@ -136,6 +136,14 @@ pub struct BountyDeadlineExtended {
 }
 
 #[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BountyMetadataUpdated {
+    pub bounty_id: u64,
+    pub old_title: String,
+    pub new_title: String,
+}
+
+#[contracttype]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ContractError {
     InvalidAmount,
@@ -151,6 +159,7 @@ pub enum ContractError {
     BountyExpired,
     DeadlineMustAdvance,
     CannotExtendFinalizedBounty,
+    CannotUpdateFinalizedBounty,
     BountyNotFound,
     NotArbiter,
     DisputeWindowNotMet,
@@ -478,6 +487,36 @@ impl StellarBountyBoardContract {
             BountyDeadlineExtended {
                 bounty_id,
                 new_deadline,
+            },
+        );
+    }
+
+    pub fn update_metadata(env: Env, bounty_id: u64, maintainer: Address, new_title: String) {
+        maintainer.require_auth();
+        let mut bounty = read_bounty(&env, bounty_id);
+        expire_if_needed(&env, &mut bounty);
+
+        if bounty.maintainer != maintainer {
+            panic_error(ContractError::MaintainerMismatch);
+        }
+
+        if bounty.status == BountyStatus::Released
+            || bounty.status == BountyStatus::Refunded
+            || bounty.status == BountyStatus::Expired
+        {
+            panic_error(ContractError::CannotUpdateFinalizedBounty);
+        }
+
+        let old_title = bounty.title.clone();
+        bounty.title = new_title.clone();
+        write_bounty(&env, bounty_id, &bounty);
+
+        env.events().publish(
+            (symbol_short!("Bounty"), symbol_short!("UpdMeta")),
+            BountyMetadataUpdated {
+                bounty_id,
+                old_title,
+                new_title,
             },
         );
     }
