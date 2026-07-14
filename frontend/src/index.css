@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=optional");
 
 :root {
   color-scheme: light;
@@ -855,9 +855,21 @@ select {
 .repo-avatar {
   width: 56px;
   height: 56px;
+  flex: 0 0 56px;
   border-radius: 18px;
   border: 1px solid rgba(54, 63, 59, 0.12);
   background: rgba(255, 255, 255, 0.9);
+  object-fit: cover;
+}
+
+.repo-avatar--placeholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #e6f4ee, #f7d9c8);
+  color: #174337;
+  font-weight: 800;
+  letter-spacing: 0;
 }
 
 .meta-grid--detail {
@@ -1232,10 +1244,13 @@ select {
 }
 
 .usd-amount {
+  display: inline-block;
+  min-width: 14ch;
   font-size: 0.75rem;
   opacity: 0.65;
   font-family: "IBM Plex Mono", monospace;
   font-weight: 400;
+  text-align: left;
 }
 
 .status-pill {

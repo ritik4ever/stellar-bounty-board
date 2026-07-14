@@ -1,5 +1,5 @@
 import React from "react";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -100,6 +100,56 @@ describe("BountyDetailPage copy actions", () => {
     await userEvent.click(screen.getByRole("button", { name: /print \/ export pdf/i }));
 
     expect(print).toHaveBeenCalledOnce();
+  });
+
+  it("renders the repository avatar with stable lazy-loading image attributes", () => {
+    render(
+      <BountyDetailPage
+        {...detailProps()}
+        avatarUrl="https://github.com/ritik4ever.png?size=72"
+      />,
+    );
+
+    const avatar = screen.getByRole("img", { name: "ritik4ever" });
+
+    expect(avatar).toHaveAttribute("src", "https://github.com/ritik4ever.png?size=56");
+    expect(avatar).toHaveAttribute(
+      "srcset",
+      "https://github.com/ritik4ever.png?size=56 56w, https://github.com/ritik4ever.png?size=112 112w",
+    );
+    expect(avatar).toHaveAttribute("sizes", "56px");
+    expect(avatar).toHaveAttribute("loading", "lazy");
+    expect(avatar).toHaveAttribute("decoding", "async");
+    expect(avatar).toHaveAttribute("width", "56");
+    expect(avatar).toHaveAttribute("height", "56");
+  });
+
+  it("shows a placeholder avatar when the repository avatar fails to load", () => {
+    render(
+      <BountyDetailPage
+        {...detailProps()}
+        avatarUrl="https://github.com/ritik4ever.png?size=72"
+      />,
+    );
+
+    fireEvent.error(screen.getByRole("img", { name: "ritik4ever" }));
+
+    expect(screen.getByRole("img", { name: "ritik4ever avatar placeholder" })).toHaveTextContent("RI");
+  });
+
+  it("shows a placeholder avatar when no repository avatar URL is available", () => {
+    renderDetail();
+
+    expect(screen.getByRole("img", { name: "ritik4ever avatar placeholder" })).toHaveTextContent("RI");
+  });
+
+  it("reserves stable space for the async USD amount", () => {
+    const { container } = renderDetail();
+
+    const usdAmount = container.querySelector(".usd-amount");
+
+    expect(usdAmount).toBeInTheDocument();
+    expect(usdAmount).toHaveAttribute("aria-hidden", "true");
   });
 
   it("announces status changes for assistive technology", () => {

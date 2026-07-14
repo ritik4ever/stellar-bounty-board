@@ -48,7 +48,12 @@ export default function UsdAmount({ amount, tokenSymbol = "XLM" }: UsdAmountProp
     return <span className="usd-amount">(Loading...)</span>;
   }
 
-  if (!usdValue) return null;
-
-  return <span className="usd-amount">({usdValue})</span>;
+  return (
+    <span
+      className="usd-amount"
+      aria-hidden={!usdValue ? "true" : undefined}
+    >
+      {usdValue ? `(${usdValue})` : ""}
+    </span>
+  );
 }
