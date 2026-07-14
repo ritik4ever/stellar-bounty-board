@@ -15,6 +15,7 @@
     "lint": "npm --prefix backend run lint && npm --prefix frontend run lint",
     "lint:fix": "npm --prefix backend run lint:fix && npm --prefix frontend run lint:fix",
     "test": "npm --prefix backend test",
+    "issues:create": "node scripts/create-issues-from-docs.js",
     "test:watch": "npm --prefix backend run test:watch",
     "test:coverage": "npm --prefix backend run test:coverage",
     "check:bindings": "bash scripts/gen-bindings.sh && git diff --exit-code frontend/src/generated"
