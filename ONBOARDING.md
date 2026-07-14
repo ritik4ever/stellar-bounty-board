@@ -394,3 +394,115 @@ Issue drafts ready to be opened live in [`docs/issues/`](./docs/issues/). If you
 We want contributing here to feel approachable. If this guide is missing something that tripped you up, a PR to improve it is one of the most valuable contributions you can make.
 
 Happy building! 🚀
+---
+
+## 15. Backend Setup
+
+### Prerequisites
+
+- Node.js 18+
+- npm 9+
+
+### Install & Run
+
+```bash
+cd backend
+npm install
+npm run build
+npm start
+```
+
+### Environment Variables
+
+Copy `.env.example` to `.env` and configure:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PORT` | Backend server port | `3000` |
+| `STELLAR_NETWORK` | Stellar network to use | `testnet` |
+| `MAINTAINER_PUBLIC_KEYS` | Comma-separated maintainer keys | — |
+| `WEBHOOK_SECRET` | Secret for webhook signing | — |
+| `DATA_DIR` | Directory for JSON storage | `./data` |
+
+### Running Tests
+
+```bash
+npm test
+```
+
+## 16. Frontend Setup
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The frontend runs on `http://localhost:5173` by default.
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `VITE_API_URL` | Backend API URL | `http://localhost:3000` |
+| `VITE_NETWORK` | Stellar network (testnet/mainnet) | `testnet` |
+
+## 17. Soroban Contract Setup
+
+### Prerequisites
+
+- Rust toolchain (rustup)
+- Soroban CLI
+
+### Build & Test
+
+```bash
+cd contracts
+cargo build
+cargo test
+```
+
+### Deploy (Testnet)
+
+```bash
+soroban contract deploy \
+  --wasm target/wasm32-unknown-unknown/release/bounty_contract.wasm \
+  --source <YOUR_SECRET_KEY> \
+  --network testnet
+```
+
+## 18. Docker Compose (Full Stack)
+
+```bash
+docker compose up --build
+```
+
+This starts:
+- Backend on `http://localhost:3000`
+- Frontend on `http://localhost:5173`
+
+## Troubleshooting
+
+### "Port already in use"
+
+Change the `PORT` environment variable or kill the existing process:
+
+```bash
+lsof -i :3000
+kill -9 <PID>
+```
+
+### "Cannot find module"
+
+```bash
+rm -rf node_modules
+npm install
+```
+
+### Contract build fails
+
+Ensure you have the `wasm32-unknown-unknown` target:
+
+```bash
+rustup target add wasm32-unknown-unknown
+```
