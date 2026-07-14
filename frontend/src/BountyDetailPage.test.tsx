@@ -64,6 +64,75 @@ function renderDetail(detailBounty: Bounty = bounty) {
 
 afterEach(() => {
   vi.useRealTimers();
+  document.head.querySelectorAll("meta[property^='og:'], meta[name='twitter:card']").forEach((meta) => meta.remove());
+  document.title = "";
+  window.history.replaceState(null, "", "/");
+});
+
+describe("BountyDetailPage social metadata", () => {
+  it("sets Open Graph and Twitter tags when bounty data loads", () => {
+    window.history.replaceState(null, "", "/bounties/BNTY-42?utm_source=test#comments");
+    const expectedCanonicalUrl = new URL("/bounties/BNTY-42", window.location.origin).toString();
+
+    render(
+      <BountyDetailPage
+        {...detailProps(bounty)}
+        avatarUrl="https://example.com/avatar.png"
+      />,
+    );
+
+    expect(document.title).toBe("Copy button test bounty | Stellar Bounty Board");
+    expect(document.head.querySelector('meta[property="og:title"]')).toHaveAttribute("content", bounty.title);
+    expect(document.head.querySelector('meta[property="og:description"]')).toHaveAttribute(
+      "content",
+      "Make important identifiers easy to copy. - 150 XLM bounty",
+    );
+    expect(document.head.querySelector('meta[property="og:url"]')).toHaveAttribute("content", expectedCanonicalUrl);
+    expect(document.head.querySelector('meta[property="og:image"]')).toHaveAttribute("content", "https://example.com/avatar.png");
+    expect(document.head.querySelector('meta[name="twitter:card"]')).toHaveAttribute("content", "summary_large_image");
+  });
+
+  it("updates social tags when a different bounty is rendered", () => {
+    const { rerender } = renderDetail();
+    const updatedBounty: Bounty = {
+      ...bounty,
+      title: "Fresh security bounty",
+      summary: "Patch a critical edge case.",
+      amount: 250,
+      tokenSymbol: "USDC",
+    };
+
+    rerender(<BountyDetailPage {...detailProps(updatedBounty)} />);
+
+    expect(document.head.querySelector('meta[property="og:title"]')).toHaveAttribute("content", updatedBounty.title);
+    expect(document.head.querySelector('meta[property="og:description"]')).toHaveAttribute(
+      "content",
+      "Patch a critical edge case. - 250 USDC bounty",
+    );
+  });
+
+  it("restores previous title and social tags when unmounted", () => {
+    document.title = "Original title";
+    const previousOgTitle = document.createElement("meta");
+    previousOgTitle.setAttribute("property", "og:title");
+    previousOgTitle.setAttribute("content", "Original OG title");
+    document.head.appendChild(previousOgTitle);
+
+    const { unmount } = renderDetail();
+
+    expect(document.title).toBe("Copy button test bounty | Stellar Bounty Board");
+    expect(document.head.querySelector('meta[property="og:title"]')).toHaveAttribute("content", bounty.title);
+    expect(document.head.querySelector('meta[property="og:description"]')).toHaveAttribute(
+      "content",
+      "Make important identifiers easy to copy. - 150 XLM bounty",
+    );
+
+    unmount();
+
+    expect(document.title).toBe("Original title");
+    expect(document.head.querySelector('meta[property="og:title"]')).toHaveAttribute("content", "Original OG title");
+    expect(document.head.querySelector('meta[property="og:description"]')).not.toBeInTheDocument();
+  });
 });
 
 describe("BountyDetailPage copy actions", () => {

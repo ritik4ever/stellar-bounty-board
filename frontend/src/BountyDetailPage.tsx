@@ -75,6 +75,90 @@ const EVENT_LABELS: Record<string, string> = {
   expired: "Bounty expired",
 };
 
+function upsertMetaTag(selector: string, attributes: Record<string, string>) {
+  const existingElement = document.head.querySelector<HTMLMetaElement>(selector);
+  const element: HTMLMetaElement = existingElement ?? document.createElement("meta");
+
+  Object.entries(attributes).forEach(([name, value]) => {
+    element.setAttribute(name, value);
+  });
+
+  if (!existingElement) {
+    document.head.appendChild(element);
+  }
+}
+
+const SOCIAL_META_SPECS = [
+  {
+    selector: 'meta[property="og:title"]',
+    attributes: (content: string) => ({ property: "og:title", content }),
+  },
+  {
+    selector: 'meta[property="og:description"]',
+    attributes: (content: string) => ({ property: "og:description", content }),
+  },
+  {
+    selector: 'meta[property="og:url"]',
+    attributes: (content: string) => ({ property: "og:url", content }),
+  },
+  {
+    selector: 'meta[property="og:image"]',
+    attributes: (content: string) => ({ property: "og:image", content }),
+  },
+  {
+    selector: 'meta[name="twitter:card"]',
+    attributes: (content: string) => ({ name: "twitter:card", content }),
+  },
+];
+
+function useBountySocialMeta(bounty: Bounty | null, avatarUrl: string) {
+  useEffect(() => {
+    if (!bounty) return;
+
+    const previousTitle = document.title;
+    const previousMeta = SOCIAL_META_SPECS.map(({ selector }) => {
+      const element = document.head.querySelector<HTMLMetaElement>(selector);
+      return {
+        selector,
+        existed: Boolean(element),
+        content: element?.getAttribute("content") ?? null,
+      };
+    });
+
+    const canonical = new URL(window.location.href);
+    canonical.search = "";
+    canonical.hash = "";
+    const canonicalUrl = canonical.toString();
+    const imageUrl = avatarUrl || new URL("/og-image.png", window.location.origin).toString();
+    const description = `${bounty.summary} - ${bounty.amount} ${bounty.tokenSymbol} bounty`;
+    const metaContents = [bounty.title, description, canonicalUrl, imageUrl, "summary_large_image"];
+
+    document.title = `${bounty.title} | Stellar Bounty Board`;
+    SOCIAL_META_SPECS.forEach((spec, index) => {
+      upsertMetaTag(spec.selector, spec.attributes(metaContents[index]));
+    });
+
+    return () => {
+      document.title = previousTitle;
+      previousMeta.forEach(({ selector, existed, content }) => {
+        const element = document.head.querySelector<HTMLMetaElement>(selector);
+        if (!element) return;
+
+        if (!existed) {
+          element.remove();
+          return;
+        }
+
+        if (content === null) {
+          element.removeAttribute("content");
+        } else {
+          element.setAttribute("content", content);
+        }
+      });
+    };
+  }, [avatarUrl, bounty]);
+}
+
 function BountyTimeline({ events, formatTimestamp }: { events: BountyEvent[]; formatTimestamp: (v?: number) => string }) {
   if (!events || events.length === 0) return null;
 
@@ -121,6 +205,7 @@ export default function BountyDetailPage({
 }: Props) {
 
   const statusAnnouncement = useBountyStatusAnnouncement(bounty, statusCopy);
+  useBountySocialMeta(bounty, avatarUrl);
 
   useEffect(() => {
     updateSocialMetaTags(bounty);
