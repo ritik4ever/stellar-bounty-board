@@ -987,12 +987,11 @@ fn test_get_all_bounties_limit_capped_at_50() {
 fn test_dispute_after_deadline_fails() {
     let env = Env::default();
     env.mock_all_auths();
-    
-    // Note: If your file already had setup code inside this test block above the conflict, 
+
+    // Note: If your file already had setup code inside this test block above the conflict,
     // leave it intact. This makes sure the dispute test runs immediately after.
     let (client, _, _, _, arbiter, bounty_id) = setup_test(&env);
-    
+
     // Dispute after deadline should fail
     client.dispute_bounty(&bounty_id, &arbiter);
-}>>>>>>> main
 }
