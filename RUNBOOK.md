@@ -197,17 +197,19 @@ sudo systemctl start stellar-bounty-board-backend
 
 ## Force-Expire a Reservation
 
-**Use case:** A contributor has reserved a bounty but is unresponsive, and you need to release it back to the pool before the reservation timeout expires.
+**Use case:** A contributor has reserved a bounty but is unresponsive, and you need to release it back to the pool before the reservation timeout expires. Also handles a bounty already marked "expired" (idempotent no-op).
+
+Force-expiration goes through `scripts/force-expire.ts`, which calls the bounty store's `adminForceExpireBounty()` the same way every other state transition (reserve, submit, release, refund) does — with file locking and a proper audit log entry. There is no supported way to force-expire a bounty by hand-editing `data/bounties.json`; doing so bypasses locking and the audit trail and can corrupt the store.
 
 ### Prerequisites
 
 - Access to the backend server
 - The bounty ID to force-expire
-- Backup of current bounty data
+- The admin key (the plaintext value whose bcrypt hash is stored in `ADMIN_API_KEY_HASH`; see `scripts/hash-admin-key.js` at the repo root if you need to generate one)
 
 ### Steps
 
-1. **Backup current data**
+1. **Back up current data** (optional, but recommended before any operational change)
    ```bash
    cd /path/to/backend
    mkdir -p backups/$(date +%Y%m%d_%H%M%S)
@@ -215,98 +217,17 @@ sudo systemctl start stellar-bounty-board-backend
    cp data/bounties.audit.json backups/$(date +%Y%m%d_%H%M%S)/
    ```
 
-2. **Stop the backend service**
+2. **Run the force-expire script**
    ```bash
-   sudo systemctl stop stellar-bounty-board-backend
+   cd /path/to/backend
+   ADMIN_API_KEY_HASH="$ADMIN_API_KEY_HASH" npm run force-expire -- BNT-0001 \
+     --key "<the-admin-key>" \
+     --actor "<your-name-or-handle>" \
+     --yes
    ```
+   `--yes` is a required, explicit confirmation that a state mutation is intended — the script refuses to run without it. The admin key is verified against `ADMIN_API_KEY_HASH` with the same bcrypt check used by the `/api/audit-log` endpoint.
 
-3. **Locate the bounty in the JSON file**
-   ```bash
-   # Find the bounty by ID
-   BOUNTY_ID="BNT-0001"
-   grep -A 20 "\"id\": \"$BOUNTY_ID\"" data/bounties.json
-   ```
-
-4. **Update the bounty status**
-   ```bash
-   # Use a script to update the bounty (Python example)
-   python3 << 'EOF'
-import json
-import sys
-
-bounty_id = "BNT-0001"
-file_path = "data/bounties.json"
-
-with open(file_path, 'r') as f:
-    bounties = json.load(f)
-
-for bounty in bounties:
-    if bounty['id'] == bounty_id:
-        bounty['status'] = 'open'
-        bounty['contributor'] = None
-        bounty['reservedAt'] = None
-        bounty['version'] = bounty.get('version', 0) + 1
-        bounty['events'].append({
-            'type': 'expired',
-            'timestamp': int(__import__('time').time()),
-            'details': {'reason': 'admin_force_expire'}
-        })
-        print(f"Updated bounty {bounty_id}")
-        break
-
-with open(file_path, 'w') as f:
-    json.dump(bounties, f, indent=2)
-
-print("Done")
-EOF
-   ```
-
-5. **Add audit log entry**
-   ```bash
-   python3 << 'EOF'
-import json
-import time
-
-audit_entry = {
-    "id": "AUD-" + str(int(time.time())),
-    "bountyId": "BNT-0001",
-    "fromStatus": "reserved",
-    "toStatus": "open",
-    "transition": "expire",
-    "actor": "admin",
-    "timestamp": int(time.time()),
-    "metadata": {
-        "reason": "admin_force_expire",
-        "manual_intervention": True
-    }
-}
-
-audit_file = "data/bounties.audit.json"
-with open(audit_file, 'r') as f:
-    audits = json.load(f)
-
-audits.append(audit_entry)
-
-with open(audit_file, 'w') as f:
-    json.dump(audits, f, indent=2)
-
-print("Audit log updated")
-EOF
-   ```
-
-6. **Validate the JSON**
-   ```bash
-   python3 -m json.tool data/bounties.json > /dev/null
-   python3 -m json.tool data/bounties.audit.json > /dev/null
-   echo "JSON is valid"
-   ```
-
-7. **Restart the backend service**
-   ```bash
-   sudo systemctl start stellar-bounty-board-backend
-   ```
-
-8. **Verify the update**
+3. **Verify the update**
    ```bash
    # Check the bounty status via API
    curl https://your-backend.example.com/api/bounties | grep "BNT-0001"
@@ -314,11 +235,12 @@ EOF
 
 ### Expected Output
 
-- JSON validation passes
-- Bounty status changes from `reserved` to `open`
-- Contributor field is cleared
-- Audit log shows the force-expire action
+- The script prints `Force-expired bounty BNT-0001 (trigger: reservation_timeout) -> status: open` (or, if the bounty was already expired, `Bounty BNT-0001 is already expired — nothing to do.`)
+- Bounty status changes from `reserved` to `open`; contributor and reservedAt are cleared
+- Audit log shows the force-expire action (`transition: "expire"`, `actor` set to whatever you passed via `--actor`)
 - API returns the updated bounty
+
+Only a `reserved` bounty (to release its reservation) or an already-`expired` bounty (idempotent) is eligible. An `open` bounty that hasn't reached its deadline is an active bounty, not a stale one — use the API-based approach below instead.
 
 ### Alternative: API-Based Approach
 

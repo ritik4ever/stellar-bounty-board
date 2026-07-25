@@ -11,6 +11,7 @@
     "lint:fix": "eslint \"src/**/*.ts\" \"test/**/*.ts\" --fix",
     "start": "node dist/index.js",
     "gen:openapi": "tsx src/docs/writeOpenApi.ts",
+    "force-expire": "tsx scripts/force-expire.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

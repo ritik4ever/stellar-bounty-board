@@ -1182,6 +1182,97 @@ export async function disputeBounty(
   });
 }
 
+export type ForceExpireTrigger = "already_expired" | "reservation_timeout";
+
+export interface ForceExpireResult {
+  bounty: BountyRecord;
+  trigger: ForceExpireTrigger;
+  mutated: boolean;
+}
+
+/**
+ * Force-expires a bounty on an operator's behalf, through the same locked,
+ * audited path as every other state transition — replacing direct
+ * bounties.json edits.
+ *
+ * listBounties() already auto-expires open/reserved bounties whose deadline
+ * has passed on every read (see normalizeRecords) — including the read this
+ * function itself does — so a genuinely stale bounty will already be
+ * "expired" by the time this runs. The scenario this exists for is
+ * releasing a *reserved* bounty whose contributor has gone unresponsive,
+ * before its reservation timeout naturally elapses — an operator override,
+ * not something the passive read-time check can do.
+ *
+ * Eligible bounties:
+ *  - "reserved": released back to "open" regardless of whether the
+ *    reservation timeout has technically elapsed yet (that's the "force").
+ *  - "expired": idempotent no-op success — the operator asked to expire an
+ *    already-stale bounty, which is already satisfied.
+ *
+ * An "open" bounty that has not reached its deadline is not eligible — that
+ * is an active bounty, not a stale one; use cancelBounty for that instead.
+ *
+ * @param id - The unique ID of the bounty.
+ * @param actor - Identity of the operator performing the force-expire (for the audit log).
+ * @throws {Error} If the bounty is not found.
+ * @throws {Error} If the bounty is not eligible (not reserved, and not already expired).
+ */
+export async function adminForceExpireBounty(
+  id: string,
+  actor: string,
+): Promise<ForceExpireResult> {
+  return withStoreLock(async () => {
+    const records = listBounties();
+    const bounty = findBounty(records, id);
+    const now = nowInSeconds();
+
+    if (bounty.status === "expired") {
+      return { bounty, trigger: "already_expired", mutated: false };
+    }
+
+    if (bounty.status !== "reserved") {
+      throw new Error(
+        `Bounty ${id} is not eligible for force-expiration (status: ${bounty.status}). ` +
+          "Only a reserved bounty (to release its reservation) or an already-expired bounty can be force-expired.",
+      );
+    }
+
+    const trigger: ForceExpireTrigger = "reservation_timeout";
+
+    const updated: BountyRecord = {
+      ...bounty,
+      status: "open",
+      contributor: undefined,
+      reservedAt: undefined,
+      version: bounty.version + 1,
+      events: [
+        ...bounty.events,
+        {
+          type: "expired",
+          timestamp: now,
+          actor,
+          details: { reason: "admin_force_expire", trigger },
+        },
+      ],
+    };
+
+    const persisted = persistUpdated(records, updated);
+    appendAuditLogs([
+      {
+        bountyId: id,
+        fromStatus: bounty.status,
+        toStatus: "open",
+        transition: "expire",
+        actor,
+        metadata: { reason: "admin_force_expire", trigger },
+      },
+    ]);
+    await invalidateBountyCache();
+
+    return { bounty: persisted, trigger, mutated: true };
+  });
+}
+
 export async function updateBountyNotes(
   id: string,
   maintainer: string,
