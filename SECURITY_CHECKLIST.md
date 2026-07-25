@@ -21,3 +21,13 @@ Check that new dependencies are necessary, reputable, and free from known vulner
 ## 5. Secret Handling
 Check that no credentials, tokens, or private keys are hardcoded in the source code and that environment variables are securely handled.
 **Relevant Files:** Configuration files, environment loaders, CI/CD workflows.
+
+## 6. Signature Timestamp Skew
+Check that Stellar signature validation rejects requests whose timestamp is outside the expected freshness window, instead of accepting excessive clock skew.
+**Relevant Files:** Auth middleware and SEP-10 verification flow (for example, `backend/src/middleware/auth.ts`).
+
+**Pentest steps:**
+- Confirm the server expects a signed request timestamp within an acceptable skew window of approximately ±60 seconds.
+- Verify that a request signed with a timestamp inside that window is accepted, and that values outside it (for example, +61 seconds or -61 seconds, or a larger offset such as ±2 minutes) are rejected with a 401 response.
+- For a manual pentest, simulate skew by changing the client clock forward or backward before signing, or by crafting a request with a deliberately altered timestamp field while keeping the signature otherwise valid.
+- Review the validation path to ensure the same freshness check is enforced consistently in the auth middleware / SEP-10 verification flow used by the protected endpoint.
