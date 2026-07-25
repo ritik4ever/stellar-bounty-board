@@ -3,7 +3,7 @@
 use super::*;
 use soroban_sdk::{
     symbol_short,
-    testutils::{Address as _, Events, Ledger},
+    testutils::{Address as _, Events, Ledger, MockAuth, MockAuthInvoke},
     Address, Env, IntoVal, String,
 };
 
@@ -1002,4 +1002,56 @@ fn test_dispute_after_deadline_fails() {
 
     // Dispute after deadline should fail
     client.dispute_bounty(&bounty_id, &arbiter);
+}
+
+#[test]
+fn test_dispute_bounty_unauthorized_address_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, contributor, token_id, _fee_recipient, arbiter) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    // dispute_bounty requires the bounty to be Submitted.
+    let bounty_id = create_bounty_with_state(
+        &env,
+        &client,
+        maintainer.clone(),
+        contributor.clone(),
+        token_id.clone(),
+        BountyStatus::Submitted,
+    );
+
+    let before = client.get_bounty(&bounty_id);
+
+    // An address unrelated to this bounty — neither its contributor nor its maintainer.
+    let unrelated = Address::generate(&env);
+
+    // dispute_bounty has no "caller" parameter; authorization comes from
+    // contributor.require_auth() on the bounty's *stored* contributor. Mock
+    // authorization for the unrelated address only (not the real
+    // contributor), so that require_auth() has nothing to satisfy it with
+    // and the call is rejected — env.mock_all_auths() above would otherwise
+    // let any address through, which is exactly what this test must not do.
+    let result = client
+        .mock_auths(&[MockAuth {
+            address: &unrelated,
+            invoke: &MockAuthInvoke {
+                contract: &client.address,
+                fn_name: "dispute_bounty",
+                args: (bounty_id, arbiter.clone()).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .try_dispute_bounty(&bounty_id, &arbiter);
+
+    assert!(
+        result.is_err(),
+        "dispute_bounty should reject a caller who is neither the contributor nor the maintainer"
+    );
+
+    // The bounty's status and stored fields must be unchanged after the rejected attempt.
+    let after = client.get_bounty(&bounty_id);
+    assert_eq!(after, before);
 }
