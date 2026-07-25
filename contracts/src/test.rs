@@ -189,6 +189,54 @@ fn test_create_bounty() {
 }
 
 #[test]
+fn test_set_default_fee_bps_success() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, _contributor, token_id, _fee_recipient, _arbiter) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    let new_fee_bps = 250u32;
+    client.set_default_fee_bps(&new_fee_bps);
+
+    let deadline = env.ledger().timestamp() + 1000;
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &deadline,
+        &0u32,
+    );
+
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.protocol_fee_bps, new_fee_bps);
+    assert_eq!(client.get_default_fee_bps(), new_fee_bps);
+}
+
+#[test]
+#[should_panic]
+fn test_set_default_fee_bps_unauthorized_caller() {
+    let env = Env::default();
+    let (client, _maintainer, _contributor, _token_id, _fee_recipient, _arbiter) = setup_test(&env);
+
+    client.set_default_fee_bps(&250);
+}
+
+#[test]
+#[should_panic(expected = "fee exceeds 10%")]
+fn test_set_default_fee_bps_over_limit() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _maintainer, _contributor, _token_id, _fee_recipient, _arbiter) = setup_test(&env);
+
+    client.set_default_fee_bps(&1001);
+}
+
+#[test]
 #[should_panic(expected = "InvalidAmount")]
 fn test_create_bounty_negative_amount() {
     let env = Env::default();
