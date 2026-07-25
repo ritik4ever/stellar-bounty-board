@@ -136,6 +136,13 @@ pub struct BountyDeadlineExtended {
 }
 
 #[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FeeRecipientUpdated {
+    pub old_recipient: Address,
+    pub new_recipient: Address,
+}
+
+#[contracttype]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ContractError {
     InvalidAmount,
@@ -154,6 +161,7 @@ pub enum ContractError {
     BountyNotFound,
     NotArbiter,
     DisputeWindowNotMet,
+    InvalidRecipient,
 }
 
 /// Maximum allowed bounty amount: 10 billion XLM expressed in stroops
@@ -203,6 +211,32 @@ impl StellarBountyBoardContract {
             .persistent()
             .get(&DataKey::FeeRecipient)
             .unwrap_or_else(|| panic!("not initialized"))
+    }
+
+    pub fn set_fee_recipient(env: Env, new_recipient: Address) {
+        let old_recipient: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::FeeRecipient)
+            .unwrap_or_else(|| panic!("not initialized"));
+
+        old_recipient.require_auth();
+
+        if new_recipient == env.current_contract_address() {
+            panic_error(ContractError::InvalidRecipient);
+        }
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::FeeRecipient, &new_recipient);
+
+        env.events().publish(
+            (symbol_short!("Bounty"), symbol_short!("FeeUpd")),
+            FeeRecipientUpdated {
+                old_recipient,
+                new_recipient,
+            },
+        );
     }
 
     pub fn create_bounty(
@@ -611,13 +645,6 @@ impl StellarBountyBoardContract {
             .unwrap_or(0)
     }
 
-pub fn get_next_bounty_id(env: Env) -> u64 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::NextBountyId)
-            .unwrap_or(0)
-    }
-
     /// Read-only view function to enumerate bounties on-chain.
     pub fn get_all_bounties(env: Env, start: u64, limit: u32) -> Vec<Bounty> {
         let enforced_limit = if limit > 50 { 50 } else { limit };
@@ -665,7 +692,24 @@ pub fn get_next_bounty_id(env: Env) -> u64 {
                 bounty_count: 0,
             })
     }
-} main
+}
+
+fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
+    if fee_amount > 0 {
+        let mut stats: FeeStats = env
+            .storage()
+            .persistent()
+            .get(&DataKey::FeeStats)
+            .unwrap_or(FeeStats {
+                total_collected: 0,
+                bounty_count: 0,
+            });
+        stats.total_collected += fee_amount;
+        stats.bounty_count += 1;
+        env.storage()
+            .persistent()
+            .set(&DataKey::FeeStats, &stats);
+    }
 }
 
 fn read_bounty(env: &Env, bounty_id: u64) -> Bounty {
