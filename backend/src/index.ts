@@ -4,13 +4,14 @@ import path from "node:path";
 import { Worker } from "node:worker_threads";
 import { app } from "./app";
 import { logStructured } from "./logger";
-import path from "node:path";
-import { Worker } from "node:worker_threads";
 import { invalidateBountyCache } from "./services/bountyStore";
+import { startExpirationJob, stopExpirationJob } from "./services/reservationExpirationJob";
+import { setDraining } from "./shutdown";
 
 const port = Number(process.env.PORT ?? 3001);
 const keepAliveTimeout = Number(process.env.KEEP_ALIVE_TIMEOUT ?? 65000);
 const headersTimeout = Number(process.env.HEADERS_TIMEOUT ?? 66000);
+const DRAIN_TIMEOUT_MS = 10_000;
 
 const server = app.listen(port, () => {
   logStructured("info", "server_listen", { port, keepAliveTimeout, headersTimeout });
