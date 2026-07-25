@@ -994,5 +994,5 @@ fn test_dispute_after_deadline_fails() {
     
     // Dispute after deadline should fail
     client.dispute_bounty(&bounty_id, &arbiter);
-}>>>>>>> main
+}
 }
