@@ -57,6 +57,7 @@ enum DataKey {
     FeeRecipient,
     Arbiter,
     DisputeWindow,
+    DefaultFeeBps,
     /// Accumulated protocol fee statistics.
     FeeStats,
 }
@@ -136,6 +137,13 @@ pub struct BountyDeadlineExtended {
 }
 
 #[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DefaultFeeUpdated {
+    pub old_fee_bps: u32,
+    pub new_fee_bps: u32,
+}
+
+#[contracttype]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ContractError {
     InvalidAmount,
@@ -166,6 +174,7 @@ pub enum ContractError {
 /// below the i128 ceiling, making overflow arithmetically impossible while
 /// still allowing any realistic on-chain bounty value.
 const MAX_BOUNTY_AMOUNT: i128 = 10_000_000_000_0000000; // 10 B XLM in stroops
+const MAX_PROTOCOL_FEE_BPS: u32 = 1_000; // 10%
 
 fn panic_error(error: ContractError) -> ! {
     panic!("{:?}", error);
@@ -205,6 +214,43 @@ impl StellarBountyBoardContract {
             .unwrap_or_else(|| panic!("not initialized"))
     }
 
+    pub fn get_default_fee_bps(env: Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::DefaultFeeBps)
+            .unwrap_or(0)
+    }
+
+    pub fn set_default_fee_bps(env: Env, new_fee_bps: u32) {
+        let fee_recipient: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::FeeRecipient)
+            .unwrap_or_else(|| panic!("fee recipient not set"));
+
+        fee_recipient.require_auth();
+
+        if new_fee_bps > MAX_PROTOCOL_FEE_BPS {
+            panic!("fee exceeds 10%");
+        }
+
+        let old_fee_bps: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::DefaultFeeBps)
+            .unwrap_or(0);
+
+        env.storage().persistent().set(&DataKey::DefaultFeeBps, &new_fee_bps);
+
+        env.events().publish(
+            (symbol_short!("Fee"), symbol_short!("Default")),
+            DefaultFeeUpdated {
+                old_fee_bps,
+                new_fee_bps,
+            },
+        );
+    }
+
     pub fn create_bounty(
         env: Env,
         maintainer: Address,
@@ -224,11 +270,19 @@ impl StellarBountyBoardContract {
         if deadline <= env.ledger().timestamp() {
             panic_error(ContractError::DeadlineMustBeInTheFuture);
         }
-        //fee cannot exceed 100% (10000 bps)
-        if protocol_fee_bps > 10_000 {
-            panic!("fee exceeds 100%");
+        let effective_fee_bps = if protocol_fee_bps == 0 {
+            env.storage()
+                .persistent()
+                .get(&DataKey::DefaultFeeBps)
+                .unwrap_or(0)
+        } else {
+            protocol_fee_bps
+        };
+
+        if effective_fee_bps > MAX_PROTOCOL_FEE_BPS {
+            panic!("fee exceeds 10%");
         }
-        if protocol_fee_bps > 0 && !env.storage().persistent().has(&DataKey::FeeRecipient) {
+        if effective_fee_bps > 0 && !env.storage().persistent().has(&DataKey::FeeRecipient) {
             panic!("fee recipient not set");
         }
 
@@ -253,7 +307,7 @@ impl StellarBountyBoardContract {
             title,
             deadline,
             status: BountyStatus::Open,
-            protocol_fee_bps,
+            protocol_fee_bps: effective_fee_bps,
             dispute_raised_at: 0,
         };
 
@@ -273,7 +327,7 @@ impl StellarBountyBoardContract {
                 amount,
                 repo,
                 issue_number,
-                protocol_fee_bps,
+                protocol_fee_bps: effective_fee_bps,
             },
         );
 
@@ -611,13 +665,6 @@ impl StellarBountyBoardContract {
             .unwrap_or(0)
     }
 
-pub fn get_next_bounty_id(env: Env) -> u64 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::NextBountyId)
-            .unwrap_or(0)
-    }
-
     /// Read-only view function to enumerate bounties on-chain.
     pub fn get_all_bounties(env: Env, start: u64, limit: u32) -> Vec<Bounty> {
         let enforced_limit = if limit > 50 { 50 } else { limit };
@@ -665,7 +712,6 @@ pub fn get_next_bounty_id(env: Env) -> u64 {
                 bounty_count: 0,
             })
     }
-} main
 }
 
 fn read_bounty(env: &Env, bounty_id: u64) -> Bounty {
