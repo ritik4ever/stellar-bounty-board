@@ -136,6 +136,14 @@ pub struct BountyDeadlineExtended {
 }
 
 #[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ContractInitialized {
+    pub fee_recipient: Address,
+    pub arbiter: Address,
+    pub dispute_window: u64,
+}
+
+#[contracttype]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ContractError {
     InvalidAmount,
@@ -183,7 +191,7 @@ impl StellarBountyBoardContract {
         // Soroban SDK versions this may be optional for static strings.
         String::from_str(&_env, CONTRACT_VERSION)
     }
-    
+
     pub fn initialize(env: Env, fee_recipient: Address, arbiter: Address, dispute_window: u64) {
         // Prevent re-initialization
         if env.storage().persistent().has(&DataKey::FeeRecipient) {
@@ -196,6 +204,15 @@ impl StellarBountyBoardContract {
         env.storage()
             .persistent()
             .set(&DataKey::DisputeWindow, &dispute_window);
+
+        env.events().publish(
+            (symbol_short!("Contract"), symbol_short!("Init")),
+            ContractInitialized {
+                fee_recipient,
+                arbiter,
+                dispute_window,
+            },
+        );
     }
 
     pub fn get_fee_recipient(env: Env) -> Address {
@@ -611,13 +628,6 @@ impl StellarBountyBoardContract {
             .unwrap_or(0)
     }
 
-pub fn get_next_bounty_id(env: Env) -> u64 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::NextBountyId)
-            .unwrap_or(0)
-    }
-
     /// Read-only view function to enumerate bounties on-chain.
     pub fn get_all_bounties(env: Env, start: u64, limit: u32) -> Vec<Bounty> {
         let enforced_limit = if limit > 50 { 50 } else { limit };
@@ -665,7 +675,6 @@ pub fn get_next_bounty_id(env: Env) -> u64 {
                 bounty_count: 0,
             })
     }
-} main
 }
 
 fn read_bounty(env: &Env, bounty_id: u64) -> Bounty {
