@@ -2335,3 +2335,201 @@ select {
   font-weight: bold;
   opacity: 1;
 }
+
+/* ── Print styles ─────────────────────────────────────────────────────── */
+@media print {
+  /* Reset background and colors for clean paper output */
+  body {
+    background: white !important;
+    color: #111 !important;
+    font-family: "IBM Plex Mono", "Space Grotesk", monospace, sans-serif;
+  }
+
+  [data-theme="dark"] body {
+    background: white !important;
+    color: #111 !important;
+  }
+
+  /* Hide decorative / interactive chrome */
+  .glow,
+  .glow-left,
+  .glow-right,
+  .main-header,
+  .header-content,
+  .header-actions,
+  .theme-toggle,
+  .dark-mode-toggle {
+    display: none !important;
+  }
+
+  /* Hide navigation and action buttons on detail page */
+  .panel-header__actions,
+  .action-row,
+  .action-row--detail {
+    display: none !important;
+  }
+
+  /* Hide interactive form controls */
+  .extend-deadline,
+  .bounty-form,
+  .search-box,
+  .board-filters,
+  .filter-chips,
+  .filter-row {
+    display: none !important;
+  }
+
+  /* Hide dashboard and board chrome on main view */
+  .dashboard-hero,
+  .hero-actions,
+  .board-groups,
+  .contributor-dashboard,
+  .metrics,
+  .filter-chip,
+  .secondary-button,
+  .primary-button,
+  .ghost-button {
+    display: none !important;
+  }
+
+  /* Hide copy buttons */
+  .copy-meta-button,
+  button[aria-label*="Copy"],
+  button[aria-label*="copy"] {
+    display: none !important;
+  }
+
+  /* Remove backdrop / glass effects */
+  .panel,
+  .hero-copy,
+  .hero-panel {
+    background: white !important;
+    backdrop-filter: none !important;
+    box-shadow: none !important;
+    border: 1px solid #ccc !important;
+    border-radius: 0 !important;
+  }
+
+  /* Make text legible */
+  *,
+  .eyebrow,
+  .panel-kicker,
+  .meta-label,
+  .muted {
+    color: #111 !important;
+    text-shadow: none !important;
+  }
+
+  /* Status pills — keep colors but make border clear */
+  .status-pill {
+    border: 1px solid currentColor !important;
+    background: transparent !important;
+  }
+
+  /* Links — show URLs */
+  a.inline-link,
+  a.submission-link {
+    color: #1a0dab !important;
+    text-decoration: underline !important;
+  }
+
+  /* Remove animations */
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  /* Bounty detail hero — ensure key info visible */
+  .bounty-detail__hero {
+    display: flex !important;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+
+  .repo-avatar {
+    max-width: 48px;
+    height: auto;
+  }
+
+  /* Meta grid — ensure details print well */
+  .meta-grid,
+  .meta-grid--detail {
+    border-top: 1px solid #ccc;
+    padding-top: 12px;
+  }
+
+  /* Amount chip — prominent display */
+  .amount-chip {
+    background: transparent !important;
+    border: 2px solid #111 !important;
+    padding: 8px 14px !important;
+    border-radius: 8px !important;
+  }
+
+  /* Bounty summary */
+  .bounty-summary {
+    color: #333 !important;
+  }
+
+  /* Labels/chips */
+  .chip {
+    border: 1px solid #999 !important;
+    background: transparent !important;
+    color: #333 !important;
+  }
+
+  .chip-row--spaced {
+    margin: 12px 0;
+  }
+
+  /* Timeline */
+  .bounty-timeline {
+    page-break-inside: avoid;
+    border-top: 1px dashed #ccc;
+    margin-top: 16px;
+    padding-top: 12px;
+  }
+
+  .bounty-timeline__dot {
+    background: #111 !important;
+  }
+
+  .bounty-timeline__content {
+    color: #333 !important;
+  }
+
+  /* Page shell */
+  .page-shell {
+    max-width: 100% !important;
+    padding: 16px !important;
+    margin: 0 !important;
+  }
+
+  /* Bounty detail content */
+  .bounty-detail__content {
+    border-top: 1px solid #ccc;
+    padding-top: 16px;
+  }
+
+  /* Hide status helper when irrelevant */
+  .status-helper {
+    color: #555 !important;
+  }
+
+  /* Ensure page breaks avoid orphaned content */
+  h2, h3 {
+    page-break-after: avoid;
+  }
+
+  .panel-header {
+    page-break-after: avoid;
+  }
+
+  /* Submission link printing */
+  .submission-link {
+    display: block;
+    margin: 8px 0;
+  }
+}
