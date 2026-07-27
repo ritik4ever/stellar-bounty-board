@@ -611,7 +611,11 @@ impl StellarBountyBoardContract {
             .unwrap_or(0)
     }
 
-pub fn get_next_bounty_id(env: Env) -> u64 {
+    /// Returns the total number of bounties that have been created.
+    ///
+    /// This is distinct from `get_next_bounty_id`, which exposes the last
+    /// allocated bounty id used by the contract.
+    pub fn bounty_count(env: Env) -> u64 {
         env.storage()
             .persistent()
             .get(&DataKey::NextBountyId)
@@ -665,7 +669,6 @@ pub fn get_next_bounty_id(env: Env) -> u64 {
                 bounty_count: 0,
             })
     }
-} main
 }
 
 fn read_bounty(env: &Env, bounty_id: u64) -> Bounty {
