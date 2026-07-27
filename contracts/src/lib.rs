@@ -38,6 +38,7 @@ pub struct Bounty {
     pub status: BountyStatus,
     pub protocol_fee_bps: u32, // stored per-bounty so the fee is locked in at creation time
     pub dispute_raised_at: u64,
+    pub dispute_raised_by: DisputeRaisedBy,
 }
 
 /// Cumulative fee statistics updated on every payout release.
@@ -112,10 +113,19 @@ pub struct BountyCanceled {
     pub amount: i128,
 }
 
+/// Identifies which party raised a dispute.
+#[contracttype]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DisputeRaisedBy {
+    Maintainer,
+    Contributor,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BountyDisputed {
     pub bounty_id: u64,
+    pub raised_by: DisputeRaisedBy,
     pub contributor: Address,
     pub arbiter: Address,
 }
@@ -255,6 +265,7 @@ impl StellarBountyBoardContract {
             status: BountyStatus::Open,
             protocol_fee_bps,
             dispute_raised_at: 0,
+            dispute_raised_by: DisputeRaisedBy::Contributor, // default; overwritten when a dispute is raised
         };
 
         env.storage()
@@ -482,23 +493,40 @@ impl StellarBountyBoardContract {
         );
     }
 
-    pub fn dispute_bounty(env: Env, bounty_id: u64, arbiter: Address) {
+    /// Raises a dispute on a submitted bounty.
+    ///
+    /// Either the bounty's maintainer or the assigned contributor may raise
+    /// a dispute.  The caller must authenticate as whichever role they claim.
+    /// A third-party address that is neither maintainer nor contributor is
+    /// rejected with [`ContractError::MaintainerMismatch`].
+    pub fn dispute_bounty(env: Env, bounty_id: u64, arbiter: Address, caller: Address) {
+        caller.require_auth();
+
         let mut bounty = read_bounty(&env, bounty_id);
 
         if env.ledger().timestamp() > bounty.deadline {
             panic_error(ContractError::BountyExpired);
         }
 
-        let contributor = bounty
-            .contributor
-            .clone()
-            .unwrap_or_else(|| panic_error(ContractError::MissingContributor));
-
-        contributor.require_auth();
-
         if bounty.status != BountyStatus::Submitted {
             panic_error(ContractError::BountyMustBeSubmitted);
         }
+
+        // Determine who is raising the dispute
+        let raised_by = if caller == bounty.maintainer {
+            DisputeRaisedBy::Maintainer
+        } else {
+            let contributor = bounty
+                .contributor
+                .clone()
+                .unwrap_or_else(|| panic_error(ContractError::MissingContributor));
+
+            if caller != contributor {
+                panic_error(ContractError::MaintainerMismatch);
+            }
+
+            DisputeRaisedBy::Contributor
+        };
 
         let stored_arbiter: Address = env
             .storage()
@@ -510,14 +538,21 @@ impl StellarBountyBoardContract {
             panic_error(ContractError::NotArbiter);
         }
 
+        let contributor = bounty
+            .contributor
+            .clone()
+            .unwrap_or_else(|| panic_error(ContractError::MissingContributor));
+
         bounty.status = BountyStatus::Disputed;
         bounty.dispute_raised_at = env.ledger().timestamp();
+        bounty.dispute_raised_by = raised_by;
         write_bounty(&env, bounty_id, &bounty);
 
         env.events().publish(
             (symbol_short!("Bounty"), symbol_short!("Dispt")),
             BountyDisputed {
                 bounty_id,
+                raised_by,
                 contributor,
                 arbiter,
             },
@@ -665,8 +700,8 @@ pub fn get_next_bounty_id(env: Env) -> u64 {
                 bounty_count: 0,
             })
     }
-} main
 }
+
 
 fn read_bounty(env: &Env, bounty_id: u64) -> Bounty {
     env.storage()
