@@ -2335,3 +2335,16 @@ select {
   font-weight: bold;
   opacity: 1;
 }
+
+/* ── Offline Banner ─────────────────────────────────────────────────────── */
+
+.offline-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  background: var(--amber-soft);
+  color: var(--amber);
+  font-size: 0.875rem;
+  border-bottom: 1px solid rgba(217, 128, 46, 0.2);
+}
