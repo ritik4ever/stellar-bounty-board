@@ -44,6 +44,7 @@ import {
   type OpenIssue,
 } from "./types";
 
+import AmountInput from "./AmountInput";
 import SkeletonBountyCard from "./SkeletonBountyCard";
 import EmptyState from "./EmptyState";
 import { ShortcutsHelpOverlay } from "./ShortcutsHelpOverlay";
@@ -798,10 +799,9 @@ function App() {
                 <div className="form-row">
                   <label>
                     Reward
-                    <input
-                      type="number"
+                    <AmountInput
                       value={form.amount}
-                      onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })}
+                      onChange={(v) => setForm({ ...form, amount: v })}
                     />
                   </label>
                   <label>
