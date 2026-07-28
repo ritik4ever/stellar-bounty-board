@@ -2335,3 +2335,127 @@ select {
   font-weight: bold;
   opacity: 1;
 }
+
+/* ── Filter Presets ─────────────────────────────────────────────────────── */
+
+.filter-presets {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filter-presets__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.filter-presets__toggle-btn,
+.filter-presets__save-btn {
+  font-size: 0.8rem;
+  padding: 6px 10px;
+}
+
+.filter-presets__save-dialog {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.filter-presets__name-input,
+.filter-presets__rename-input {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.85rem;
+  background: var(--surface);
+  color: var(--ink);
+  outline: none;
+  min-width: 140px;
+}
+
+.filter-presets__name-input:focus,
+.filter-presets__rename-input:focus {
+  border-color: var(--mint);
+}
+
+.filter-presets__dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 220px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  z-index: 50;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.filter-presets__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  border-radius: 8px;
+  padding: 4px 6px;
+}
+
+.filter-presets__item:hover {
+  background: var(--line);
+}
+
+.filter-presets__item-name {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 0.85rem;
+  text-align: left;
+  padding: 4px 6px;
+  border-radius: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filter-presets__item-name:hover {
+  color: var(--mint);
+}
+
+.filter-presets__item-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.filter-presets__item:hover .filter-presets__item-actions {
+  opacity: 1;
+}
+
+.filter-presets__item-action {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.75rem;
+  padding: 2px 5px;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.filter-presets__item-action:hover {
+  background: var(--line);
+  color: var(--ink);
+}
+
+.filter-presets__item-action--delete:hover {
+  color: var(--rose);
+}

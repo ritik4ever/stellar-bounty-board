@@ -31,6 +31,7 @@ import {
   statusCopy,
   actionCopy,
   readInitialFilters,
+  type FilterState,
 } from "./constants";
 import {
   debounce,
@@ -46,6 +47,7 @@ import {
 
 import SkeletonBountyCard from "./SkeletonBountyCard";
 import EmptyState from "./EmptyState";
+import FilterPresets from "./FilterPresets";
 import { ShortcutsHelpOverlay } from "./ShortcutsHelpOverlay";
 import BountyCountdown from "./BountyCountdown";
 import BountyDetailPage from "./BountyDetailPage";
@@ -331,6 +333,20 @@ function App() {
   const [sortOption, setSortOption] = useState(initialFilters.sortOption);
   const [sortDirection, setSortDirection] = useState(initialFilters.sortDirection);
   const [pathname, setPathname] = useState(window.location.pathname);
+
+  const handleApplyPreset = useCallback(
+    (filters: FilterState) => {
+      setSearchQuery(filters.searchQuery);
+      setStatusFilter(filters.statusFilter);
+      setMinReward(filters.minReward);
+      setMaxReward(filters.maxReward);
+      setRepoFilter(filters.repoFilter);
+      setTokenFilter(filters.tokenFilter);
+      setSortOption(filters.sortOption);
+      setSortDirection(filters.sortDirection);
+    },
+    []
+  );
 
   const detailId = useMemo(() => {
     const match = pathname.match(/^\/bounties\/([^/]+)$/);
@@ -847,6 +863,19 @@ function App() {
                 </button>
               ))}
             </div>
+            <FilterPresets
+              currentFilters={{
+                searchQuery: debouncedSearchQuery,
+                statusFilter,
+                minReward,
+                maxReward,
+                repoFilter,
+                tokenFilter,
+                sortOption,
+                sortDirection,
+              }}
+              onApplyPreset={handleApplyPreset}
+            />
           </div>
 
           {loading ? (
