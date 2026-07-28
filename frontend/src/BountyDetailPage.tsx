@@ -1,5 +1,5 @@
 import { ReactNode, useState, useCallback, useEffect, useRef } from "react";
-import { ArrowUpRight, Check, Clock, Copy, Share2, Printer } from "lucide-react";
+import { ArrowUpRight, Check, Clock, Copy, ExternalLink, Printer } from "lucide-react";
 import { Bounty, BountyEvent, BountyStatus } from "./types";
 import BountyCountdown from "./BountyCountdown";
 import UsdAmount from "./UsdAmount";
@@ -137,11 +137,10 @@ export default function BountyDetailPage({
     if (!bounty) return;
     const permalink = `${window.location.origin}/bounties/${encodeURIComponent(bounty.id)}`;
     navigator.clipboard.writeText(permalink).then(() => {
-      // Show brief confirmation
       const button = document.querySelector('[aria-label="Share bounty"]') as HTMLButtonElement;
       if (button) {
         const originalText = button.innerHTML;
-        button.innerHTML = `<Share2 size={16} />Copied!`;
+        button.innerHTML = 'Copied!';
         setTimeout(() => {
           button.innerHTML = originalText;
         }, 2000);
@@ -149,6 +148,21 @@ export default function BountyDetailPage({
     }).catch((err) => {
       console.error("Failed to copy URL:", err);
     });
+  }
+
+  function handleSocialShare(platform: 'twitter' | 'linkedin') {
+    if (!bounty) return;
+    const url = `${window.location.origin}/bounties/${encodeURIComponent(bounty.id)}`;
+    const text = `Check out this bounty: ${bounty.title} — ${bounty.amount} ${bounty.tokenSymbol}`;
+
+    let shareUrl: string;
+    if (platform === 'twitter') {
+      shareUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
+    } else {
+      shareUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`;
+    }
+
+    window.open(shareUrl, '_blank', 'noopener,noreferrer');
   }
 
   return (
@@ -176,6 +190,28 @@ export default function BountyDetailPage({
             >
               <Printer size={16} />
               Print / Export PDF
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => handleSocialShare('twitter')}
+              disabled={loading || !bounty}
+              aria-label="Share on Twitter/X"
+              title="Share on Twitter/X"
+            >
+              <ExternalLink size={16} />
+              Share on X
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => handleSocialShare('linkedin')}
+              disabled={loading || !bounty}
+              aria-label="Share on LinkedIn"
+              title="Share on LinkedIn"
+            >
+              <ExternalLink size={16} />
+              Share on LinkedIn
             </button>
             <button
               type="button"
