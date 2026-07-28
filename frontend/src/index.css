@@ -2335,3 +2335,32 @@ select {
   font-weight: bold;
   opacity: 1;
 }
+
+/* ── Error Boundary ──────────────────────────────────────────────────── */
+.error-boundary__body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 32px 24px;
+  text-align: center;
+}
+
+.error-boundary__illustration {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.error-boundary__message {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--muted);
+  max-width: 40ch;
+  line-height: 1.6;
+}
+
+.error-boundary__actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+}
