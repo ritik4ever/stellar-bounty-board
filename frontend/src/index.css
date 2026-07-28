@@ -2335,3 +2335,202 @@ select {
   font-weight: bold;
   opacity: 1;
 }
+
+/* ── Print styles ──────────────────────────────────────────────────────── */
+@media print {
+  /* Hide navigation chrome, interactive controls, and decorative elements */
+  .header-nav,
+  .nav-links,
+  .nav-link-btn,
+  .connect-wallet-btn,
+  .panel-header__actions,
+  .secondary-button.print-button,
+  .action-row,
+  .action-row--detail,
+  .extend-deadline,
+  .glow,
+  .glow-left,
+  .glow-right,
+  .copy-meta-button,
+  [aria-label="Copy bounty ID"],
+  [aria-label="Copy maintainer wallet address"],
+  [aria-label="Copy contributor address"],
+  [aria-label="Copy release transaction hash"],
+  [aria-label="Copy refund transaction hash"],
+  [aria-label="Share bounty"],
+  .sr-only {
+    display: none !important;
+  }
+
+  /* Reset background for better ink usage */
+  body {
+    background: #fff !important;
+    color: #000 !important;
+    min-height: auto;
+  }
+
+  [data-theme="dark"] body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  /* Ensure panels collapse to full width */
+  .panel {
+    box-shadow: none !important;
+    border: 1px solid #ccc !important;
+    border-radius: 8px !important;
+    padding: 16px !important;
+    background: #fff !important;
+    break-inside: avoid;
+  }
+
+  [data-theme="dark"] .panel {
+    background: #fff !important;
+    border-color: #ccc !important;
+  }
+
+  .page-shell {
+    padding: 0 !important;
+    max-width: 100% !important;
+  }
+
+  /* Bounty detail content */
+  .bounty-detail__content {
+    padding: 0 !important;
+  }
+
+  .bounty-detail__hero {
+    display: flex !important;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .repo-avatar {
+    width: 48px !important;
+    height: 48px !important;
+  }
+
+  .status-pill {
+    border: 1px solid #000 !important;
+    color: #000 !important;
+    background: transparent !important;
+  }
+
+  .amount-chip {
+    color: #000 !important;
+    background: transparent !important;
+    border: 1px solid #000 !important;
+  }
+
+  .panel-header h2 {
+    font-size: 1.5rem !important;
+    margin: 0 0 8px !important;
+  }
+
+  .panel-kicker {
+    color: #666 !important;
+  }
+
+  /* Meta grid */
+  .meta-grid--detail {
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 12px !important;
+    margin-bottom: 16px !important;
+  }
+
+  .meta-label {
+    color: #666 !important;
+    font-size: 0.75rem !important;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .meta-grid strong {
+    color: #000 !important;
+  }
+
+  .inline-link {
+    color: #000 !important;
+    text-decoration: underline !important;
+  }
+
+  /* Chips / labels */
+  .chip-row {
+    display: flex !important;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px !important;
+  }
+
+  .chip {
+    border: 1px solid #999 !important;
+    color: #333 !important;
+    background: #f5f5f5 !important;
+  }
+
+  /* Submission link */
+  .submission-link {
+    color: #000 !important;
+    text-decoration: underline !important;
+  }
+
+  .submission-link svg {
+    display: none !important;
+  }
+
+  /* Status helper text */
+  .status-helper {
+    color: #333 !important;
+    margin-bottom: 12px !important;
+  }
+
+  /* Timeline */
+  .bounty-timeline {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin-top: 16px !important;
+  }
+
+  .bounty-timeline__title {
+    color: #000 !important;
+  }
+
+  .bounty-timeline__title svg {
+    display: none !important;
+  }
+
+  .bounty-timeline__dot {
+    background: #000 !important;
+    border-color: #000 !important;
+  }
+
+  .bounty-timeline__event {
+    color: #000 !important;
+  }
+
+  .bounty-timeline__time {
+    color: #555 !important;
+  }
+
+  .bounty-timeline__actor {
+    color: #555 !important;
+  }
+
+  .bounty-timeline__item {
+    border-left-color: #ccc !important;
+  }
+
+  /* Preview card */
+  .github-issue-preview-card {
+    box-shadow: none !important;
+    border: 1px solid #ccc !important;
+    background: #fff !important;
+  }
+
+  [data-theme="dark"] .github-issue-preview-card {
+    background: #fff !important;
+    border-color: #ccc !important;
+  }
+}
