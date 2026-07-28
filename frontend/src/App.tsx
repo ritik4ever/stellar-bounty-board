@@ -10,6 +10,7 @@ import React, {
   type FormEvent,
 } from "react";
 import {
+  Download,
   FolderGit2,
   Moon,
   Rocket,
@@ -19,6 +20,7 @@ import {
 import { toast } from "sonner";
 import {
   createBounty,
+  exportReleasedPayoutsCsv,
   getBounty,
   listBounties,
   listOpenIssues,
@@ -347,6 +349,7 @@ function App() {
   const [submissionModalSubmitting, setSubmissionModalSubmitting] = useState(false);
   const [submissionModalError, setSubmissionModalError] = useState<string | null>(null);
   const submissionReturnFocusRef = useRef<HTMLElement | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     const [bountyData, issueData] = await Promise.all([
@@ -565,6 +568,26 @@ function App() {
       toast.success("Bounty refunded successfully!");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to refund bounty.");
+    }
+  }
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const { blob, filename } = await exportReleasedPayoutsCsv();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success("CSV exported successfully!");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to export CSV.");
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -847,6 +870,17 @@ function App() {
                 </button>
               ))}
             </div>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => void handleExport()}
+              disabled={exporting}
+              aria-busy={exporting}
+              title="Export released bounties as CSV"
+            >
+              <Download size={16} style={{ marginRight: 6 }} />
+              {exporting ? "Exporting..." : "Export CSV"}
+            </button>
           </div>
 
           {loading ? (
