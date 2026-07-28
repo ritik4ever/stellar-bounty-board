@@ -46,6 +46,8 @@ import {
 
 import SkeletonBountyCard from "./SkeletonBountyCard";
 import EmptyState from "./EmptyState";
+import FilterPresets from "./FilterPresets";
+import OfflineBanner from "./OfflineBanner";
 import { ShortcutsHelpOverlay } from "./ShortcutsHelpOverlay";
 import BountyCountdown from "./BountyCountdown";
 import BountyDetailPage from "./BountyDetailPage";
@@ -743,6 +745,7 @@ function App() {
 
   return (
     <div className="app-container">
+      <OfflineBanner />
       <header className="main-header">
         <div className="header-content">
           <div className="logo" onClick={() => navigate("/")}>
