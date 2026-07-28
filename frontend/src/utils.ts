@@ -199,14 +199,15 @@ export function getActiveRewardLabel(
 }
 
 const XLM_USD_PRICE_URL =
-  'https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd';
+  'https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd,eur';
 const XLM_USD_CACHE_MS = 5 * 60 * 1000;
 
 let cachedXlmUsdRate: { rate: number; fetchedAt: number } | null = null;
+let cachedXlmEurRate: { rate: number; fetchedAt: number } | null = null;
 
-async function fetchXlmUsdRate(): Promise<number> {
+async function fetchXlmRates(): Promise<{ usd: number; eur: number }> {
   if (cachedXlmUsdRate && Date.now() - cachedXlmUsdRate.fetchedAt < XLM_USD_CACHE_MS) {
-    return cachedXlmUsdRate.rate;
+    return { usd: cachedXlmUsdRate.rate, eur: cachedXlmEurRate?.rate ?? 0 };
   }
 
   const controller = new AbortController();
@@ -218,18 +219,23 @@ async function fetchXlmUsdRate(): Promise<number> {
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to fetch XLM/USD rate: ${response.status}`);
+      throw new Error(`Failed to fetch XLM rates: ${response.status}`);
     }
 
-    const data = (await response.json()) as { stellar?: { usd?: number } };
-    const rate = data.stellar?.usd;
+    const data = (await response.json()) as { stellar?: { usd?: number; eur?: number } };
+    const usdRate = data.stellar?.usd;
+    const eurRate = data.stellar?.eur;
 
-    if (typeof rate !== 'number' || !Number.isFinite(rate)) {
+    if (typeof usdRate !== 'number' || !Number.isFinite(usdRate)) {
       throw new Error('CoinGecko response did not include a numeric XLM/USD rate');
     }
 
-    cachedXlmUsdRate = { rate, fetchedAt: Date.now() };
-    return rate;
+    cachedXlmUsdRate = { rate: usdRate, fetchedAt: Date.now() };
+    if (typeof eurRate === 'number' && Number.isFinite(eurRate)) {
+      cachedXlmEurRate = { rate: eurRate, fetchedAt: Date.now() };
+    }
+
+    return { usd: usdRate, eur: eurRate ?? 0 };
   } finally {
     window.clearTimeout(timeoutId);
   }
@@ -237,7 +243,7 @@ async function fetchXlmUsdRate(): Promise<number> {
 
 export async function xlmToUsd(amount: number): Promise<string> {
   try {
-    const rate = await fetchXlmUsdRate();
+    const { usd: rate } = await fetchXlmRates();
 
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -250,8 +256,26 @@ export async function xlmToUsd(amount: number): Promise<string> {
   }
 }
 
+export async function xlmToEur(amount: number): Promise<string> {
+  try {
+    const { eur: rate } = await fetchXlmRates();
+
+    if (!rate) return 'EUR unavailable';
+
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'EUR',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount * rate);
+  } catch {
+    return 'EUR unavailable';
+  }
+}
+
 export function resetXlmToUsdCache(): void {
   cachedXlmUsdRate = null;
+  cachedXlmEurRate = null;
 }
 
 export function getContributorMetrics(bounties: Bounty[], contributorAddress?: string) {

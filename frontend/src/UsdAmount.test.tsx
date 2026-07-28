@@ -7,6 +7,7 @@ vi.mock("./utils", async () => {
   return {
     ...actual,
     xlmToUsd: vi.fn().mockResolvedValue("$1.20"),
+    xlmToEur: vi.fn().mockResolvedValue("€1.10"),
   };
 });
 
@@ -28,5 +29,10 @@ describe("UsdAmount component", () => {
     await waitFor(() => {
       expect(screen.getByText("($100.00)")).toBeInTheDocument();
     });
+  });
+
+  it("shows currency selector when showSelector is true", () => {
+    render(<UsdAmount amount={10} tokenSymbol="XLM" showSelector={true} />);
+    expect(screen.getByLabelText("Display currency")).toBeInTheDocument();
   });
 });

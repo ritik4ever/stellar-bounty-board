@@ -9,13 +9,7 @@ import React, {
   type ReactNode,
   type FormEvent,
 } from "react";
-import {
-  FolderGit2,
-  Moon,
-  Rocket,
-  Search,
-  Sun,
-} from "lucide-react";
+import { FolderGit2, Moon, Rocket, Search, Sun } from "lucide-react";
 import { toast } from "sonner";
 import {
   createBounty,
@@ -53,6 +47,7 @@ import ContributorProfilePage from "./ContributorProfilePage";
 import ContributorDashboard from "./ContributorDashboard";
 import ErrorBoundary from "./ErrorBoundary";
 import SubmissionChecklistModal, { type SubmissionFormData } from "./SubmissionChecklistModal";
+import UsdAmount from "./UsdAmount";
 
 const DARK_MODE_KEY = "stellar-bounty-board-theme";
 
@@ -750,6 +745,7 @@ function App() {
             <h1>Stellar Bounty Board</h1>
           </div>
           <div className="header-actions">
+            <UsdAmount amount={0} tokenSymbol="XLM" showSelector={true} />
             <button className="theme-toggle" onClick={toggleDark}>
               {dark ? <Sun size={20} /> : <Moon size={20} />}
             </button>

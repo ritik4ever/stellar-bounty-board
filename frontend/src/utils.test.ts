@@ -32,7 +32,7 @@ describe('xlmToUsd', () => {
 
     await expect(xlmToUsd(100)).resolves.toBe('$12.40');
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd',
+      'https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd,eur',
       { signal: expect.any(AbortSignal) }
     );
   });
