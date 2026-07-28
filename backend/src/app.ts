@@ -55,11 +55,15 @@ import {
 } from './middleware/auth';
 import { idempotencyMiddleware } from './middleware/idempotency';
 import { requireJsonContentType } from './middleware/contentType';
+import { createIpReputationAntiSpamMiddleware } from './middleware/ipReputationAntiSpam';
 import { readLimiter, mutationLimiter } from './utils';
 import { logger } from './logger';
 import { createAdminApiKeyAuthMiddleware } from './middleware/adminAuth';
 import { handleGitHubPrEvent } from './webhooks/githubPrHandler';
 import { draining } from './shutdown';
+
+
+const ipReputationAntiSpam = createIpReputationAntiSpamMiddleware();
 
 
 const INCOMING_REQUEST_ID = /^[a-zA-Z0-9-]{1,128}$/;
@@ -521,6 +525,7 @@ app.post(
   '/api/bounties',
   mutationLimiter,
   requireJsonContentType,
+  ipReputationAntiSpam,
   createBountyCreationSignatureMiddleware(),
   validateBody(createBountySchema),
   async (req: Request, res: Response) => {
