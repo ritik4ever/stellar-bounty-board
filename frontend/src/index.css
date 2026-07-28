@@ -1667,6 +1667,81 @@ select {
   }
 }
 
+/* ---- Disconnect confirmation modal ---- */
+
+.disconnect-modal {
+  border: none;
+  border-radius: 28px;
+  padding: 0;
+  background: var(--surface-strong);
+  box-shadow: 0 32px 100px rgba(60, 43, 17, 0.22);
+  max-width: 400px;
+  width: calc(100% - 32px);
+}
+
+.disconnect-modal::backdrop {
+  background: rgba(31, 36, 33, 0.48);
+  backdrop-filter: blur(4px);
+}
+
+.disconnect-modal__inner {
+  position: relative;
+  padding: 28px;
+  display: grid;
+  gap: 18px;
+}
+
+.disconnect-modal__header h2 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.disconnect-modal__desc {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.disconnect-modal__actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.disconnect-modal__confirm-btn {
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: var(--rose);
+  color: #fff9f0;
+  padding: 12px 18px;
+  cursor: pointer;
+  transition:
+    transform 140ms ease,
+    background-color 140ms ease;
+}
+
+.disconnect-modal__confirm-btn:hover {
+  transform: translateY(-1px);
+  background: #c96a5f;
+}
+
+.disconnect-modal__confirm-btn:focus-visible {
+  outline: 3px solid rgba(30, 143, 111, 0.42);
+  outline-offset: 3px;
+}
+
+@media (max-width: 480px) {
+  .disconnect-modal__actions {
+    flex-direction: column-reverse;
+  }
+
+  .disconnect-modal__actions button {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
 /* ── Copy-to-clipboard ────────────────────────────────────────────────── */
 
 .copy-row {
