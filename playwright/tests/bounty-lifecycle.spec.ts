@@ -3,14 +3,17 @@ import { test, expect, chromium } from '@playwright/test';
 const MAINTAINER = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
 const CONTRIBUTOR = 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGKCEL9LGAQLHFLQ2GN7SY';
 
+const runId = process.env.TEST_RUN_ID || `manual-${Date.now()}`;
+const issueNumber = runId.replace(/[^0-9]/g, '').slice(0, 9) || String(Math.floor(Math.random() * 90000) + 10000);
+
 test('full bounty lifecycle through the UI', async ({ page, baseURL }) => {
   await page.goto('/');
 
   // Create a bounty via the form
   await page.getByLabel('Repository').fill('ritik4ever/stellar-bounty-board');
-  await page.getByLabel('Issue number').fill('9999');
+  await page.getByLabel('Issue number').fill(issueNumber);
   await page.getByLabel('Reward').fill('5');
-  await page.getByLabel('Issue title').fill('E2E: create and complete bounty');
+  await page.getByLabel('Issue title').fill(`E2E: create and complete bounty [${runId}]`);
   await page.getByLabel('Summary').fill('E2E test summary for bounty lifecycle end-to-end.');
   await page.getByLabel('Maintainer address').fill(MAINTAINER);
   await page.getByLabel('Token').fill('XLM');
@@ -23,7 +26,7 @@ test('full bounty lifecycle through the UI', async ({ page, baseURL }) => {
   ]);
 
   // Wait for bounty to appear on the board
-  await expect(page.getByText('E2E: create and complete bounty')).toBeVisible();
+  await expect(page.getByText(`E2E: create and complete bounty [${runId}]`)).toBeVisible();
 
   // Reserve the bounty as a contributor — handle the prompt
   page.on('dialog', async (dialog) => {

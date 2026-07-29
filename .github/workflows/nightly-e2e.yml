@@ -1,0 +1,115 @@
+name: Nightly Playwright E2E
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+env:
+  BASE_URL: ${{ secrets.STAGING_BASE_URL || 'http://localhost:3000' }}
+  API_URL: ${{ secrets.STAGING_API_URL || 'http://localhost:3001' }}
+  TEST_RUN_ID: nightly-${{ github.run_id }}-${{ github.run_attempt }}
+
+jobs:
+  nightly-e2e:
+    name: Nightly E2E Tests (Staging)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify staging is reachable
+        run: |
+          echo "Checking staging at $BASE_URL ..."
+          curl -sf --max-time 10 "$BASE_URL" || (echo "Staging frontend is not reachable" && exit 1)
+          echo "Staging frontend is up."
+
+      - name: Run Playwright e2e tests against staging
+        run: npx playwright test --reporter=html
+        env:
+          BASE_URL: ${{ env.BASE_URL }}
+          API_URL: ${{ env.API_URL }}
+          TEST_RUN_ID: ${{ env.TEST_RUN_ID }}
+
+      - name: Upload Playwright HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-nightly-${{ github.run_id }}
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Notify Slack on failure
+        if: failure()
+        uses: slackapi/slack-github-action@v2
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": ":x: Nightly Playwright E2E tests *failed* against staging.",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": ":x: Nightly E2E Tests Failed"
+                  }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "Nightly Playwright E2E tests failed against staging."
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Run:* <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|#${{ github.run_id }}>"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Branch:* `${{ github.ref_name }}`"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Target:* ${{ env.BASE_URL }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Trigger:* `${{ github.event_name }}`"
+                    }
+                  ]
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Report"
+                      },
+                      "url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ]
+                }
+              ]
+            }
