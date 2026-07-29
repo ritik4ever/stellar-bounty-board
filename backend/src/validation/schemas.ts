@@ -289,6 +289,10 @@ export const bountyRecordSchema = z
     version: z.number().openapi({ example: 1 }),
     events: z.array(bountyEventSchema),
     reservationTimeoutSeconds: z.number().optional().openapi({ example: 604800 }),
+    protocolFeeCollected: z
+      .number()
+      .optional()
+      .openapi({ example: 5, description: 'Protocol fee collected when this bounty was released.' }),
   })
   .openapi('BountyRecord');
 
@@ -356,7 +360,9 @@ export const bountyAuditLogListResponseSchema = z
 
 export const healthResponseSchema = z
   .object({
-
+    service: z.string(),
+    status: z.string(),
+    timestamp: z.string(),
   })
   .openapi('HealthResponse');
 
