@@ -2,6 +2,7 @@ import cors from 'cors';
 import express, { Request, Response, NextFunction } from 'express';
 import { randomUUID } from 'node:crypto';
 import swaggerUi from 'swagger-ui-express';
+import pinoHttp from 'pino-http';
 
 import { generateOpenApiDocument } from './docs/openapi';
 import { getMetrics, httpRequestDuration } from './metrics';
@@ -60,6 +61,8 @@ import { logger } from './logger';
 import { createAdminApiKeyAuthMiddleware } from './middleware/adminAuth';
 import { handleGitHubPrEvent } from './webhooks/githubPrHandler';
 import { draining } from './shutdown';
+import { buildCorsOptions } from './middleware/corsOptions';
+import { runDeepHealthCheck } from './services/deepHealth';
 
 
 const INCOMING_REQUEST_ID = /^[a-zA-Z0-9-]{1,128}$/;
@@ -540,14 +543,6 @@ app.post(
   }
 );
 
-app.post('/api/bounties/:id/reserve', mutationLimiter, requireJsonContentType, idempotencyMiddleware, async (req: Request, res: Response) => {
-  const parsedBody = reserveBountySchema.safeParse(req.body);
-
-  if (!parsedBody.success) {
-    jsonError(res, req, 400, zodErrorMessage(parsedBody.error));
-    return;
-  }
-
 app.post('/api/bounties/:id/reserve', mutationLimiter, idempotencyMiddleware, validateBody(reserveBountySchema), async (req: Request, res: Response) => {
   try {
     const bounty = await reserveBounty(
@@ -561,14 +556,6 @@ app.post('/api/bounties/:id/reserve', mutationLimiter, idempotencyMiddleware, va
     sendError(res, req, error);
   }
 });
-
-app.post('/api/bounties/:id/submit', mutationLimiter, requireJsonContentType, idempotencyMiddleware, async (req: Request, res: Response) => {
-  const parsedBody = submitBountySchema.safeParse(req.body);
-
-  if (!parsedBody.success) {
-    jsonError(res, req, 400, zodErrorMessage(parsedBody.error));
-    return;
-  }
 
 app.post('/api/bounties/:id/submit', mutationLimiter, idempotencyMiddleware, validateBody(submitBountySchema), async (req: Request, res: Response) => {
   try {
@@ -701,19 +688,13 @@ app.post(
   mutationLimiter,
   idempotencyMiddleware,
   createStellarSignatureAuthMiddleware(),
+  validateBody(extendDeadlineSchema),
   async (req: Request, res: Response) => {
-    const parsedBody = extendDeadlineSchema.safeParse(req.body);
-
-    if (!parsedBody.success) {
-      jsonError(res, req, 400, zodErrorMessage(parsedBody.error));
-      return;
-    }
-
     try {
       const bounty = await extendDeadline(
         parseId(req.params.id),
-        parsedBody.data.maintainer,
-        parsedBody.data.newDeadline
+        req.body.maintainer,
+        req.body.newDeadline
       );
 
       res.json({ data: bounty });
@@ -746,9 +727,13 @@ app.post(
   }
 );
 
-app.get('/api/open-issues', async (_req: Request, res: Response) => {
+app.get('/api/open-issues', async (req: Request, res: Response) => {
   try {
-
+    const issues = await listOpenIssues();
+    res.setHeader('Cache-Control', 'max-age=600');
+    res.json({ data: issues });
+  } catch (error) {
+    sendError(res, req, error);
   }
 });
 

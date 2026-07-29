@@ -7,9 +7,9 @@ import {
 } from "./notificationService";
 import { logStructured } from "../logger";
 import { getCache, type CacheAdapter } from "./cache";
- feat/concurrency-file-locking
 import { bountiesCreatedTotal, bountiesReleasedTotal } from "../metrics";
 import { validateGithubPrUrlForRepo } from "../validation/prUrl";
+import { resolveTokenAddress } from "../utils";
 
 
 /**
@@ -1025,7 +1025,7 @@ export async function cancelBounty(
   maintainer: string,
   transactionHash?: string,
 ): Promise<BountyRecord> {
-  return withGlobalLock(async () => {
+  return withStoreLock(async () => {
     const records = listBounties();
     const bounty = findBounty(records, id);
 
@@ -1213,12 +1213,16 @@ export async function extendDeadline(
   maintainer: string,
   newDeadline: number,
 ): Promise<BountyRecord> {
-  return withGlobalLock(async () => {
+  return withStoreLock(async () => {
     const records = listBounties();
     const bounty = findBounty(records, id);
 
     if (bounty.maintainer !== maintainer) {
       throw new Error("Maintainer address does not match this bounty.");
+    }
+
+    if (bounty.status === "disputed") {
+      throw new Error("Cannot extend deadline on a disputed bounty.");
     }
 
     const now = nowInSeconds();
@@ -1289,25 +1293,103 @@ export interface AuditLogPage {
  * @param {number} [pageSize=20] - The number of records per page.
  * @returns {AuditLogPage} A promise that resolves to a paginated response of audit log records.
  */
+export interface MaintainerMetrics {
+  totalBounties: number;
+  openCount: number;
+  reservedCount: number;
+  submittedCount: number;
+  releasedCount: number;
+  refundedCount: number;
+  expiredCount: number;
+  totalFunded: number;
+  totalReleased: number;
+  averageRewardAmount: number;
+}
+
+export function getMaintainerMetrics(maintainer: string): MaintainerMetrics {
+  const records = listBounties().filter((b) => b.maintainer === maintainer);
+
+  let openCount = 0;
+  let reservedCount = 0;
+  let submittedCount = 0;
+  let releasedCount = 0;
+  let refundedCount = 0;
+  let expiredCount = 0;
+  let totalFunded = 0;
+  let totalReleased = 0;
+
+  for (const b of records) {
+    totalFunded += b.amount || 0;
+    if (b.status === "open") openCount++;
+    else if (b.status === "reserved") reservedCount++;
+    else if (b.status === "submitted") submittedCount++;
+    else if (b.status === "released") {
+      releasedCount++;
+      totalReleased += b.amount || 0;
+    } else if (b.status === "refunded") refundedCount++;
+    else if (b.status === "expired") expiredCount++;
+  }
+
+  const averageRewardAmount = records.length > 0 ? totalFunded / records.length : 0;
+
+  return {
+    totalBounties: records.length,
+    openCount,
+    reservedCount,
+    submittedCount,
+    releasedCount,
+    refundedCount,
+    expiredCount,
+    totalFunded,
+    totalReleased,
+    averageRewardAmount,
+  };
+}
+
 export function listBountyAuditLogs(
   bountyId: string,
-  page: number = 1,
-  pageSize: number = 20,
-): AuditLogPage {
+  optionsOrPage: number | { limit?: number; offset?: number } = 1,
+  pageSizeArg: number = 20,
+): any {
   const allLogs = readAuditStore();
   const filtered = allLogs.filter((log) => log.bountyId === bountyId);
 
-  // Sort by timestamp descending (most recent first)
-  filtered.sort((a, b) => b.timestamp - a.timestamp);
-
   const total = filtered.length;
+
+  if (typeof optionsOrPage === "object" && optionsOrPage !== null) {
+    const limit = optionsOrPage.limit ?? 20;
+    const offset = optionsOrPage.offset ?? 0;
+    const data = filtered.slice(offset, offset + limit);
+    const nextOffset = offset + limit < total ? offset + limit : null;
+    return {
+      data,
+      pagination: {
+        total,
+        limit,
+        offset,
+        hasMore: offset + limit < total,
+        nextOffset,
+      },
+    };
+  }
+
+  const page = typeof optionsOrPage === "number" ? optionsOrPage : 1;
+  const pageSize = pageSizeArg;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const safePage = Math.min(Math.max(1, page), totalPages);
   const start = (safePage - 1) * pageSize;
   const end = start + pageSize;
   const data = filtered.slice(start, end);
-
-
+  return {
+    data,
+    pagination: {
+      total,
+      page: safePage,
+      pageSize,
+      totalPages,
+    },
+  };
+}
 
 export function getBountyEvents(bountyId: string): BountyEvent[] {
   const records = listBounties();
@@ -1315,10 +1397,69 @@ export function getBountyEvents(bountyId: string): BountyEvent[] {
   return bounty.events || [];
 }
 
+export interface GlobalMetrics {
+  totalBounties: number;
+  openCount: number;
+  reservedCount: number;
+  submittedCount: number;
+  releasedCount: number;
+  refundedCount: number;
+  expiredCount: number;
+  totalFunded: number;
+  totalReleased: number;
+  uniqueMaintainers: number;
+  uniqueContributors: number;
+  protocolFeesCollected: number;
+}
 
+export function getGlobalMetrics(): GlobalMetrics {
+  const records = listBounties();
+  const maintainers = new Set<string>();
+  const contributors = new Set<string>();
+
+  let openCount = 0;
+  let reservedCount = 0;
+  let submittedCount = 0;
+  let releasedCount = 0;
+  let refundedCount = 0;
+  let expiredCount = 0;
+  let totalFunded = 0;
+  let totalReleased = 0;
+  let protocolFeesCollected = 0;
+
+  for (const b of records) {
+    if (b.maintainer) maintainers.add(b.maintainer);
+    if (b.contributor) contributors.add(b.contributor);
+    totalFunded += b.amount || 0;
+
+    if (b.status === "open") openCount++;
+    else if (b.status === "reserved") reservedCount++;
+    else if (b.status === "submitted") submittedCount++;
+    else if (b.status === "released") {
+      releasedCount++;
+      totalReleased += b.amount || 0;
+      if (b.protocolFeeCollected) {
+        protocolFeesCollected += b.protocolFeeCollected;
+      }
+    } else if (b.status === "refunded") refundedCount++;
+    else if (b.status === "expired") expiredCount++;
+  }
+
+  return {
+    totalBounties: records.length,
+    openCount,
+    reservedCount,
+    submittedCount,
+    releasedCount,
+    refundedCount,
+    expiredCount,
+    totalFunded,
+    totalReleased,
+    uniqueMaintainers: maintainers.size,
+    uniqueContributors: contributors.size,
+    protocolFeesCollected,
   };
 }
- feat/concurrency-file-locking
 
 const GLOBAL_METRICS_CACHE_KEY = "stats:global";
 const GLOBAL_METRICS_TTL_SECONDS = 30;
@@ -1397,4 +1538,3 @@ export function getLeaderboard(limit = 10): LeaderboardEntry[] {
     )
     .slice(0, limit);
 }
- main

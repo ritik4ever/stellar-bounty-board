@@ -636,4 +636,38 @@ describe("extendDeadline", () => {
     const bounty = await seed();
     await expect(extendDeadline(bounty.id, MAINTAINER, 1)).rejects.toThrow(/future/i);
   });
+
+  it("rejects extending deadline on a disputed bounty without mutating state", async () => {
+    const { extendDeadline, reserveBounty, submitBounty, disputeBounty, listBounties } =
+      await loadStore();
+    const bounty = await seed();
+
+    await reserveBounty(bounty.id, OTHER_ACCOUNT);
+    await submitBounty(bounty.id, OTHER_ACCOUNT, "https://github.com/acme/widget/pull/1");
+    await disputeBounty(bounty.id, OTHER_ACCOUNT, "Work was rejected unfairly");
+
+    const disputed = listBounties().find((b) => b.id === bounty.id)!;
+    expect(disputed.status).toBe("disputed");
+
+    const newDeadline = bounty.deadlineAt + 10000;
+    await expect(
+      extendDeadline(bounty.id, MAINTAINER, newDeadline),
+    ).rejects.toThrow(/disputed bounty/i);
+
+    const afterAttempt = listBounties().find((b) => b.id === bounty.id)!;
+    expect(afterAttempt.deadlineAt).toBe(bounty.deadlineAt);
+  });
+
+  it("succeeds extending deadline on a reserved bounty (control case)", async () => {
+    const { extendDeadline, reserveBounty, listBounties } = await loadStore();
+    const bounty = await seed();
+
+    await reserveBounty(bounty.id, OTHER_ACCOUNT);
+    const reserved = listBounties().find((b) => b.id === bounty.id)!;
+    expect(reserved.status).toBe("reserved");
+
+    const newDeadline = bounty.deadlineAt + 10000;
+    const updated = await extendDeadline(bounty.id, MAINTAINER, newDeadline);
+    expect(updated.deadlineAt).toBe(newDeadline);
+  });
 });

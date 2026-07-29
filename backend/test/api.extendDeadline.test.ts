@@ -125,14 +125,34 @@ describe("POST /api/bounties/:id/extend-deadline", () => {
     expect(res.body.error).toBeDefined();
   });
 
-  it("returns 400 for an unknown bounty id", async () => {
+  it("returns 400 when attempting to extend deadline on a disputed bounty", async () => {
     const app = await getApp();
+    const { id, deadlineAt } = await seedBounty(app);
+
+    // Reserve, submit, dispute
+    await request(app)
+      .post(`/api/bounties/${id}/reserve`)
+      .send({ contributor: OTHER_ACCOUNT })
+      .expect(200);
+
+    await request(app)
+      .post(`/api/bounties/${id}/submit`)
+      .send({
+        contributor: OTHER_ACCOUNT,
+        submissionUrl: "https://github.com/owner/repo-name/pull/1",
+      })
+      .expect(200);
+
+    await request(app)
+      .post(`/api/bounties/${id}/dispute`)
+      .send({ contributor: OTHER_ACCOUNT, reason: "Disputed work quality" })
+      .expect(200);
 
     const res = await request(app)
-      .post("/api/bounties/BNT-9999/extend-deadline")
-      .send({ maintainer: MAINTAINER, newDeadline: 1920000000 })
+      .post(`/api/bounties/${id}/extend-deadline`)
+      .send({ maintainer: MAINTAINER, newDeadline: deadlineAt + 10000 })
       .expect(400);
 
-    expect(res.body.error).toMatch(/not found/i);
+    expect(res.body.error).toMatch(/disputed bounty/i);
   });
 });

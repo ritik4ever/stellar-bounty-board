@@ -1,5 +1,7 @@
 
 
+import { register, collectDefaultMetrics, Counter, Histogram } from "prom-client";
+
 try {
   if (!register.getSingleMetric("process_cpu_user_seconds_total")) {
     collectDefaultMetrics({ register });
@@ -51,6 +53,11 @@ export const bountiesReleasedTotal = getOrCreateCounter(
 export const bountiesDisputedTotal = getOrCreateCounter(
   "bounties_disputed_total",
   "Total number of bounties disputed",
+);
+
+export const httpRequestDuration = getOrCreateHistogram(
+  "http_request_duration_seconds",
+  "HTTP request duration in seconds",
 );
 
 
