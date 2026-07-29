@@ -365,3 +365,69 @@ Please also review:
 * `CONTRIBUTING.md`
 
 before submitting issues or pull requests.
+
+
+# 13. Common Soroban RPC error messages
+
+When interacting with Soroban RPC endpoints, developers may encounter various error messages. Below are common errors and their typical resolutions:
+
+- **`rpc_error: server_error`** – Indicates the RPC node encountered an internal error. Retry the request after a short delay. If the issue persists, consider switching to a different RPC endpoint.
+- **`rpc_error: timeout`** – The request timed out. This can happen under high network latency or node overload. Implement exponential backoff and increase the timeout setting if appropriate.
+- **`rpc_error: rate_limited`** – The node is rate‑limiting requests. Follow the rate‑limiting guidance below.
+- **`rpc_error: transaction_failed`** – The transaction was rejected (e.g., insufficient balance, bad signature). Review the transaction details and ensure the account is funded.
+
+# 14. Funding a testnet account via Friendbot
+
+If a transaction fails due to an insufficient XLM balance, you can quickly fund a testnet account using Friendbot:
+
+## Browser method
+1. Open your browser and navigate to:
+   ```
+   https://friendbot.stellar.org/?addr=YOUR_PUBLIC_KEY
+   ```
+2. Replace `YOUR_PUBLIC_KEY` with the public key of the account you wish to fund.
+3. The page will display a JSON response confirming the transaction hash.
+
+## cURL method
+```bash
+curl "https://friendbot.stellar.org/?addr=YOUR_PUBLIC_KEY"
+```
+Replace `YOUR_PUBLIC_KEY` accordingly. Verify the response contains a `hash` field indicating success.
+
+After funding, you can verify the balance using Stellar Laboratory or the `GET /accounts/{account_id}` RPC endpoint.
+
+# 15. RPC rate‑limiting and timeout guidance
+
+Soroban RPC nodes enforce rate limits to protect against abuse. If you see `rpc_error: rate_limited`:
+
+- **Back‑off strategy**: Wait at least 1 second before retrying, then double the wait time on each subsequent failure (exponential back‑off) up to a maximum of 30 seconds.
+- **Batch requests**: Where possible, combine multiple queries into a single request using the `batch` RPC method.
+- **Alternative endpoints**: Switch to another public RPC node or run a local Soroban RPC instance.
+
+For timeout errors (`rpc_error: timeout`), consider increasing the client timeout setting (e.g., from 5 s to 15 s) and ensure your network connection is stable.
+
+# 16. Monitoring network health
+
+Stellar and Soroban status pages provide real‑time information about network health, node availability, and known incidents:
+
+- **Stellar Horizon status**: https://status.stellar.org/
+- **Soroban RPC status**: https://status.soroban.org/
+- **StellarOps incident tracker**: https://stellarops.org/incidents
+
+Check these pages when you encounter persistent RPC errors to see if there are ongoing outages or maintenance.
+
+# Additional Resources
+
+* https://developers.stellar.org/docs/tools/friendbot
+* https://developers.stellar.org/docs/api/rpc
+* https://developers.stellar.org/docs/issuing-assets
+* https://developers.stellar.org/docs/soroban/overview
+
+# Contributing
+
+Please also review:
+
+* `README.md`
+* `CONTRIBUTING.md`
+
+before submitting issues or pull requests.
