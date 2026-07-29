@@ -656,6 +656,31 @@ pub fn get_next_bounty_id(env: Env) -> u64 {
     ///
     /// Returns a [`FeeStats`] with `total_collected = 0` and `bounty_count = 0`
     /// if no bounties have been released yet.
+
+    /// Returns all bounties created by a given maintainer.
+    pub fn get_bounties_by_maintainer(env: Env, maintainer: Address, start: u64, limit: u32) -> Vec<Bounty> {
+        let enforced_limit = if limit > 50 { 50 } else { limit };
+        let mut result = Vec::new(&env);
+        let next_id = env.storage().persistent().get(&DataKey::NextBountyId).unwrap_or(0);
+        if start == 0 || start > next_id || enforced_limit == 0 {
+            return result;
+        }
+        let mut id = start;
+        let mut count = 0u32;
+        while count < enforced_limit && id <= next_id {
+            if env.storage().persistent().has(&DataKey::Bounty(id)) {
+                let mut bounty = read_bounty(&env, id);
+                expire_if_needed(&env, &mut bounty);
+                if bounty.maintainer == maintainer {
+                    result.push_back(bounty);
+                    count += 1;
+                }
+            }
+            id += 1;
+        }
+        result
+    }
+
     pub fn get_fee_stats(env: Env) -> FeeStats {
         env.storage()
             .persistent()
