@@ -983,16 +983,115 @@ fn test_get_all_bounties_limit_capped_at_50() {
 
 // --- Retained test case from upstream main branch ---
 #[test]
-#[should_panic] // Assuming this dispute should fail/panic as the original comment states
+#[should_panic]
 fn test_dispute_after_deadline_fails() {
     let env = Env::default();
     env.mock_all_auths();
     
-    // Note: If your file already had setup code inside this test block above the conflict, 
-    // leave it intact. This makes sure the dispute test runs immediately after.
     let (client, _, _, _, arbiter, bounty_id) = setup_test(&env);
     
     // Dispute after deadline should fail
     client.dispute_bounty(&bounty_id, &arbiter);
-}>>>>>>> main
 }
+
+// ─── Resolve Dispute Window Tests ─────────────────────────────────────────────
+
+#[test]
+#[should_panic(expected = "DisputeWindowNotMet")]
+fn test_resolve_dispute_before_window_elapses_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, contributor, token_id, _fee_recipient, arbiter) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 10000),
+        &0u32,
+    );
+
+    client.reserve_bounty(&bounty_id, &contributor);
+    client.submit_bounty(&bounty_id, &contributor);
+    client.dispute_bounty(&bounty_id, &arbiter);
+
+    let dispute_start = env.ledger().timestamp();
+    // Advance timestamp to just before the 600-second dispute window ends
+    env.ledger().set_timestamp(dispute_start + 599);
+
+    // Call resolve_dispute before window elapses; must reject with DisputeWindowNotMet error
+    client.resolve_dispute(&bounty_id, &true);
+}
+
+#[test]
+fn test_resolve_dispute_after_window_elapses_release_and_refund_success() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, contributor, token_id, _fee_recipient, arbiter) = setup_test(&env);
+    let token = TokenClient::new(&env, &token_id);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &2000);
+
+    // --- Release resolution path ---
+    let bounty_id_1 = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 10000),
+        &0u32,
+    );
+
+    client.reserve_bounty(&bounty_id_1, &contributor);
+    client.submit_bounty(&bounty_id_1, &contributor);
+    client.dispute_bounty(&bounty_id_1, &arbiter);
+
+    let dispute_start = env.ledger().timestamp();
+
+    // Advance timestamp past dispute window (600 seconds)
+    env.ledger().set_timestamp(dispute_start + 600);
+
+    // Resolving with release = true after window elapse succeeds
+    client.resolve_dispute(&bounty_id_1, &true);
+    let bounty_1 = client.get_bounty(&bounty_id_1);
+    assert_eq!(bounty_1.status, BountyStatus::Released);
+    assert_eq!(token.balance(&contributor), 500);
+
+    // --- Refund resolution path ---
+    let bounty_id_2 = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &2,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 10000),
+        &0u32,
+    );
+
+    client.reserve_bounty(&bounty_id_2, &contributor);
+    client.submit_bounty(&bounty_id_2, &contributor);
+    client.dispute_bounty(&bounty_id_2, &arbiter);
+
+    let dispute_start_2 = env.ledger().timestamp();
+
+    // Advance timestamp past dispute window (600 seconds)
+    env.ledger().set_timestamp(dispute_start_2 + 600);
+
+    // Resolving with release = false after window elapse succeeds
+    client.resolve_dispute(&bounty_id_2, &false);
+    let bounty_2 = client.get_bounty(&bounty_id_2);
+    assert_eq!(bounty_2.status, BountyStatus::Refunded);
+    assert_eq!(token.balance(&maintainer), 1500); // 2000 initial - 500 for bounty_1 + 500 refunded for bounty_2
+}
+}
+
