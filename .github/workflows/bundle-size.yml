@@ -1,0 +1,141 @@
+name: Bundle Size Guard
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bundle-size:
+    name: Bundle Analysis & Guard
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build with bundle analysis
+        run: npm run build:analyze
+        env:
+          NODE_ENV: production
+
+      - name: Upload bundle HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-analysis-report
+          path: frontend/dist/stats.html
+          retention-days: 14
+
+      # ── Base branch comparison ──────────────────────────────────────
+
+      - name: Checkout base branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.base_ref || 'main' }}
+          path: base-ref
+
+      - name: Setup Node.js (base)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: base-ref/frontend/package-lock.json
+
+      - name: Install base dependencies
+        working-directory: base-ref/frontend
+        run: npm ci
+
+      - name: Build base with bundle analysis
+        id: base-build
+        working-directory: base-ref/frontend
+        run: npm run build:analyze
+        continue-on-error: true
+        env:
+          NODE_ENV: production
+
+      # ── Compare bundles ────────────────────────────────────────────
+
+      - name: Compare bundle sizes
+        id: compare
+        run: |
+          PR_STATS="${{ github.workspace }}/frontend/dist/stats.json"
+          BASE_STATS="${{ github.workspace }}/base-ref/frontend/dist/stats.json"
+
+          ARTIFACT_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          # If base stats don't exist (first build), create empty file
+          if [ ! -f "$BASE_STATS" ]; then
+            echo "[]" > "$BASE_STATS"
+            echo "⚠️ No base bundle stats found — comparison is against empty baseline." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # Run comparison script
+          node scripts/compare-bundles.js "$PR_STATS" "$BASE_STATS" 200 > bundle-report.md 2>/dev/null
+          COMPARE_EXIT=$?
+
+          # Replace artifact URL placeholder
+          sed -i "s|ARTIFACT_URL|${ARTIFACT_URL}|g" bundle-report.md
+
+          # Write to step summary
+          cat bundle-report.md >> "$GITHUB_STEP_SUMMARY"
+
+          # Set output for threshold check
+          if [ $COMPARE_EXIT -ne 0 ]; then
+            echo "over_threshold=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "over_threshold=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── PR Comment ──────────────────────────────────────────────────
+
+      - name: Find existing bundle comment
+        if: always() && github.event_name == 'pull_request'
+        uses: peter-evans/find-comment@v3
+        id: find-comment
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: 'github-actions[bot]'
+          body-includes: '📦 Bundle Size Report'
+
+      - name: Create or update PR comment
+        if: always() && github.event_name == 'pull_request'
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body-file: frontend/bundle-report.md
+          edit-mode: replace
+
+      # ── Threshold enforcement ──────────────────────────────────────
+
+      - name: Check bundle threshold
+        if: steps.compare.outputs.over_threshold == 'true'
+        run: |
+          echo "## ❌ Bundle size guard failed" >> "$GITHUB_STEP_SUMMARY"
+          echo "One or more chunks exceed the 200 KB threshold." >> "$GITHUB_STEP_SUMMARY"
+          echo "Please optimize the affected chunks before merging." >> "$GITHUB_STEP_SUMMARY"
+          exit 1
