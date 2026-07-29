@@ -9,17 +9,18 @@ Welcome to **Stellar Bounty Board** a contribution-focused Stellar MVP for open 
 1. [What Is This Project?](#1-what-is-this-project)
 2. [Quick Visual Overview](#2-quick-visual-overview)
 3. [Prerequisites](#3-prerequisites)
-4. [Getting the Code](#4-getting-the-code)
-5. [Running the Project Locally](#5-running-the-project-locally)
-6. [Repository Structure](#6-repository-structure)
-7. [Where to Make Common Changes](#7-where-to-make-common-changes)
-8. [Understanding the API](#8-understanding-the-api)
-9. [Testing Your Changes](#9-testing-your-changes)
-10. [Picking Your First Issue](#10-picking-your-first-issue)
-11. [Issue Types Explained](#11-issue-types-explained)
-12. [Submitting a Pull Request](#12-submitting-a-pull-request)
-13. [Architecture & Deployment Links](#13-architecture--deployment-links)
-14. [Getting Help](#14-getting-help)
+4. [Setting Up a Stellar Wallet (Freighter)](#4-setting-up-a-stellar-wallet-freighter)
+5. [Getting the Code](#5-getting-the-code)
+6. [Running the Project Locally](#6-running-the-project-locally)
+7. [Repository Structure](#7-repository-structure)
+8. [Where to Make Common Changes](#8-where-to-make-common-changes)
+9. [Understanding the API](#9-understanding-the-api)
+10. [Testing Your Changes](#10-testing-your-changes)
+11. [Picking Your First Issue](#11-picking-your-first-issue)
+12. [Issue Types Explained](#12-issue-types-explained)
+13. [Submitting a Pull Request](#13-submitting-a-pull-request)
+14. [Architecture & Deployment Links](#14-architecture--deployment-links)
+15. [Getting Help](#15-getting-help)
 
 ---
 
@@ -84,7 +85,85 @@ Make sure you have the following installed before you begin:
 
 ---
 
+## 4. Setting Up a Stellar Wallet (Freighter)
 
+Before interacting with bounties that involve Stellar addresses, you need a Stellar wallet. The project uses [Freighter](https://www.freighter.app) — a browser extension wallet for the Stellar network.
+
+### 4.1 Install Freighter
+
+1. Visit [freighter.app](https://www.freighter.app) and click the browser extension link for your browser (Chrome, Brave, or Edge).
+2. Click **Add to Chrome** (or your browser's equivalent) and approve the extension permissions.
+3. Once installed, the Freighter icon appears in your browser toolbar.
+
+### 4.2 Create or Import a Wallet
+
+1. Click the Freighter icon and select **Create a new wallet**.
+2. Follow the prompts to set a password and safely back up your recovery phrase.
+3. To use an existing Stellar account, select **Import wallet**.
+
+> **Important:** Store your recovery phrase somewhere safe and offline. It cannot be recovered if lost.
+
+### 4.3 Switch to Testnet
+
+All local development and testing uses the Stellar testnet:
+
+1. Open Freighter and click the gear icon (Settings).
+2. Under **Network**, select **Testnet**.
+3. Verify the network tag shows **TESTNET** in the Freighter popup.
+
+### 4.4 Fund Your Account with Testnet XLM
+
+Use the Stellar Friendbot to get free testnet XLM:
+
+**Option A — Browser**
+```
+https://friendbot.stellar.org/?addr=YOUR_PUBLIC_KEY
+```
+Replace `YOUR_PUBLIC_KEY` with your wallet address (visible in Freighter).
+
+**Option B — cURL**
+```bash
+curl "https://friendbot.stellar.org/?addr=YOUR_PUBLIC_KEY"
+```
+
+**Option C — Freighter (if available)**
+Some Freighter versions include a built-in testnet funding option under Settings → Testnet.
+
+Verify the funds arrived by checking your balance in Freighter.
+
+### 4.5 Connect Your Wallet to the App
+
+**Current behavior (manual entry):**
+The app currently accepts a Stellar public key through a prompt. Click **Connect wallet** on the dashboard, paste your `G...` address, and it is saved to your browser's local storage.
+
+**Planned Freighter integration:**
+Once full wallet integration lands (tracked in [docs/issues/wallet-auth-release-flow.md](docs/issues/wallet-auth-release-flow.md)), the app will:
+- Detect the Freighter extension automatically
+- Prompt you to approve a connection request
+- Sign release, refund, and other actions with your connected wallet
+- Verify the network matches the app's expected network (Testnet)
+
+### 4.6 Troubleshooting
+
+| Issue | Likely cause | Solution |
+|-------|-------------|----------|
+| Extension not detected | Freighter not installed or browser permissions denied | Install Freighter from [freighter.app](https://www.freighter.app), refresh the page, and check browser extension permissions |
+| Wrong network selected | Wallet set to Mainnet or Futurenet instead of Testnet | Open Freighter settings → Network → switch to **Testnet** |
+| Invalid public key error | The pasted address does not match the `G...` format (56 characters) | Copy your address directly from Freighter — it always starts with `G` and is exactly 56 characters |
+| Wallet not connecting | Freighter locked or site permissions revoked | Unlock Freighter, refresh the app, and reconnect permissions |
+
+> **Network mismatch:** The app does not currently detect or warn about network mismatches during manual address entry. Always verify that Freighter is set to **Testnet**. Full network validation will be added as part of the wallet integration.
+
+### Resources
+
+- [Freighter Documentation](https://docs.freighter.app)
+- [Stellar Testnet Friendbot](https://friendbot.stellar.org)
+- [Stellar Laboratory](https://laboratory.stellar.org)
+- [Wallet Auth Issue](docs/issues/wallet-auth-release-flow.md)
+
+---
+
+## 5. Getting the Code
 
 ```bash
 # Fork the repo on GitHub, then clone your fork
@@ -97,7 +176,7 @@ git remote add upstream https://github.com/ritik4ever/stellar-bounty-board.git
 
 ---
 
-## 5. Running the Project Locally
+## 6. Running the Project Locally
 
 ### Install all dependencies (one command)
 
@@ -141,7 +220,7 @@ npm run build
 
 ---
 
-## 6. Repository Structure
+## 7. Repository Structure
 
 ```
 stellar-bounty-board/
@@ -180,7 +259,7 @@ stellar-bounty-board/
 
 ---
 
-## 7. Where to Make Common Changes
+## 8. Where to Make Common Changes
 
 ### UI / Frontend changes
 **Location:** `frontend/src/`
@@ -243,7 +322,7 @@ Issue drafts in `docs/issues/` are meant to be opened as real GitHub issues. If 
 
 ---
 
-## 8. Understanding the API
+## 9. Understanding the API
 
 Base URLs:
 
@@ -272,7 +351,7 @@ curl -X POST http://localhost:3001/api/bounties \
 
 ---
 
-## 9. Testing Your Changes
+## 10. Testing Your Changes
 
 ### Frontend
 ```bash
@@ -307,7 +386,7 @@ cargo clippy         # Rust linting
 
 ---
 
-## 10. Picking Your First Issue
+## 11. Picking Your First Issue
 
 ### If you are new to the codebase
 
@@ -345,7 +424,7 @@ Look for issues tagged **`enhancement`** or **`help wanted`**. High-value areas 
 
 ---
 
-## 11. Issue Types Explained
+## 12. Issue Types Explained
 
 | Label | Meaning |
 |-------|---------|
@@ -362,7 +441,7 @@ Issue drafts ready to be opened live in [`docs/issues/`](./docs/issues/). If you
 
 ---
 
-## 12. Submitting a Pull Request
+## 13. Submitting a Pull Request
 
 1. **Branch from `main`** — keep your branch focused on one issue
 2. **Write a clear PR title** — e.g. `feat: add wallet authentication for release action`
@@ -375,7 +454,7 @@ Issue drafts ready to be opened live in [`docs/issues/`](./docs/issues/). If you
 
 ---
 
-## 13. Architecture & Deployment Links
+## 14. Architecture & Deployment Links
 
 - **Live demo:** https://stellar-bounty-board-taupe.vercel.app
 - **Stellar Developer Docs:** https://developers.stellar.org/docs
@@ -385,7 +464,7 @@ Issue drafts ready to be opened live in [`docs/issues/`](./docs/issues/). If you
 
 ---
 
-## 14. Getting Help
+## 15. Getting Help
 
 - **Open a Discussion** on GitHub if you are unsure about an approach before coding
 - **Comment on the issue** you are working on if you get stuck
