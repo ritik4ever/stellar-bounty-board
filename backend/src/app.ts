@@ -21,7 +21,6 @@ import {
   releaseBounty,
   reserveBounty,
   submitBounty,
-  updateBountyNotes,
   getBountyEvents,
   getMaintainerMetrics,
   getGlobalMetrics,
@@ -746,9 +745,12 @@ app.post(
   }
 );
 
-app.get('/api/open-issues', async (_req: Request, res: Response) => {
+app.get('/api/open-issues', async (req: Request, res: Response) => {
   try {
-
+    const issues = await listOpenIssues();
+    res.json({ data: issues });
+  } catch (error) {
+    sendError(res, req, error);
   }
 });
 

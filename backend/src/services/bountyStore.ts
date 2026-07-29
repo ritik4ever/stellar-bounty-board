@@ -7,9 +7,9 @@ import {
 } from "./notificationService";
 import { logStructured } from "../logger";
 import { getCache, type CacheAdapter } from "./cache";
- feat/concurrency-file-locking
 import { bountiesCreatedTotal, bountiesReleasedTotal } from "../metrics";
 import { validateGithubPrUrlForRepo } from "../validation/prUrl";
+import { resolveTokenAddress } from "../utils";
 
 
 /**
@@ -1307,18 +1307,22 @@ export function listBountyAuditLogs(
   const end = start + pageSize;
   const data = filtered.slice(start, end);
 
-
+  return {
+    data,
+    pagination: {
+      total,
+      page: safePage,
+      pageSize,
+      totalPages,
+    },
+  };
+}
 
 export function getBountyEvents(bountyId: string): BountyEvent[] {
   const records = listBounties();
   const bounty = findBounty(records, bountyId);
   return bounty.events || [];
 }
-
-
-  };
-}
- feat/concurrency-file-locking
 
 const GLOBAL_METRICS_CACHE_KEY = "stats:global";
 const GLOBAL_METRICS_TTL_SECONDS = 30;
