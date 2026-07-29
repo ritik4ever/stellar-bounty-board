@@ -59,6 +59,10 @@ enum DataKey {
     DisputeWindow,
     /// Accumulated protocol fee statistics.
     FeeStats,
+    /// Address authorised to pause/unpause the contract.
+    Admin,
+    /// Whether the contract is currently paused (no new bounties can be created).
+    Paused,
 }
 
 #[contracttype]
@@ -136,6 +140,18 @@ pub struct BountyDeadlineExtended {
 }
 
 #[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ContractPaused {
+    pub admin: Address,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ContractUnpaused {
+    pub admin: Address,
+}
+
+#[contracttype]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ContractError {
     InvalidAmount,
@@ -154,6 +170,8 @@ pub enum ContractError {
     BountyNotFound,
     NotArbiter,
     DisputeWindowNotMet,
+    ContractIsPaused,
+    NotAdmin,
 }
 
 /// Maximum allowed bounty amount: 10 billion XLM expressed in stroops
@@ -217,6 +235,16 @@ impl StellarBountyBoardContract {
         protocol_fee_bps: u32,
     ) -> u64 {
         maintainer.require_auth();
+
+        // Circuit-breaker: reject new bounty creation while paused
+        let paused: bool = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Paused)
+            .unwrap_or(false);
+        if paused {
+            panic_error(ContractError::ContractIsPaused);
+        }
 
         if amount <= 0 || amount > MAX_BOUNTY_AMOUNT {
             panic_error(ContractError::InvalidAmount);
@@ -598,6 +626,66 @@ impl StellarBountyBoardContract {
         );
     }
 
+    /// ─── Circuit Breaker ─────────────────────────────────────────────────
+
+    /// Sets the admin address authorised to pause/unpause the contract.
+    /// Can only be called once; subsequent calls must be authorised by
+    /// the current admin to transfer authority.
+    pub fn set_admin(env: Env, admin: Address) {
+        admin.require_auth();
+        if env.storage().persistent().has(&DataKey::Admin) {
+            let current: Address = env
+                .storage()
+                .persistent()
+                .get(&DataKey::Admin)
+                .unwrap();
+            current.require_auth();
+        }
+        env.storage().persistent().set(&DataKey::Admin, &admin);
+        // Initialize paused state to false on first admin set
+        if !env.storage().persistent().has(&DataKey::Paused) {
+            env.storage().persistent().set(&DataKey::Paused, &false);
+        }
+    }
+
+    /// Returns the current admin address, if set.
+    pub fn get_admin(env: Env) -> Option<Address> {
+        env.storage().persistent().get(&DataKey::Admin)
+    }
+
+    /// Admin-only: pause new bounty creation.
+    /// Existing bounties can still be released, refunded, or disputed.
+    pub fn pause(env: Env, admin: Address) {
+        require_admin(&env, &admin);
+        admin.require_auth();
+        env.storage().persistent().set(&DataKey::Paused, &true);
+        env.events().publish(
+            (symbol_short!("Cntrct"), symbol_short!("Paused")),
+            ContractPaused { admin },
+        );
+    }
+
+    /// Admin-only: unpause and allow new bounty creation again.
+    pub fn unpause(env: Env, admin: Address) {
+        require_admin(&env, &admin);
+        admin.require_auth();
+        env.storage().persistent().set(&DataKey::Paused, &false);
+        env.events().publish(
+            (symbol_short!("Cntrct"), symbol_short!("Unpsd")),
+            ContractUnpaused { admin },
+        );
+    }
+
+    /// Returns whether the contract is currently paused.
+    pub fn get_paused_state(env: Env) -> bool {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+    }
+
+    // ─── Bounty Lifecycle ─────────────────────────────────────────────────
+
     pub fn get_bounty(env: Env, bounty_id: u64) -> Bounty {
         let mut bounty = read_bounty(&env, bounty_id);
         expire_if_needed(&env, &mut bounty);
@@ -666,6 +754,17 @@ pub fn get_next_bounty_id(env: Env) -> u64 {
             })
     }
 } main
+}
+
+fn require_admin(env: &Env, caller: &Address) {
+    let admin: Address = env
+        .storage()
+        .persistent()
+        .get(&DataKey::Admin)
+        .unwrap_or_else(|| panic_error(ContractError::NotAdmin));
+    if *caller != admin {
+        panic_error(ContractError::NotAdmin);
+    }
 }
 
 fn read_bounty(env: &Env, bounty_id: u64) -> Bounty {

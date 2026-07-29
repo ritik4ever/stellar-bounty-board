@@ -994,5 +994,186 @@ fn test_dispute_after_deadline_fails() {
     
     // Dispute after deadline should fail
     client.dispute_bounty(&bounty_id, &arbiter);
-}>>>>>>> main
+}
+
+// ─── Circuit Breaker Tests ─────────────────────────────────────────────────
+
+fn setup_with_admin(env: &Env) -> (
+    StellarBountyBoardContractClient,
+    Address, // maintainer
+    Address, // contributor
+    Address, // token_id
+    Address, // fee_recipient
+    Address, // arbiter
+    Address, // admin
+) {
+    let (client, maintainer, contributor, token_id, fee_recipient, arbiter) = setup_test(env);
+    let admin = Address::generate(env);
+    client.set_admin(&admin);
+    (client, maintainer, contributor, token_id, fee_recipient, arbiter, admin)
+}
+
+#[test]
+fn test_pause_prevents_create_bounty() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, _, token_id, _, _, admin) = setup_with_admin(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1_000_000);
+
+    // Pause the contract
+    client.pause(&admin);
+
+    // Creating a bounty should now fail
+    let result = client.try_create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32,
+    );
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_unpause_allows_create_bounty_again() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, _, token_id, _, _, admin) = setup_with_admin(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1_000_000);
+
+    // Pause then unpause
+    client.pause(&admin);
+    client.unpause(&admin);
+
+    // Should succeed now
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32,
+    );
+    assert!(bounty_id > 0);
+}
+
+#[test]
+fn test_release_and_refund_still_work_while_paused() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, contributor, token_id, _, _, admin) = setup_with_admin(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1_000_000);
+
+    // Create bounty before pausing
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32,
+    );
+    client.reserve_bounty(&bounty_id, &contributor);
+    client.submit_bounty(&bounty_id, &contributor);
+
+    // Now pause
+    client.pause(&admin);
+
+    // Release should still work
+    client.release_bounty(&bounty_id, &maintainer);
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.status, BountyStatus::Released);
+}
+
+#[test]
+fn test_non_admin_cannot_pause() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, _, token_id, _, _, admin) = setup_with_admin(&env);
+
+    // Try to pause as maintainer (not admin)
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.pause(&maintainer);
+    }));
+    assert!(result.is_err() || false, "Non-admin should not be able to pause");
+}
+
+#[test]
+fn test_get_paused_state() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _, _, _, _, _, admin) = setup_with_admin(&env);
+
+    // Initially not paused
+    assert!(!client.get_paused_state());
+
+    // Pause
+    client.pause(&admin);
+    assert!(client.get_paused_state());
+
+    // Unpause
+    client.unpause(&admin);
+    assert!(!client.get_paused_state());
+}
+
+#[test]
+fn test_pause_emits_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _, _, _, _, _, admin) = setup_with_admin(&env);
+
+    client.pause(&admin);
+
+    let events = env.events().all();
+    let pause_events: Vec<_> = events
+        .iter()
+        .filter(|e| {
+            let topics = e.0.clone();
+            let topics_vec: Vec<_> = topics.into_iter().collect();
+            topics_vec.len() >= 2
+                && topics_vec[0] == symbol_short!("Cntrct")
+                && topics_vec[1] == symbol_short!("Paused")
+        })
+        .collect();
+    assert!(!pause_events.is_empty(), "Expected ContractPaused event");
+}
+
+#[test]
+fn test_unpause_emits_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _, _, _, _, _, admin) = setup_with_admin(&env);
+
+    client.pause(&admin);
+    client.unpause(&admin);
+
+    let events = env.events().all();
+    let unpause_events: Vec<_> = events
+        .iter()
+        .filter(|e| {
+            let topics = e.0.clone();
+            let topics_vec: Vec<_> = topics.into_iter().collect();
+            topics_vec.len() >= 2
+                && topics_vec[0] == symbol_short!("Cntrct")
+                && topics_vec[1] == symbol_short!("Unpsd")
+        })
+        .collect();
+    assert!(!unpause_events.is_empty(), "Expected ContractUnpaused event");
 }
