@@ -21,6 +21,10 @@ export function getAllowedTokenSymbols(): string[] {
   return Object.keys(getTokenAddressMap());
 }
 
+function resolveConfiguredTokenAddress(symbol: string): string | undefined {
+  return getTokenAddressMap()[symbol.toUpperCase()];
+}
+
 const STELLAR_EXAMPLE = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
 const TX_HASH_REGEX = /^[0-9a-fA-F]{64}$/;
 
@@ -86,6 +90,16 @@ export const createBountySchema = z
         example: 'XLM',
         description: 'Stellar token symbol for payout (1–12 alphanumeric chars).',
       }),
+    tokenAddress: z
+      .string()
+      .trim()
+      .min(1, 'Token address must not be empty.')
+      .optional()
+      .openapi({
+        example: 'CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA',
+        description:
+          'Optional resolved Stellar asset contract address. If supplied, it must match the configured address for tokenSymbol.',
+      }),
     amount: z.coerce
       .number()
       .positive()
@@ -111,6 +125,20 @@ export const createBountySchema = z
       example: 604800,
       description: 'Optional reservation timeout in seconds (default: 7 days = 604800 seconds).',
     }),
+  })
+  .superRefine((input, ctx) => {
+    if (!input.tokenAddress) {
+      return;
+    }
+
+    const expectedAddress = resolveConfiguredTokenAddress(input.tokenSymbol);
+    if (!expectedAddress || input.tokenAddress !== expectedAddress) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['tokenAddress'],
+        message: `tokenAddress must match the configured ${input.tokenSymbol} token address.`,
+      });
+    }
   })
   .openapi('CreateBountyRequest');
 
