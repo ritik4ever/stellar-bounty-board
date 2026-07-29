@@ -987,18 +987,20 @@ fn test_get_all_bounties_limit_capped_at_50() {
 fn test_dispute_after_deadline_fails() {
     let env = Env::default();
     env.mock_all_auths();
-    
-    // Note: If your file already had setup code inside this test block above the conflict, 
+
+    // Note: If your file already had setup code inside this test block above the conflict,
     // leave it intact. This makes sure the dispute test runs immediately after.
     let (client, _, _, _, arbiter, bounty_id) = setup_test(&env);
-    
+
     // Dispute after deadline should fail
     client.dispute_bounty(&bounty_id, &arbiter);
 }
 
 // ─── Circuit Breaker Tests ─────────────────────────────────────────────────
 
-fn setup_with_admin(env: &Env) -> (
+fn setup_with_admin(
+    env: &Env,
+) -> (
     StellarBountyBoardContractClient,
     Address, // maintainer
     Address, // contributor
@@ -1010,7 +1012,15 @@ fn setup_with_admin(env: &Env) -> (
     let (client, maintainer, contributor, token_id, fee_recipient, arbiter) = setup_test(env);
     let admin = Address::generate(env);
     client.set_admin(&admin);
-    (client, maintainer, contributor, token_id, fee_recipient, arbiter, admin)
+    (
+        client,
+        maintainer,
+        contributor,
+        token_id,
+        fee_recipient,
+        arbiter,
+        admin,
+    )
 }
 
 #[test]
@@ -1109,7 +1119,10 @@ fn test_non_admin_cannot_pause() {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         client.pause(&maintainer);
     }));
-    assert!(result.is_err() || false, "Non-admin should not be able to pause");
+    assert!(
+        result.is_err() || false,
+        "Non-admin should not be able to pause"
+    );
 }
 
 #[test]
@@ -1175,5 +1188,8 @@ fn test_unpause_emits_event() {
                 && topics_vec[1] == symbol_short!("Unpsd")
         })
         .collect();
-    assert!(!unpause_events.is_empty(), "Expected ContractUnpaused event");
+    assert!(
+        !unpause_events.is_empty(),
+        "Expected ContractUnpaused event"
+    );
 }
