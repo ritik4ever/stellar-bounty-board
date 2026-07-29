@@ -2335,3 +2335,66 @@ select {
   font-weight: bold;
   opacity: 1;
 }
+
+/* ── Error Boundary Illustration ──────────────────────────────────────── */
+.error-boundary {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 48px 36px;
+  text-align: center;
+}
+
+.error-boundary__illustration {
+  color: var(--muted);
+  opacity: 0.7;
+  flex-shrink: 0;
+  line-height: 0;
+}
+
+.error-boundary__content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: 400px;
+}
+
+.error-boundary__kicker {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--rose);
+  background: var(--rose);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.error-boundary__heading {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.error-boundary__message {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.error-boundary__message strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.error-boundary__actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+}
