@@ -1,12 +1,20 @@
 import "dotenv/config";
+import { initTracing } from "./tracing";
+
+initTracing();
+
 import http from "node:http";
 import path from "node:path";
 import { Worker } from "node:worker_threads";
+import { trace, context as otelContext, SpanStatusCode } from "@opentelemetry/api";
 import { app } from "./app";
 import { logStructured } from "./logger";
-import path from "node:path";
-import { Worker } from "node:worker_threads";
 import { invalidateBountyCache } from "./services/bountyStore";
+import { shutdownTracing } from "./tracing";
+import { startExpirationJob, stopExpirationJob } from "./services/reservationExpirationJob";
+import { setDraining } from "./shutdown";
+
+const DRAIN_TIMEOUT_MS = Number(process.env.DRAIN_TIMEOUT_MS ?? 30_000);
 
 const port = Number(process.env.PORT ?? 3001);
 const keepAliveTimeout = Number(process.env.KEEP_ALIVE_TIMEOUT ?? 65000);
@@ -34,13 +42,26 @@ function startIndexerWorker() {
 
     worker.on("message", async (msg: any) => {
       if (msg && msg.type === "indexedEvents") {
-        try {
-          await invalidateBountyCache();
-        } catch (err) {
-          logStructured("warn", "indexer_cache_invalidation_failed", {
-            message: err instanceof Error ? err.message : String(err),
-          });
-        }
+        const tracer = trace.getTracer("stellar-bounty-board");
+        const span = tracer.startSpan("worker.indexedEvents", {
+          attributes: {
+            "worker.messageType": msg.type,
+          },
+        });
+
+        await otelContext.with(trace.setSpan(otelContext.active(), span), async () => {
+          try {
+            await invalidateBountyCache();
+          } catch (err) {
+            span.recordException(err as Error);
+            span.setStatus({ code: SpanStatusCode.ERROR, message: (err as Error).message });
+            logStructured("warn", "indexer_cache_invalidation_failed", {
+              message: err instanceof Error ? err.message : String(err),
+            });
+          } finally {
+            span.end();
+          }
+        });
       }
     });
 
@@ -76,6 +97,9 @@ async function shutdown(signal: string): Promise<void> {
 
   // Mark server as draining so new requests get 503
   setDraining();
+
+  // Shut down the OpenTelemetry tracer provider
+  await shutdownTracing();
 
   // Stop expiration job before draining connections
   stopExpirationJob();

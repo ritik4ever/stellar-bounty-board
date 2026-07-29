@@ -217,4 +217,3 @@ export function createStellarSignatureAuthMiddleware(): RequestHandler {
     next();
   };
 }
- main
