@@ -2335,3 +2335,291 @@ select {
   font-weight: bold;
   opacity: 1;
 }
+
+/* ── Limit Order Form ─────────────────────────────────────────────────── */
+
+.lo-shell {
+  max-width: 900px;
+  margin: 0 auto;
+  animation: rise 500ms ease-out;
+}
+
+.lo-header {
+  margin-bottom: 24px;
+}
+
+.lo-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 8px;
+  font-size: 1.6rem;
+  color: var(--ink);
+}
+
+.lo-subtitle {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.lo-subtitle strong {
+  color: var(--ink);
+}
+
+.lo-spot-label {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.lo-spot-label strong {
+  color: var(--ink);
+  font-family: "IBM Plex Mono", monospace;
+}
+
+/* Side badge */
+.lo-side-badge {
+  display: flex;
+  align-items: center;
+}
+
+/* Form */
+.lo-form {
+  display: grid;
+  gap: 18px;
+  margin-bottom: 24px;
+}
+
+.lo-form__field {
+  display: grid;
+  gap: 8px;
+}
+
+.lo-form__field label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.lo-form__field input {
+  width: 100%;
+}
+
+.lo-form__error,
+.lo-form__success {
+  margin-bottom: 0;
+}
+
+.lo-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+/* Presets */
+.lo-presets {
+  border: 1px solid rgba(54, 63, 59, 0.1);
+  border-radius: 18px;
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.lo-presets__legend {
+  font-family: "IBM Plex Mono", monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 11px;
+  color: var(--muted);
+  padding: 0 6px;
+}
+
+.lo-presets__group {
+  display: grid;
+  gap: 8px;
+}
+
+.lo-presets__label {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.lo-presets__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Orders section */
+.lo-orders-section {
+  margin-top: 8px;
+}
+
+.lo-orders-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1.15rem;
+  margin: 0 0 16px;
+  color: var(--ink);
+}
+
+.lo-error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Table */
+.lo-table__wrapper {
+  overflow-x: auto;
+  border-radius: 22px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow);
+}
+
+.lo-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.lo-table thead th {
+  text-align: left;
+  padding: 14px 16px;
+  font-family: "IBM Plex Mono", monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 11px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.lo-table__row {
+  border-bottom: 1px solid var(--line);
+  transition: background-color 140ms ease;
+}
+
+.lo-table__row:last-child {
+  border-bottom: none;
+}
+
+.lo-table__row:hover {
+  background: var(--mint-soft);
+}
+
+.lo-table__row--skeleton {
+  pointer-events: none;
+}
+
+.lo-table__row--skeleton:hover {
+  background: transparent;
+}
+
+.lo-table__cell {
+  padding: 14px 16px;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+.lo-table__cell--mono {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.85rem;
+}
+
+.lo-table__cell--muted {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.lo-inline-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Cancel cell */
+.lo-cancel-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+.lo-cancel-btn {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px !important;
+  font-size: 0.82rem !important;
+}
+
+.lo-cancel-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+/* Spinner */
+@keyframes lo-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.lo-spinner {
+  animation: lo-spin 0.8s linear infinite;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .lo-heading {
+    font-size: 1.3rem;
+  }
+
+  .lo-form {
+    border-radius: 22px;
+    padding: 20px;
+  }
+
+  .lo-form__actions button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .lo-table__wrapper {
+    border-radius: 18px;
+  }
+
+  .lo-table thead {
+    display: none;
+  }
+
+  .lo-table__row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    padding: 14px 16px;
+  }
+
+  .lo-table__cell {
+    padding: 4px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .lo-table__cell::before {
+    content: attr(data-label);
+    font-family: "IBM Plex Mono", monospace;
+    text-transform: uppercase;
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+  }
+}
