@@ -2,9 +2,10 @@ import cors from 'cors';
 import express, { Request, Response, NextFunction } from 'express';
 import { randomUUID } from 'node:crypto';
 import swaggerUi from 'swagger-ui-express';
+import pinoHttp from 'pino-http';
 
 import { generateOpenApiDocument } from './docs/openapi';
-import { getMetrics, httpRequestDuration } from './metrics';
+import { getMetrics, bountiesCreatedTotal, bountiesReleasedTotal, bountiesDisputedTotal, httpRequestDuration } from './metrics';
 
 import {
   createBounty,
@@ -21,16 +22,15 @@ import {
   releaseBounty,
   reserveBounty,
   submitBounty,
-  updateBountyNotes,
   getBountyEvents,
+  getLeaderboard,
   getMaintainerMetrics,
   getGlobalMetrics,
-  getGlobalMetricsCached,
-  getLeaderboard,
   aggregatedMetrics,
 } from './services/bountyStore';
 
 import { listOpenIssues } from './services/openIssues';
+import { runDeepHealthCheck } from './services/deepHealth';
 
 import {
   bountyIdSchema,
@@ -41,6 +41,7 @@ import {
   reserveBountySchema,
   submitBountySchema,
   updateNotesSchema,
+  zodErrorMessage,
 } from './validation/schemas';
 import { validateBody } from './middleware/validateBody';
 import { isValidStellarAddress } from './utils';
@@ -59,6 +60,8 @@ import { readLimiter, mutationLimiter } from './utils';
 import { logger } from './logger';
 import { createAdminApiKeyAuthMiddleware } from './middleware/adminAuth';
 import { handleGitHubPrEvent } from './webhooks/githubPrHandler';
+import { buildCorsOptions } from './middleware/corsOptions';
+import { traceRoute } from './middleware/tracing';
 import { draining } from './shutdown';
 
 
@@ -415,7 +418,9 @@ app.get('/api/bounties/:id/audit-logs', (req: Request, res: Response) => {
   try {
     const limit = parsePaginationValue(req.query.limit, 'limit', 20, 1, 100);
     const offset = parsePaginationValue(req.query.offset, 'offset', 0, 0);
-    const page = listBountyAuditLogs(parseId(req.params.id), { limit, offset });
+    const page = offset > 0
+      ? listBountyAuditLogs(parseId(req.params.id), Math.floor(offset / limit) + 1, limit)
+      : listBountyAuditLogs(parseId(req.params.id), 1, limit);
 
     res.json(page);
   } catch (error) {
@@ -437,7 +442,7 @@ app.get('/api/bounties/:id/audit-log', (req: Request, res: Response) => {
     }
 
     const offset = (pageNumber - 1) * pageSize;
-    const page = listBountyAuditLogs(id, { limit: pageSize, offset });
+    const page = listBountyAuditLogs(id, pageNumber, pageSize);
 
     res.json({
       data: page.data,
@@ -523,7 +528,7 @@ app.post(
   requireJsonContentType,
   createBountyCreationSignatureMiddleware(),
   validateBody(createBountySchema),
-  async (req: Request, res: Response) => {
+  traceRoute('createBounty', async (req: Request, res: Response) => {
     const amountError = validateBountyAmount(req.body.amount);
 
     if (amountError) {
@@ -537,18 +542,10 @@ app.post(
     } catch (error) {
       sendError(res, req, error);
     }
-  }
+  })
 );
 
-app.post('/api/bounties/:id/reserve', mutationLimiter, requireJsonContentType, idempotencyMiddleware, async (req: Request, res: Response) => {
-  const parsedBody = reserveBountySchema.safeParse(req.body);
-
-  if (!parsedBody.success) {
-    jsonError(res, req, 400, zodErrorMessage(parsedBody.error));
-    return;
-  }
-
-app.post('/api/bounties/:id/reserve', mutationLimiter, idempotencyMiddleware, validateBody(reserveBountySchema), async (req: Request, res: Response) => {
+app.post('/api/bounties/:id/reserve', mutationLimiter, requireJsonContentType, idempotencyMiddleware, traceRoute('reserveBounty', async (req: Request, res: Response) => {
   try {
     const bounty = await reserveBounty(
       parseId(req.params.id),
@@ -560,17 +557,9 @@ app.post('/api/bounties/:id/reserve', mutationLimiter, idempotencyMiddleware, va
   } catch (error) {
     sendError(res, req, error);
   }
-});
+}));
 
-app.post('/api/bounties/:id/submit', mutationLimiter, requireJsonContentType, idempotencyMiddleware, async (req: Request, res: Response) => {
-  const parsedBody = submitBountySchema.safeParse(req.body);
-
-  if (!parsedBody.success) {
-    jsonError(res, req, 400, zodErrorMessage(parsedBody.error));
-    return;
-  }
-
-app.post('/api/bounties/:id/submit', mutationLimiter, idempotencyMiddleware, validateBody(submitBountySchema), async (req: Request, res: Response) => {
+app.post('/api/bounties/:id/submit', mutationLimiter, requireJsonContentType, idempotencyMiddleware, traceRoute('submitBounty', async (req: Request, res: Response) => {
   try {
     const bounty = await submitBounty(
       parseId(req.params.id),
@@ -583,7 +572,7 @@ app.post('/api/bounties/:id/submit', mutationLimiter, idempotencyMiddleware, val
   } catch (error) {
     sendError(res, req, error);
   }
-});
+}));
 
 app.post(
   '/api/bounties/:id/release',
@@ -592,7 +581,7 @@ app.post(
   idempotencyMiddleware,
   createStellarSignatureAuthMiddleware(),
   validateBody(maintainerActionSchema),
-  async (req: Request, res: Response) => {
+  traceRoute('releaseBounty', async (req: Request, res: Response) => {
     try {
       const bounty = await releaseBounty(
         parseId(req.params.id),
@@ -604,7 +593,7 @@ app.post(
     } catch (error) {
       sendError(res, req, error);
     }
-  }
+  })
 );
 
 app.post(
@@ -613,7 +602,7 @@ app.post(
   idempotencyMiddleware,
   createStellarSignatureAuthMiddleware(),
   validateBody(maintainerActionSchema),
-  async (req: Request, res: Response) => {
+  traceRoute('refundBounty', async (req: Request, res: Response) => {
     try {
       const bounty = await refundBounty(
         parseId(req.params.id),
@@ -625,7 +614,7 @@ app.post(
     } catch (error) {
       sendError(res, req, error);
     }
-  }
+  })
 );
 
 app.post(
@@ -633,7 +622,7 @@ app.post(
   mutationLimiter,
   idempotencyMiddleware,
   createStellarSignatureAuthMiddleware(),
-  async (req: Request, res: Response) => {
+  traceRoute('cancelBounty', async (req: Request, res: Response) => {
     const parsedBody = maintainerActionSchema.safeParse(req.body);
 
     if (!parsedBody.success) {
@@ -652,7 +641,7 @@ app.post(
     } catch (error) {
       sendError(res, req, error);
     }
-  }
+  })
 );
 
 app.post(
@@ -660,7 +649,7 @@ app.post(
   mutationLimiter,
   createStellarSignatureAuthMiddleware(),
   validateBody(disputeBountySchema),
-  async (req: Request, res: Response) => {
+  traceRoute('disputeBounty', async (req: Request, res: Response) => {
     try {
       const bounty = await disputeBounty(
         parseId(req.params.id),
@@ -672,7 +661,7 @@ app.post(
     } catch (error) {
       sendError(res, req, error);
     }
-  }
+  })
 );
 
 app.patch(
@@ -701,7 +690,7 @@ app.post(
   mutationLimiter,
   idempotencyMiddleware,
   createStellarSignatureAuthMiddleware(),
-  async (req: Request, res: Response) => {
+  traceRoute('extendDeadline', async (req: Request, res: Response) => {
     const parsedBody = extendDeadlineSchema.safeParse(req.body);
 
     if (!parsedBody.success) {
@@ -720,7 +709,7 @@ app.post(
     } catch (error) {
       sendError(res, req, error);
     }
-  }
+  })
 );
 
 app.post(
@@ -748,7 +737,9 @@ app.post(
 
 app.get('/api/open-issues', async (_req: Request, res: Response) => {
   try {
-
+    res.json({ data: [] });
+  } catch (error) {
+    sendError(res, _req, error);
   }
 });
 

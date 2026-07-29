@@ -1,15 +1,16 @@
 import fs from "node:fs";
 import path from "node:path";
 import lockfile from "proper-lockfile";
+import { trace, context as otelContext } from "@opentelemetry/api";
 import {
   sendNotification,
   type NotificationRecipient,
 } from "./notificationService";
 import { logStructured } from "../logger";
 import { getCache, type CacheAdapter } from "./cache";
- feat/concurrency-file-locking
 import { bountiesCreatedTotal, bountiesReleasedTotal } from "../metrics";
 import { validateGithubPrUrlForRepo } from "../validation/prUrl";
+import { resolveTokenAddress } from "../utils";
 
 
 /**
@@ -685,6 +686,14 @@ export async function createBounty(
     writeStore([bounty, ...records]);
     await invalidateBountyCache();
 
+    const activeSpan = trace.getSpan(otelContext.active());
+    if (activeSpan) {
+      activeSpan.setAttribute("bounty.id", bounty.id);
+      activeSpan.setAttribute("bounty.status", bounty.status);
+      activeSpan.setAttribute("bounty.amount", bounty.amount);
+      activeSpan.setAttribute("bounty.token", bounty.tokenSymbol);
+    }
+
     // Trigger notification on create
     const recipients: NotificationRecipient[] = [
       { role: "maintainer", address: input.maintainer },
@@ -756,6 +765,13 @@ export async function reserveBounty(
       },
     ]);
     await invalidateBountyCache();
+
+    const activeSpan = trace.getSpan(otelContext.active());
+    if (activeSpan) {
+      activeSpan.setAttribute("bounty.id", id);
+      activeSpan.setAttribute("bounty.from_status", bounty.status);
+      activeSpan.setAttribute("bounty.to_status", "reserved");
+    }
 
     sendNotification(
       [{ role: "maintainer", address: bounty.maintainer }],
@@ -838,6 +854,13 @@ export async function submitBounty(
     ]);
     await invalidateBountyCache();
 
+    const activeSpan = trace.getSpan(otelContext.active());
+    if (activeSpan) {
+      activeSpan.setAttribute("bounty.id", id);
+      activeSpan.setAttribute("bounty.from_status", bounty.status);
+      activeSpan.setAttribute("bounty.to_status", "submitted");
+    }
+
     sendNotification(
       [{ role: "maintainer", address: bounty.maintainer }],
       "bounty_submitted",
@@ -919,6 +942,12 @@ export async function releaseBounty(
     ]);
     await invalidateBountyCache();
 
+    const activeSpan = trace.getSpan(otelContext.active());
+    if (activeSpan) {
+      activeSpan.setAttribute("bounty.id", id);
+      activeSpan.setAttribute("bounty.from_status", bounty.status);
+      activeSpan.setAttribute("bounty.to_status", "released");
+    }
 
     return persisted;
   });
@@ -987,6 +1016,13 @@ export async function refundBounty(
       },
     ]);
     await invalidateBountyCache();
+
+    const activeSpan = trace.getSpan(otelContext.active());
+    if (activeSpan) {
+      activeSpan.setAttribute("bounty.id", id);
+      activeSpan.setAttribute("bounty.from_status", bounty.status);
+      activeSpan.setAttribute("bounty.to_status", "refunded");
+    }
 
     if (persisted.contributor) {
       sendNotification(
@@ -1070,6 +1106,15 @@ export async function cancelBounty(
       },
     ]);
     await invalidateBountyCache();
+
+    const activeSpan = trace.getSpan(otelContext.active());
+    if (activeSpan) {
+      activeSpan.setAttribute("bounty.id", id);
+      activeSpan.setAttribute("bounty.from_status", bounty.status);
+      activeSpan.setAttribute("bounty.to_status", "refunded");
+      activeSpan.setAttribute("bounty.cancel_reason", "canceled");
+    }
+
     return persisted;
   });
 }
@@ -1136,6 +1181,14 @@ export async function disputeBounty(
       },
     ]);
     await invalidateBountyCache();
+
+    const activeSpan = trace.getSpan(otelContext.active());
+    if (activeSpan) {
+      activeSpan.setAttribute("bounty.id", id);
+      activeSpan.setAttribute("bounty.from_status", bounty.status);
+      activeSpan.setAttribute("bounty.to_status", "disputed");
+      activeSpan.setAttribute("bounty.dispute_reason", reason);
+    }
 
     // Notify maintainer and arbiter about the dispute
     const recipients: NotificationRecipient[] = [
@@ -1307,18 +1360,22 @@ export function listBountyAuditLogs(
   const end = start + pageSize;
   const data = filtered.slice(start, end);
 
-
+  return {
+    data,
+    pagination: {
+      total,
+      page: safePage,
+      pageSize,
+      totalPages,
+    },
+  };
+}
 
 export function getBountyEvents(bountyId: string): BountyEvent[] {
   const records = listBounties();
   const bounty = findBounty(records, bountyId);
   return bounty.events || [];
 }
-
-
-  };
-}
- feat/concurrency-file-locking
 
 const GLOBAL_METRICS_CACHE_KEY = "stats:global";
 const GLOBAL_METRICS_TTL_SECONDS = 30;
@@ -1397,4 +1454,123 @@ export function getLeaderboard(limit = 10): LeaderboardEntry[] {
     )
     .slice(0, limit);
 }
- main
+
+async function withGlobalLock<T>(fn: () => T | Promise<T>): Promise<T> {
+  const storePath = getStorePath();
+  const timeout = getLockTimeoutMs();
+  const release = await lockfile.lock(storePath, {
+    stale: 10000,
+    update: 5000,
+    retries: 0,
+  });
+
+  try {
+    return await fn();
+  } finally {
+    await release();
+  }
+}
+
+export interface GlobalMetrics {
+  totalBounties: number;
+  totalBountyAmount: number;
+  totalReleased: number;
+  totalReleasedAmount: number;
+  totalContributors: number;
+  totalMaintainers: number;
+  activeBounties: number;
+}
+
+export function getGlobalMetrics(): GlobalMetrics {
+  const records = listBounties();
+  const contributors = new Set<string>();
+  const maintainers = new Set<string>();
+
+  for (const bounty of records) {
+    if (bounty.contributor) contributors.add(bounty.contributor);
+    maintainers.add(bounty.maintainer);
+  }
+
+  const released = records.filter((b) => b.status === "released");
+
+  return {
+    totalBounties: records.length,
+    totalBountyAmount: records.reduce((sum, b) => sum + b.amount, 0),
+    totalReleased: released.length,
+    totalReleasedAmount: released.reduce((sum, b) => sum + b.amount, 0),
+    totalContributors: contributors.size,
+    totalMaintainers: maintainers.size,
+    activeBounties: records.filter(
+      (b) => b.status === "open" || b.status === "reserved" || b.status === "submitted",
+    ).length,
+  };
+}
+
+export function getMaintainerMetrics(maintainer: string): {
+  totalBounties: number;
+  totalReleased: number;
+  totalSpent: number;
+  activeBounties: number;
+} {
+  const records = listBounties().filter((b) => b.maintainer === maintainer);
+  const released = records.filter((b) => b.status === "released");
+
+  return {
+    totalBounties: records.length,
+    totalReleased: released.length,
+    totalSpent: released.reduce((sum, b) => sum + b.amount, 0),
+    activeBounties: records.filter(
+      (b) => b.status === "open" || b.status === "reserved" || b.status === "submitted",
+    ).length,
+  };
+}
+
+export interface AllAuditLogsOptions {
+  limit: number;
+  offset: number;
+  actor?: string;
+  transition?: string;
+  bountyId?: string;
+  fromStatus?: string;
+  toStatus?: string;
+}
+
+export interface AllAuditLogsPage {
+  data: BountyAuditLogRecord[];
+  pagination: {
+    total: number;
+    limit: number;
+    offset: number;
+  };
+}
+
+export function listAllAuditLogs(options: AllAuditLogsOptions): AllAuditLogsPage {
+  const allLogs = readAuditStore();
+  let filtered = allLogs;
+
+  if (options.actor) {
+    filtered = filtered.filter((log) => log.actor === options.actor);
+  }
+  if (options.transition) {
+    filtered = filtered.filter((log) => log.transition === options.transition);
+  }
+  if (options.bountyId) {
+    filtered = filtered.filter((log) => log.bountyId === options.bountyId);
+  }
+  if (options.fromStatus) {
+    filtered = filtered.filter((log) => log.fromStatus === options.fromStatus);
+  }
+  if (options.toStatus) {
+    filtered = filtered.filter((log) => log.toStatus === options.toStatus);
+  }
+
+  filtered.sort((a, b) => b.timestamp - a.timestamp);
+
+  const total = filtered.length;
+  const data = filtered.slice(options.offset, options.offset + options.limit);
+
+  return {
+    data,
+    pagination: { total, limit: options.limit, offset: options.offset },
+  };
+}

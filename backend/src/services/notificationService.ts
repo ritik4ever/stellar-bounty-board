@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { propagation, context as otelContext } from "@opentelemetry/api";
 import { logger } from "../logger";
 
 export interface NotificationRecipient {
@@ -118,6 +119,8 @@ async function dispatchWebhook(
   const body = JSON.stringify({ event, payload, recipients, timestamp: Date.now() });
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
+
+  propagation.inject(otelContext.active(), headers);
 
   const secret = process.env.NOTIFICATION_WEBHOOK_SECRET?.trim();
   if (secret) {
