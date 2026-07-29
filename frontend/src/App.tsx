@@ -7,7 +7,6 @@ import React, {
   memo,
   Suspense,
   type ReactNode,
-  type FormEvent,
 } from "react";
 import {
   FolderGit2,
@@ -51,6 +50,7 @@ import BountyCountdown from "./BountyCountdown";
 import BountyDetailPage from "./BountyDetailPage";
 import ContributorProfilePage from "./ContributorProfilePage";
 import ContributorDashboard from "./ContributorDashboard";
+import BountyCreationForm from "./BountyCreationForm";
 import ErrorBoundary from "./ErrorBoundary";
 import SubmissionChecklistModal, { type SubmissionFormData } from "./SubmissionChecklistModal";
 
@@ -79,18 +79,6 @@ function useDarkMode() {
 
   return { dark, toggle: () => setDark((d) => !d) };
 }
-
-const initialForm: CreateBountyPayload = {
-  repo: "ritik4ever/stellar-stream",
-  issueNumber: 48,
-  title: "",
-  summary: "",
-  maintainer: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
-  tokenSymbol: "XLM",
-  amount: 150,
-  deadlineDays: 14,
-  labels: [{ name: "help wanted", color: "0075ca" }],
-};
 
 function shortAddress(value: string): string {
   return `${value.slice(0, 6)}...${value.slice(-4)}`;
@@ -287,11 +275,9 @@ const BountyCard = memo(function BountyCard({
 function App() {
   const { dark, toggle: toggleDark } = useDarkMode();
   const initialFilters = useMemo(() => readInitialFilters(), []);
-  const [form, setForm] = useState<CreateBountyPayload>(initialForm);
   const [bounties, setBounties] = useState<Bounty[]>([]);
   const [, setIssues] = useState<OpenIssue[]>([]);
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
   const [showShortcutsOverlay, setShowShortcutsOverlay] = useState(false);
 
   useEffect(() => {
@@ -717,27 +703,13 @@ function App() {
     );
   }
 
-  async function handleCreate(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSubmitting(true);
+  async function handleBountyCreate(payload: CreateBountyPayload) {
     try {
-      const maintainerError = validateStellarPublicKey(form.maintainer);
-      if (maintainerError) {
-        toast.error(`Maintainer address: ${maintainerError}`);
-        return;
-      }
-      await createBounty({
-        ...form,
-        maintainer: form.maintainer.trim(),
-        labels: form.labels.filter(Boolean),
-      });
-      setForm({ ...initialForm, issueNumber: form.issueNumber + 1 });
+      await createBounty(payload);
       await refresh();
       toast.success("Bounty created successfully!");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to create bounty.");
-    } finally {
-      setSubmitting(false);
     }
   }
 
@@ -766,59 +738,7 @@ function App() {
                 A decentralized bounty platform powered by Stellar. Reserve tasks, submit solutions,
                 and get paid instantly.
               </p>
-              <form className="bounty-form" onSubmit={handleCreate}>
-                <div className="form-row">
-                  <label>
-                    Repository
-                    <input
-                      value={form.repo}
-                      onChange={(e) => setForm({ ...form, repo: e.target.value })}
-                      placeholder="owner/repo"
-                    />
-                  </label>
-                  <label>
-                    Issue #
-                    <input
-                      type="number"
-                      value={form.issueNumber}
-                      onChange={(e) => setForm({ ...form, issueNumber: Number(e.target.value) })}
-                    />
-                  </label>
-                </div>
-                <div className="form-row">
-                  <label>
-                    Title
-                    <input
-                      value={form.title}
-                      onChange={(e) => setForm({ ...form, title: e.target.value })}
-                      placeholder="Add WebSocket updates..."
-                    />
-                  </label>
-                </div>
-                <div className="form-row">
-                  <label>
-                    Reward
-                    <input
-                      type="number"
-                      value={form.amount}
-                      onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })}
-                    />
-                  </label>
-                  <label>
-                    Asset
-                    <select
-                      value={form.tokenSymbol}
-                      onChange={(e) => setForm({ ...form, tokenSymbol: e.target.value })}
-                    >
-                      <option value="XLM">XLM</option>
-                      <option value="USDC">USDC</option>
-                    </select>
-                  </label>
-                </div>
-                <button type="submit" disabled={submitting}>
-                  {submitting ? "Creating..." : "Create Bounty"}
-                </button>
-              </form>
+              <BountyCreationForm onSubmit={handleBountyCreate} />
             </div>
           </div>
         </section>
