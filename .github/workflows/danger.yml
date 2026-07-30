@@ -1,0 +1,40 @@
+name: Danger
+
+on:
+  pull_request:
+    branches:
+      - main
+    # Run on every push to an open PR so the comment stays up-to-date.
+    types: [opened, synchronize, reopened]
+
+jobs:
+  danger:
+    name: PR size / complexity lint
+    runs-on: ubuntu-latest
+    # danger.js needs write access to post PR comments.
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Fetch the full history so danger can diff correctly.
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Run Danger
+        run: npx danger ci
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Optional: override the line-change threshold (default 400).
+          # PR_SIZE_THRESHOLD: 300
