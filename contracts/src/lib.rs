@@ -1,11 +1,13 @@
 #![no_std]
+#![allow(deprecated)]
+#![allow(clippy::too_many_arguments)]
 
 #[cfg(test)]
 mod test;
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short,
-    token::Client as TokenClient, Address, Env, String, Vec,
+    contract, contractimpl, contracttype, symbol_short, token::Client as TokenClient, Address, Env,
+    String, Vec,
 };
 
 // ─── Contract Version ─────────────────────────────────────────────────────────
@@ -165,7 +167,7 @@ pub enum ContractError {
 /// XLM in stroops (10^17) leaves more than 20 orders-of-magnitude of headroom
 /// below the i128 ceiling, making overflow arithmetically impossible while
 /// still allowing any realistic on-chain bounty value.
-const MAX_BOUNTY_AMOUNT: i128 = 10_000_000_000_0000000; // 10 B XLM in stroops
+const MAX_BOUNTY_AMOUNT: i128 = 100_000_000_000_000_000; // 10 B XLM in stroops
 
 fn panic_error(error: ContractError) -> ! {
     panic!("{:?}", error);
@@ -183,7 +185,7 @@ impl StellarBountyBoardContract {
         // Soroban SDK versions this may be optional for static strings.
         String::from_str(&_env, CONTRACT_VERSION)
     }
-    
+
     pub fn initialize(env: Env, fee_recipient: Address, arbiter: Address, dispute_window: u64) {
         // Prevent re-initialization
         if env.storage().persistent().has(&DataKey::FeeRecipient) {
@@ -205,6 +207,7 @@ impl StellarBountyBoardContract {
             .unwrap_or_else(|| panic!("not initialized"))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn create_bounty(
         env: Env,
         maintainer: Address,
@@ -611,13 +614,6 @@ impl StellarBountyBoardContract {
             .unwrap_or(0)
     }
 
-pub fn get_next_bounty_id(env: Env) -> u64 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::NextBountyId)
-            .unwrap_or(0)
-    }
-
     /// Read-only view function to enumerate bounties on-chain.
     pub fn get_all_bounties(env: Env, start: u64, limit: u32) -> Vec<Bounty> {
         let enforced_limit = if limit > 50 { 50 } else { limit };
@@ -665,7 +661,23 @@ pub fn get_next_bounty_id(env: Env) -> u64 {
                 bounty_count: 0,
             })
     }
-} main
+}
+
+fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
+    if fee_amount == 0 {
+        return;
+    }
+    let mut stats: FeeStats = env
+        .storage()
+        .persistent()
+        .get(&DataKey::FeeStats)
+        .unwrap_or(FeeStats {
+            total_collected: 0,
+            bounty_count: 0,
+        });
+    stats.total_collected += fee_amount;
+    stats.bounty_count += 1;
+    env.storage().persistent().set(&DataKey::FeeStats, &stats);
 }
 
 fn read_bounty(env: &Env, bounty_id: u64) -> Bounty {
