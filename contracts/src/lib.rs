@@ -611,12 +611,7 @@ impl StellarBountyBoardContract {
             .unwrap_or(0)
     }
 
-pub fn get_next_bounty_id(env: Env) -> u64 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::NextBountyId)
-            .unwrap_or(0)
-    }
+
 
     /// Read-only view function to enumerate bounties on-chain.
     pub fn get_all_bounties(env: Env, start: u64, limit: u32) -> Vec<Bounty> {
@@ -665,7 +660,6 @@ pub fn get_next_bounty_id(env: Env) -> u64 {
                 bounty_count: 0,
             })
     }
-} main
 }
 
 fn read_bounty(env: &Env, bounty_id: u64) -> Bounty {

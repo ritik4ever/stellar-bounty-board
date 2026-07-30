@@ -50,6 +50,13 @@ jobs:
       - name: Show Rust version
         run: rustc --version
 
+      - name: Check for merge markers
+        run: |
+          if grep -rnE '<<<<<<< |=======|>>>>>>> ' .; then
+            echo "Merge markers found! Please resolve them."
+            exit 1
+          fi
+
       - name: Run cargo clippy
         working-directory: contracts
         run: cargo clippy --all-targets -- -D warnings
