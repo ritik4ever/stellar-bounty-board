@@ -55,6 +55,11 @@ function buildEmailBody(
         subject: `[Stellar Bounty Board] Dispute raised for bounty ${bountyId}`,
         text: `A dispute has been raised for bounty ${bountyId}.\n\nReason: ${String(payload.reason ?? "N/A")}\n\nLog in to review the dispute.`,
       };
+    case "dispute_stuck_alert":
+      return {
+        subject: `[Stellar Bounty Board] ACTION REQUIRED: Stuck disputed bounty ${bountyId}`,
+        text: `The following bounty has been in "disputed" status for ${String(payload.hoursDisputed ?? "?")} hours, exceeding the resolution SLA.\n\nBounty: ${bountyId}\nTitle: ${title}\nRepository: ${String(payload.repo ?? "N/A")}\nContributor: ${String(payload.contributor ?? "N/A")}\nMaintainer: ${String(payload.maintainer ?? "N/A")}\nDisputed at: ${String(payload.disputedAt ?? "N/A")}\n\nPlease review and resolve this dispute promptly.`,
+      };
     default:
       return {
         subject: `[Stellar Bounty Board] Notification: ${event}`,

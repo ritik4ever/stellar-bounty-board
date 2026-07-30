@@ -2,11 +2,11 @@ name: Soroban Contract CI
 
 on:
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   soroban:
-    name: "Soroban contract: clippy & test"
+    name: 'Soroban contract: clippy & test'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -57,6 +57,25 @@ jobs:
       - name: Run cargo test
         working-directory: contracts
         run: cargo test --all --verbose
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Run cargo audit
+        working-directory: contracts
+        run: |
+          # Run cargo audit and fail on vulnerabilities
+          # Allowlist mechanism: Add advisory IDs below to ignore specific advisories
+          # Format: --ignore RUSTSEC-YYYY-NNNN
+          # 
+          # Current allowlist (with rationale):
+          # (none - all vulnerabilities will fail the build)
+          #
+          # Example of how to add an exception:
+          # cargo audit --deny warnings \
+          #   --ignore RUSTSEC-2024-0001  # Description: Why this is acceptable
+
+          cargo audit --deny warnings
 
       - name: Build release wasm
         working-directory: contracts

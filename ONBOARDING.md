@@ -40,11 +40,8 @@ The backend uses JSON file persistence today, with a clear path to Postgres. The
 
 ## 2. Quick Visual Overview
 
-### Demo Video
-> [!NOTE]
-> [Watch the 2-minute project walkthrough here (Coming Soon)](#)
-
 ### System Architecture
+
 This 3-layer diagram shows how the Dashboard, API, and Soroban Contract interact.
 
 ```mermaid
@@ -72,19 +69,17 @@ graph TD
 
 Make sure you have the following installed before you begin:
 
-| Tool | Minimum version | Why it's needed |
-|------|----------------|-----------------|
-| [Node.js](https://nodejs.org/) | 18+ | Frontend (Vite/React) and backend (Express) |
-| npm | 9+ | Workspace scripts (`install:all`, `dev:*`) |
-| [Rust](https://www.rust-lang.org/tools/install) | stable (1.75+) | Soroban contract compilation |
-| [Stellar CLI (`stellar`)](https://developers.stellar.org/docs/tools/developer-tools/stellar-cli) | latest | Contract build, deploy, and invocation |
-| Git | any recent | Cloning and branching |
+| Tool                                                                                             | Minimum version | Why it's needed                             |
+| ------------------------------------------------------------------------------------------------ | --------------- | ------------------------------------------- |
+| [Node.js](https://nodejs.org/)                                                                   | 18+             | Frontend (Vite/React) and backend (Express) |
+| npm                                                                                              | 9+              | Workspace scripts (`install:all`, `dev:*`)  |
+| [Rust](https://www.rust-lang.org/tools/install)                                                  | stable (1.75+)  | Soroban contract compilation                |
+| [Stellar CLI (`stellar`)](https://developers.stellar.org/docs/tools/developer-tools/stellar-cli) | latest          | Contract build, deploy, and invocation      |
+| Git                                                                                              | any recent      | Cloning and branching                       |
 
 > **Rust is only required if you plan to work on the smart contract.** Frontend and backend contributors do not need it.
 
 ---
-
-
 
 ```bash
 # Fork the repo on GitHub, then clone your fork
@@ -183,6 +178,7 @@ stellar-bounty-board/
 ## 7. Where to Make Common Changes
 
 ### UI / Frontend changes
+
 **Location:** `frontend/src/`
 
 - To change how bounties are displayed → `components/` and `pages/`
@@ -195,6 +191,7 @@ stellar-bounty-board/
 ---
 
 ### Backend / API changes
+
 **Location:** `backend/src/`
 
 - To add a new endpoint → create a handler in `routes/` and register it in the Express app
@@ -207,18 +204,19 @@ stellar-bounty-board/
 ---
 
 ### Smart contract changes
+
 **Location:** `contracts/src/lib.rs`
 
 The Soroban contract implements the escrow lifecycle:
 
-| Function | What it does |
-|----------|-------------|
-| `create_bounty` | Locks funds and stores bounty metadata |
-| `reserve_bounty` | Assigns a contributor |
-| `submit_bounty` | Records a PR submission link |
+| Function         | What it does                                |
+| ---------------- | ------------------------------------------- |
+| `create_bounty`  | Locks funds and stores bounty metadata      |
+| `reserve_bounty` | Assigns a contributor                       |
+| `submit_bounty`  | Records a PR submission link                |
 | `release_bounty` | Transfers escrowed funds to the contributor |
-| `refund_bounty` | Returns funds to the maintainer |
-| `get_bounty` | Reads current bounty state |
+| `refund_bounty`  | Returns funds to the maintainer             |
+| `get_bounty`     | Reads current bounty state                  |
 
 **Build the contract:**
 
@@ -237,6 +235,7 @@ cargo test
 ---
 
 ### Documentation changes
+
 **Location:** `docs/issues/` and root `.md` files
 
 Issue drafts in `docs/issues/` are meant to be opened as real GitHub issues. If you spot something missing or outdated, updating these files is a great first contribution.
@@ -250,16 +249,16 @@ Base URLs:
 - Direct: `http://localhost:3001`
 - Via frontend proxy: `/api` (use this in frontend code)
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/health` | Liveness check |
-| GET | `/api/bounties` | List all bounties |
-| POST | `/api/bounties` | Create a new bounty |
-| POST | `/api/bounties/:id/reserve` | Reserve a bounty as a contributor |
-| POST | `/api/bounties/:id/submit` | Submit a PR link |
-| POST | `/api/bounties/:id/release` | Release payout to contributor |
-| POST | `/api/bounties/:id/refund` | Refund escrow to maintainer |
-| GET | `/api/open-issues` | List contribution-ready issues surfaced in the UI |
+| Method | Path                        | Description                                       |
+| ------ | --------------------------- | ------------------------------------------------- |
+| GET    | `/api/health`               | Liveness check                                    |
+| GET    | `/api/bounties`             | List all bounties                                 |
+| POST   | `/api/bounties`             | Create a new bounty                               |
+| POST   | `/api/bounties/:id/reserve` | Reserve a bounty as a contributor                 |
+| POST   | `/api/bounties/:id/submit`  | Submit a PR link                                  |
+| POST   | `/api/bounties/:id/release` | Release payout to contributor                     |
+| POST   | `/api/bounties/:id/refund`  | Refund escrow to maintainer                       |
+| GET    | `/api/open-issues`          | List contribution-ready issues surfaced in the UI |
 
 You can test endpoints with `curl` or any HTTP client (Insomnia, Postman, Thunder Client):
 
@@ -275,6 +274,7 @@ curl -X POST http://localhost:3001/api/bounties \
 ## 9. Testing Your Changes
 
 ### Frontend
+
 ```bash
 cd frontend
 npm run lint         # TypeScript + ESLint checks
@@ -284,6 +284,7 @@ npm run build        # Catches type errors at compile time
 > Automated component tests are a tracked contribution opportunity — see the open issues.
 
 ### Backend
+
 ```bash
 cd backend
 npm run lint
@@ -293,6 +294,7 @@ npm run build
 Manually test API routes using curl or an HTTP client while `dev:backend` is running.
 
 ### Contract
+
 ```bash
 cd contracts
 cargo test           # Unit tests for contract logic
@@ -300,6 +302,7 @@ cargo clippy         # Rust linting
 ```
 
 ### End-to-end smoke test (manual)
+
 1. Start both `dev:backend` and `dev:frontend`
 2. Open `http://localhost:3000`
 3. Create a bounty → reserve it → submit a PR link → release the payout
@@ -326,13 +329,13 @@ These changes are self-contained, reviewable quickly, and help you learn the str
 
 Look for issues tagged **`enhancement`** or **`help wanted`**. High-value areas include:
 
-| Area | What's involved |
-|------|----------------|
+| Area                                        | What's involved                                                                                     |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | **Wallet-authenticated maintainer actions** | Connect Freighter or Albedo wallet; gate `release` and `refund` actions behind a signed transaction |
-| **GitHub webhook sync** | Listen for PR merge/close events and automatically update bounty status |
-| **Soroban event indexer** | Read emitted contract events and sync on-chain state back to the backend |
-| **Postgres persistence** | Replace `backend/data/bounties.json` with a proper database layer |
-| **CI and integration tests** | GitHub Actions workflow covering lint, build, and API integration tests |
+| **GitHub webhook sync**                     | Listen for PR merge/close events and automatically update bounty status                             |
+| **Soroban event indexer**                   | Read emitted contract events and sync on-chain state back to the backend                            |
+| **Postgres persistence**                    | Replace `backend/data/bounties.json` with a proper database layer                                   |
+| **CI and integration tests**                | GitHub Actions workflow covering lint, build, and API integration tests                             |
 
 ---
 
@@ -347,16 +350,16 @@ Look for issues tagged **`enhancement`** or **`help wanted`**. High-value areas 
 
 ## 11. Issue Types Explained
 
-| Label | Meaning |
-|-------|---------|
-| `good first issue` | Small, well-scoped, minimal context needed |
-| `enhancement` | New feature or meaningful improvement |
-| `help wanted` | Maintainer wants community input; may be complex |
-| `bug` | Something is broken and needs a fix |
-| `documentation` | Docs-only change, no code required |
-| `contract` | Touches the Soroban Rust contract |
-| `backend` | Touches the Express API |
-| `frontend` | Touches the React dashboard |
+| Label              | Meaning                                          |
+| ------------------ | ------------------------------------------------ |
+| `good first issue` | Small, well-scoped, minimal context needed       |
+| `enhancement`      | New feature or meaningful improvement            |
+| `help wanted`      | Maintainer wants community input; may be complex |
+| `bug`              | Something is broken and needs a fix              |
+| `documentation`    | Docs-only change, no code required               |
+| `contract`         | Touches the Soroban Rust contract                |
+| `backend`          | Touches the Express API                          |
+| `frontend`         | Touches the React dashboard                      |
 
 Issue drafts ready to be opened live in [`docs/issues/`](./docs/issues/). If you open one, apply the labels listed in the draft.
 
