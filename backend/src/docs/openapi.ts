@@ -5,6 +5,7 @@ import {
   bountyAuditLogPaginationSchema,
   bountyAuditLogSchema,
   bountyRecordSchema,
+  bulkBountyActionSchema,
   createBountySchema,
   errorResponseSchema,
   healthResponseSchema,
@@ -63,6 +64,25 @@ const errorResponse = (description: string) => ({
 
 const bountyDataResponse = (description: string) =>
   jsonResponse(description, z.object({ data: bountyRecordSchema }));
+
+const timelineEntrySchema = z
+  .object({
+    id: z.string(),
+    bountyId: z.string(),
+    source: z.enum(["contract", "audit", "notification"]),
+    type: z.string(),
+    actor: z.string().optional(),
+    timestamp: z.number().int(),
+    details: z.record(z.unknown()).optional(),
+  })
+  .openapi("BountyTimelineEntry");
+
+const bulkActionResultSchema = z.object({
+  bountyId: z.string(),
+  success: z.boolean(),
+  data: bountyRecordSchema.optional(),
+  error: z.string().optional(),
+});
 
 // ---------------------------------------------------------------------------
 // Route definitions
@@ -197,6 +217,34 @@ registry.registerPath({
 
 registry.registerPath({
   method: "post",
+  path: "/api/bounties/bulk-action",
+  tags: ["Admin"],
+  summary: "Release or refund multiple bounties",
+  description:
+    "Admin-only batch operation. Each bounty is processed independently, so one failed item does not stop the remaining actions. " +
+    "Requires `x-admin-api-key` and `Idempotency-Key` headers.",
+  request: {
+    body: jsonBody(bulkBountyActionSchema),
+  },
+  responses: {
+    200: jsonResponse(
+      "Per-bounty action results and summary.",
+      z.object({
+        data: z.array(bulkActionResultSchema),
+        summary: z.object({
+          total: z.number().int(),
+          succeeded: z.number().int(),
+          failed: z.number().int(),
+        }),
+      }),
+    ),
+    400: errorResponse("Missing idempotency key or invalid request body."),
+    403: errorResponse("Invalid or missing x-admin-api-key header."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
   path: "/api/bounties/{id}/reserve",
   tags: ["Bounties"],
   summary: "Reserve a bounty",
@@ -211,6 +259,23 @@ registry.registerPath({
   responses: {
     200: bountyDataResponse("Bounty successfully reserved."),
     400: errorResponse("Bounty not found, not open, or validation failed."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/bounties/{id}/timeline",
+  tags: ["Bounties"],
+  summary: "Get a bounty timeline",
+  description:
+    "Returns contract events, audit transitions, and notification dispatch records in chronological order. " +
+    "Results are cached briefly to reduce repeated store reads.",
+  request: {
+    params: z.object({ id: z.string().openapi(bountyIdParam.schema) }),
+  },
+  responses: {
+    200: jsonResponse("Chronological bounty timeline.", z.object({ data: z.array(timelineEntrySchema) })),
+    404: errorResponse("Bounty not found."),
   },
 });
 
@@ -430,6 +495,42 @@ registry.registerPath({
   responses: {
     200: jsonResponse("Paginated list of audit logs", bountyAuditLogListResponseSchema),
     401: errorResponse("Invalid or missing x-admin-api-key header"),
+  },
+});
+
+const auditExportQuery = z.object({
+  from: z.string().optional().openapi({ description: "Inclusive ISO 8601 or Unix-seconds start time." }),
+  to: z.string().optional().openapi({ description: "Inclusive ISO 8601 or Unix-seconds end time." }),
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/audit-log/export.csv",
+  tags: ["Admin"],
+  summary: "Export audit logs as CSV",
+  description: "Admin-only audit export with optional inclusive date-range filters.",
+  request: { query: auditExportQuery },
+  responses: {
+    200: { description: "CSV audit log export." },
+    400: errorResponse("Invalid date range."),
+    403: errorResponse("Invalid or missing x-admin-api-key header."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/audit-log/export.json",
+  tags: ["Admin"],
+  summary: "Export audit logs as JSON",
+  description: "Admin-only audit export with optional inclusive date-range filters.",
+  request: { query: auditExportQuery },
+  responses: {
+    200: jsonResponse(
+      "JSON audit log export.",
+      z.object({ data: z.array(bountyAuditLogSchema), total: z.number().int() }),
+    ),
+    400: errorResponse("Invalid date range."),
+    403: errorResponse("Invalid or missing x-admin-api-key header."),
   },
 });
 

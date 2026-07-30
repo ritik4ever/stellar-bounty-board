@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { logger } from "../logger";
+import { recordNotificationDispatch } from "./notificationDispatchStore";
 
 export interface NotificationRecipient {
   role: string;
@@ -140,6 +141,20 @@ export async function sendNotification(
 ): Promise<void> {
   const channel = getChannel();
   if (!channel) return;
+
+  const bountyId = typeof payload.bountyId === "string" ? payload.bountyId : undefined;
+  if (bountyId) {
+    for (const recipient of recipients) {
+      recordNotificationDispatch({
+        bountyId,
+        event,
+        channel,
+        recipientRole: recipient.role,
+        recipientAddress: recipient.address,
+        timestamp: Math.floor(Date.now() / 1000),
+      });
+    }
+  }
 
   try {
     if (channel === "EMAIL") {

@@ -16,7 +16,7 @@ const ENV_ADMIN_KEY_HASH = "ADMIN_API_KEY_HASH";
  *
  * Responds with:
  *  - 500 if `ADMIN_API_KEY_HASH` is not configured on the server.
- *  - 401 if the header is missing or the key does not match the hash.
+ *  - 403 if the header is missing or the key does not match the hash.
  */
 export function createAdminApiKeyAuthMiddleware(): RequestHandler {
   return async (req, res, next) => {
@@ -34,7 +34,7 @@ export function createAdminApiKeyAuthMiddleware(): RequestHandler {
 
     const incomingKey = req.header(HEADER_ADMIN_KEY);
     if (!incomingKey) {
-      res.status(401).json({ error: `Missing ${HEADER_ADMIN_KEY} header.` });
+      res.status(403).json({ error: `Missing ${HEADER_ADMIN_KEY} header.` });
       return;
     }
 
@@ -47,7 +47,7 @@ export function createAdminApiKeyAuthMiddleware(): RequestHandler {
     }
 
     if (!match) {
-      res.status(401).json({ error: "Invalid admin API key." });
+      res.status(403).json({ error: "Invalid admin API key." });
       return;
     }
 
