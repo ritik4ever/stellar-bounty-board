@@ -4,7 +4,7 @@ use super::*;
 use soroban_sdk::{
     symbol_short,
     testutils::{Address as _, Events, Ledger},
-    Address, Env, IntoVal, String,
+    Address, Env, IntoVal, String, Val,
 };
 
 // ─── Version Tests ──────────────────────────────────────────────────────────
@@ -16,10 +16,10 @@ fn test_get_version_matches_cargo_toml() {
     let client = StellarBountyBoardContractClient::new(&env, &contract_id);
 
     let version = client.get_version();
-    let expected = env!("CARGO_PKG_VERSION");
+    let expected: String = String::from_str(&env, env!("CARGO_PKG_VERSION"));
 
     assert_eq!(
-        version.to_string(),
+        version,
         expected,
         "get_version() should return the semver from Cargo.toml"
     );
@@ -346,26 +346,30 @@ fn test_cancel_bounty_success() {
 
     client.cancel_bounty(&bounty_id, &maintainer);
 
+    let events = env.events().all().filter_by_contract(&client.address);
+
     let bounty = client.get_bounty(&bounty_id);
     assert_eq!(bounty.status, BountyStatus::Refunded);
     assert_eq!(token.balance(&maintainer), 1000);
     assert_eq!(token.balance(&client.address), 0);
 
-    let events = env.events().all();
-    let cancel_event = events.last().unwrap();
-    assert_eq!(
-        cancel_event,
-        (
+    {
+        let mut expected_topics: Vec<Val> = Vec::new(&env);
+        expected_topics.push_back(symbol_short!("Bounty").into_val(&env));
+        expected_topics.push_back(symbol_short!("Cancel").into_val(&env));
+        let mut expected_events: Vec<(Address, Vec<Val>, Val)> = Vec::new(&env);
+        expected_events.push_back((
             client.address.clone(),
-            (symbol_short!("Bounty"), symbol_short!("Cancel")).into_val(&env),
+            expected_topics,
             BountyCanceled {
                 bounty_id,
                 maintainer: maintainer.clone(),
                 amount: 500,
             }
-            .into_val(&env)
-        )
-    );
+            .into_val(&env),
+        ));
+        assert_eq!(events, expected_events);
+    }
 }
 
 #[test]
@@ -414,6 +418,36 @@ fn test_cancel_bounty_non_open_reserved() {
     );
 
     client.cancel_bounty(&bounty_id, &maintainer);
+}
+
+#[test]
+fn test_cancel_bounty_reserved_state_unchanged() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, contributor, token_id, _fee_recipient, _arbiter) = setup_test(&env);
+    let token = soroban_sdk::token::Client::new(&env, &token_id);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    let bounty_id = create_bounty_with_state(
+        &env,
+        &client,
+        maintainer.clone(),
+        contributor.clone(),
+        token_id.clone(),
+        BountyStatus::Reserved,
+    );
+
+    let contract_balance_before = token.balance(&client.address);
+
+    let result = client.try_cancel_bounty(&bounty_id, &maintainer);
+    assert!(result.is_err());
+
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.status, BountyStatus::Reserved);
+
+    assert_eq!(token.balance(&client.address), contract_balance_before);
 }
 
 invalid_transition_test!(reserve_reserved, BountyStatus::Reserved, "BountyNotOpen", {
@@ -983,16 +1017,31 @@ fn test_get_all_bounties_limit_capped_at_50() {
 
 // --- Retained test case from upstream main branch ---
 #[test]
-#[should_panic] // Assuming this dispute should fail/panic as the original comment states
+#[should_panic(expected = "BountyExpired")]
 fn test_dispute_after_deadline_fails() {
     let env = Env::default();
     env.mock_all_auths();
-    
-    // Note: If your file already had setup code inside this test block above the conflict, 
-    // leave it intact. This makes sure the dispute test runs immediately after.
-    let (client, _, _, _, arbiter, bounty_id) = setup_test(&env);
-    
+
+    let (client, maintainer, contributor, token_id, _fee_recipient, arbiter) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    let deadline = env.ledger().timestamp() + 1000;
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &deadline,
+        &0u32,
+    );
+    client.reserve_bounty(&bounty_id, &contributor);
+    client.submit_bounty(&bounty_id, &contributor);
+
+    env.ledger().set_timestamp(deadline + 1);
+
     // Dispute after deadline should fail
     client.dispute_bounty(&bounty_id, &arbiter);
-}>>>>>>> main
 }
