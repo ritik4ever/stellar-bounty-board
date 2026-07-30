@@ -990,9 +990,8 @@ fn test_dispute_after_deadline_fails() {
     
     // Note: If your file already had setup code inside this test block above the conflict, 
     // leave it intact. This makes sure the dispute test runs immediately after.
-    let (client, _, _, _, arbiter, bounty_id) = setup_test(&env);
+    let (client, _, contributor, _, arbiter, bounty_id) = setup_test(&env);
     
     // Dispute after deadline should fail
-    client.dispute_bounty(&bounty_id, &arbiter);
-}>>>>>>> main
+    client.dispute_bounty(&bounty_id, &contributor, &arbiter);
 }

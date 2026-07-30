@@ -25,6 +25,13 @@ pub enum BountyStatus {
 }
 
 #[contracttype]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PartyRole {
+    Maintainer,
+    Contributor,
+}
+
+#[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bounty {
     pub maintainer: Address,
@@ -38,6 +45,7 @@ pub struct Bounty {
     pub status: BountyStatus,
     pub protocol_fee_bps: u32, // stored per-bounty so the fee is locked in at creation time
     pub dispute_raised_at: u64,
+    pub raised_by: Option<PartyRole>,
 }
 
 /// Cumulative fee statistics updated on every payout release.
@@ -116,7 +124,8 @@ pub struct BountyCanceled {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BountyDisputed {
     pub bounty_id: u64,
-    pub contributor: Address,
+    pub caller: Address,
+    pub role: PartyRole,
     pub arbiter: Address,
 }
 
@@ -154,6 +163,7 @@ pub enum ContractError {
     BountyNotFound,
     NotArbiter,
     DisputeWindowNotMet,
+    UnauthorizedCaller,
 }
 
 /// Maximum allowed bounty amount: 10 billion XLM expressed in stroops
@@ -255,6 +265,7 @@ impl StellarBountyBoardContract {
             status: BountyStatus::Open,
             protocol_fee_bps,
             dispute_raised_at: 0,
+            raised_by: None,
         };
 
         env.storage()
@@ -482,7 +493,7 @@ impl StellarBountyBoardContract {
         );
     }
 
-    pub fn dispute_bounty(env: Env, bounty_id: u64, arbiter: Address) {
+    pub fn dispute_bounty(env: Env, bounty_id: u64, caller: Address, arbiter: Address) {
         let mut bounty = read_bounty(&env, bounty_id);
 
         if env.ledger().timestamp() > bounty.deadline {
@@ -494,7 +505,15 @@ impl StellarBountyBoardContract {
             .clone()
             .unwrap_or_else(|| panic_error(ContractError::MissingContributor));
 
-        contributor.require_auth();
+        caller.require_auth();
+
+        let role = if caller == bounty.maintainer {
+            PartyRole::Maintainer
+        } else if caller == contributor {
+            PartyRole::Contributor
+        } else {
+            panic_error(ContractError::UnauthorizedCaller);
+        };
 
         if bounty.status != BountyStatus::Submitted {
             panic_error(ContractError::BountyMustBeSubmitted);
@@ -512,13 +531,15 @@ impl StellarBountyBoardContract {
 
         bounty.status = BountyStatus::Disputed;
         bounty.dispute_raised_at = env.ledger().timestamp();
+        bounty.raised_by = Some(role.clone());
         write_bounty(&env, bounty_id, &bounty);
 
         env.events().publish(
             (symbol_short!("Bounty"), symbol_short!("Dispt")),
             BountyDisputed {
                 bounty_id,
-                contributor,
+                caller,
+                role,
                 arbiter,
             },
         );
