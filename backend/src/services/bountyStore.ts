@@ -53,6 +53,7 @@ export type BountyTransitionType =
   | "cancel"
   | "expire"
   | "dispute"
+  | "resolve_dispute"
   | "update_notes"
   | "extend_deadline";
 
@@ -150,6 +151,8 @@ export interface BountyRecord {
   disputedAt?: number;
   /** Reason provided by the contributor for disputing the bounty. */
   disputeReason?: string;
+  /** Unix timestamp in seconds of the last admin alert sent for this stuck dispute. */
+  lastDisputeAlertAt?: number;
   // Race condition prevention
   /** Version number of the record used for optimistic locking. */
   version: number;
@@ -806,7 +809,7 @@ export async function submitBounty(
       throw new Error("Only the reserved contributor can submit this bounty.");
     }
 
-    validateGithubPrUrlForRepo(submissionUrl, bounty.repo);
+    await validateGithubPrUrlForRepo(submissionUrl, bounty.repo, bounty.issueNumber);
 
     const now = nowInSeconds();
     const updated: BountyRecord = {
@@ -1162,6 +1165,69 @@ export async function disputeBounty(
   });
 }
 
+export async function resolveDisputeBounty(
+  id: string,
+  arbiter: string,
+  release: boolean,
+  transactionHash?: string,
+): Promise<BountyRecord> {
+  return withStoreLock(async () => {
+    const records = listBounties();
+    const bounty = findBounty(records, id);
+
+    if (bounty.status !== "disputed") {
+      throw new Error("Only disputed bounties can be resolved.");
+    }
+
+    const configuredArbiter = process.env.ARBITER_ADDRESS?.trim();
+    if (configuredArbiter && arbiter !== configuredArbiter) {
+      throw new Error("Only the configured arbiter can resolve disputes.");
+    }
+
+    const now = nowInSeconds();
+    const updated: BountyRecord = {
+      ...bounty,
+      status: release ? "released" : "refunded",
+      releasedAt: release ? now : bounty.releasedAt,
+      releasedTxHash: release
+        ? transactionHash?.trim() || bounty.releasedTxHash
+        : bounty.releasedTxHash,
+      refundedAt: release ? bounty.refundedAt : now,
+      refundedTxHash: release
+        ? bounty.refundedTxHash
+        : transactionHash?.trim() || bounty.refundedTxHash,
+      version: bounty.version + 1,
+      events: [
+        ...bounty.events,
+        {
+          type: release ? "released" : "refunded",
+          timestamp: now,
+          actor: arbiter,
+          details: { resolution: release ? "released" : "refunded" },
+        },
+      ],
+    };
+
+    const persisted = persistUpdated(records, updated);
+    appendAuditLogs([
+      {
+        bountyId: id,
+        fromStatus: bounty.status,
+        toStatus: updated.status,
+        transition: "resolve_dispute",
+        actor: arbiter,
+        metadata: {
+          release,
+          transactionHash: transactionHash?.trim() || undefined,
+        },
+      },
+    ]);
+    await invalidateBountyCache();
+
+    return persisted;
+  });
+}
+
 export async function updateBountyNotes(
   id: string,
   maintainer: string,
@@ -1380,85 +1446,14 @@ export function listBountyAuditLogs(
   const start = (safePage - 1) * pageSize;
   const end = start + pageSize;
   const data = filtered.slice(start, end);
-  return {
-    data,
-    pagination: {
-      total,
-      page: safePage,
-      pageSize,
-      totalPages,
-    },
-  };
+
+  return { data, pagination: { total, page: safePage, pageSize, totalPages } };
 }
 
 export function getBountyEvents(bountyId: string): BountyEvent[] {
   const records = listBounties();
   const bounty = findBounty(records, bountyId);
   return bounty.events || [];
-}
-
-export interface GlobalMetrics {
-  totalBounties: number;
-  openCount: number;
-  reservedCount: number;
-  submittedCount: number;
-  releasedCount: number;
-  refundedCount: number;
-  expiredCount: number;
-  totalFunded: number;
-  totalReleased: number;
-  uniqueMaintainers: number;
-  uniqueContributors: number;
-  protocolFeesCollected: number;
-}
-
-export function getGlobalMetrics(): GlobalMetrics {
-  const records = listBounties();
-  const maintainers = new Set<string>();
-  const contributors = new Set<string>();
-
-  let openCount = 0;
-  let reservedCount = 0;
-  let submittedCount = 0;
-  let releasedCount = 0;
-  let refundedCount = 0;
-  let expiredCount = 0;
-  let totalFunded = 0;
-  let totalReleased = 0;
-  let protocolFeesCollected = 0;
-
-  for (const b of records) {
-    if (b.maintainer) maintainers.add(b.maintainer);
-    if (b.contributor) contributors.add(b.contributor);
-    totalFunded += b.amount || 0;
-
-    if (b.status === "open") openCount++;
-    else if (b.status === "reserved") reservedCount++;
-    else if (b.status === "submitted") submittedCount++;
-    else if (b.status === "released") {
-      releasedCount++;
-      totalReleased += b.amount || 0;
-      if (b.protocolFeeCollected) {
-        protocolFeesCollected += b.protocolFeeCollected;
-      }
-    } else if (b.status === "refunded") refundedCount++;
-    else if (b.status === "expired") expiredCount++;
-  }
-
-  return {
-    totalBounties: records.length,
-    openCount,
-    reservedCount,
-    submittedCount,
-    releasedCount,
-    refundedCount,
-    expiredCount,
-    totalFunded,
-    totalReleased,
-    uniqueMaintainers: maintainers.size,
-    uniqueContributors: contributors.size,
-    protocolFeesCollected,
-  };
 }
 
 const GLOBAL_METRICS_CACHE_KEY = "stats:global";

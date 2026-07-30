@@ -49,7 +49,7 @@ Only the latest version of the Stellar Bounty Board is currently supported with 
 If you discover a potential security issue, report it privately using one of these channels:
 
 - **GitHub Private Reporting** — use the [Report a vulnerability](../../security/advisories/new) button in the Security tab of this repository.
-- **Email** — send details to `[Insert Security Email]` with the subject line `[SECURITY] <brief description>`.
+- **Email** — send details to `security@stellarbountyboard.com` with the subject line `[SECURITY] <brief description>`.
 
 Include the following in your report:
 
@@ -57,6 +57,8 @@ Include the following in your report:
 2. Step-by-step reproduction instructions or a proof-of-concept (PoC).
 3. Affected versions, components, or endpoints.
 4. Any suggested mitigations (optional but appreciated).
+
+For detailed information on our Service Level Agreements, response times, and the handling of third-party dependency vulnerabilities, please review our [Security Disclosure Process](docs/issues/security-disclosure-process.md).
 
 We appreciate your help in keeping the Stellar ecosystem safe.
 

@@ -40,6 +40,24 @@ pub struct Bounty {
     pub dispute_raised_at: u64,
 }
 
+/// Token allowlist configuration — restricts which SAC tokens can fund bounties
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AllowlistConfig {
+    pub enabled: bool,
+    pub allowed_tokens: Vec<Address>,
+}
+
+impl Default for AllowlistConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            allowed_tokens: Vec::new(),
+        }
+    }
+}
+
+
 /// Cumulative fee statistics updated on every payout release.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -59,6 +77,9 @@ enum DataKey {
     DisputeWindow,
     /// Accumulated protocol fee statistics.
     FeeStats,
+    Admin,
+    PendingArbiter,
+    ArbiterRotationTimelock,
 }
 
 #[contracttype]
@@ -136,6 +157,20 @@ pub struct BountyDeadlineExtended {
 }
 
 #[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ArbiterRotationProposed {
+    pub new_arbiter: Address,
+    pub unlock_time: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ArbiterRotationConfirmed {
+    pub old_arbiter: Address,
+    pub new_arbiter: Address,
+}
+
+#[contracttype]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ContractError {
     InvalidAmount,
@@ -155,6 +190,9 @@ pub enum ContractError {
     BountyNotFound,
     NotArbiter,
     DisputeWindowNotMet,
+    NotAdmin,
+    NoPendingArbiter,
+    TimelockNotElapsed,
 }
 
 /// Maximum allowed bounty amount: 10 billion XLM expressed in stroops
@@ -185,11 +223,14 @@ impl StellarBountyBoardContract {
         String::from_str(&_env, CONTRACT_VERSION)
     }
     
-    pub fn initialize(env: Env, fee_recipient: Address, arbiter: Address, dispute_window: u64) {
+    pub fn initialize(env: Env, admin: Address, fee_recipient: Address, arbiter: Address, dispute_window: u64) {
         // Prevent re-initialization
         if env.storage().persistent().has(&DataKey::FeeRecipient) {
             panic!("already initialized");
         }
+        env.storage()
+            .persistent()
+            .set(&DataKey::Admin, &admin);
         env.storage()
             .persistent()
             .set(&DataKey::FeeRecipient, &fee_recipient);
@@ -230,7 +271,7 @@ impl StellarBountyBoardContract {
             panic!("fee exceeds 100%");
         }
         if protocol_fee_bps > 0 && !env.storage().persistent().has(&DataKey::FeeRecipient) {
-            panic!("fee recipient not set");
+            panic_error(ContractError::FeeRecipientNotSet);
         }
 
         let token_client = TokenClient::new(&env, &token);
@@ -366,7 +407,7 @@ impl StellarBountyBoardContract {
                 .storage()
                 .persistent()
                 .get(&DataKey::FeeRecipient)
-                .unwrap_or_else(|| panic!("fee recipient not set"));
+                .unwrap_or_else(|| panic_error(ContractError::FeeRecipientNotSet));
             token_client.transfer(&contract_address, &fee_recipient, &fee_amount);
         }
         // ────────────────────────────────────────────────────────────────
@@ -509,7 +550,7 @@ impl StellarBountyBoardContract {
             .storage()
             .persistent()
             .get(&DataKey::Arbiter)
-            .unwrap_or_else(|| panic!("arbiter not set"));
+            .unwrap_or_else(|| panic_error(ContractError::ArbiterNotSet));
 
         if arbiter != stored_arbiter {
             panic_error(ContractError::NotArbiter);
@@ -534,7 +575,7 @@ impl StellarBountyBoardContract {
             .storage()
             .persistent()
             .get(&DataKey::Arbiter)
-            .unwrap_or_else(|| panic!("arbiter not set"));
+            .unwrap_or_else(|| panic_error(ContractError::ArbiterNotSet));
 
         arbiter.require_auth();
 
@@ -578,7 +619,7 @@ impl StellarBountyBoardContract {
                     .storage()
                     .persistent()
                     .get(&DataKey::FeeRecipient)
-                    .unwrap_or_else(|| panic!("fee recipient not set"));
+                    .unwrap_or_else(|| panic_error(ContractError::FeeRecipientNotSet));
                 token_client.transfer(&contract_address, &fee_recipient, &fee_amount);
             }
 
@@ -654,6 +695,31 @@ impl StellarBountyBoardContract {
     ///
     /// Returns a [`FeeStats`] with `total_collected = 0` and `bounty_count = 0`
     /// if no bounties have been released yet.
+
+    /// Returns all bounties assigned to a given contributor.
+    pub fn get_bounties_by_contributor(env: Env, contributor: Address, start: u64, limit: u32) -> Vec<Bounty> {
+        let enforced_limit = if limit > 50 { 50 } else { limit };
+        let mut result = Vec::new(&env);
+        let next_id = env.storage().persistent().get(&DataKey::NextBountyId).unwrap_or(0);
+        if start == 0 || start > next_id || enforced_limit == 0 {
+            return result;
+        }
+        let mut id = start;
+        let mut count = 0u32;
+        while count < enforced_limit && id <= next_id {
+            if env.storage().persistent().has(&DataKey::Bounty(id)) {
+                let mut bounty = read_bounty(&env, id);
+                expire_if_needed(&env, &mut bounty);
+                if bounty.contributor == Some(contributor.clone()) {
+                    result.push_back(bounty);
+                    count += 1;
+                }
+            }
+            id += 1;
+        }
+        result
+    }
+
     pub fn get_fee_stats(env: Env) -> FeeStats {
         env.storage()
             .persistent()
@@ -663,6 +729,76 @@ impl StellarBountyBoardContract {
                 bounty_count: 0,
             })
     }
+
+    pub fn set_arbiter(env: Env, new_arbiter: Address) {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_error(ContractError::NotAdmin));
+        admin.require_auth();
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::PendingArbiter, &new_arbiter);
+        
+        let timelock = env.ledger().timestamp() + 86400 * 2; // 2 days delay
+        env.storage()
+            .persistent()
+            .set(&DataKey::ArbiterRotationTimelock, &timelock);
+
+        env.events().publish(
+            (symbol_short!("Arbiter"), symbol_short!("Proposed")),
+            ArbiterRotationProposed {
+                new_arbiter,
+                unlock_time: timelock,
+            },
+        );
+    }
+
+    pub fn confirm_arbiter(env: Env) {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_error(ContractError::NotAdmin));
+        admin.require_auth();
+
+        let pending_arbiter: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PendingArbiter)
+            .unwrap_or_else(|| panic_error(ContractError::NoPendingArbiter));
+
+        let timelock: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::ArbiterRotationTimelock)
+            .unwrap_or_else(|| panic_error(ContractError::NoPendingArbiter));
+
+        if env.ledger().timestamp() < timelock {
+            panic_error(ContractError::TimelockNotElapsed);
+        }
+
+        let old_arbiter: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Arbiter)
+            .unwrap();
+
+        env.storage().persistent().set(&DataKey::Arbiter, &pending_arbiter);
+        env.storage().persistent().remove(&DataKey::PendingArbiter);
+        env.storage().persistent().remove(&DataKey::ArbiterRotationTimelock);
+
+        env.events().publish(
+            (symbol_short!("Arbiter"), symbol_short!("Confirmd")),
+            ArbiterRotationConfirmed {
+                old_arbiter,
+                new_arbiter: pending_arbiter,
+            },
+        );
+    }
+} main
 }
 
 fn read_bounty(env: &Env, bounty_id: u64) -> Bounty {
@@ -685,6 +821,67 @@ fn expire_if_needed(env: &Env, bounty: &mut Bounty) {
     {
         bounty.status = BountyStatus::Expired;
     }
+
+/// Check if a token is allowed to fund bounties
+fn is_token_allowed(e: &Env, token: &Address) -> bool {
+    e.storage()
+        .instance()
+        .get::<_, AllowlistConfig>(&DataKey::AllowlistConfig)
+        .map(|config| {
+            if !config.enabled {
+                return true;
+            }
+            config.allowed_tokens.contains(token)
+        })
+        .unwrap_or(true) // No config = allow all
+}
+
+/// Admin: set allowlist enabled state
+pub fn set_allowlist_enabled(e: &Env, admin: Address, enabled: bool) {
+    admin.require_auth();
+    let mut config = e.storage()
+        .instance()
+        .get::<_, AllowlistConfig>(&DataKey::AllowlistConfig)
+        .unwrap_or_default();
+    config.enabled = enabled;
+    e.storage().instance().set(&DataKey::AllowlistConfig, &config);
+}
+
+/// Admin: add a token to the allowlist
+pub fn add_allowed_token(e: &Env, admin: Address, token: Address) {
+    admin.require_auth();
+    let mut config = e.storage()
+        .instance()
+        .get::<_, AllowlistConfig>(&DataKey::AllowlistConfig)
+        .unwrap_or_default();
+    if !config.allowed_tokens.contains(&token) {
+        config.allowed_tokens.push(token);
+        e.storage().instance().set(&DataKey::AllowlistConfig, &config);
+        e.events().publish(
+            (symbol_short!("allowlist"), symbol_short!("add")),
+            token,
+        );
+    }
+}
+
+/// Admin: remove a token from the allowlist
+pub fn remove_allowed_token(e: &Env, admin: Address, token: Address) {
+    admin.require_auth();
+    let mut config = e.storage()
+        .instance()
+        .get::<_, AllowlistConfig>(&DataKey::AllowlistConfig)
+        .unwrap_or_default();
+    let before = config.allowed_tokens.len();
+    config.allowed_tokens.retain(|t| t != &token);
+    if config.allowed_tokens.len() < before {
+        e.storage().instance().set(&DataKey::AllowlistConfig, &config);
+        e.events().publish(
+            (symbol_short!("allowlist"), symbol_short!("remove")),
+            token,
+        );
+    }
+}
+
 }
 
 fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
