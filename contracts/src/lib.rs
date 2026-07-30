@@ -59,6 +59,7 @@ enum DataKey {
     DisputeWindow,
     /// Accumulated protocol fee statistics.
     FeeStats,
+    AllowedTokens,
 }
 
 #[contracttype]
@@ -130,6 +131,22 @@ pub struct BountyResolved {
 
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TokenAllowlistUpdated {
+    pub token: Address,
+    pub added: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BountyToppedUp {
+    pub bounty_id: u64,
+    pub maintainer: Address,
+    pub additional_amount: i128,
+    pub new_total: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BountyDeadlineExtended {
     pub bounty_id: u64,
     pub new_deadline: u64,
@@ -154,6 +171,7 @@ pub enum ContractError {
     BountyNotFound,
     NotArbiter,
     DisputeWindowNotMet,
+    TokenNotAllowed,
 }
 
 /// Maximum allowed bounty amount: 10 billion XLM expressed in stroops
@@ -230,6 +248,16 @@ impl StellarBountyBoardContract {
         }
         if protocol_fee_bps > 0 && !env.storage().persistent().has(&DataKey::FeeRecipient) {
             panic!("fee recipient not set");
+        }
+
+        // Token allowlist enforcement: if any tokens have been allowlisted,
+        // only those tokens may be used for new bounties.
+        let allowlist_active = env.storage().persistent().has(&(symbol_short!("allow_init"),));
+        if allowlist_active {
+            let allow_key = (symbol_short!("allow"), token.clone());
+            if !env.storage().persistent().has(&allow_key) {
+                panic_error(ContractError::TokenNotAllowed);
+            }
         }
 
         let token_client = TokenClient::new(&env, &token);
@@ -594,6 +622,97 @@ impl StellarBountyBoardContract {
                 bounty_id,
                 arbiter,
                 release,
+            },
+        );
+    }
+
+    pub fn add_allowed_token(env: Env, admin: Address, token: Address) {
+        admin.require_auth();
+        let fee_recipient: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::FeeRecipient)
+            .unwrap_or_else(|| panic!("not initialized"));
+        if admin != fee_recipient {
+            panic!("only fee recipient can manage token allowlist");
+        }
+        // Mark allowlist as active so create_bounty enforces it
+        env.storage()
+            .persistent()
+            .set(&(symbol_short!("allow_init"),), &true);
+        let key = (symbol_short!("allow"), token.clone());
+        env.storage().persistent().set(&key, &true);
+        env.events().publish(
+            (symbol_short!("Token"), symbol_short!("Allow")),
+            TokenAllowlistUpdated {
+                token: token.clone(),
+                added: true,
+            },
+        );
+    }
+
+    pub fn remove_allowed_token(env: Env, admin: Address, token: Address) {
+        admin.require_auth();
+        let fee_recipient: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::FeeRecipient)
+            .unwrap_or_else(|| panic!("not initialized"));
+        if admin != fee_recipient {
+            panic!("only fee recipient can manage token allowlist");
+        }
+        let key = (symbol_short!("allow"), token.clone());
+        env.storage().persistent().remove(&key);
+        env.events().publish(
+            (symbol_short!("Token"), symbol_short!("RmvAl")),
+            TokenAllowlistUpdated {
+                token: token.clone(),
+                added: false,
+            },
+        );
+    }
+
+    pub fn is_token_allowed(env: Env, token: Address) -> bool {
+        let key = (symbol_short!("allow"), token);
+        env.storage().persistent().has(&key)
+    }
+
+    /// Allows a maintainer to increase the amount of an Open bounty.
+    /// The additional amount is transferred from the maintainer to the escrow.
+    pub fn top_up_bounty(
+        env: Env,
+        bounty_id: u64,
+        maintainer: Address,
+        additional_amount: i128,
+    ) {
+        maintainer.require_auth();
+        let mut bounty = read_bounty(&env, bounty_id);
+        expire_if_needed(&env, &mut bounty);
+
+        if bounty.maintainer != maintainer {
+            panic_error(ContractError::MaintainerMismatch);
+        }
+        if bounty.status != BountyStatus::Open {
+            panic_error(ContractError::BountyNotOpen);
+        }
+        if additional_amount <= 0 {
+            panic_error(ContractError::InvalidAmount);
+        }
+
+        let token_client = TokenClient::new(&env, &bounty.token);
+        let contract_address = env.current_contract_address();
+        token_client.transfer(&maintainer, &contract_address, &additional_amount);
+
+        bounty.amount += additional_amount;
+        write_bounty(&env, bounty_id, &bounty);
+
+        env.events().publish(
+            (symbol_short!("Bounty"), symbol_short!("TopUp")),
+            BountyToppedUp {
+                bounty_id,
+                maintainer,
+                additional_amount,
+                new_total: bounty.amount,
             },
         );
     }
