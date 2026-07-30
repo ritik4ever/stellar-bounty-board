@@ -4,8 +4,8 @@
 mod test;
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short,
-    token::Client as TokenClient, Address, Env, String, Vec,
+    contract, contractimpl, contracttype, symbol_short, token::Client as TokenClient, Address, Env,
+    String, Vec,
 };
 
 // ─── Contract Version ─────────────────────────────────────────────────────────
@@ -154,6 +154,7 @@ pub enum ContractError {
     BountyNotFound,
     NotArbiter,
     DisputeWindowNotMet,
+    InvalidFeeBps,
 }
 
 /// Maximum allowed bounty amount: 10 billion XLM expressed in stroops
@@ -183,7 +184,7 @@ impl StellarBountyBoardContract {
         // Soroban SDK versions this may be optional for static strings.
         String::from_str(&_env, CONTRACT_VERSION)
     }
-    
+
     pub fn initialize(env: Env, fee_recipient: Address, arbiter: Address, dispute_window: u64) {
         // Prevent re-initialization
         if env.storage().persistent().has(&DataKey::FeeRecipient) {
@@ -224,9 +225,9 @@ impl StellarBountyBoardContract {
         if deadline <= env.ledger().timestamp() {
             panic_error(ContractError::DeadlineMustBeInTheFuture);
         }
-        //fee cannot exceed 100% (10000 bps)
+        // Fee cannot exceed 100% (10_000 basis points).
         if protocol_fee_bps > 10_000 {
-            panic!("fee exceeds 100%");
+            panic_error(ContractError::InvalidFeeBps);
         }
         if protocol_fee_bps > 0 && !env.storage().persistent().has(&DataKey::FeeRecipient) {
             panic!("fee recipient not set");
@@ -329,7 +330,6 @@ impl StellarBountyBoardContract {
     pub fn release_bounty(env: Env, bounty_id: u64, maintainer: Address) {
         maintainer.require_auth();
         let mut bounty = read_bounty(&env, bounty_id);
-
         if bounty.maintainer != maintainer {
             panic_error(ContractError::MaintainerMismatch);
         }
@@ -337,51 +337,46 @@ impl StellarBountyBoardContract {
             panic_error(ContractError::BountyMustBeSubmitted);
         }
 
-        let contributor = bounty.contributor.clone().unwrap();
-
+        let contributor = bounty
+            .contributor
+            .clone()
+            .unwrap_or_else(|| panic_error(ContractError::MissingContributor));
         let token_client = TokenClient::new(&env, &bounty.token);
         let contract_address = env.current_contract_address();
 
-        // ── Fee calculation ──────────────────────────────────────────────
-        // Fee is deducted FROM the payout, never added on top.
-        // fee_amount = floor(amount * protocol_fee_bps / 10_000)
-        // net_payout = amount - fee_amount
-        //
-        // Using i128 arithmetic to avoid overflow on large amounts.
-        let fee_amount: i128 = if bounty.protocol_fee_bps == 0 {
-            0
-        } else {
-            (bounty.amount * bounty.protocol_fee_bps as i128) / 10_000
-        };
-
+        // Fee is deducted from the payout, never added on top.
+        let fee_amount = (bounty.amount * bounty.protocol_fee_bps as i128) / 10_000;
         let net_payout = bounty.amount - fee_amount;
-
-        // Transfer net payout to contributor
-        token_client.transfer(&contract_address, &contributor, &net_payout);
-
-        // Transfer fee to recipient (only when fee is non-zero)
-        if fee_amount > 0 {
-            let fee_recipient: Address = env
+        let fee_recipient = if fee_amount > 0 {
+            let recipient: Address = env
                 .storage()
                 .persistent()
                 .get(&DataKey::FeeRecipient)
                 .unwrap_or_else(|| panic!("fee recipient not set"));
-            token_client.transfer(&contract_address, &fee_recipient, &fee_amount);
-        }
-        // ────────────────────────────────────────────────────────────────
+            Some(recipient)
+        } else {
+            None
+        };
 
-        // Atomically update FeeStats
-        accumulate_fee_stats(&env, fee_amount);
-
+        // Checks-effects-interactions: finalize state before invoking the token
+        // contract. If a transfer fails, Soroban rolls the entire invocation back.
         bounty.status = BountyStatus::Released;
         write_bounty(&env, bounty_id, &bounty);
+        accumulate_fee_stats(&env, fee_amount);
+
+        if net_payout > 0 {
+            token_client.transfer(&contract_address, &contributor, &net_payout);
+        }
+        if let Some(recipient) = fee_recipient {
+            token_client.transfer(&contract_address, &recipient, &fee_amount);
+        }
 
         env.events().publish(
             (symbol_short!("Bounty"), symbol_short!("Releas")),
             BountyReleased {
                 bounty_id,
                 contributor,
-                amount: net_payout, // net amount after fee
+                amount: net_payout,
                 fee_amount,
             },
         );
@@ -394,7 +389,6 @@ impl StellarBountyBoardContract {
         if bounty.maintainer != maintainer {
             panic_error(ContractError::MaintainerMismatch);
         }
-
         if bounty.status == BountyStatus::Released || bounty.status == BountyStatus::Refunded {
             panic_error(ContractError::BountyAlreadyFinalized);
         }
@@ -406,11 +400,14 @@ impl StellarBountyBoardContract {
 
         let token_client = TokenClient::new(&env, &bounty.token);
         let contract_address = env.current_contract_address();
-        // Refund returns the FULL original amount there is no fee on refunds
-        token_client.transfer(&contract_address, &maintainer, &bounty.amount);
 
+        // Finalize state before the external token call. Soroban rolls this write
+        // back automatically if the transfer aborts.
         bounty.status = BountyStatus::Refunded;
         write_bounty(&env, bounty_id, &bounty);
+
+        // Refunds return the full original amount; no protocol fee is charged.
+        token_client.transfer(&contract_address, &maintainer, &bounty.amount);
 
         env.events().publish(
             (symbol_short!("Bounty"), symbol_short!("Refund")),
@@ -530,11 +527,9 @@ impl StellarBountyBoardContract {
             .persistent()
             .get(&DataKey::Arbiter)
             .unwrap_or_else(|| panic!("arbiter not set"));
-
         arbiter.require_auth();
 
         let mut bounty = read_bounty(&env, bounty_id);
-
         if bounty.status != BountyStatus::Disputed {
             panic!("bounty not disputed");
         }
@@ -544,7 +539,6 @@ impl StellarBountyBoardContract {
             .persistent()
             .get(&DataKey::DisputeWindow)
             .unwrap_or(0);
-
         if env.ledger().timestamp() < bounty.dispute_raised_at + dispute_window {
             panic_error(ContractError::DisputeWindowNotMet);
         }
@@ -557,36 +551,36 @@ impl StellarBountyBoardContract {
                 .contributor
                 .clone()
                 .unwrap_or_else(|| panic_error(ContractError::MissingContributor));
-
-            let fee_amount: i128 = if bounty.protocol_fee_bps == 0 {
-                0
-            } else {
-                (bounty.amount * bounty.protocol_fee_bps as i128) / 10_000
-            };
-
+            let fee_amount = (bounty.amount * bounty.protocol_fee_bps as i128) / 10_000;
             let net_payout = bounty.amount - fee_amount;
-
-            token_client.transfer(&contract_address, &contributor, &net_payout);
-
-            if fee_amount > 0 {
-                let fee_recipient: Address = env
+            let fee_recipient = if fee_amount > 0 {
+                let recipient: Address = env
                     .storage()
                     .persistent()
                     .get(&DataKey::FeeRecipient)
                     .unwrap_or_else(|| panic!("fee recipient not set"));
-                token_client.transfer(&contract_address, &fee_recipient, &fee_amount);
-            }
+                Some(recipient)
+            } else {
+                None
+            };
 
-            // Atomically update FeeStats for the dispute-release path
+            // Finalize the disputed bounty before any external token invocation.
+            bounty.status = BountyStatus::Released;
+            write_bounty(&env, bounty_id, &bounty);
             accumulate_fee_stats(&env, fee_amount);
 
-            bounty.status = BountyStatus::Released;
+            if net_payout > 0 {
+                token_client.transfer(&contract_address, &contributor, &net_payout);
+            }
+            if let Some(recipient) = fee_recipient {
+                token_client.transfer(&contract_address, &recipient, &fee_amount);
+            }
         } else {
-            token_client.transfer(&contract_address, &bounty.maintainer, &bounty.amount);
+            // The refund branch follows the same checks-effects-interactions order.
             bounty.status = BountyStatus::Refunded;
+            write_bounty(&env, bounty_id, &bounty);
+            token_client.transfer(&contract_address, &bounty.maintainer, &bounty.amount);
         }
-
-        write_bounty(&env, bounty_id, &bounty);
 
         env.events().publish(
             (symbol_short!("Bounty"), symbol_short!("Reslv")),
@@ -603,15 +597,7 @@ impl StellarBountyBoardContract {
         expire_if_needed(&env, &mut bounty);
         bounty
     }
-
     pub fn get_next_bounty_id(env: Env) -> u64 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::NextBountyId)
-            .unwrap_or(0)
-    }
-
-pub fn get_next_bounty_id(env: Env) -> u64 {
         env.storage()
             .persistent()
             .get(&DataKey::NextBountyId)
@@ -665,7 +651,21 @@ pub fn get_next_bounty_id(env: Env) -> u64 {
                 bounty_count: 0,
             })
     }
-} main
+}
+
+fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
+    let mut stats: FeeStats = env
+        .storage()
+        .persistent()
+        .get(&DataKey::FeeStats)
+        .unwrap_or(FeeStats {
+            total_collected: 0,
+            bounty_count: 0,
+        });
+
+    stats.total_collected += fee_amount;
+    stats.bounty_count += 1;
+    env.storage().persistent().set(&DataKey::FeeStats, &stats);
 }
 
 fn read_bounty(env: &Env, bounty_id: u64) -> Bounty {

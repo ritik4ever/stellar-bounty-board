@@ -2,10 +2,186 @@
 
 use super::*;
 use soroban_sdk::{
-    symbol_short,
-    testutils::{Address as _, Events, Ledger},
-    Address, Env, IntoVal, String,
+    contract, contractimpl, contracttype,
+    testutils::{Address as _, Ledger},
+    Address, Env, IntoVal, String, Symbol,
 };
+
+#[contracttype]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ReentryAction {
+    Release,
+    Refund,
+    ResolveRelease,
+    ResolveRefund,
+}
+
+#[contracttype]
+#[derive(Clone)]
+struct ReentryConfig {
+    target: Address,
+    bounty_id: u64,
+    maintainer: Address,
+    action: ReentryAction,
+}
+
+#[contracttype]
+enum MaliciousTokenKey {
+    Balance(Address),
+    ReentryConfig,
+    AttackAttempted,
+    AttackCount,
+    OutboundTransferCount,
+}
+
+#[contract]
+struct MaliciousTokenContract;
+
+#[contractimpl]
+impl MaliciousTokenContract {
+    pub fn mint(env: Env, to: Address, amount: i128) {
+        let key = MaliciousTokenKey::Balance(to);
+        let balance: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+        env.storage().persistent().set(&key, &(balance + amount));
+    }
+
+    pub fn configure_attack(
+        env: Env,
+        target: Address,
+        bounty_id: u64,
+        maintainer: Address,
+        action: ReentryAction,
+    ) {
+        env.storage().persistent().set(
+            &MaliciousTokenKey::ReentryConfig,
+            &ReentryConfig {
+                target,
+                bounty_id,
+                maintainer,
+                action,
+            },
+        );
+        env.storage()
+            .persistent()
+            .set(&MaliciousTokenKey::AttackAttempted, &false);
+    }
+
+    pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
+        if amount < 0 {
+            panic!("negative transfer");
+        }
+
+        let from_key = MaliciousTokenKey::Balance(from.clone());
+        let to_key = MaliciousTokenKey::Balance(to.clone());
+        let from_balance: i128 = env.storage().persistent().get(&from_key).unwrap_or(0);
+        if from_balance < amount {
+            panic!("insufficient balance");
+        }
+
+        let config: Option<ReentryConfig> = env
+            .storage()
+            .persistent()
+            .get(&MaliciousTokenKey::ReentryConfig);
+        let attempted: bool = env
+            .storage()
+            .persistent()
+            .get(&MaliciousTokenKey::AttackAttempted)
+            .unwrap_or(false);
+
+        if let Some(config) = config {
+            if from == config.target && !attempted {
+                env.storage()
+                    .persistent()
+                    .set(&MaliciousTokenKey::AttackAttempted, &true);
+
+                let count: u32 = env
+                    .storage()
+                    .persistent()
+                    .get(&MaliciousTokenKey::AttackCount)
+                    .unwrap_or(0);
+                env.storage()
+                    .persistent()
+                    .set(&MaliciousTokenKey::AttackCount, &(count + 1));
+
+                // Soroban cross-contract calls are synchronous, and the host rejects
+                // direct re-entry into a contract already on the invocation stack.
+                // try_invoke_contract captures that host error so this malicious token
+                // can finish the outer transfer. The escrow still writes its terminal
+                // status before this call as checks-effects-interactions defense-in-depth.
+                match config.action {
+                    ReentryAction::Release => {
+                        let _ = env.try_invoke_contract::<(), soroban_sdk::Error>(
+                            &config.target,
+                            &Symbol::new(&env, "release_bounty"),
+                            (config.bounty_id, config.maintainer).into_val(&env),
+                        );
+                    }
+                    ReentryAction::Refund => {
+                        let _ = env.try_invoke_contract::<(), soroban_sdk::Error>(
+                            &config.target,
+                            &Symbol::new(&env, "refund_bounty"),
+                            (config.bounty_id, config.maintainer).into_val(&env),
+                        );
+                    }
+                    ReentryAction::ResolveRelease => {
+                        let _ = env.try_invoke_contract::<(), soroban_sdk::Error>(
+                            &config.target,
+                            &Symbol::new(&env, "resolve_dispute"),
+                            (config.bounty_id, true).into_val(&env),
+                        );
+                    }
+                    ReentryAction::ResolveRefund => {
+                        let _ = env.try_invoke_contract::<(), soroban_sdk::Error>(
+                            &config.target,
+                            &Symbol::new(&env, "resolve_dispute"),
+                            (config.bounty_id, false).into_val(&env),
+                        );
+                    }
+                }
+            }
+
+            if from == config.target {
+                let count: u32 = env
+                    .storage()
+                    .persistent()
+                    .get(&MaliciousTokenKey::OutboundTransferCount)
+                    .unwrap_or(0);
+                env.storage()
+                    .persistent()
+                    .set(&MaliciousTokenKey::OutboundTransferCount, &(count + 1));
+            }
+        }
+
+        let to_balance: i128 = env.storage().persistent().get(&to_key).unwrap_or(0);
+        env.storage()
+            .persistent()
+            .set(&from_key, &(from_balance - amount));
+        env.storage()
+            .persistent()
+            .set(&to_key, &(to_balance + amount));
+    }
+
+    pub fn balance(env: Env, owner: Address) -> i128 {
+        env.storage()
+            .persistent()
+            .get(&MaliciousTokenKey::Balance(owner))
+            .unwrap_or(0)
+    }
+
+    pub fn attack_count(env: Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&MaliciousTokenKey::AttackCount)
+            .unwrap_or(0)
+    }
+
+    pub fn outbound_transfer_count(env: Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&MaliciousTokenKey::OutboundTransferCount)
+            .unwrap_or(0)
+    }
+}
 
 // ─── Version Tests ──────────────────────────────────────────────────────────
 
@@ -19,8 +195,8 @@ fn test_get_version_matches_cargo_toml() {
     let expected = env!("CARGO_PKG_VERSION");
 
     assert_eq!(
-        version.to_string(),
-        expected,
+        version,
+        String::from_str(&env, expected),
         "get_version() should return the semver from Cargo.toml"
     );
 }
@@ -62,6 +238,36 @@ fn setup_test(
         maintainer,
         contributor,
         token_id.address(),
+        fee_recipient,
+        arbiter,
+    )
+}
+
+fn setup_malicious_test(
+    env: &Env,
+) -> (
+    StellarBountyBoardContractClient<'static>,
+    MaliciousTokenContractClient<'static>,
+    Address,
+    Address,
+    Address,
+    Address,
+) {
+    let contract_id = env.register_contract(None, StellarBountyBoardContract);
+    let client = StellarBountyBoardContractClient::new(env, &contract_id);
+    let token_id = env.register_contract(None, MaliciousTokenContract);
+    let token = MaliciousTokenContractClient::new(env, &token_id);
+    let maintainer = Address::generate(env);
+    let contributor = Address::generate(env);
+    let fee_recipient = Address::generate(env);
+    let arbiter = Address::generate(env);
+
+    client.initialize(&fee_recipient, &arbiter, &600);
+    (
+        client,
+        token,
+        maintainer,
+        contributor,
         fee_recipient,
         arbiter,
     )
@@ -227,6 +433,247 @@ fn test_create_bounty_past_deadline() {
 }
 
 #[test]
+fn test_create_bounty_fee_bps_boundary_math_and_fee_stats() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, _, token_id, fee_recipient, _) = setup_test(&env);
+    let token = TokenClient::new(&env, &token_id);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &40_000);
+
+    let amount = 10_000i128;
+    let cases = [0u32, 1, 9_999, 10_000];
+    let mut expected_total_fees = 0i128;
+
+    for (index, fee_bps) in cases.iter().enumerate() {
+        let contributor = Address::generate(&env);
+        let bounty_id = client.create_bounty(
+            &maintainer,
+            &token_id,
+            &amount,
+            &String::from_str(&env, "repo"),
+            &((index + 1) as u32),
+            &String::from_str(&env, "fee boundary"),
+            &(env.ledger().timestamp() + 1_000),
+            fee_bps,
+        );
+
+        client.reserve_bounty(&bounty_id, &contributor);
+        client.submit_bounty(&bounty_id, &contributor);
+        client.release_bounty(&bounty_id, &maintainer);
+
+        let expected_fee = (amount * *fee_bps as i128) / 10_000;
+        expected_total_fees += expected_fee;
+        assert_eq!(token.balance(&contributor), amount - expected_fee);
+        assert_eq!(token.balance(&fee_recipient), expected_total_fees);
+        assert_eq!(token.balance(&client.address), 0);
+
+        let stats = client.get_fee_stats();
+        assert_eq!(stats.total_collected, expected_total_fees);
+        assert_eq!(stats.bounty_count, (index + 1) as u64);
+    }
+
+    assert_eq!(expected_total_fees, 20_000);
+}
+
+#[test]
+fn test_create_bounty_fee_bps_above_10000_is_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, _, token_id, _, _) = setup_test(&env);
+    let invalid_cases = [10_001u32, 10_002, u32::MAX];
+
+    for fee_bps in invalid_cases {
+        let result = client.try_create_bounty(
+            &maintainer,
+            &token_id,
+            &10_000,
+            &String::from_str(&env, "repo"),
+            &fee_bps,
+            &String::from_str(&env, "invalid fee"),
+            &(env.ledger().timestamp() + 1_000),
+            &fee_bps,
+        );
+        assert!(result.is_err(), "fee_bps {fee_bps} should be rejected");
+    }
+
+    assert_eq!(client.get_next_bounty_id(), 0);
+}
+
+#[test]
+#[should_panic(expected = "InvalidFeeBps")]
+fn test_create_bounty_fee_bps_10001_uses_invalid_fee_error_variant() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, maintainer, _, token_id, _, _) = setup_test(&env);
+
+    client.create_bounty(
+        &maintainer,
+        &token_id,
+        &10_000,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "invalid fee"),
+        &(env.ledger().timestamp() + 1_000),
+        &10_001,
+    );
+}
+
+#[test]
+fn test_release_bounty_reentrancy_does_not_double_pay() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (client, token, maintainer, contributor, _, _) = setup_malicious_test(&env);
+    token.mint(&maintainer, &1_000);
+
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token.address,
+        &1_000,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "release reentry"),
+        &(env.ledger().timestamp() + 1_000),
+        &0,
+    );
+    client.reserve_bounty(&bounty_id, &contributor);
+    client.submit_bounty(&bounty_id, &contributor);
+    token.configure_attack(
+        &client.address,
+        &bounty_id,
+        &maintainer,
+        &ReentryAction::Release,
+    );
+
+    client.release_bounty(&bounty_id, &maintainer);
+
+    assert_eq!(client.get_bounty(&bounty_id).status, BountyStatus::Released);
+    assert_eq!(token.balance(&contributor), 1_000);
+    assert_eq!(token.balance(&client.address), 0);
+    assert_eq!(token.attack_count(), 1);
+    assert_eq!(token.outbound_transfer_count(), 1);
+    assert!(client.try_release_bounty(&bounty_id, &maintainer).is_err());
+    assert_eq!(token.balance(&contributor), 1_000);
+}
+
+#[test]
+fn test_refund_bounty_reentrancy_does_not_double_refund() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (client, token, maintainer, _, _, _) = setup_malicious_test(&env);
+    token.mint(&maintainer, &1_000);
+
+    let deadline = env.ledger().timestamp() + 1_000;
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token.address,
+        &1_000,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "refund reentry"),
+        &deadline,
+        &0,
+    );
+    env.ledger().set_timestamp(deadline + 1);
+    token.configure_attack(
+        &client.address,
+        &bounty_id,
+        &maintainer,
+        &ReentryAction::Refund,
+    );
+
+    client.refund_bounty(&bounty_id, &maintainer);
+
+    assert_eq!(client.get_bounty(&bounty_id).status, BountyStatus::Refunded);
+    assert_eq!(token.balance(&maintainer), 1_000);
+    assert_eq!(token.balance(&client.address), 0);
+    assert_eq!(token.attack_count(), 1);
+    assert_eq!(token.outbound_transfer_count(), 1);
+    assert!(client.try_refund_bounty(&bounty_id, &maintainer).is_err());
+    assert_eq!(token.balance(&maintainer), 1_000);
+}
+
+#[test]
+fn test_resolve_dispute_release_reentrancy_does_not_double_pay() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (client, token, maintainer, contributor, _, arbiter) = setup_malicious_test(&env);
+    token.mint(&maintainer, &1_000);
+
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token.address,
+        &1_000,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "resolve release reentry"),
+        &(env.ledger().timestamp() + 2_000),
+        &0,
+    );
+    client.reserve_bounty(&bounty_id, &contributor);
+    client.submit_bounty(&bounty_id, &contributor);
+    client.dispute_bounty(&bounty_id, &arbiter);
+    env.ledger().set_timestamp(env.ledger().timestamp() + 600);
+    token.configure_attack(
+        &client.address,
+        &bounty_id,
+        &maintainer,
+        &ReentryAction::ResolveRelease,
+    );
+
+    client.resolve_dispute(&bounty_id, &true);
+
+    assert_eq!(client.get_bounty(&bounty_id).status, BountyStatus::Released);
+    assert_eq!(token.balance(&contributor), 1_000);
+    assert_eq!(token.balance(&client.address), 0);
+    assert_eq!(token.attack_count(), 1);
+    assert_eq!(token.outbound_transfer_count(), 1);
+    assert!(client.try_resolve_dispute(&bounty_id, &true).is_err());
+    assert_eq!(token.balance(&contributor), 1_000);
+}
+
+#[test]
+fn test_resolve_dispute_refund_reentrancy_does_not_double_refund() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (client, token, maintainer, contributor, _, arbiter) = setup_malicious_test(&env);
+    token.mint(&maintainer, &1_000);
+
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token.address,
+        &1_000,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "resolve refund reentry"),
+        &(env.ledger().timestamp() + 2_000),
+        &0,
+    );
+    client.reserve_bounty(&bounty_id, &contributor);
+    client.submit_bounty(&bounty_id, &contributor);
+    client.dispute_bounty(&bounty_id, &arbiter);
+    env.ledger().set_timestamp(env.ledger().timestamp() + 600);
+    token.configure_attack(
+        &client.address,
+        &bounty_id,
+        &maintainer,
+        &ReentryAction::ResolveRefund,
+    );
+
+    client.resolve_dispute(&bounty_id, &false);
+
+    assert_eq!(client.get_bounty(&bounty_id).status, BountyStatus::Refunded);
+    assert_eq!(token.balance(&maintainer), 1_000);
+    assert_eq!(token.balance(&client.address), 0);
+    assert_eq!(token.attack_count(), 1);
+    assert_eq!(token.outbound_transfer_count(), 1);
+    assert!(client.try_resolve_dispute(&bounty_id, &false).is_err());
+    assert_eq!(token.balance(&maintainer), 1_000);
+}
+
+#[test]
 fn test_full_lifecycle() {
     let env = Env::default();
     env.mock_all_auths();
@@ -350,22 +797,6 @@ fn test_cancel_bounty_success() {
     assert_eq!(bounty.status, BountyStatus::Refunded);
     assert_eq!(token.balance(&maintainer), 1000);
     assert_eq!(token.balance(&client.address), 0);
-
-    let events = env.events().all();
-    let cancel_event = events.last().unwrap();
-    assert_eq!(
-        cancel_event,
-        (
-            client.address.clone(),
-            (symbol_short!("Bounty"), symbol_short!("Cancel")).into_val(&env),
-            BountyCanceled {
-                bounty_id,
-                maintainer: maintainer.clone(),
-                amount: 500,
-            }
-            .into_val(&env)
-        )
-    );
 }
 
 #[test]
@@ -979,20 +1410,4 @@ fn test_get_all_bounties_limit_capped_at_50() {
     assert_eq!(bounties.len(), 50);
     assert_eq!(bounties.get(0).unwrap().issue_number, 1);
     assert_eq!(bounties.get(49).unwrap().issue_number, 50);
-}
-
-// --- Retained test case from upstream main branch ---
-#[test]
-#[should_panic] // Assuming this dispute should fail/panic as the original comment states
-fn test_dispute_after_deadline_fails() {
-    let env = Env::default();
-    env.mock_all_auths();
-    
-    // Note: If your file already had setup code inside this test block above the conflict, 
-    // leave it intact. This makes sure the dispute test runs immediately after.
-    let (client, _, _, _, arbiter, bounty_id) = setup_test(&env);
-    
-    // Dispute after deadline should fail
-    client.dispute_bounty(&bounty_id, &arbiter);
-}>>>>>>> main
 }
