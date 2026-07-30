@@ -9,7 +9,7 @@ use soroban_sdk::{
     Address, Env, String,
 };
 
-// ─── Version Tests ──────────────────────────────────────────────────────────
+// ─── Version Tests ──────────────────────────────────────────────────────────────
 
 #[test]
 fn test_get_version_matches_cargo_toml() {
@@ -35,7 +35,7 @@ fn test_contract_version_constant() {
     assert!(CONTRACT_VERSION.contains('.')); // basic semver check
 }
 
-// ─── Shared setup ────────────────────────────────────────────────────────────
+// ─── Shared setup ───────────────────────────────────────────────────────────────
 fn setup_test(
     env: &Env,
 ) -> (
@@ -152,6 +152,179 @@ macro_rules! invalid_transition_test {
             action(&client, bounty_id, maintainer, contributor);
         }
     };
+}
+
+// ─── Minimum Bounty Amount Tests ────────────────────────────────────────────────
+
+#[test]
+fn test_get_min_bounty_amount_default() {
+    let env = Env::default();
+    let (client, _, _, _, _, _) = setup_test(&env);
+
+    let min = client.get_min_bounty_amount();
+    assert_eq!(min, DEFAULT_MIN_BOUNTY_AMOUNT);
+}
+
+#[test]
+fn test_set_min_bounty_amount_success() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _, _, _, _, arbiter) = setup_test(&env);
+
+    let new_min = 1000i128;
+    client.set_min_bounty_amount(&new_min);
+
+    let min = client.get_min_bounty_amount();
+    assert_eq!(min, new_min);
+}
+
+#[test]
+#[should_panic(expected = "InvalidAmount")]
+fn test_set_min_bounty_amount_zero_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _, _, _, _, arbiter) = setup_test(&env);
+    client.set_min_bounty_amount(&0);
+}
+
+#[test]
+#[should_panic(expected = "InvalidAmount")]
+fn test_set_min_bounty_amount_above_max_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _, _, _, _, arbiter) = setup_test(&env);
+    client.set_min_bounty_amount(&(MAX_BOUNTY_AMOUNT + 1));
+}
+
+#[test]
+#[should_panic(expected = "AmountTooSmall")]
+fn test_create_bounty_below_minimum_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, _, token_id, _, _) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    // Default minimum is 100, so 50 should fail
+    client.create_bounty(
+        &maintainer,
+        &token_id,
+        &50, // below DEFAULT_MIN_BOUNTY_AMOUNT (100)
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32,
+    );
+}
+
+#[test]
+fn test_create_bounty_at_minimum_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, _, token_id, _, _) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &DEFAULT_MIN_BOUNTY_AMOUNT, // exactly at minimum
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32,
+    );
+
+    assert_eq!(bounty_id, 1);
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.amount, DEFAULT_MIN_BOUNTY_AMOUNT);
+}
+
+#[test]
+fn test_create_bounty_above_minimum_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, _, token_id, _, _) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500, // well above minimum
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32,
+    );
+
+    assert_eq!(bounty_id, 1);
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.amount, 500);
+}
+
+#[test]
+#[should_panic(expected = "AmountTooSmall")]
+fn test_create_bounty_after_raising_minimum_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, _, token_id, _, arbiter) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    // Raise minimum to 1000
+    client.set_min_bounty_amount(&1000);
+
+    // Try to create with 500 — should fail
+    client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32,
+    );
+}
+
+#[test]
+fn test_create_bounty_after_raising_minimum_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, _, token_id, _, arbiter) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &10_000);
+
+    // Raise minimum to 1000
+    client.set_min_bounty_amount(&1000);
+
+    // Create with exactly 1000 — should succeed
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &1000,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32,
+    );
+
+    assert_eq!(bounty_id, 1);
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.amount, 1000);
 }
 
 #[test]
@@ -1007,6 +1180,7 @@ fn test_get_all_bounties_limit_capped_at_50() {
     assert_eq!(bounties.len(), 50);
     assert_eq!(bounties.get(0).unwrap().issue_number, 1);
     assert_eq!(bounties.get(49).unwrap().issue_number, 50);
+}
 }
 
 // ─── get_bounties_by_contributor tests (Issue #750) ────────────────────────
