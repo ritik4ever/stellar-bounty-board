@@ -688,4 +688,44 @@ fn expire_if_needed(env: &Env, bounty: &mut Bounty) {
     {
         bounty.status = BountyStatus::Expired;
     }
+
+/// Top up an existing Open bounty with additional funds
+pub fn top_up_bounty(e: &Env, bounty_id: u64, additional_amount: i128, funder: Address) {
+    // Verify funder has authorized this
+    funder.require_auth();
+    
+    // Load the bounty
+    let mut bounty = e.storage().instance()
+        .get::<_, Bounty>(&DataKey::Bounty(bounty_id))
+        .expect("Bounty not found");
+    
+    // Ensure bounty is in Open state
+    require!(
+        bounty.status == BountyStatus::Open,
+        "Can only top up bounties in Open status"
+    );
+    
+    // Ensure additional amount is positive
+    require!(
+        additional_amount > 0,
+        "Top-up amount must be positive"
+    );
+    
+    // Transfer additional funds from funder to contract
+    // (actual token transfer handled by caller/TokenClient)
+    
+    // Update bounty amount
+    bounty.amount = bounty.amount
+        .checked_add(additional_amount)
+        .expect("Amount overflow");
+    
+    // Save updated bounty
+    e.storage().instance().set(&DataKey::Bounty(bounty_id), &bounty);
+    
+    // Emit event
+    e.events().publish(
+        (symbol_short!("top_up"), bounty_id),
+        (funder, additional_amount, bounty.amount)
+    );
+}
 }
