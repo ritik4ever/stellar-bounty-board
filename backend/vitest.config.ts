@@ -7,6 +7,9 @@ export default defineConfig({
     pool: 'forks',
     maxConcurrency: 1,
     testTimeout: 15_000,
+    snapshotFormat: {
+      printBasicPrototype: false,
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'json-summary'],

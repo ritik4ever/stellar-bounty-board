@@ -1,0 +1,1658 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`OpenAPI spec snapshot test > generated OpenAPI spec matches snapshot 1`] = `
+{
+  "components": {
+    "parameters": {},
+    "schemas": {
+      "BountyAuditLogListResponse": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/BountyAuditLogRecord",
+            },
+            "type": "array",
+          },
+          "page": {
+            "example": 1,
+            "minimum": 1,
+            "type": "integer",
+          },
+          "pageSize": {
+            "example": 20,
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer",
+          },
+          "total": {
+            "example": 3,
+            "minimum": 0,
+            "type": "integer",
+          },
+        },
+        "required": [
+          "data",
+          "total",
+          "page",
+          "pageSize",
+        ],
+        "type": "object",
+      },
+      "BountyAuditLogPagination": {
+        "properties": {
+          "hasMore": {
+            "example": false,
+            "type": "boolean",
+          },
+          "limit": {
+            "example": 20,
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer",
+          },
+          "nextOffset": {
+            "example": null,
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null",
+            ],
+          },
+          "offset": {
+            "example": 0,
+            "minimum": 0,
+            "type": "integer",
+          },
+          "total": {
+            "example": 3,
+            "minimum": 0,
+            "type": "integer",
+          },
+        },
+        "required": [
+          "limit",
+          "offset",
+          "total",
+          "hasMore",
+          "nextOffset",
+        ],
+        "type": "object",
+      },
+      "BountyAuditLogRecord": {
+        "properties": {
+          "actor": {
+            "example": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            "type": "string",
+          },
+          "bountyId": {
+            "example": "BNT-0001",
+            "type": "string",
+          },
+          "fromStatus": {
+            "enum": [
+              "open",
+              "reserved",
+              "submitted",
+              "released",
+              "refunded",
+              "expired",
+            ],
+            "example": "open",
+            "type": "string",
+          },
+          "id": {
+            "example": "AUD-000001",
+            "type": "string",
+          },
+          "metadata": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string",
+                },
+                {
+                  "type": "number",
+                },
+                {
+                  "type": "boolean",
+                },
+                {
+                  "type": "null",
+                },
+                {
+                  "type": "null",
+                },
+              ],
+            },
+            "description": "Transition-specific metadata for tools and debugging.",
+            "example": {
+              "hasNotes": true,
+              "submissionUrl": "https://github.com/owner/repo/pull/10",
+            },
+            "type": "object",
+          },
+          "timestamp": {
+            "description": "Unix timestamp (seconds).",
+            "example": 1710003600,
+            "type": "number",
+          },
+          "toStatus": {
+            "enum": [
+              "open",
+              "reserved",
+              "submitted",
+              "released",
+              "refunded",
+              "expired",
+            ],
+            "example": "reserved",
+            "type": "string",
+          },
+          "transition": {
+            "enum": [
+              "reserve",
+              "submit",
+              "release",
+              "refund",
+              "cancel",
+              "expire",
+              "dispute",
+              "update_notes",
+            ],
+            "example": "reserve",
+            "type": "string",
+          },
+        },
+        "required": [
+          "id",
+          "bountyId",
+          "fromStatus",
+          "toStatus",
+          "transition",
+          "actor",
+          "timestamp",
+        ],
+        "type": "object",
+      },
+      "BountyRecord": {
+        "properties": {
+          "amount": {
+            "example": 100,
+            "type": "number",
+          },
+          "canceledAt": {
+            "description": "Unix timestamp (seconds) when an open bounty was canceled by the maintainer.",
+            "example": 1710007200,
+            "type": "number",
+          },
+          "canceledTxHash": {
+            "example": "0000000000000000000000000000000000000000000000000000000000000000",
+            "type": "string",
+          },
+          "contributor": {
+            "example": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            "type": "string",
+          },
+          "createdAt": {
+            "description": "Unix timestamp (seconds).",
+            "example": 1710000000,
+            "type": "number",
+          },
+          "deadlineAt": {
+            "description": "Unix timestamp (seconds).",
+            "example": 1911000000,
+            "type": "number",
+          },
+          "events": {
+            "items": {
+              "properties": {
+                "actor": {
+                  "type": "string",
+                },
+                "details": {
+                  "additionalProperties": {},
+                  "type": "object",
+                },
+                "timestamp": {
+                  "type": "number",
+                },
+                "type": {
+                  "enum": [
+                    "created",
+                    "reserved",
+                    "submitted",
+                    "released",
+                    "refunded",
+                    "expired",
+                    "disputed",
+                  ],
+                  "type": "string",
+                },
+              },
+              "required": [
+                "type",
+                "timestamp",
+              ],
+              "type": "object",
+            },
+            "type": "array",
+          },
+          "id": {
+            "example": "BNT-0001",
+            "type": "string",
+          },
+          "issueNumber": {
+            "example": 42,
+            "type": "number",
+          },
+          "labels": {
+            "example": [
+              "bug",
+              "help wanted",
+            ],
+            "items": {
+              "type": "string",
+            },
+            "type": "array",
+          },
+          "maintainer": {
+            "example": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            "type": "string",
+          },
+          "notes": {
+            "type": "string",
+          },
+          "refundedAt": {
+            "type": "number",
+          },
+          "refundedTxHash": {
+            "example": "0000000000000000000000000000000000000000000000000000000000000000",
+            "type": "string",
+          },
+          "releasedAt": {
+            "type": "number",
+          },
+          "releasedTxHash": {
+            "example": "0000000000000000000000000000000000000000000000000000000000000000",
+            "type": "string",
+          },
+          "repo": {
+            "example": "owner/repo",
+            "type": "string",
+          },
+          "reservationTimeoutSeconds": {
+            "example": 604800,
+            "type": "number",
+          },
+          "reservedAt": {
+            "example": 1710003600,
+            "type": "number",
+          },
+          "status": {
+            "enum": [
+              "open",
+              "reserved",
+              "submitted",
+              "released",
+              "refunded",
+              "expired",
+            ],
+            "example": "open",
+            "type": "string",
+          },
+          "submissionUrl": {
+            "example": "https://github.com/owner/repo/pull/99",
+            "type": "string",
+          },
+          "submittedAt": {
+            "type": "number",
+          },
+          "summary": {
+            "example": "The login page does not redirect after successful authentication.",
+            "type": "string",
+          },
+          "title": {
+            "example": "Fix login redirect bug",
+            "type": "string",
+          },
+          "tokenAddress": {
+            "example": "CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA",
+            "type": "string",
+          },
+          "tokenSymbol": {
+            "example": "XLM",
+            "type": "string",
+          },
+          "version": {
+            "example": 1,
+            "type": "number",
+          },
+        },
+        "required": [
+          "id",
+          "repo",
+          "issueNumber",
+          "title",
+          "summary",
+          "maintainer",
+          "tokenSymbol",
+          "tokenAddress",
+          "amount",
+          "labels",
+          "status",
+          "createdAt",
+          "deadlineAt",
+          "version",
+          "events",
+        ],
+        "type": "object",
+      },
+      "CreateBountyRequest": {
+        "properties": {
+          "amount": {
+            "description": "Payout amount in the selected token.",
+            "example": 42.5,
+            "exclusiveMinimum": 0,
+            "type": "number",
+          },
+          "deadlineDays": {
+            "description": "Number of days until the bounty expires (1–90).",
+            "example": 14,
+            "maximum": 90,
+            "minimum": 1,
+            "type": "integer",
+          },
+          "issueNumber": {
+            "description": "GitHub issue number this bounty is attached to.",
+            "example": 42,
+            "exclusiveMinimum": 0,
+            "type": "integer",
+          },
+          "labels": {
+            "default": [],
+            "description": "Up to 6 labels for categorisation.",
+            "example": [
+              "bug",
+              "help wanted",
+            ],
+            "items": {
+              "maxLength": 30,
+              "minLength": 1,
+              "type": "string",
+            },
+            "maxItems": 6,
+            "type": "array",
+          },
+          "maintainer": {
+            "description": "A valid Stellar public key (starts with G, 56 characters, checksum verified).",
+            "example": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            "type": "string",
+          },
+          "repo": {
+            "description": "GitHub repository in owner/repo format.",
+            "example": "owner/repo",
+            "pattern": "^[a-zA-Z0-9_.-]+\\/[a-zA-Z0-9_.-]+$",
+            "type": "string",
+          },
+          "reservationTimeoutSeconds": {
+            "description": "Optional reservation timeout in seconds (default: 7 days = 604800 seconds).",
+            "example": 604800,
+            "exclusiveMinimum": 0,
+            "type": "integer",
+          },
+          "summary": {
+            "description": "Description of the work required (20–280 chars).",
+            "example": "The login page does not redirect after successful authentication. Fix the redirect logic.",
+            "maxLength": 280,
+            "minLength": 20,
+            "type": "string",
+          },
+          "title": {
+            "description": "Short bounty title (5–120 chars).",
+            "example": "Fix login redirect bug",
+            "maxLength": 120,
+            "minLength": 5,
+            "type": "string",
+          },
+          "tokenSymbol": {
+            "description": "Stellar token symbol for payout (1–12 alphanumeric chars).",
+            "example": "XLM",
+            "pattern": "^[A-Za-z0-9]{1,12}$",
+            "type": "string",
+          },
+        },
+        "required": [
+          "repo",
+          "issueNumber",
+          "title",
+          "summary",
+          "maintainer",
+          "tokenSymbol",
+          "amount",
+          "deadlineDays",
+        ],
+        "type": "object",
+      },
+      "DeepHealthResponse": {
+        "properties": {
+          "components": {
+            "properties": {
+              "auth": {
+                "enum": [
+                  "up",
+                  "down",
+                ],
+                "type": "string",
+              },
+              "contract": {
+                "enum": [
+                  "up",
+                  "down",
+                ],
+                "type": "string",
+              },
+              "soroban": {
+                "enum": [
+                  "up",
+                  "down",
+                ],
+                "type": "string",
+              },
+              "store": {
+                "enum": [
+                  "up",
+                  "down",
+                ],
+                "type": "string",
+              },
+            },
+            "required": [
+              "store",
+              "soroban",
+              "contract",
+              "auth",
+            ],
+            "type": "object",
+          },
+          "overall": {
+            "enum": [
+              "up",
+              "down",
+            ],
+            "type": "string",
+          },
+          "timestamp": {
+            "type": "string",
+          },
+        },
+        "required": [
+          "overall",
+          "components",
+          "timestamp",
+        ],
+        "type": "object",
+      },
+      "ErrorResponse": {
+        "properties": {
+          "error": {
+            "example": "Bounty not found.",
+            "type": "string",
+          },
+        },
+        "required": [
+          "error",
+        ],
+        "type": "object",
+      },
+      "GlobalMetrics": {
+        "properties": {
+          "expiredCount": {
+            "description": "Number of bounties with status 'expired'.",
+            "example": 2,
+            "type": "integer",
+          },
+          "openCount": {
+            "description": "Number of bounties with status 'open'.",
+            "example": 10,
+            "type": "integer",
+          },
+          "refundedCount": {
+            "description": "Number of bounties with status 'refunded'.",
+            "example": 2,
+            "type": "integer",
+          },
+          "releasedCount": {
+            "description": "Number of bounties with status 'released'.",
+            "example": 20,
+            "type": "integer",
+          },
+          "reservedCount": {
+            "description": "Number of bounties with status 'reserved'.",
+            "example": 5,
+            "type": "integer",
+          },
+          "submittedCount": {
+            "description": "Number of bounties with status 'submitted'.",
+            "example": 3,
+            "type": "integer",
+          },
+          "totalBounties": {
+            "description": "Total number of bounties created.",
+            "example": 42,
+            "type": "integer",
+          },
+          "totalFunded": {
+            "description": "Sum of all bounty amounts in XLM.",
+            "example": 1250.5,
+            "type": "number",
+          },
+          "totalReleased": {
+            "description": "Sum of released bounty amounts in XLM.",
+            "example": 850,
+            "type": "number",
+          },
+          "uniqueContributors": {
+            "description": "Count of unique contributor addresses.",
+            "example": 15,
+            "type": "integer",
+          },
+          "uniqueMaintainers": {
+            "description": "Count of unique maintainer addresses.",
+            "example": 8,
+            "type": "integer",
+          },
+        },
+        "required": [
+          "totalBounties",
+          "openCount",
+          "reservedCount",
+          "submittedCount",
+          "releasedCount",
+          "refundedCount",
+          "expiredCount",
+          "totalFunded",
+          "totalReleased",
+          "uniqueMaintainers",
+          "uniqueContributors",
+        ],
+        "type": "object",
+      },
+      "HealthResponse": {
+        "properties": {},
+        "type": "object",
+      },
+      "LeaderboardEntry": {
+        "properties": {
+          "address": {
+            "description": "Contributor Stellar address.",
+            "example": "GBBB...BBB",
+            "type": "string",
+          },
+          "bountiesCompleted": {
+            "description": "Number of released bounties completed.",
+            "example": 3,
+            "type": "integer",
+          },
+          "totalXlm": {
+            "description": "Total XLM received from released bounties.",
+            "example": 350.5,
+            "type": "number",
+          },
+        },
+        "required": [
+          "address",
+          "totalXlm",
+          "bountiesCompleted",
+        ],
+        "type": "object",
+      },
+      "MaintainerActionRequest": {
+        "properties": {
+          "maintainer": {
+            "description": "Must match the maintainer address on the bounty.",
+            "example": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            "type": "string",
+          },
+          "transactionHash": {
+            "description": "Optional transaction hash for the release/refund action (64-char hex).",
+            "example": "0000000000000000000000000000000000000000000000000000000000000000",
+            "pattern": "^[0-9a-fA-F]{64}$",
+            "type": "string",
+          },
+        },
+        "required": [
+          "maintainer",
+        ],
+        "type": "object",
+      },
+      "OpenIssue": {
+        "properties": {
+          "id": {
+            "example": "SBB-101",
+            "type": "string",
+          },
+          "impact": {
+            "enum": [
+              "starter",
+              "core",
+              "advanced",
+            ],
+            "example": "core",
+            "type": "string",
+          },
+          "labels": {
+            "example": [
+              "enhancement",
+              "help wanted",
+            ],
+            "items": {
+              "type": "string",
+            },
+            "type": "array",
+          },
+          "summary": {
+            "example": "Replace prompt-based demo actions with wallet-authenticated transactions.",
+            "type": "string",
+          },
+          "title": {
+            "example": "Add Freighter wallet signing",
+            "type": "string",
+          },
+        },
+        "required": [
+          "id",
+          "title",
+          "labels",
+          "summary",
+          "impact",
+        ],
+        "type": "object",
+      },
+      "ReserveBountyRequest": {
+        "properties": {
+          "contributor": {
+            "description": "Stellar public key of the contributor reserving the bounty.",
+            "example": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            "type": "string",
+          },
+          "expectedVersion": {
+            "description": "Optional version number for race condition prevention. If provided, must match current bounty version.",
+            "example": 1,
+            "type": "integer",
+          },
+        },
+        "required": [
+          "contributor",
+        ],
+        "type": "object",
+      },
+      "SubmitBountyRequest": {
+        "properties": {
+          "contributor": {
+            "description": "Must match the contributor who reserved the bounty.",
+            "example": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            "type": "string",
+          },
+          "notes": {
+            "description": "Optional notes (max 240 chars).",
+            "example": "Fixed by updating the redirect handler.",
+            "maxLength": 240,
+            "type": "string",
+          },
+          "submissionUrl": {
+            "description": "GitHub pull request URL for the submission.",
+            "example": "https://github.com/owner/repo/pull/123",
+            "format": "uri",
+            "type": "string",
+          },
+        },
+        "required": [
+          "contributor",
+          "submissionUrl",
+        ],
+        "type": "object",
+      },
+      "UpdateNotesRequest": {
+        "properties": {
+          "maintainer": {
+            "description": "Must match the maintainer address on the bounty.",
+            "example": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            "type": "string",
+          },
+          "notes": {
+            "description": "Maintainer notes for the bounty (max 2000 characters).",
+            "example": "Added additional details about the bounty requirements.",
+            "maxLength": 2000,
+            "type": "string",
+          },
+        },
+        "required": [
+          "maintainer",
+          "notes",
+        ],
+        "type": "object",
+      },
+    },
+  },
+  "info": {
+    "description": "REST API for the Stellar Bounty Board — a platform for posting, reserving, submitting, and releasing on-chain bounties backed by Stellar tokens.
+
+**Bounty lifecycle:** \`open\` → \`reserved\` → \`submitted\` → \`released\`
+
+Maintainers may \`cancel\` an \`open\` bounty before reservation, or \`refund\` an \`open\` or \`reserved\` bounty after the deadline. Bounties whose deadline passes are automatically transitioned to \`expired\`.",
+    "title": "Stellar Bounty Board API",
+    "version": "1.0.0",
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/audit-log": {
+      "get": {
+        "description": "Admin-only endpoint that returns a paginated view of all audit log records. Requires a valid x-admin-api-key header.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "description": "Maximum number of log records to return (1-200, default 50)",
+              "example": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer",
+            },
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "description": "Zero-based offset into the audit log list",
+              "example": 0,
+              "minimum": 0,
+              "type": "integer",
+            },
+          },
+          {
+            "in": "query",
+            "name": "actor",
+            "required": false,
+            "schema": {
+              "description": "Filter logs by actor (Stellar address)",
+              "example": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+              "type": "string",
+            },
+          },
+          {
+            "in": "query",
+            "name": "transition",
+            "required": false,
+            "schema": {
+              "description": "Filter logs by transition type",
+              "example": "release",
+              "type": "string",
+            },
+          },
+          {
+            "in": "query",
+            "name": "bountyId",
+            "required": false,
+            "schema": {
+              "description": "Filter logs by bounty ID",
+              "example": "BNT-0001",
+              "type": "string",
+            },
+          },
+          {
+            "in": "query",
+            "name": "fromStatus",
+            "required": false,
+            "schema": {
+              "description": "Filter logs by fromStatus",
+              "example": "submitted",
+              "type": "string",
+            },
+          },
+          {
+            "in": "query",
+            "name": "toStatus",
+            "required": false,
+            "schema": {
+              "description": "Filter logs by toStatus",
+              "example": "released",
+              "type": "string",
+            },
+          },
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BountyAuditLogListResponse",
+                },
+              },
+            },
+            "description": "Paginated list of audit logs",
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                },
+              },
+            },
+            "description": "Invalid or missing x-admin-api-key header",
+          },
+        },
+        "summary": "List all audit logs (admin-only)",
+        "tags": [
+          "Admin",
+        ],
+      },
+    },
+    "/api/bounties": {
+      "get": {
+        "description": "Returns bounty records sorted by \`createdAt\` descending by default, with optional maintainer/status/token filters and sort parameters. Bounties whose deadline has passed are automatically transitioned to \`expired\` before the list is returned.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "description": "Case-insensitive substring filter applied to title, summary, and labels.",
+              "type": "string",
+            },
+          },
+          {
+            "in": "query",
+            "name": "contributor",
+            "required": false,
+            "schema": {
+              "description": "Exact Stellar public key filter applied to the bounty contributor.",
+              "type": "string",
+            },
+          },
+          {
+            "in": "query",
+            "name": "maintainer",
+            "required": false,
+            "schema": {
+              "description": "Exact Stellar public key filter applied to the bounty maintainer.",
+              "type": "string",
+            },
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "description": "Exact bounty status filter. Combines with maintainer and tokenSymbol using AND logic.",
+              "type": "string",
+            },
+          },
+          {
+            "in": "query",
+            "name": "tokenSymbol",
+            "required": false,
+            "schema": {
+              "description": "Exact token symbol filter. Combines with maintainer and status using AND logic.",
+              "type": "string",
+            },
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "description": "Field to sort by (default: createdAt).",
+              "enum": [
+                "amount",
+                "deadline",
+                "createdAt",
+                "status",
+              ],
+              "type": "string",
+            },
+          },
+          {
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "description": "Sort direction (default: desc).",
+              "enum": [
+                "asc",
+                "desc",
+              ],
+              "type": "string",
+            },
+          },
+          {
+            "in": "query",
+            "name": "deadlineBefore",
+            "required": false,
+            "schema": {
+              "description": "Filter bounties with deadline before this ISO 8601 date string.",
+              "example": "2026-08-26T16:01:06.327Z",
+              "type": "string",
+            },
+          },
+          {
+            "in": "query",
+            "name": "deadlineAfter",
+            "required": false,
+            "schema": {
+              "description": "Filter bounties with deadline after this ISO 8601 date string.",
+              "example": "2026-07-27T16:01:06.328Z",
+              "type": "string",
+            },
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "description": "Page number (starts at 1, default 1).",
+              "minimum": 1,
+              "type": "integer",
+            },
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": false,
+            "schema": {
+              "description": "Number of items per page (max 100, default 20).",
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer",
+            },
+          },
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/BountyRecord",
+                      },
+                      "type": "array",
+                    },
+                  },
+                  "required": [
+                    "data",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Array of all bounty records.",
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                },
+              },
+            },
+            "description": "Invalid query parameters (e.g., invalid date string, maintainer address, sort field, or order).",
+          },
+        },
+        "summary": "List all bounties",
+        "tags": [
+          "Bounties",
+        ],
+      },
+      "post": {
+        "description": "Creates a new open bounty and persists it. Rate-limited to **5 requests per IP per minute**. The \`deadlineAt\` timestamp is computed as \`now + deadlineDays * 86400\`.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBountyRequest",
+              },
+            },
+          },
+          "required": true,
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/BountyRecord",
+                    },
+                  },
+                  "required": [
+                    "data",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Bounty created successfully.",
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                },
+              },
+            },
+            "description": "Validation failed — see \`error\` field for details.",
+          },
+        },
+        "summary": "Create a bounty",
+        "tags": [
+          "Bounties",
+        ],
+      },
+    },
+    "/api/bounties/:id/cancel": {
+      "post": {
+        "description": "Cancels an \`open\` bounty before any contributor has reserved it. Transitions the bounty to \`refunded\`, records a \`canceledAt\` timestamp, and returns the full escrow (no fee). Cannot be called on \`reserved\`, \`submitted\`, \`released\`, or already \`refunded\` bounties. Only the maintainer address recorded on the bounty may call this endpoint. Rate-limited to **5 requests per IP per minute**.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "example": "BNT-0001",
+              "type": "string",
+            },
+          },
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MaintainerActionRequest",
+              },
+            },
+          },
+          "required": true,
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/BountyRecord",
+                    },
+                  },
+                  "required": [
+                    "data",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Bounty canceled.",
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                },
+              },
+            },
+            "description": "Bounty not found, not open, maintainer mismatch, or validation failed.",
+          },
+        },
+        "summary": "Cancel an open bounty",
+        "tags": [
+          "Bounties",
+        ],
+      },
+    },
+    "/api/bounties/:id/notes": {
+      "patch": {
+        "description": "Updates the maintainer notes for a bounty. Only the maintainer address recorded on the bounty may call this endpoint. Notes are limited to 2000 characters. Rate-limited to **5 requests per IP per minute**.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "example": "BNT-0001",
+              "type": "string",
+            },
+          },
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateNotesRequest",
+              },
+            },
+          },
+          "required": true,
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/BountyRecord",
+                    },
+                  },
+                  "required": [
+                    "data",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Notes updated successfully.",
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                },
+              },
+            },
+            "description": "Bounty not found, maintainer mismatch, or validation failed.",
+          },
+        },
+        "summary": "Update bounty notes",
+        "tags": [
+          "Bounties",
+        ],
+      },
+    },
+    "/api/bounties/:id/refund": {
+      "post": {
+        "description": "Transitions an \`open\` or \`reserved\` bounty to \`refunded\`. Cannot be called on \`submitted\`, \`released\`, or already \`refunded\` bounties. Only the maintainer address recorded on the bounty may call this endpoint. Rate-limited to **5 requests per IP per minute**.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "example": "BNT-0001",
+              "type": "string",
+            },
+          },
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MaintainerActionRequest",
+              },
+            },
+          },
+          "required": true,
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/BountyRecord",
+                    },
+                  },
+                  "required": [
+                    "data",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Bounty refunded.",
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                },
+              },
+            },
+            "description": "Bounty not found, already finalised, maintainer mismatch, or validation failed.",
+          },
+        },
+        "summary": "Refund a bounty",
+        "tags": [
+          "Bounties",
+        ],
+      },
+    },
+    "/api/bounties/{id}/audit-log": {
+      "get": {
+        "description": "Returns ordered status transition history for a bounty. Use \`page\` (default 1) and \`pageSize\` (1-100, default 20) for pagination.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "example": "BNT-0001",
+              "type": "string",
+            },
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "description": "One-based page number.",
+              "example": 1,
+              "minimum": 1,
+              "type": "integer",
+            },
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": false,
+            "schema": {
+              "description": "Number of audit entries per page (1-100).",
+              "example": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer",
+            },
+          },
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BountyAuditLogListResponse",
+                },
+              },
+            },
+            "description": "Audit log page for the requested bounty.",
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                },
+              },
+            },
+            "description": "Bounty id invalid or pagination query invalid.",
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                },
+              },
+            },
+            "description": "Bounty not found.",
+          },
+        },
+        "summary": "List audit logs for one bounty",
+        "tags": [
+          "Bounties",
+        ],
+      },
+    },
+    "/api/bounties/{id}/release": {
+      "post": {
+        "description": "Transitions a \`submitted\` bounty to \`released\`, indicating payment has been sent. Only the maintainer address recorded on the bounty may call this endpoint. Rate-limited to **5 requests per IP per minute**.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "example": "BNT-0001",
+              "type": "string",
+            },
+          },
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MaintainerActionRequest",
+              },
+            },
+          },
+          "required": true,
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/BountyRecord",
+                    },
+                  },
+                  "required": [
+                    "data",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Payment released.",
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                },
+              },
+            },
+            "description": "Bounty not found, not submitted, maintainer mismatch, or validation failed.",
+          },
+        },
+        "summary": "Release payment for a bounty",
+        "tags": [
+          "Bounties",
+        ],
+      },
+    },
+    "/api/bounties/{id}/reserve": {
+      "post": {
+        "description": "Assigns a contributor to an \`open\` bounty, transitioning its status to \`reserved\`. Only one contributor can hold a reservation at a time. Rate-limited to **5 requests per IP per minute**.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "example": "BNT-0001",
+              "type": "string",
+            },
+          },
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReserveBountyRequest",
+              },
+            },
+          },
+          "required": true,
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/BountyRecord",
+                    },
+                  },
+                  "required": [
+                    "data",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Bounty successfully reserved.",
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                },
+              },
+            },
+            "description": "Bounty not found, not open, or validation failed.",
+          },
+        },
+        "summary": "Reserve a bounty",
+        "tags": [
+          "Bounties",
+        ],
+      },
+    },
+    "/api/bounties/{id}/submit": {
+      "post": {
+        "description": "Transitions a \`reserved\` bounty to \`submitted\` by attaching a submission URL. The \`contributor\` field must exactly match the address that reserved the bounty. Rate-limited to **5 requests per IP per minute**.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "example": "BNT-0001",
+              "type": "string",
+            },
+          },
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitBountyRequest",
+              },
+            },
+          },
+          "required": true,
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/BountyRecord",
+                    },
+                  },
+                  "required": [
+                    "data",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Work submitted successfully.",
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                },
+              },
+            },
+            "description": "Bounty not found, not reserved, contributor mismatch, or validation failed.",
+          },
+        },
+        "summary": "Submit work for a bounty",
+        "tags": [
+          "Bounties",
+        ],
+      },
+    },
+    "/api/health": {
+      "get": {
+        "description": "Returns the service name and current server timestamp. Use this to verify the API is reachable.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse",
+                },
+              },
+            },
+            "description": "Service is healthy.",
+          },
+        },
+        "summary": "Health check",
+        "tags": [
+          "System",
+        ],
+      },
+    },
+    "/api/health/deep": {
+      "get": {
+        "description": "Extended health check that verifies all external dependencies. Checks JSON store read/write, Soroban RPC reachability, contract ID configuration, and auth configuration (MAINTAINER_PUBLIC_KEY and ARBITER_ADDRESS). Excluded from rate limiting. Returns HTTP 503 when any critical component is down.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeepHealthResponse",
+                },
+              },
+            },
+            "description": "All critical components are healthy.",
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeepHealthResponse",
+                },
+              },
+            },
+            "description": "One or more critical components are down.",
+          },
+        },
+        "summary": "Deep health check",
+        "tags": [
+          "System",
+        ],
+      },
+    },
+    "/api/leaderboard": {
+      "get": {
+        "description": "Returns the top 10 contributors ranked by total XLM received from released bounties. Ties are broken by the number of bounties completed. Returns an empty array when no bounties have been released yet.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/LeaderboardEntry",
+                      },
+                      "type": "array",
+                    },
+                  },
+                  "required": [
+                    "data",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Top 10 contributors by XLM earned.",
+          },
+        },
+        "summary": "Contributor leaderboard",
+        "tags": [
+          "Leaderboard",
+        ],
+      },
+    },
+    "/api/open-issues": {
+      "get": {
+        "description": "Returns a curated static list of open feature requests and contribution opportunities for the Stellar Bounty Board project itself.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/OpenIssue",
+                      },
+                      "type": "array",
+                    },
+                  },
+                  "required": [
+                    "data",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Array of open issues.",
+          },
+        },
+        "summary": "List open feature requests",
+        "tags": [
+          "Open Issues",
+        ],
+      },
+    },
+    "/api/stats": {
+      "get": {
+        "description": "Returns aggregate statistics for the entire platform including bounty status counts, total funded and released amounts, and unique participant counts. Response is cached with a **30-second TTL** to reduce computation overhead.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/GlobalMetrics",
+                    },
+                  },
+                  "required": [
+                    "data",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Global platform metrics.",
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                },
+              },
+            },
+            "description": "Failed to compute global stats.",
+          },
+        },
+        "summary": "Global platform metrics",
+        "tags": [
+          "Stats",
+        ],
+      },
+    },
+  },
+  "servers": [
+    {
+      "description": "Local development server",
+      "url": "http://localhost:3001",
+    },
+  ],
+  "webhooks": {},
+}
+`;

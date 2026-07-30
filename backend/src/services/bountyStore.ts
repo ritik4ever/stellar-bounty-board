@@ -7,7 +7,6 @@ import {
 } from "./notificationService";
 import { logStructured } from "../logger";
 import { getCache, type CacheAdapter } from "./cache";
- feat/concurrency-file-locking
 import { bountiesCreatedTotal, bountiesReleasedTotal } from "../metrics";
 import { validateGithubPrUrlForRepo } from "../validation/prUrl";
 
@@ -53,6 +52,7 @@ export type BountyTransitionType =
   | "cancel"
   | "expire"
   | "dispute"
+  | "resolve_dispute"
   | "update_notes"
   | "extend_deadline";
 
@@ -150,6 +150,8 @@ export interface BountyRecord {
   disputedAt?: number;
   /** Reason provided by the contributor for disputing the bounty. */
   disputeReason?: string;
+  /** Unix timestamp in seconds of the last admin alert sent for this stuck dispute. */
+  lastDisputeAlertAt?: number;
   // Race condition prevention
   /** Version number of the record used for optimistic locking. */
   version: number;
@@ -159,6 +161,11 @@ export interface BountyRecord {
   // Reservation timeout (in seconds from reservation)
   /** Number of seconds after reservation before it automatically times out. */
   reservationTimeoutSeconds?: number;
+  // Soft-archive flag
+  /** When true, the bounty has been archived and is excluded from active listings. */
+  archived?: boolean;
+  /** Unix timestamp in seconds of when the bounty was archived. */
+  archivedAt?: number;
 }
 
 /**
@@ -806,7 +813,7 @@ export async function submitBounty(
       throw new Error("Only the reserved contributor can submit this bounty.");
     }
 
-    validateGithubPrUrlForRepo(submissionUrl, bounty.repo);
+    await validateGithubPrUrlForRepo(submissionUrl, bounty.repo, bounty.issueNumber);
 
     const now = nowInSeconds();
     const updated: BountyRecord = {
@@ -1162,6 +1169,69 @@ export async function disputeBounty(
   });
 }
 
+export async function resolveDisputeBounty(
+  id: string,
+  arbiter: string,
+  release: boolean,
+  transactionHash?: string,
+): Promise<BountyRecord> {
+  return withStoreLock(async () => {
+    const records = listBounties();
+    const bounty = findBounty(records, id);
+
+    if (bounty.status !== "disputed") {
+      throw new Error("Only disputed bounties can be resolved.");
+    }
+
+    const configuredArbiter = process.env.ARBITER_ADDRESS?.trim();
+    if (configuredArbiter && arbiter !== configuredArbiter) {
+      throw new Error("Only the configured arbiter can resolve disputes.");
+    }
+
+    const now = nowInSeconds();
+    const updated: BountyRecord = {
+      ...bounty,
+      status: release ? "released" : "refunded",
+      releasedAt: release ? now : bounty.releasedAt,
+      releasedTxHash: release
+        ? transactionHash?.trim() || bounty.releasedTxHash
+        : bounty.releasedTxHash,
+      refundedAt: release ? bounty.refundedAt : now,
+      refundedTxHash: release
+        ? bounty.refundedTxHash
+        : transactionHash?.trim() || bounty.refundedTxHash,
+      version: bounty.version + 1,
+      events: [
+        ...bounty.events,
+        {
+          type: release ? "released" : "refunded",
+          timestamp: now,
+          actor: arbiter,
+          details: { resolution: release ? "released" : "refunded" },
+        },
+      ],
+    };
+
+    const persisted = persistUpdated(records, updated);
+    appendAuditLogs([
+      {
+        bountyId: id,
+        fromStatus: bounty.status,
+        toStatus: updated.status,
+        transition: "resolve_dispute",
+        actor: arbiter,
+        metadata: {
+          release,
+          transactionHash: transactionHash?.trim() || undefined,
+        },
+      },
+    ]);
+    await invalidateBountyCache();
+
+    return persisted;
+  });
+}
+
 export async function updateBountyNotes(
   id: string,
   maintainer: string,
@@ -1307,18 +1377,14 @@ export function listBountyAuditLogs(
   const end = start + pageSize;
   const data = filtered.slice(start, end);
 
-
+  return { data, pagination: { total, page: safePage, pageSize, totalPages } };
+}
 
 export function getBountyEvents(bountyId: string): BountyEvent[] {
   const records = listBounties();
   const bounty = findBounty(records, bountyId);
   return bounty.events || [];
 }
-
-
-  };
-}
- feat/concurrency-file-locking
 
 const GLOBAL_METRICS_CACHE_KEY = "stats:global";
 const GLOBAL_METRICS_TTL_SECONDS = 30;
@@ -1397,4 +1463,3 @@ export function getLeaderboard(limit = 10): LeaderboardEntry[] {
     )
     .slice(0, limit);
 }
- main

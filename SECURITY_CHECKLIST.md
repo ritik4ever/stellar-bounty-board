@@ -21,3 +21,11 @@ Check that new dependencies are necessary, reputable, and free from known vulner
 ## 5. Secret Handling
 Check that no credentials, tokens, or private keys are hardcoded in the source code and that environment variables are securely handled.
 **Relevant Files:** Configuration files, environment loaders, CI/CD workflows.
+
+## 6. Admin API Key Rotation Procedure
+Check that a documented, tested admin API key rotation procedure is established, using refresh-token rotation and API-key-scoping features as the implementation basis.
+- **Rotation Cadence:** Rotate keys on a recommended schedule (e.g., quarterly) or immediately upon suspected compromise.
+- **Invalidation & Verification:** Include explicit steps to verify that old, rotated-out keys are fully invalidated and confirmed rejected by the API.
+- **Exercise Evidence:** Require concrete evidence (such as test output or execution logs) demonstrating that the rotation procedure was actually exercised and that a rotated-out key is confirmed rejected, rather than merely documented.
+**Relevant Files:** Authentication services, API key management handlers, route controllers, security documentation.
+

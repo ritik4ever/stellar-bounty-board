@@ -170,6 +170,29 @@ export const disputeBountySchema = z
   })
   .openapi('DisputeBountyRequest');
 
+export const resolveDisputeBountySchema = z
+  .object({
+    arbiter: stellarAccountSchema.openapi({
+      description: 'Stellar public key of the arbiter resolving the dispute.',
+    }),
+    release: z
+      .boolean()
+      .openapi({
+        example: true,
+        description: 'Whether the arbiter resolves the dispute in favor of the contributor.',
+      }),
+    transactionHash: z
+      .string()
+      .trim()
+      .regex(TX_HASH_REGEX, 'Transaction hash must be a 64 character hex string.')
+      .optional()
+      .openapi({
+        example: '0'.repeat(64),
+        description: 'Optional transaction hash for the resolution payout.',
+      }),
+  })
+  .openapi('ResolveDisputeBountyRequest');
+
 export const maintainerActionSchema = z
   .object({
     maintainer: stellarAccountSchema.openapi({

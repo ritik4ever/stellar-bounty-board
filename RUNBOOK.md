@@ -8,7 +8,10 @@ This runbook provides step-by-step procedures for common operational tasks in pr
 - [Rotate Maintainer Public Key](#rotate-maintainer-public-key)
 - [Force-Expire a Reservation](#force-expire-a-reservation)
 - [Recover from Corrupt JSON](#recover-from-corrupt-json)
+- [Emergency Contract Pause](#emergency-contract-pause)
 - [Redeploy Contract](#redeploy-contract)
+- [Incident Response: Compromised Arbiter Key](#incident-response-compromised-arbiter-key)
+- [Update OpenAPI Snapshot](#update-openapi-snapshot)
 
 ---
 
@@ -472,6 +475,84 @@ EOF
 
 ---
 
+## Emergency Contract Pause
+
+**Use case:** A critical vulnerability, exploit, or severe anomaly is detected in the Soroban smart contract, requiring an immediate halt of all contract interactions to prevent fund loss.
+
+### Prerequisites
+
+- Access to the Soroban CLI
+- The admin secret key for the deployed contract (only the contract admin holds this authority)
+- The deployed contract ID
+- Access to project communication channels to notify maintainers and contributors
+
+### 1. Invoke the Pause Function
+
+Only the address holding admin authority for the contract can invoke the `pause()` function.
+
+```bash
+# Invoke the circuit breaker to pause the contract
+soroban contract invoke \
+  --id $SOROBAN_CONTRACT_ID \
+  --source YOUR_ADMIN_SECRET_KEY \
+  --network $SOROBAN_NETWORK_URL \
+  -- \
+  pause
+```
+
+Verify the contract is paused by attempting a non-state-changing read or by checking the pause status if a getter is available:
+```bash
+soroban contract invoke \
+  --id $SOROBAN_CONTRACT_ID \
+  --source YOUR_ADMIN_SECRET_KEY \
+  --network $SOROBAN_NETWORK_URL \
+  -- \
+  is_paused
+```
+
+### 2. Post-Pause Triage
+
+Once the contract is paused, immediately begin triage:
+1. **Assess Affected Bounties:** Query the contract or backend database to identify bounties that were in an active, funded, or payout state at the time of the exploit.
+2. **Review On-Chain Data:** Check recent transactions to the contract to isolate the exploit vector and determine if funds were already compromised.
+3. **Notify Users:** Communicate the incident to the community immediately to prevent confusion.
+
+### 3. Incident Communication Template
+
+Use the following template to communicate the incident in the project's Discord/Slack and GitHub discussions:
+
+> **[URGENT] Stellar Bounty Board Contract Paused**
+> 
+> **Status:** The smart contract has been temporarily paused by administrators.
+> **Reason:** We are investigating a potential security anomaly/vulnerability.
+> **Impact:** All bounty creations, claims, and payouts are currently halted. Existing funds are secured (or state current status of funds). 
+> **Next Steps:** Our team is actively investigating the issue and working on a remediation. We will provide another update within [Timeframe, e.g., 2 hours]. 
+> 
+> Please do not attempt to interact with the contract until further notice. Thank you for your patience.
+
+### 4. Remediation and Unpause Criteria
+
+Do **NOT** unpause the contract until all of the following criteria are strictly met:
+
+1. **Vulnerability Identified:** The root cause of the exploit or anomaly has been definitively identified.
+2. **Patch Developed and Audited:** A fix has been developed, tested on testnet, and reviewed by at least two core maintainers (and ideally a security auditor).
+3. **Contract Upgraded/Migrated:** The patched contract has been deployed (either via contract upgrade if supported, or via a state migration to a new contract ID).
+4. **State Verification:** All bounty states and balances have been verified as correct or restored from a known good snapshot.
+5. **Admin Consensus:** A formal sign-off from the core maintainer team is required to resume operations.
+
+Once approved, the admin can invoke the `unpause()` function (or deploy the new contract) to resume normal operations.
+
+```bash
+soroban contract invoke \
+  --id $SOROBAN_CONTRACT_ID \
+  --source YOUR_ADMIN_SECRET_KEY \
+  --network $SOROBAN_NETWORK_URL \
+  -- \
+  unpause
+```
+
+---
+
 ## Redeploy Contract
 
 **Use case:** Deploy a new version of the Soroban smart contract or redeploy after a failed deployment.
@@ -589,6 +670,409 @@ sudo systemctl restart stellar-bounty-board-backend
 - Keep a record of all deployed contract IDs for audit purposes.
 - Update any frontend configuration if it references the contract ID directly.
 - Consider using a contract upgrade pattern if frequent updates are expected.
+
+---
+
+## Incident Response: Compromised Arbiter Key
+
+**Use case:** The arbiter's Stellar private key has been compromised or is suspected to be compromised. This is a critical security incident requiring immediate action.
+
+### Current Contract Limitations
+
+**IMPORTANT:** The current contract implementation does **NOT** include:
+- A pause/emergency stop function
+- An `set_arbiter` function for rotating the arbiter address
+- Timelock-protected admin functions
+
+Therefore, the primary mitigation for a compromised arbiter key is **contract redeployment** with a new arbiter address.
+
+### Prerequisites
+
+- Access to the backend server
+- Access to Stellar network (testnet or mainnet)
+- New Stellar keypair for the replacement arbiter (generated securely)
+- Wallet with sufficient XLM for contract deployment fees
+- List of active bounties and their current status
+- Backup of current bounty data (for migration if needed)
+
+### Immediate Containment Steps
+
+**Step 1: Verify the compromise**
+```bash
+# Check recent arbiter transactions on the blockchain
+# Look for unauthorized dispute resolutions or suspicious activity
+# Use Stellar Explorer or soroban contract query tools
+
+# Query recent contract events
+soroban contract events \
+  --id $CONTRACT_ID \
+  --network $SOROBAN_NETWORK_URL \
+  --limit 50
+```
+
+**Step 2: Assess impact**
+```bash
+# Identify all bounties in disputed status
+# These are the most vulnerable to malicious arbiter actions
+
+# Get all bounties and check for disputed status
+soroban contract invoke \
+  --id $CONTRACT_ID \
+  --source YOUR_SECRET_KEY \
+  --network $SOROBAN_NETWORK_URL \
+  -- \
+  get_all_bounties \
+  --start 1 \
+  --limit 50
+```
+
+**Step 3: Notify stakeholders (see Notification Chain below)**
+- Send initial notification to the on-call security team
+- Escalate to project maintainers
+- Alert affected bounty maintainers and contributors (if any disputed bounties)
+
+### Arbiter Rotation Procedure
+
+Since the contract lacks a built-in arbiter rotation function, follow this redeployment procedure:
+
+**Step 1: Generate a new arbiter keypair**
+```bash
+# Generate a new secure keypair for the replacement arbiter
+# Use a secure method (hardware wallet, air-gapped machine, etc.)
+soroban keys generate new_arbiter
+
+# Store the secret key securely (NEVER commit to git)
+# Record the public key for contract initialization
+NEW_ARBITER_PUBLIC_KEY="GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+```
+
+**Step 2: Backup current contract state**
+```bash
+# Export all bounty data from the current contract
+# This is critical for potential migration
+cd /path/to/stellar-bounty-board/contracts
+
+# Create a backup script to export all bounties
+python3 << 'EOF'
+import subprocess
+import json
+
+CONTRACT_ID="YOUR_CURRENT_CONTRACT_ID"
+NETWORK="https://rpc-futurenet.stellar.org"  # or mainnet
+
+# Get next bounty ID to know total count
+result = subprocess.run([
+    "soroban", "contract", "invoke",
+    "--id", CONTRACT_ID,
+    "--network", NETWORK,
+    "--", "get_next_bounty_id"
+], capture_output=True, text=True)
+
+print(f"Next bounty ID: {result.stdout}")
+
+# Export all bounties
+# (You may need to paginate through results)
+EOF
+```
+
+**Step 3: Deploy new contract with new arbiter**
+```bash
+# Navigate to contracts directory
+cd /path/to/stellar-bounty-board/contracts
+
+# Build the contract
+cargo build --target wasm32-unknown-unknown --release
+
+# Optimize the WASM file
+soroban contract optimize target/wasm32-unknown-unknown/release/stellar_bounty_board.wasm \
+  --wasm target/wasm32-unknown-unknown/release/stellar_bounty_board_opt.wasm
+
+# Deploy the new contract
+NEW_CONTRACT_ID=$(soroban contract deploy \
+  --wasm target/wasm32-unknown-unknown/release/stellar_bounty_board_opt.wasm \
+  --source YOUR_DEPLOYER_SECRET_KEY \
+  --network $SOROBAN_NETWORK_URL)
+
+echo "New contract deployed with ID: $NEW_CONTRACT_ID"
+
+# Initialize with the NEW arbiter address
+soroban contract invoke \
+  --id $NEW_CONTRACT_ID \
+  --source YOUR_DEPLOYER_SECRET_KEY \
+  --network $SOROBAN_NETWORK_URL \
+  -- \
+  initialize \
+  --fee_recipient FEE_RECIPIENT_ADDRESS \
+  --arbiter $NEW_ARBITER_PUBLIC_KEY \
+  --dispute_window DISPUTE_WINDOW_SECONDS
+```
+
+**Step 4: Update environment configuration**
+```bash
+# Update the backend environment with the new contract ID
+export SOROBAN_CONTRACT_ID=$NEW_CONTRACT_ID
+
+# If using Railway/Render, update in the dashboard
+# If using Docker, update docker-compose.yml or .env
+# If using systemd, update the service environment file
+```
+
+**Step 5: Migrate active bounties (if necessary)**
+```bash
+# For each active bounty, recreate it on the new contract
+# This requires maintainer cooperation and re-funding
+
+# Example: Recreate a bounty
+soroban contract invoke \
+  --id $NEW_CONTRACT_ID \
+  --source MAINTAINER_SECRET_KEY \
+  --network $SOROBAN_NETWORK_URL \
+  -- \
+  create_bounty \
+  --maintainer MAINTAINER_ADDRESS \
+  --token TOKEN_ADDRESS \
+  --amount AMOUNT_IN_STROOPS \
+  --repo "org/repo" \
+  --issue_number 123 \
+  --title "Bounty Title" \
+  --deadline UNIX_TIMESTAMP \
+  --protocol_fee_bps FEE_BASIS_POINTS
+```
+
+**Step 6: Restart the backend service**
+```bash
+# Restart to pick up the new contract ID
+sudo systemctl restart stellar-bounty-board-backend
+
+# Or for Docker
+docker-compose restart backend
+```
+
+**Step 7: Verify the deployment**
+```bash
+# Check backend health
+curl https://your-backend.example.com/api/health
+
+# Verify the new contract is accessible
+curl https://your-backend.example.com/api/bounties
+
+# Verify the new arbiter is set
+soroban contract invoke \
+  --id $NEW_CONTRACT_ID \
+  --source YOUR_SECRET_KEY \
+  --network $SOROBAN_NETWORK_URL \
+  -- \
+  get_arbiter
+```
+
+### Notification Chain
+
+**Immediate (within 1 hour of detection):**
+1. **On-call Security Lead** - Primary contact for incident coordination
+2. **Project Maintainer** - Technical decision-making and approval
+3. **DevOps Engineer** - For contract deployment and infrastructure changes
+
+**Within 4 hours:**
+4. **Affected Bounty Maintainers** - If there are active disputed bounties
+5. **Affected Contributors** - If their disputed bounties are at risk
+6. **Stellar Foundation Security Team** - If mainnet deployment and significant funds at risk
+
+**Within 24 hours:**
+7. **Community Announcement** - Public disclosure (if required by policy)
+8. **Post-Mortem Team** - Schedule incident review
+
+**Escalation Matrix:**
+- **If unable to reach On-call Security Lead:** Escalate to Project Maintainer
+- **If unable to reach Project Maintainer:** Escalate to Stellar Foundation contact
+- **If funds are actively being drained:** Immediate emergency contact all stakeholders
+
+### Post-Incident Review Checklist
+
+**Technical Review:**
+- [ ] Root cause analysis completed (how was the key compromised?)
+- [ ] Contract redeployment verified and tested
+- [ ] All active bounties successfully migrated or recreated
+- [ ] New arbiter key stored securely (hardware wallet recommended)
+- [ ] Audit logs reviewed for any unauthorized transactions
+- [ ] Contract code reviewed for adding pause/rotation features
+
+**Process Review:**
+- [ ] Notification chain executed correctly
+- [ ] Response time documented
+- [ ] Communication with affected parties completed
+- [ ] Public disclosure (if required) completed
+
+**Security Improvements:**
+- [ ] Arbiter key storage procedures updated
+- [ ] Multi-signature or timelock protection considered for future
+- [ ] Contract upgrade path documented
+- [ ] Pause/emergency stop function added to contract roadmap
+- [ ] Arbiter rotation function added to contract roadmap
+- [ ] Regular key rotation schedule established
+
+**Documentation:**
+- [ ] Incident timeline documented
+- [ ] Lessons learned captured
+- [ ] Runbook updated based on incident findings
+- [ ] Security policy updated if needed
+
+### Expected Outcome
+
+- Compromised arbiter key is no longer associated with the active contract
+- New contract is deployed with a secure arbiter address
+- All stakeholders are notified of the incident and resolution
+- Active bounties are preserved or recreated on the new contract
+- Post-incident review identifies improvements to prevent recurrence
+
+### Important Notes
+
+- **Contract redeployment is the only current mitigation** since pause and arbiter rotation features are not implemented
+- **Consider adding these features to the contract** for future incidents:
+  - Emergency pause function (callable by admin or timelock-protected)
+  - `set_arbiter` function with timelock protection
+  - Multi-signature requirements for critical operations
+- **Hardware wallets** are strongly recommended for arbiter key storage
+- **Regular key rotation** should be scheduled (e.g., quarterly) even if no compromise is suspected
+- **Monitor contract events** regularly for suspicious arbiter activity
+
+### Future Improvements
+
+When contract upgrades are possible, prioritize implementing:
+
+1. **Emergency Pause Function**
+   ```rust
+   // Proposed addition to contract
+   pub fn pause_contract(env: Env, admin: Address) {
+       admin.require_auth();
+       // Check admin is authorized
+       // Set paused flag in storage
+   }
+   ```
+
+2. **Arbiter Rotation with Timelock**
+   ```rust
+   // Proposed addition to contract
+   pub fn set_arbiter(env: Env, new_arbiter: Address, effective_at: u64) {
+       // Current arbiter must authorize
+       // Change takes effect after timelock period
+       // Allows cancellation during timelock window
+   }
+   ```
+
+3. **Multi-Signature Protection**
+   - Require multiple signatures for critical operations
+   - Reduce single point of failure risk
+
+---
+
+## Update OpenAPI Snapshot
+
+**Use case:** Update the OpenAPI snapshot test after intentionally modifying the API (adding/removing routes, changing schemas, etc.).
+
+### Prerequisites
+
+- Access to the backend codebase
+- Node.js and npm installed
+- Understanding of the API changes being made
+
+### Steps
+
+1. **Make your API changes**
+   ```bash
+   # Modify routes, schemas, or OpenAPI definitions in backend/src/docs/openapi.ts
+   # Update validation schemas in backend/src/validation/schemas.ts if needed
+   ```
+
+2. **Review the changes**
+   ```bash
+   # Check what changed in the generated OpenAPI spec
+   npm run gen:openapi
+   # Compare docs/openapi.generated.json with the previous version
+   ```
+
+3. **Update the snapshot**
+   ```bash
+   # Navigate to the backend directory
+   cd backend
+
+   # Run tests with the -u flag to update snapshots
+   npm run test -- -u
+   # or
+   vitest run -u
+
+   # To update only the OpenAPI snapshot:
+   npm run test -- openapi.snapshot.test.ts -u
+   ```
+
+4. **Verify the snapshot update**
+   ```bash
+   # Run the snapshot test without -u to ensure it passes
+   npm run test -- openapi.snapshot.test.ts
+   ```
+
+5. **Run the contract test**
+   ```bash
+   # Ensure the live-route validation test also passes
+   npm run test -- openapi.contract.test.ts
+   ```
+
+6. **Commit the changes**
+   ```bash
+   # Commit both the API changes and the updated snapshot
+   git add backend/src/docs/openapi.ts
+   git add backend/test/__snapshots__/openapi.snapshot.test.ts.snap
+   git add docs/openapi.generated.json  # if you regenerated it
+   git commit -m "feat: add new API endpoint and update OpenAPI snapshot"
+   ```
+
+### Expected Output
+
+- Snapshot test passes after update
+- Contract test passes (validates live routes match schemas)
+- Both the snapshot file and any generated OpenAPI spec are committed
+
+### Important Notes
+
+- **Always review changes** before updating the snapshot to ensure they are intentional
+- **Both tests must pass**: The snapshot test catches generation drift, the contract test catches route drift
+- **Commit the snapshot**: The snapshot file should be committed with your API changes
+- **CI/CD integration**: Ensure CI runs both tests to prevent accidental API drift
+
+### Troubleshooting
+
+**Snapshot test fails after update:**
+```bash
+# If the snapshot still doesn't match, check for:
+# - Typos in the snapshot file
+# - Incomplete snapshot update (run with -u again)
+# - Environment-specific values in the spec (should be mocked)
+```
+
+**Contract test fails but snapshot passes:**
+```bash
+# This means your routes don't match your schemas
+# Check that:
+# - Route handlers return data matching the Zod schemas
+# - Validation schemas are correctly registered in openapi.ts
+# - Response format is consistent
+```
+
+**Both tests fail:**
+```bash
+# This suggests a fundamental issue with the API changes
+# Review:
+# - Did you break existing routes?
+# - Are schema changes backward compatible?
+# - Did you update both the implementation and documentation?
+```
+
+### Related Files
+
+- `backend/test/openapi.snapshot.test.ts` - Snapshot test implementation
+- `backend/test/__snapshots__/openapi.snapshot.test.ts.snap` - Snapshot file
+- `backend/test/openapi.contract.test.ts` - Live-route validation test
+- `backend/src/docs/openapi.ts` - OpenAPI spec generation
+- `docs/openapi.generated.json` - Generated OpenAPI spec
 
 ---
 
