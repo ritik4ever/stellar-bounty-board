@@ -941,3 +941,22 @@ fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
     stats.bounty_count += 1;
     env.storage().persistent().set(&DataKey::FeeStats, &stats);
 }
+
+/// Atomically add `fee_amount` to the cumulative [`FeeStats`] in persistent storage.
+///
+/// Called after every payout (normal release and dispute-release). When `fee_amount`
+/// is zero the stats are still updated so that `bounty_count` always reflects the
+/// total number of released bounties, not just fee-paying ones.
+fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
+    let mut stats: FeeStats = env
+        .storage()
+        .persistent()
+        .get(&DataKey::FeeStats)
+        .unwrap_or(FeeStats {
+            total_collected: 0,
+            bounty_count: 0,
+        });
+    stats.total_collected += fee_amount;
+    stats.bounty_count += 1;
+    env.storage().persistent().set(&DataKey::FeeStats, &stats);
+}
