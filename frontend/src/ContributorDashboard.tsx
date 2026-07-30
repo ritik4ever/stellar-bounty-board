@@ -10,6 +10,7 @@ import {
 import { useWallet } from './hooks';
 import type { Bounty } from './types';
 import { getContributorMetrics } from './utils';
+import DisconnectConfirmModal from './DisconnectConfirmModal';
 
 function shortAddress(value: string): string {
   return `${value.slice(0, 6)}...${value.slice(-4)}`;
@@ -25,6 +26,7 @@ export default function ContributorDashboard({
   loading: loadingProp,
 }: ContributorDashboardProps) {
   const { address, isConnected, connect, disconnect } = useWallet();
+  const [showDisconnectModal, setShowDisconnectModal] = useState(false);
   const [fetchedBounties, setFetchedBounties] = useState<Bounty[]>([]);
   const [fetchLoading, setFetchLoading] = useState(bountiesProp === undefined);
 
@@ -98,7 +100,7 @@ export default function ContributorDashboard({
           {isConnected && address ? (
             <>
               <span className="wallet-chip">{shortAddress(address)}</span>
-              <button type="button" className="ghost-button" onClick={disconnect}>
+              <button type="button" className="ghost-button" onClick={() => setShowDisconnectModal(true)}>
                 Disconnect
               </button>
             </>
@@ -132,6 +134,16 @@ export default function ContributorDashboard({
         loading={loading && isConnected}
         walletConnected={isConnected}
       />
+
+      {showDisconnectModal && (
+        <DisconnectConfirmModal
+          onConfirm={() => {
+            disconnect();
+            setShowDisconnectModal(false);
+          }}
+          onClose={() => setShowDisconnectModal(false)}
+        />
+      )}
     </div>
   );
 }

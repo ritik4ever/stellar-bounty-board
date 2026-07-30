@@ -516,6 +516,13 @@ textarea {
   color: var(--muted);
 }
 
+.form-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 4px;
+}
+
 input,
 textarea {
   width: 100%;
@@ -1667,6 +1674,86 @@ select {
   }
 }
 
+/* ---- Disconnect confirmation modal ---- */
+
+.disconnect-modal {
+  border: none;
+  border-radius: 28px;
+  padding: 0;
+  background: var(--surface-strong);
+  box-shadow: 0 32px 100px rgba(60, 43, 17, 0.22);
+  max-width: 400px;
+  width: calc(100% - 32px);
+}
+
+.disconnect-modal::backdrop {
+  background: rgba(31, 36, 33, 0.48);
+  backdrop-filter: blur(4px);
+}
+
+.disconnect-modal__inner {
+  position: relative;
+  padding: 28px;
+  display: grid;
+  gap: 18px;
+}
+
+.disconnect-modal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.disconnect-modal__header h2 {
+  margin: 6px 0 0;
+  font-size: 1.4rem;
+}
+
+.disconnect-modal__body {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.disconnect-modal__actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+@media (max-width: 480px) {
+  .disconnect-modal__actions {
+    flex-direction: column-reverse;
+  }
+
+  .disconnect-modal__actions button {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+.primary-button--danger {
+  background: #d32f2f;
+  color: #fff;
+  border: none;
+}
+
+.primary-button--danger:hover {
+  background: #b71c1c;
+}
+
+[data-theme="dark"] .primary-button--danger {
+  background: #e53935;
+  color: #fff;
+}
+
+[data-theme="dark"] .primary-button--danger:hover {
+  background: #c62828;
+}
+
 /* ── Copy-to-clipboard ────────────────────────────────────────────────── */
 
 .copy-row {
@@ -2334,4 +2421,67 @@ select {
   color: #ff4d4d;
   font-weight: bold;
   opacity: 1;
+}
+
+/* ── Limit Order Form ─────────────────────────────────────────────────── */
+
+.lo-shell { max-width: 900px; margin: 0 auto; animation: rise 500ms ease-out; }
+.lo-header { margin-bottom: 24px; }
+.lo-heading { margin: 0 0 8px; font-size: 1.6rem; color: var(--ink); }
+.lo-subtitle { margin: 0; color: var(--muted); line-height: 1.55; }
+.lo-subtitle strong { color: var(--ink); }
+.lo-spot-label { font-size: 0.9rem; color: var(--muted); }
+.lo-spot-label strong { font-family: "IBM Plex Mono", monospace; color: var(--ink); }
+
+.lo-form { display: grid; gap: 18px; margin-bottom: 24px; }
+.lo-field { display: grid; gap: 8px; }
+.lo-field label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 0.9rem; }
+.lo-form__actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 4px; }
+
+.lo-presets { border: 1px solid rgba(54, 63, 59, 0.1); border-radius: 18px; padding: 16px; display: grid; gap: 12px; }
+.lo-presets__legend { font-family: "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: 0.1em; font-size: 11px; color: var(--muted); padding: 0 6px; }
+.lo-presets__group { display: grid; gap: 8px; }
+.lo-presets__label { font-size: 0.82rem; color: var(--muted); }
+.lo-presets__row { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.lo-orders-section { margin-top: 8px; }
+.lo-orders-heading { display: flex; align-items: center; gap: 10px; font-size: 1.15rem; margin: 0 0 16px; color: var(--ink); }
+
+.lo-table__wrapper {
+  overflow-x: auto; border-radius: 22px;
+  border: 1px solid var(--line); background: var(--surface);
+  backdrop-filter: blur(10px); box-shadow: var(--shadow);
+}
+.lo-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.lo-table thead th {
+  text-align: left; padding: 14px 16px;
+  font-family: "IBM Plex Mono", monospace; text-transform: uppercase;
+  letter-spacing: 0.08em; font-size: 11px; color: var(--muted);
+  border-bottom: 1px solid var(--line); white-space: nowrap;
+}
+.lo-table__row { border-bottom: 1px solid var(--line); transition: background-color 140ms ease; }
+.lo-table__row:last-child { border-bottom: none; }
+.lo-table__row:hover { background: var(--mint-soft); }
+.lo-table__row--skeleton { pointer-events: none; }
+.lo-table__row--skeleton:hover { background: transparent; }
+.lo-table__cell { padding: 14px 16px; white-space: nowrap; color: var(--ink); }
+.lo-table__cell--mono { font-family: "IBM Plex Mono", monospace; font-size: 0.85rem; }
+.lo-table__cell--muted { color: var(--muted); font-size: 0.85rem; }
+
+.lo-cancel-cell { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.lo-cancel-btn { display: inline-flex !important; align-items: center; gap: 6px; padding: 6px 12px !important; font-size: 0.82rem !important; }
+.lo-cancel-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none !important; }
+
+@keyframes lo-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.lo-spinner { animation: lo-spin 0.8s linear infinite; }
+
+@media (max-width: 640px) {
+  .lo-heading { font-size: 1.3rem; }
+  .lo-form { border-radius: 22px; padding: 20px; }
+  .lo-form__actions button { width: 100%; justify-content: center; }
+  .lo-table__wrapper { border-radius: 18px; }
+  .lo-table thead { display: none; }
+  .lo-table__row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 14px 16px; }
+  .lo-table__cell { padding: 4px 0; display: flex; flex-direction: column; gap: 2px; }
+  .lo-table__cell::before { content: attr(data-label); font-family: "IBM Plex Mono", monospace; text-transform: uppercase; font-size: 10px; color: var(--muted); letter-spacing: 0.06em; }
 }
