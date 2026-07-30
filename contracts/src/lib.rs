@@ -12,6 +12,17 @@ use soroban_sdk::{
 /// Semver string pulled from Cargo.toml at compile time.
 pub const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Minimum allowed bounty amount to prevent dust bounties.
+/// Default: 100 stroops (0.00001 XLM).
+/// This can be overridden by the contract admin via `set_min_bounty_amount`.
+pub const DEFAULT_MIN_BOUNTY_AMOUNT: i128 = 100;
+
+/// Minimum allowed per-bounty dispute window override (1 minute in seconds).
+pub const MIN_DISPUTE_WINDOW_OVERRIDE: u64 = 60;
+
+/// Maximum allowed per-bounty dispute window override (30 days in seconds).
+pub const MAX_DISPUTE_WINDOW_OVERRIDE: u64 = 2_592_000;
+
 #[contracttype]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BountyStatus {
@@ -38,6 +49,7 @@ pub struct Bounty {
     pub status: BountyStatus,
     pub protocol_fee_bps: u32, // stored per-bounty so the fee is locked in at creation time
     pub dispute_raised_at: u64,
+    pub dispute_window_override: Option<u64>,
 }
 
 /// Token allowlist configuration — restricts which SAC tokens can fund bounties
@@ -77,6 +89,8 @@ enum DataKey {
     DisputeWindow,
     /// Accumulated protocol fee statistics.
     FeeStats,
+    /// Minimum bounty amount required to prevent dust bounties.
+    MinBountyAmount,
     Admin,
     PendingArbiter,
     ArbiterRotationTimelock,
@@ -174,6 +188,7 @@ pub struct ArbiterRotationConfirmed {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ContractError {
     InvalidAmount,
+    AmountTooSmall,
     DeadlineMustBeInTheFuture,
     BountyNotOpen,
     BountyMustBeReserved,
@@ -189,6 +204,8 @@ pub enum ContractError {
     BountyNotFound,
     NotArbiter,
     DisputeWindowNotMet,
+    DisputeWindowOverrideTooSmall,
+    DisputeWindowOverrideTooLarge,
     NotAdmin,
     NoPendingArbiter,
     TimelockNotElapsed,
@@ -214,13 +231,15 @@ pub struct StellarBountyBoardContract;
 
 #[contractimpl]
 impl StellarBountyBoardContract {
-    // ─── Version ─────────────────────────────────────────────────────────────
+    // ─── Version ──────────────────────────────────────────────────────────────
     /// Returns the contract version as a semver string (e.g. "0.1.0").
     pub fn get_version(_env: Env) -> String {
         // We use _env because String::from_str needs it, but in future
         // Soroban SDK versions this may be optional for static strings.
         String::from_str(&_env, CONTRACT_VERSION)
     }
+
+    pub fn initialize(env: Env, fee_recipient: Address, arbiter: Address, dispute_window: u64) {
     
     pub fn initialize(env: Env, admin: Address, fee_recipient: Address, arbiter: Address, dispute_window: u64) {
         // Prevent re-initialization
@@ -237,6 +256,10 @@ impl StellarBountyBoardContract {
         env.storage()
             .persistent()
             .set(&DataKey::DisputeWindow, &dispute_window);
+        // Set default minimum bounty amount on initialization
+        env.storage()
+            .persistent()
+            .set(&DataKey::MinBountyAmount, &DEFAULT_MIN_BOUNTY_AMOUNT);
     }
 
     pub fn get_fee_recipient(env: Env) -> Address {
@@ -244,6 +267,37 @@ impl StellarBountyBoardContract {
             .persistent()
             .get(&DataKey::FeeRecipient)
             .unwrap_or_else(|| panic!("not initialized"))
+    }
+
+    /// Returns the current minimum bounty amount required to create a bounty.
+    /// If the contract has not been initialized, this will panic.
+    pub fn get_min_bounty_amount(env: Env) -> i128 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::MinBountyAmount)
+            .unwrap_or(DEFAULT_MIN_BOUNTY_AMOUNT)
+    }
+
+    /// Allows the arbiter to update the minimum bounty amount.
+    /// Only callable by the configured arbiter address.
+    pub fn set_min_bounty_amount(env: Env, new_min: i128) {
+        let arbiter: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Arbiter)
+            .unwrap_or_else(|| panic!("arbiter not set"));
+        arbiter.require_auth();
+
+        if new_min <= 0 {
+            panic_error(ContractError::InvalidAmount);
+        }
+        if new_min > MAX_BOUNTY_AMOUNT {
+            panic_error(ContractError::InvalidAmount);
+        }
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::MinBountyAmount, &new_min);
     }
 
     pub fn create_bounty(
@@ -256,11 +310,17 @@ impl StellarBountyBoardContract {
         title: String,
         deadline: u64,
         protocol_fee_bps: u32,
+        dispute_window_override: Option<u64>,
     ) -> u64 {
         maintainer.require_auth();
 
+        let min_amount = Self::get_min_bounty_amount(env.clone());
+
         if amount <= 0 || amount > MAX_BOUNTY_AMOUNT {
             panic_error(ContractError::InvalidAmount);
+        }
+        if amount < min_amount {
+            panic_error(ContractError::AmountTooSmall);
         }
         if deadline <= env.ledger().timestamp() {
             panic_error(ContractError::DeadlineMustBeInTheFuture);
@@ -271,6 +331,16 @@ impl StellarBountyBoardContract {
         }
         if protocol_fee_bps > 0 && !env.storage().persistent().has(&DataKey::FeeRecipient) {
             panic_error(ContractError::FeeRecipientNotSet);
+        }
+
+        // Validate dispute window override if provided
+        if let Some(override_value) = dispute_window_override {
+            if override_value < MIN_DISPUTE_WINDOW_OVERRIDE {
+                panic_error(ContractError::DisputeWindowOverrideTooSmall);
+            }
+            if override_value > MAX_DISPUTE_WINDOW_OVERRIDE {
+                panic_error(ContractError::DisputeWindowOverrideTooLarge);
+            }
         }
 
         let token_client = TokenClient::new(&env, &token);
@@ -296,6 +366,7 @@ impl StellarBountyBoardContract {
             status: BountyStatus::Open,
             protocol_fee_bps,
             dispute_raised_at: 0,
+            dispute_window_override,
         };
 
         env.storage()
@@ -383,7 +454,7 @@ impl StellarBountyBoardContract {
         let token_client = TokenClient::new(&env, &bounty.token);
         let contract_address = env.current_contract_address();
 
-        // ── Fee calculation ──────────────────────────────────────────────
+        // ── Fee calculation ───────────────────────────────────────────────────
         // Fee is deducted FROM the payout, never added on top.
         // fee_amount = floor(amount * protocol_fee_bps / 10_000)
         // net_payout = amount - fee_amount
@@ -409,7 +480,7 @@ impl StellarBountyBoardContract {
                 .unwrap_or_else(|| panic_error(ContractError::FeeRecipientNotSet));
             token_client.transfer(&contract_address, &fee_recipient, &fee_amount);
         }
-        // ────────────────────────────────────────────────────────────────
+        // ──────────────────────────────────────────────────────────────────────
 
         // Atomically update FeeStats
         accumulate_fee_stats(&env, fee_amount);
@@ -580,13 +651,17 @@ impl StellarBountyBoardContract {
             panic!("bounty not disputed");
         }
 
-        let dispute_window: u64 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::DisputeWindow)
-            .unwrap_or(0);
+        // Use per-bounty override if set, otherwise fall back to global default
+        let effective_dispute_window: u64 = bounty
+            .dispute_window_override
+            .unwrap_or_else(|| {
+                env.storage()
+                    .persistent()
+                    .get(&DataKey::DisputeWindow)
+                    .unwrap_or(0)
+            });
 
-        if env.ledger().timestamp() < bounty.dispute_raised_at + dispute_window {
+        if env.ledger().timestamp() < bounty.dispute_raised_at + effective_dispute_window {
             panic_error(ContractError::DisputeWindowNotMet);
         }
 
@@ -769,6 +844,18 @@ impl StellarBountyBoardContract {
             })
     }
 
+    /// Returns the effective dispute window for a bounty.
+    /// If the bounty has a per-bounty override, returns that value.
+    /// Otherwise returns the global DisputeWindow configured at initialization.
+    pub fn get_effective_dispute_window(env: Env, bounty_id: u64) -> u64 {
+        let bounty = read_bounty(&env, bounty_id);
+        bounty.dispute_window_override.unwrap_or_else(|| {
+            env.storage()
+                .persistent()
+                .get(&DataKey::DisputeWindow)
+                .unwrap_or(0)
+        })
+    }
     pub fn set_arbiter(env: Env, new_arbiter: Address) {
         let admin: Address = env
             .storage()
@@ -928,6 +1015,20 @@ pub fn remove_allowed_token(e: &Env, admin: Address, token: Address) {
 /// Called after every payout (normal release and dispute-release). When `fee_amount`
 /// is zero the stats are still updated so that `bounty_count` always reflects the
 /// total number of released bounties, not just fee-paying ones.
+fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
+    let mut stats: FeeStats = env
+        .storage()
+        .persistent()
+        .get(&DataKey::FeeStats)
+        .unwrap_or(FeeStats {
+            total_collected: 0,
+            bounty_count: 0,
+        });
+    stats.total_collected += fee_amount;
+    stats.bounty_count += 1;
+    env.storage().persistent().set(&DataKey::FeeStats, &stats);
+}
+
 fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
     let mut stats: FeeStats = env
         .storage()
