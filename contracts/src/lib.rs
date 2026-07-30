@@ -59,6 +59,7 @@ enum DataKey {
     DisputeWindow,
     /// Accumulated protocol fee statistics.
     FeeStats,
+    MaintainerBounties(Address),
 }
 
 #[contracttype]
@@ -256,6 +257,16 @@ impl StellarBountyBoardContract {
             protocol_fee_bps,
             dispute_raised_at: 0,
         };
+
+        let mut maintainer_bounties: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MaintainerBounties(maintainer.clone()))
+            .unwrap_or(Vec::new(&env));
+        maintainer_bounties.push_back(next_id);
+        env.storage()
+            .persistent()
+            .set(&DataKey::MaintainerBounties(maintainer.clone()), &maintainer_bounties);
 
         env.storage()
             .persistent()
@@ -611,13 +622,6 @@ impl StellarBountyBoardContract {
             .unwrap_or(0)
     }
 
-pub fn get_next_bounty_id(env: Env) -> u64 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::NextBountyId)
-            .unwrap_or(0)
-    }
-
     /// Read-only view function to enumerate bounties on-chain.
     pub fn get_all_bounties(env: Env, start: u64, limit: u32) -> Vec<Bounty> {
         let enforced_limit = if limit > 50 { 50 } else { limit };
@@ -665,7 +669,38 @@ pub fn get_next_bounty_id(env: Env) -> u64 {
                 bounty_count: 0,
             })
     }
-} main
+
+    /// Read-only view function to get bounties by a specific maintainer.
+    pub fn get_bounties_by_maintainer(env: Env, maintainer: Address, start: u32, limit: u32) -> Vec<Bounty> {
+        let enforced_limit = if limit > 50 { 50 } else { limit };
+        let mut result = Vec::new(&env);
+
+        let bounties: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MaintainerBounties(maintainer))
+            .unwrap_or(Vec::new(&env));
+
+        if start >= bounties.len() || enforced_limit == 0 {
+            return result;
+        }
+
+        let mut count = 0u32;
+        let mut i = start;
+        
+        while count < enforced_limit && i < bounties.len() {
+            let id = bounties.get(i).unwrap();
+            if env.storage().persistent().has(&DataKey::Bounty(id)) {
+                let mut bounty = read_bounty(&env, id);
+                expire_if_needed(&env, &mut bounty);
+                result.push_back(bounty);
+            }
+            i += 1;
+            count += 1;
+        }
+
+        result
+    }
 }
 
 fn read_bounty(env: &Env, bounty_id: u64) -> Bounty {

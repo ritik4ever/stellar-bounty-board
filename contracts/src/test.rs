@@ -988,11 +988,106 @@ fn test_dispute_after_deadline_fails() {
     let env = Env::default();
     env.mock_all_auths();
     
-    // Note: If your file already had setup code inside this test block above the conflict, 
-    // leave it intact. This makes sure the dispute test runs immediately after.
-    let (client, _, _, _, arbiter, bounty_id) = setup_test(&env);
+    let (client, maintainer, contributor, token_id, _, arbiter) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    let deadline = env.ledger().timestamp() + 1000;
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &deadline,
+        &0u32,
+    );
+    client.reserve_bounty(&bounty_id, &contributor);
+    client.submit_bounty(&bounty_id, &contributor);
     
+    env.ledger().set_timestamp(deadline + 1);
+
     // Dispute after deadline should fail
     client.dispute_bounty(&bounty_id, &arbiter);
-}>>>>>>> main
+}
+
+#[test]
+fn test_get_bounties_by_maintainer_zero() {
+    let env = Env::default();
+    let (client, _, _, _, _, _) = setup_test(&env);
+    let random_maintainer = Address::generate(&env);
+
+    let bounties = client.get_bounties_by_maintainer(&random_maintainer, &0u32, &10u32);
+    assert_eq!(bounties.len(), 0);
+}
+
+#[test]
+fn test_get_bounties_by_maintainer_one() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, maintainer, _, token_id, _, _) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    client.create_bounty(
+        &maintainer,
+        &token_id,
+        &100,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32,
+    );
+
+    let bounties = client.get_bounties_by_maintainer(&maintainer, &0u32, &10u32);
+    assert_eq!(bounties.len(), 1);
+    assert_eq!(bounties.get(0).unwrap().issue_number, 1);
+}
+
+#[test]
+fn test_get_bounties_by_maintainer_many() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, maintainer, _, token_id, _, _) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &10_000);
+
+    let other_maintainer = Address::generate(&env);
+    token_admin.mint(&other_maintainer, &10_000);
+
+    for i in 0..3 {
+        client.create_bounty(
+            &maintainer,
+            &token_id,
+            &100,
+            &String::from_str(&env, "repo"),
+            &(i + 1),
+            &String::from_str(&env, "title"),
+            &(env.ledger().timestamp() + 1000),
+            &0u32,
+        );
+    }
+
+    client.create_bounty(
+        &other_maintainer,
+        &token_id,
+        &100,
+        &String::from_str(&env, "repo"),
+        &10,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32,
+    );
+
+    let bounties = client.get_bounties_by_maintainer(&maintainer, &0u32, &10u32);
+    assert_eq!(bounties.len(), 3);
+    assert_eq!(bounties.get(0).unwrap().issue_number, 1);
+    assert_eq!(bounties.get(1).unwrap().issue_number, 2);
+    assert_eq!(bounties.get(2).unwrap().issue_number, 3);
+    
+    let other_bounties = client.get_bounties_by_maintainer(&other_maintainer, &0u32, &10u32);
+    assert_eq!(other_bounties.len(), 1);
+    assert_eq!(other_bounties.get(0).unwrap().issue_number, 10);
 }
