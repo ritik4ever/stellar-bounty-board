@@ -44,6 +44,30 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
+    - name: Extract metadata for frontend
+      id: meta-frontend
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=sha,prefix=sha-
+
+    - name: Extract metadata for backend
+      id: meta-backend
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=sha,prefix=sha-
+
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
       with:
@@ -62,10 +86,11 @@ jobs:
         context: ./frontend
         file: ./frontend/Dockerfile
         push: ${{ github.event_name != 'pull_request' }}
-        tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:${{ steps.meta.outputs.version }}
-        labels: ${{ steps.meta.outputs.labels }}
+        tags: ${{ steps.meta-frontend.outputs.tags }}
+        labels: ${{ steps.meta-frontend.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
 
     - name: Build and push Backend image
       uses: docker/build-push-action@v5
@@ -73,7 +98,63 @@ jobs:
         context: ./backend
         file: ./backend/Dockerfile
         push: ${{ github.event_name != 'pull_request' }}
-        tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend:${{ steps.meta.outputs.version }}
-        labels: ${{ steps.meta.outputs.labels }}
+        tags: ${{ steps.meta-backend.outputs.tags }}
+        labels: ${{ steps.meta-backend.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
+
+    - name: Install Syft
+      run: curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+      if: github.event_name != 'pull_request'
+
+    - name: Generate SBOM for root image
+      env:
+        TAGS: ${{ steps.meta.outputs.tags }}
+      run: syft "$(echo "$TAGS" | head -1)" -o spdx-json=sbom-root.spdx.json
+      if: github.event_name != 'pull_request'
+
+    - name: Generate SBOM for frontend image
+      env:
+        TAGS: ${{ steps.meta-frontend.outputs.tags }}
+      run: syft "$(echo "$TAGS" | head -1)" -o spdx-json=sbom-frontend.spdx.json
+      if: github.event_name != 'pull_request'
+
+    - name: Generate SBOM for backend image
+      env:
+        TAGS: ${{ steps.meta-backend.outputs.tags }}
+      run: syft "$(echo "$TAGS" | head -1)" -o spdx-json=sbom-backend.spdx.json
+      if: github.event_name != 'pull_request'
+
+    - name: Install Oras
+      run: |
+        VERSION="1.2.2"
+        curl -sL "https://github.com/oras-project/oras/releases/download/v${VERSION}/oras_${VERSION}_linux_amd64.tar.gz" | tar xz -C /usr/local/bin oras
+      if: github.event_name != 'pull_request'
+
+    - name: Push SBOMs to GHCR
+      env:
+        ROOT_TAGS: ${{ steps.meta.outputs.tags }}
+        FRONTEND_TAGS: ${{ steps.meta-frontend.outputs.tags }}
+        BACKEND_TAGS: ${{ steps.meta-backend.outputs.tags }}
+      run: |
+        ROOT_TAG=$(echo "$ROOT_TAGS" | head -1)
+        oras push "${ROOT_TAG}-sbom" \
+          --artifact-type application/spdx+json \
+          sbom-root.spdx.json:application/spdx+json
+        FRONTEND_TAG=$(echo "$FRONTEND_TAGS" | head -1)
+        oras push "${FRONTEND_TAG}-sbom" \
+          --artifact-type application/spdx+json \
+          sbom-frontend.spdx.json:application/spdx+json
+        BACKEND_TAG=$(echo "$BACKEND_TAGS" | head -1)
+        oras push "${BACKEND_TAG}-sbom" \
+          --artifact-type application/spdx+json \
+          sbom-backend.spdx.json:application/spdx+json
+      if: github.event_name != 'pull_request'
+
+    - name: Upload SBOMs as workflow artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: sbom
+        path: sbom-*.spdx.json
+      if: github.event_name != 'pull_request'

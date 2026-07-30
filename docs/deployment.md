@@ -241,6 +241,37 @@ docker run -d \
 
 ---
 
+## SBOM (Software Bill of Materials)
+
+Every published Docker image includes a generated SBOM listing its installed package dependencies.
+
+### Format
+
+SBOMs are generated in **SPDX JSON** format (ISO/IEC 5962) using [Syft](https://github.com/anchore/syft). This format captures OS-level packages (Alpine apk), language-level dependencies (npm), and image metadata.
+
+### Location
+
+SBOMs are accessible through two channels:
+
+1. **GitHub Actions artifacts** — every `docker-publish` workflow run (on `main` or tag push) uploads SBOMs as a downloadable artifact named `sbom`:
+   - `sbom-root.spdx.json` — root (multi-service) image
+   - `sbom-frontend.spdx.json` — frontend nginx image
+   - `sbom-backend.spdx.json` — backend Node.js image
+
+2. **GHCR OCI artifacts** — each SBOM is also pushed to the container registry as a separate OCI artifact tagged with the source image tag suffixed by `-sbom`:
+   - `ghcr.io/<org>/<repo>:<tag>-sbom` — root image SBOM
+   - `ghcr.io/<org>/<repo>-frontend:<tag>-sbom` — frontend image SBOM
+   - `ghcr.io/<org>/<repo>-backend:<tag>-sbom` — backend image SBOM
+
+   Pull an SBOM with `oras`:
+   ```bash
+   oras pull ghcr.io/<org>/<repo>:sha-<commit>-sbom
+   ```
+
+### Consumption
+
+Downstream consumers can use any SPDX-compatible tool (e.g., [grype](https://github.com/anchore/grype), [trivy](https://github.com/aquasecurity/trivy), [spdx-sbom-generator](https://github.com/SpdxSbomGenerator/spdx-sbom-generator)) to scan the SBOM for vulnerabilities or license compliance.
+
 ## Need Help?
 
 - Check the [ONBOARDING.md](../ONBOARDING.md) for local setup.
