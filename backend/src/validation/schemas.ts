@@ -2,7 +2,7 @@ import { extendZodWithOpenApi } from '@asteasolutions/zod-to-openapi';
 import { z } from 'zod';
 
 import { isValidStellarAddress, getTokenAddressMap } from '../utils';
-import { githubPrUrlSchema } from './prUrl';
+import { submissionUrlSchema, issueUrlSchema } from './urlParser';
 
 extendZodWithOpenApi(z);
 
@@ -47,12 +47,16 @@ export const createBountySchema = z
       .string()
       .trim()
       .regex(REPO_REGEX, 'Repo must look like owner/repository.')
-      .openapi({ example: 'owner/repo', description: 'GitHub repository in owner/repo format.' }),
+      .openapi({ example: 'owner/repo', description: 'Repository in owner/repo format.' }),
     issueNumber: z.coerce
       .number()
       .int()
       .positive('Issue number must be positive.')
-      .openapi({ example: 42, description: 'GitHub issue number this bounty is attached to.' }),
+      .openapi({ example: 42, description: 'Issue number this bounty is attached to.' }),
+    issueUrl: issueUrlSchema.optional().openapi({
+      example: 'https://github.com/owner/repo/issues/42',
+      description: 'Optional full URL to the issue on GitHub, GitLab, or Bitbucket.',
+    }),
     title: z
       .string()
       .trim()
@@ -127,18 +131,16 @@ export const reserveBountySchema = z
   })
   .openapi('ReserveBountyRequest');
 
-export const GITHUB_PR_URL_REGEX =
-  /^https:\/\/github\.com\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+\/pull\/\d+$/;
-
 export const submitBountySchema = z
   .object({
     contributor: stellarAccountSchema.openapi({
       description: 'Must match the contributor who reserved the bounty.',
     }),
 
-    submissionUrl: z.string().trim().url().openapi({
+    submissionUrl: submissionUrlSchema.openapi({
       example: 'https://github.com/owner/repo/pull/123',
-      description: 'GitHub pull request URL for the submission.',
+      description:
+        'Pull request, merge request, or pull request URL from GitHub, GitLab, or Bitbucket.',
     }),
 
     notes: z

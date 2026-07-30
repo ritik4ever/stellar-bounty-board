@@ -9,7 +9,7 @@ import { logStructured } from "../logger";
 import { getCache, type CacheAdapter } from "./cache";
  feat/concurrency-file-locking
 import { bountiesCreatedTotal, bountiesReleasedTotal } from "../metrics";
-import { validateGithubPrUrlForRepo } from "../validation/prUrl";
+import { validatePrUrlForRepo } from "../validation/prUrl";
 
 
 /**
@@ -806,7 +806,7 @@ export async function submitBounty(
       throw new Error("Only the reserved contributor can submit this bounty.");
     }
 
-    validateGithubPrUrlForRepo(submissionUrl, bounty.repo);
+    validatePrUrlForRepo(submissionUrl, bounty.repo);
 
     const now = nowInSeconds();
     const updated: BountyRecord = {

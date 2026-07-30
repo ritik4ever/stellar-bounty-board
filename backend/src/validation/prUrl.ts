@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  submissionUrlSchema,
+  extractRepoFromPrUrl,
+  parsePrUrl,
+} from "./urlParser";
 
 const GITHUB_PR_URL_REGEX = /^https:\/\/github\.com\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+\/pull\/\d+$/;
 
@@ -46,10 +51,22 @@ export function extractGithubPrRepo(submissionUrl: string): string | undefined {
 export function validateGithubPrUrlForRepo(submissionUrl: string, bountyRepo: string): void {
   githubPrUrlSchema.parse(submissionUrl);
 
-  // PR submissions must target the same GitHub owner/repo as the bounty so contributors cannot
-  // satisfy a bounty with an unrelated pull request URL.
   const prRepo = extractGithubPrRepo(submissionUrl);
   if (prRepo !== bountyRepo) {
+    throw new Error(`Submission URL repository must match bounty repo ${bountyRepo}.`);
+  }
+}
+
+export const prUrlSchema = submissionUrlSchema;
+
+export function validatePrUrlForRepo(submissionUrl: string, bountyRepo: string): void {
+  const repo = extractRepoFromPrUrl(submissionUrl);
+  if (!repo) {
+    throw new Error(
+      "Submission URL must be a valid GitHub pull request, GitLab merge request, or Bitbucket pull request URL."
+    );
+  }
+  if (repo !== bountyRepo) {
     throw new Error(`Submission URL repository must match bounty repo ${bountyRepo}.`);
   }
 }
