@@ -48,11 +48,11 @@ pub struct AllowlistConfig {
     pub allowed_tokens: Vec<Address>,
 }
 
-impl Default for AllowlistConfig {
-    fn default() -> Self {
+impl AllowlistConfig {
+    fn empty(env: &Env) -> Self {
         Self {
             enabled: false,
-            allowed_tokens: Vec::new(),
+            allowed_tokens: Vec::new(env),
         }
     }
 }
@@ -80,6 +80,7 @@ enum DataKey {
     Admin,
     PendingArbiter,
     ArbiterRotationTimelock,
+    AllowlistConfig,
 }
 
 #[contracttype]
@@ -192,6 +193,8 @@ pub enum ContractError {
     NotAdmin,
     NoPendingArbiter,
     TimelockNotElapsed,
+    FeeRecipientNotSet,
+    ArbiterNotSet,
 }
 
 /// Maximum allowed bounty amount: 10 billion XLM expressed in stroops
@@ -734,31 +737,6 @@ impl StellarBountyBoardContract {
     ///
     /// Returns a [`FeeStats`] with `total_collected = 0` and `bounty_count = 0`
     /// if no bounties have been released yet.
-
-    /// Returns all bounties assigned to a given contributor.
-    pub fn get_bounties_by_contributor(env: Env, contributor: Address, start: u64, limit: u32) -> Vec<Bounty> {
-        let enforced_limit = if limit > 50 { 50 } else { limit };
-        let mut result = Vec::new(&env);
-        let next_id = env.storage().persistent().get(&DataKey::NextBountyId).unwrap_or(0);
-        if start == 0 || start > next_id || enforced_limit == 0 {
-            return result;
-        }
-        let mut id = start;
-        let mut count = 0u32;
-        while count < enforced_limit && id <= next_id {
-            if env.storage().persistent().has(&DataKey::Bounty(id)) {
-                let mut bounty = read_bounty(&env, id);
-                expire_if_needed(&env, &mut bounty);
-                if bounty.contributor == Some(contributor.clone()) {
-                    result.push_back(bounty);
-                    count += 1;
-                }
-            }
-            id += 1;
-        }
-        result
-    }
-
     pub fn get_fee_stats(env: Env) -> FeeStats {
         env.storage()
             .persistent()
@@ -837,7 +815,6 @@ impl StellarBountyBoardContract {
             },
         );
     }
-} main
 }
 
 fn read_bounty(env: &Env, bounty_id: u64) -> Bounty {
@@ -860,6 +837,7 @@ fn expire_if_needed(env: &Env, bounty: &mut Bounty) {
     {
         bounty.status = BountyStatus::Expired;
     }
+}
 
 /// Check if a token is allowed to fund bounties
 fn is_token_allowed(e: &Env, token: &Address) -> bool {
@@ -881,7 +859,7 @@ pub fn set_allowlist_enabled(e: &Env, admin: Address, enabled: bool) {
     let mut config = e.storage()
         .instance()
         .get::<_, AllowlistConfig>(&DataKey::AllowlistConfig)
-        .unwrap_or_default();
+        .unwrap_or_else(|| AllowlistConfig::empty(e));
     config.enabled = enabled;
     e.storage().instance().set(&DataKey::AllowlistConfig, &config);
 }
@@ -892,9 +870,9 @@ pub fn add_allowed_token(e: &Env, admin: Address, token: Address) {
     let mut config = e.storage()
         .instance()
         .get::<_, AllowlistConfig>(&DataKey::AllowlistConfig)
-        .unwrap_or_default();
+        .unwrap_or_else(|| AllowlistConfig::empty(e));
     if !config.allowed_tokens.contains(&token) {
-        config.allowed_tokens.push(token);
+        config.allowed_tokens.push_back(token.clone());
         e.storage().instance().set(&DataKey::AllowlistConfig, &config);
         e.events().publish(
             (symbol_short!("allowlist"), symbol_short!("add")),
@@ -909,18 +887,15 @@ pub fn remove_allowed_token(e: &Env, admin: Address, token: Address) {
     let mut config = e.storage()
         .instance()
         .get::<_, AllowlistConfig>(&DataKey::AllowlistConfig)
-        .unwrap_or_default();
-    let before = config.allowed_tokens.len();
-    config.allowed_tokens.retain(|t| t != &token);
-    if config.allowed_tokens.len() < before {
+        .unwrap_or_else(|| AllowlistConfig::empty(e));
+    if let Some(index) = config.allowed_tokens.first_index_of(&token) {
+        config.allowed_tokens.remove(index);
         e.storage().instance().set(&DataKey::AllowlistConfig, &config);
         e.events().publish(
             (symbol_short!("allowlist"), symbol_short!("remove")),
             token,
         );
     }
-}
-
 }
 
 /// Atomically add `fee_amount` to the cumulative [`FeeStats`] in persistent storage.
