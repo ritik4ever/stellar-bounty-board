@@ -1,0 +1,40 @@
+name: OpenAPI Spec
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  generated-spec:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm --prefix backend ci
+
+      - name: Generate OpenAPI spec
+        run: npm run gen:openapi
+
+      - name: Check generated OpenAPI spec is committed
+        shell: bash
+        run: |
+          if ! git ls-files --error-unmatch docs/openapi.generated.json >/dev/null 2>&1; then
+            echo "::error::docs/openapi.generated.json is missing from the commit. Run npm run gen:openapi and commit the generated file."
+            exit 1
+          fi
+
+          if ! git diff --exit-code -- docs/openapi.generated.json; then
+            echo "::error::docs/openapi.generated.json is out of date. Run npm run gen:openapi and commit the updated file."
+            exit 1
+          fi

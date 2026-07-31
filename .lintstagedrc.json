@@ -1,0 +1,9 @@
+{
+  "frontend/src/**/*.{ts,tsx}": [
+
+    "prettier --write"
+  ],
+  "*.{json,md,yaml,yml}": ["prettier --write"],
+  "*.sol": ["forge fmt"],
+  "*.rs": ["rustfmt"]
+}

@@ -1,0 +1,12 @@
+[allowlist]
+  description = "Allow example/test keys in .env.example"
+  paths = [
+    ".env.example",
+    ".env.local.sample",
+  ]
+  regexes = [
+    # Stellar public keys (start with G)
+    "G[A-Z0-9]{55}",
+    # Soroban contract IDs
+    "C[A-Z0-9]{55}",
+  ]

@@ -1,0 +1,37 @@
+
+[1m[46m RUN [49m[22m [36mv3.2.6 [39m[90mC:/Users/DELL/Desktop/stellar-bounty-board/backend[39m
+
+ [31m├ù[39m test/concurrency.test.ts[2m > [22mBounty Reservation Concurrency[2m > [22mshould only allow one successful reservation when 20 requests are simultaneous[33m 401[2mms[22m[39m
+[31m   ΓåÆ Transform failed with 1 error:
+C:/Users/DELL/Desktop/stellar-bounty-board/backend/src/docs/openapi.ts:4:8: ERROR: Expected "as" but found "{"[39m
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Failed Tests 1 ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+
+ FAIL  test/concurrency.test.ts > Bounty Reservation Concurrency > should only allow one successful reservation when 20 requests are simultaneous
+Error: Transform failed with 1 error:
+C:/Users/DELL/Desktop/stellar-bounty-board/backend/src/docs/openapi.ts:4:8: ERROR: Expected "as" but found "{"
+  Plugin: vite:esbuild
+  File: C:/Users/DELL/Desktop/stellar-bounty-board/backend/src/docs/openapi.ts:4:8
+  
+  Expected "as" but found "{"
+  2  |  import { z } from "zod";
+  3  |  import {
+  4  |   import {
+     |          ^
+  5  |    bountyAuditLogListResponseSchema,
+  6  |    bountyAuditLogPaginationSchema,
+  
+ Γ¥» failureErrorWithLog node_modules/esbuild/lib/main.js:1748:15
+ Γ¥» node_modules/esbuild/lib/main.js:1017:50
+ Γ¥» responseCallbacks.<computed> node_modules/esbuild/lib/main.js:884:9
+ Γ¥» handleIncomingPacket node_modules/esbuild/lib/main.js:939:12
+ Γ¥» Socket.readFromStdout node_modules/esbuild/lib/main.js:862:7
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[1/1]ΓÄ»
+
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m   Start at [22m 10:33:43
+[2m   Duration [22m 4.76s[2m (transform 219ms, setup 0ms, collect 3.15s, tests 404ms, environment 0ms, prepare 300ms)[22m
+

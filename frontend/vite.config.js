@@ -1,0 +1,6 @@
+/// <reference types="vitest" />
+
+            },
+        },
+    });
+});

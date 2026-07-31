@@ -1,0 +1,47 @@
+{
+  "name": "stellar-bounty-board",
+  "version": "1.0.0",
+  "private": true,
+  "description": "GitHub issue bounty escrow MVP built on Stellar",
+  "scripts": {
+    "install:all": "npm --prefix backend install && npm --prefix frontend install",
+    "prepare": "node -e \"if (process.env.CI) process.exit(0); try { require('child_process').execFileSync('npx', ['husky', 'install'], { stdio: 'inherit' }); } catch { process.exit(0); }\"",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "gen:openapi": "npm --prefix backend run gen:openapi",
+    "gen:bindings": "bash scripts/gen-bindings.sh",
+    "build": "npm --prefix backend run build && npm --prefix frontend run build",
+    "typecheck": "npm --prefix backend run typecheck && npm --prefix frontend run typecheck",
+    "lint": "npm --prefix backend run lint && npm --prefix frontend run lint",
+    "lint:fix": "npm --prefix backend run lint:fix && npm --prefix frontend run lint:fix",
+    "test": "npm --prefix backend test",
+    "test:watch": "npm --prefix backend run test:watch",
+    "test:coverage": "npm --prefix backend run test:coverage",
+    "check:bindings": "bash scripts/gen-bindings.sh && git diff --exit-code frontend/src/generated"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@asteasolutions/zod-to-openapi": "^8.5.0",
+    "cors": "^2.8.6",
+    "express-rate-limit": "^8.4.1",
+    "swagger-ui-express": "^5.0.1",
+    "yaml": "^2.8.3",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express-rate-limit": "^5.1.3",
+    "@types/swagger-ui-express": "^4.1.8",
+    "@types/yaml": "^1.9.6",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "autocannon": "^8.0.0",
+    "eslint": "^8.57.0",
+    "eslint-import-resolver-typescript": "^3.10.1",
+    "eslint-plugin-import": "^2.32.0",
+    "husky": "^9.0.0",
+    "lint-staged": "^15.2.0",
+    "prettier": "^3.8.3",
+    "typescript": "^5.7.2"
+  }
+}

@@ -1,0 +1,144 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  backend:
+    name: Backend lint, type-check, test and coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
+
+      - name: Cache root and backend node_modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            backend/node_modules
+          key: ${{ runner.os }}-backend-node-modules-${{ hashFiles('package-lock.json', 'backend/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-backend-node-modules-
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install backend dependencies
+        run: npm ci --prefix backend
+
+      - name: TypeScript type-check backend
+        run: npm --prefix backend run typecheck
+
+      - name: ESLint backend
+        run: npm --prefix backend run lint
+
+      - name: Run backend tests
+        run: npm --prefix backend test
+
+      - name: Run backend coverage
+        run: npm --prefix backend run test:coverage
+
+      - name: Upload backend coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-coverage
+          path: backend/coverage
+
+  frontend:
+    name: Frontend lint, type-check and tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+
+      - name: Cache root and frontend node_modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            frontend/node_modules
+          key: ${{ runner.os }}-frontend-node-modules-${{ hashFiles('package-lock.json', 'frontend/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-frontend-node-modules-
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: TypeScript type-check frontend
+        run: npm --prefix frontend run typecheck
+
+      - name: ESLint frontend
+        run: npm --prefix frontend run lint
+
+      - name: Run frontend tests
+        run: npm --prefix frontend test
+
+      - name: Build Storybook
+        run: npm --prefix frontend run build-storybook
+
+  contract:
+    name: Contract audit and build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: wasm32-unknown-unknown
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            contracts/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --version "=0.21.2" --locked
+
+      - name: Cargo audit contract
+        run: cd contracts && cargo audit > ../contract-audit.log
+
+      - name: Upload contract audit artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: contract-audit
+          path: contract-audit.log
+
+      - name: Build Soroban contract
+        run: cd contracts && cargo build --target wasm32-unknown-unknown --release

@@ -1,0 +1,19 @@
+frontend:
+  - changed-files:
+      - any-glob-to-any-file: "frontend/**"
+
+backend:
+  - changed-files:
+      - any-glob-to-any-file: "backend/**"
+
+contracts:
+  - changed-files:
+      - any-glob-to-any-file: "contracts/**"
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "README.md"
+          - "CONTRIBUTING.md"
+          - "docs/**"
+

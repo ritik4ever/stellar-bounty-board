@@ -1,0 +1,28 @@
+
+[1m[46m RUN [49m[22m [36mv3.2.6 [39m[90mC:/Users/DELL/Desktop/stellar-bounty-board/backend[39m
+
+ [31m├ù[39m test/concurrency.test.ts[2m > [22mBounty Reservation Concurrency[2m > [22mshould only allow one successful reservation when 20 requests are simultaneous[33m 42306[2mms[22m[39m
+[31m   ΓåÆ (0 , createBountyCreationSignatureMiddleware) is not a function[39m
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Failed Tests 1 ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+
+ FAIL  test/concurrency.test.ts > Bounty Reservation Concurrency > should only allow one successful reservation when 20 requests are simultaneous
+TypeError: (0 , createBountyCreationSignatureMiddleware) is not a function
+ Γ¥» src/app.ts:400:3
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m   Start at [22m 10:44:01
+[2m   Duration [22m 43.86s[2m (transform 4.38s, setup 0ms, collect 425ms, tests 42.34s, environment 0ms, prepare 231ms)[22m
+
+    398|   '/api/bounties',
+    399|   mutationLimiter,
+    400|   createBountyCreationSignatureMiddleware(),
+       |   ^
+    401|   async (req: Request, res: Response) => {
+    402|     const parsed = createBountySchema.safeParse(req.body);
+ Γ¥» getApp test/concurrency.test.ts:35:19
+ Γ¥» test/concurrency.test.ts:41:17
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[1/1]ΓÄ»
+

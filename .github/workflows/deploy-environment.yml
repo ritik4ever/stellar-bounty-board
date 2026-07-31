@@ -1,0 +1,58 @@
+name: Deploy Environment Variables
+
+on:
+  push:
+    branches: [ main, develop ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+jobs:
+  deploy-env:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'staging' }}
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install Railway CLI
+      run: npm install -g @railway/cli
+
+    - name: Deploy to Railway
+      env:
+        RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      run: |
+        railway login --token $RAILWAY_TOKEN
+        railway environment --name ${{ github.event.inputs.environment || 'staging' }}
+        railway up --detach
+
+    - name: Update environment variables
+      env:
+        RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        STELLAR_NETWORK: ${{ secrets.STELLAR_NETWORK }}
+        STELLAR_HORIZON_URL: ${{ secrets.STELLAR_HORIZON_URL }}
+      run: |
+        railway variables set DATABASE_URL="$DATABASE_URL"
+        railway variables set STELLAR_NETWORK="$STELLAR_NETWORK"
+        railway variables set STELLAR_HORIZON_URL="$STELLAR_HORIZON_URL"
+        railway variables set NODE_ENV="${{ github.event.inputs.environment || 'staging' }}"
+
+    - name: Health check
+      run: |
+        sleep 30
+        curl -f ${{ secrets.HEALTH_CHECK_URL }} || exit 1

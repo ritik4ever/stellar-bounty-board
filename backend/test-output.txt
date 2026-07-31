@@ -1,0 +1,23 @@
+failed to load config from C:\Users\DELL\Desktop\stellar-bounty-board\backend\vitest.config.ts
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Startup Error ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+Error: Build failed with 1 error:
+
+[UNHANDLEABLE_ERROR] Something went wrong inside rolldown, please report this problem at https://github.com/rolldown/rolldown/issues.
+JSONError { path: "C:\\Users\\DELL\\Desktop\\stellar-bounty-board\\backend\\package.json", message: "trailing characters at line 56 column 1", line: 56, column: 1 }
+
+    at aggregateBindingErrorsIntoJsError (file:///C:/Users/DELL/AppData/Local/npm-cache/_npx/69c381f8ad94b576/node_modules/rolldown/dist/shared/error-B68YLzl3.mjs:48:18)
+    at unwrapBindingResult (file:///C:/Users/DELL/AppData/Local/npm-cache/_npx/69c381f8ad94b576/node_modules/rolldown/dist/shared/error-B68YLzl3.mjs:18:128)
+    at #build (file:///C:/Users/DELL/AppData/Local/npm-cache/_npx/69c381f8ad94b576/node_modules/rolldown/dist/shared/rolldown-build-DR0wzp0V.mjs:3256:34)
+    at async bundleConfigFile (file:///C:/Users/DELL/AppData/Local/npm-cache/_npx/69c381f8ad94b576/node_modules/vite/dist/node/chunks/node.js:35621:17)
+    at async bundleAndLoadConfigFile (file:///C:/Users/DELL/AppData/Local/npm-cache/_npx/69c381f8ad94b576/node_modules/vite/dist/node/chunks/node.js:35529:18)
+    at async loadConfigFromFile (file:///C:/Users/DELL/AppData/Local/npm-cache/_npx/69c381f8ad94b576/node_modules/vite/dist/node/chunks/node.js:35490:42)
+    at async resolveConfig (file:///C:/Users/DELL/AppData/Local/npm-cache/_npx/69c381f8ad94b576/node_modules/vite/dist/node/chunks/node.js:35106:22)
+    at async _createServer (file:///C:/Users/DELL/AppData/Local/npm-cache/_npx/69c381f8ad94b576/node_modules/vite/dist/node/chunks/node.js:25315:65)
+    at async createViteServer (file:///C:/Users/DELL/AppData/Local/npm-cache/_npx/69c381f8ad94b576/node_modules/vitest/dist/chunks/cli-api.24X8XwN1.js:8835:17)
+    at async createVitest (file:///C:/Users/DELL/AppData/Local/npm-cache/_npx/69c381f8ad94b576/node_modules/vitest/dist/chunks/cli-api.24X8XwN1.js:14221:18) {
+  errors: [Getter/Setter]
+}
+
+
+

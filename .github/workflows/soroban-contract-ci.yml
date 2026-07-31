@@ -1,0 +1,80 @@
+name: Soroban Contract CI
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  soroban:
+    name: "Soroban contract: clippy & test"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache rustup toolchains
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.rustup/toolchains
+          key: ${{ runner.os }}-rustup-toolchains
+          restore-keys: |
+            ${{ runner.os }}-rustup-toolchains
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache contracts target
+        uses: actions/cache@v4
+        with:
+          path: contracts/target
+          key: ${{ runner.os }}-cargo-target-${{ hashFiles('contracts/**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-target-
+
+      - name: Install Rust toolchain & wasm target
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: wasm32-unknown-unknown
+          components: clippy
+          profile: minimal
+          override: true
+
+      - name: Show Rust version
+        run: rustc --version
+
+      - name: Run cargo clippy
+        working-directory: contracts
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Run cargo test
+        working-directory: contracts
+        run: cargo test --all --verbose
+
+      - name: Build release wasm
+        working-directory: contracts
+        run: cargo build --release --target wasm32-unknown-unknown
+
+      - name: Report WASM size in summary
+        run: |
+          WASM_FILE=$(ls contracts/target/wasm32-unknown-unknown/release/*.wasm 2>/dev/null || true)
+          if [ -n "$WASM_FILE" ]; then
+            echo "### WASM binary size" >> $GITHUB_STEP_SUMMARY
+            SIZE=$(stat -c%s "$WASM_FILE")
+            echo "- File: $WASM_FILE" >> $GITHUB_STEP_SUMMARY
+            echo "- Size (bytes): $SIZE" >> $GITHUB_STEP_SUMMARY
+            GZ_SIZE=$(gzip -c "$WASM_FILE" | wc -c)
+            echo "- Gzipped (bytes): $GZ_SIZE" >> $GITHUB_STEP_SUMMARY
+            echo "WASM: $WASM_FILE ($SIZE bytes, $GZ_SIZE gzipped)"
+          else
+            echo "No wasm artifact found" >> $GITHUB_STEP_SUMMARY
+            echo "No wasm artifact found"
+            exit 1
+          fi

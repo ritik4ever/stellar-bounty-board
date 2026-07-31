@@ -1,0 +1,103 @@
+name: Weekly Load Test
+
+on:
+  schedule:
+    - cron: '0 0 * * 0' # Every Sunday at midnight
+  workflow_dispatch:
+
+jobs:
+  load-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install backend dependencies
+        run: npm --prefix backend install
+
+      - name: Build backend
+        run: npm --prefix backend run build
+
+      - name: Start backend
+        env:
+          BOUNTY_STORE_PATH: /tmp/bounties.json
+          BOUNTY_AUDIT_STORE_PATH: /tmp/bounties.audit.json
+          PORT: 3001
+        run: npm --prefix backend start &
+
+      - name: Wait for backend
+        run: npx --yes wait-on http://localhost:3001/api/health -t 30000
+
+      - name: Install autocannon
+        run: npm install -g autocannon
+
+      - name: Run load tests
+        run: |
+          autocannon -c 20 -d 30 -j http://localhost:3001/api/bounties > get-results.json
+          
+          # Use a JSON payload that conforms to the createBountySchema
+          JSON_PAYLOAD='{"repo":"ritik4ever/stellar-bounty-board","issueNumber":331,"title":"Load test","summary":"This is a load test generated bounty that must be at least twenty characters long.","maintainer":"GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF","tokenSymbol":"XLM","amount":100,"deadlineDays":7,"labels":["load-test"]}'
+          
+          autocannon -c 20 -d 30 -m POST -H "Content-Type: application/json" -b "$JSON_PAYLOAD" -j http://localhost:3001/api/bounties > post-results.json
+
+      - name: Analyze results
+        run: |
+          cat << 'EOF' > analyze.js
+          const fs = require('fs');
+
+          function analyze(file, name) {
+            const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+            const p99 = data.latency.p99;
+            const total = data.requests.sent;
+            const bad = data.errors + data.timeouts + data.non2xx;
+            const errorRate = total === 0 ? 0 : bad / total;
+
+            const summary = `
+          ### ${name} Load Test
+          - **Total Requests**: ${total}
+          - **P99 Latency**: ${p99} ms
+          - **Error Rate**: ${(errorRate * 100).toFixed(2)}%
+          `;
+            fs.appendFileSync('summary.md', summary);
+
+            let failed = false;
+            if (p99 > 500) {
+              console.error(`❌ ${name}: P99 latency ${p99}ms exceeds 500ms`);
+              failed = true;
+            }
+            if (errorRate > 0.01) {
+              console.error(`❌ ${name}: Error rate ${(errorRate * 100).toFixed(2)}% exceeds 1%`);
+              failed = true;
+            }
+            if (!failed) {
+              console.log(`✅ ${name} passed`);
+            }
+            return failed;
+          }
+
+          try {
+            fs.writeFileSync('summary.md', '## Load Test Summary\n');
+            const failGet = analyze('get-results.json', 'GET /api/bounties');
+            const failPost = analyze('post-results.json', 'POST /api/bounties');
+            if (failGet || failPost) {
+              process.exit(1);
+            }
+          } catch (e) {
+            console.error(e);
+            process.exit(1);
+          }
+          EOF
+          node analyze.js
+
+      - name: Upload Summary Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-test-summary
+          path: summary.md
+          retention-days: 7

@@ -1,0 +1,479 @@
+
+[1m[46m RUN [49m[22m [36mv3.2.6 [39m[90mC:/Users/DELL/Desktop/stellar-bounty-board/backend[39m
+
+ [32mΓ£ô[39m test/concurrency.test.ts[2m > [22mBounty Reservation Concurrency[2m > [22mshould only allow one successful reservation when 20 requests are simultaneous[33m 2466[2mms[22m[39m
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Unhandled Errors ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+
+Vitest caught 22 unhandled errors during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Uncaught Exception ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+TypeError: Cannot read properties of undefined (reading 'observe')
+ Γ¥» ServerResponse.<anonymous> src/app.ts:82:25
+     80|     const durationSec = durationMs / 1000;
+     81| 
+     82|     httpRequestDuration.observe(
+       |                         ^
+     83|       {
+     84|         method: req.method,
+ Γ¥» ServerResponse.emit node:events:521:24
+ Γ¥» onFinish node:_http_outgoing:1073:10
+ Γ¥» callback node:internal/streams/writable:766:21
+ Γ¥» afterWrite node:internal/streams/writable:710:5
+ Γ¥» afterWriteTick node:internal/streams/writable:696:10
+ Γ¥» processTicksAndRejections node:internal/process/task_queues:89:21
+
+This error originated in "test/concurrency.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "should only allow one successful reservation when 20 requests are simultaneous". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Uncaught Exception ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+TypeError: Cannot read properties of undefined (reading 'observe')
+ Γ¥» ServerResponse.<anonymous> src/app.ts:82:25
+     80|     const durationSec = durationMs / 1000;
+     81| 
+     82|     httpRequestDuration.observe(
+       |                         ^
+     83|       {
+     84|         method: req.method,
+ Γ¥» ServerResponse.emit node:events:521:24
+ Γ¥» onFinish node:_http_outgoing:1073:10
+ Γ¥» callback node:internal/streams/writable:766:21
+ Γ¥» afterWrite node:internal/streams/writable:710:5
+ Γ¥» afterWriteTick node:internal/streams/writable:696:10
+ Γ¥» processTicksAndRejections node:internal/process/task_queues:89:21
+
+This error originated in "test/concurrency.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "should only allow one successful reservation when 20 requests are simultaneous". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Uncaught Exception ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+TypeError: Cannot read properties of undefined (reading 'observe')
+ Γ¥» ServerResponse.<anonymous> src/app.ts:82:25
+     80|     const durationSec = durationMs / 1000;
+     81| 
+     82|     httpRequestDuration.observe(
+       |                         ^
+     83|       {
+     84|         method: req.method,
+ Γ¥» ServerResponse.emit node:events:521:24
+ Γ¥» onFinish node:_http_outgoing:1073:10
+ Γ¥» callback node:internal/streams/writable:766:21
+ Γ¥» afterWrite node:internal/streams/writable:710:5
+ Γ¥» afterWriteTick node:internal/streams/writable:696:10
+ Γ¥» processTicksAndRejections node:internal/process/task_queues:89:21
+
+This error originated in "test/concurrency.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "should only allow one successful reservation when 20 requests are simultaneous". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Uncaught Exception ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+TypeError: Cannot read properties of undefined (reading 'observe')
+ Γ¥» ServerResponse.<anonymous> src/app.ts:82:25
+     80|     const durationSec = durationMs / 1000;
+     81| 
+     82|     httpRequestDuration.observe(
+       |                         ^
+     83|       {
+     84|         method: req.method,
+ Γ¥» ServerResponse.emit node:events:521:24
+ Γ¥» onFinish node:_http_outgoing:1073:10
+ Γ¥» callback node:internal/streams/writable:766:21
+ Γ¥» afterWrite node:internal/streams/writable:710:5
+ Γ¥» afterWriteTick node:internal/streams/writable:696:10
+ Γ¥» processTicksAndRejections node:internal/process/task_queues:89:21
+
+This error originated in "test/concurrency.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "should only allow one successful reservation when 20 requests are simultaneous". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Uncaught Exception ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+TypeError: Cannot read properties of undefined (reading 'observe')
+ Γ¥» ServerResponse.<anonymous> src/app.ts:82:25
+     80|     const durationSec = durationMs / 1000;
+     81| 
+     82|     httpRequestDuration.observe(
+       |                         ^
+     83|       {
+     84|         method: req.method,
+ Γ¥» ServerResponse.emit node:events:521:24
+ Γ¥» onFinish node:_http_outgoing:1073:10
+ Γ¥» callback node:internal/streams/writable:766:21
+ Γ¥» afterWrite node:internal/streams/writable:710:5
+ Γ¥» afterWriteTick node:internal/streams/writable:696:10
+ Γ¥» processTicksAndRejections node:internal/process/task_queues:89:21
+
+This error originated in "test/concurrency.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "should only allow one successful reservation when 20 requests are simultaneous". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Uncaught Exception ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+TypeError: Cannot read properties of undefined (reading 'observe')
+ Γ¥» ServerResponse.<anonymous> src/app.ts:82:25
+     80|     const durationSec = durationMs / 1000;
+     81| 
+     82|     httpRequestDuration.observe(
+       |                         ^
+     83|       {
+     84|         method: req.method,
+ Γ¥» ServerResponse.emit node:events:521:24
+ Γ¥» onFinish node:_http_outgoing:1073:10
+ Γ¥» callback node:internal/streams/writable:766:21
+ Γ¥» afterWrite node:internal/streams/writable:710:5
+ Γ¥» afterWriteTick node:internal/streams/writable:696:10
+ Γ¥» processTicksAndRejections node:internal/process/task_queues:89:21
+
+This error originated in "test/concurrency.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "should only allow one successful reservation when 20 requests are simultaneous". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Uncaught Exception ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+TypeError: Cannot read properties of undefined (reading 'observe')
+ Γ¥» ServerResponse.<anonymous> src/app.ts:82:25
+     80|     const durationSec = durationMs / 1000;
+     81| 
+     82|     httpRequestDuration.observe(
+       |                         ^
+     83|       {
+     84|         method: req.method,
+ Γ¥» ServerResponse.emit node:events:521:24
+ Γ¥» onFinish node:_http_outgoing:1073:10
+ Γ¥» callback node:internal/streams/writable:766:21
+ Γ¥» afterWrite node:internal/streams/writable:710:5
+ Γ¥» afterWriteTick node:internal/streams/writable:696:10
+ Γ¥» processTicksAndRejections node:internal/process/task_queues:89:21
+
+This error originated in "test/concurrency.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "should only allow one successful reservation when 20 requests are simultaneous". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Uncaught Exception ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+TypeError: Cannot read properties of undefined (reading 'observe')
+ Γ¥» ServerResponse.<anonymous> src/app.ts:82:25
+     80|     const durationSec = durationMs / 1000;
+     81| 
+     82|     httpRequestDuration.observe(
+       |                         ^
+     83|       {
+     84|         method: req.method,
+ Γ¥» ServerResponse.emit node:events:521:24
+ Γ¥» onFinish node:_http_outgoing:1073:10
+ Γ¥» callback node:internal/streams/writable:766:21
+ Γ¥» afterWrite node:internal/streams/writable:710:5
+ Γ¥» afterWriteTick node:internal/streams/writable:696:10
+ Γ¥» processTicksAndRejections node:internal/process/task_queues:89:21
+
+This error originated in "test/concurrency.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "should only allow one successful reservation when 20 requests are simultaneous". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Uncaught Exception ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+TypeError: Cannot read properties of undefined (reading 'observe')
+ Γ¥» ServerResponse.<anonymous> src/app.ts:82:25
+     80|     const durationSec = durationMs / 1000;
+     81| 
+     82|     httpRequestDuration.observe(
+       |                         ^
+     83|       {
+     84|         method: req.method,
+ Γ¥» ServerResponse.emit node:events:521:24
+ Γ¥» onFinish node:_http_outgoing:1073:10
+ Γ¥» callback node:internal/streams/writable:766:21
+ Γ¥» afterWrite node:internal/streams/writable:710:5
+ Γ¥» afterWriteTick node:internal/streams/writable:696:10
+ Γ¥» processTicksAndRejections node:internal/process/task_queues:89:21
+
+This error originated in "test/concurrency.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "should only allow one successful reservation when 20 requests are simultaneous". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Uncaught Exception ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+TypeError: Cannot read properties of undefined (reading 'observe')
+ Γ¥» ServerResponse.<anonymous> src/app.ts:82:25
+     80|     const durationSec = durationMs / 1000;
+     81| 
+     82|     httpRequestDuration.observe(
+       |                         ^
+     83|       {
+     84|         method: req.method,
+ Γ¥» ServerResponse.emit node:events:521:24
+ Γ¥» onFinish node:_http_outgoing:1073:10
+ Γ¥» callback node:internal/streams/writable:766:21
+ Γ¥» afterWrite node:internal/streams/writable:710:5
+ Γ¥» afterWriteTick node:internal/streams/writable:696:10
+ Γ¥» processTicksAndRejections node:internal/process/task_queues:89:21
+
+This error originated in "test/concurrency.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "should only allow one successful reservation when 20 requests are simultaneous". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Uncaught Exception ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+TypeError: Cannot read properties of undefined (reading 'observe')
+ Γ¥» ServerResponse.<anonymous> src/app.ts:82:25
+     80|     const durationSec = durationMs / 1000;
+     81| 
+     82|     httpRequestDuration.observe(
+       |                         ^
+     83|       {
+     84|         method: req.method,
+ Γ¥» ServerResponse.emit node:events:521:24
+ Γ¥» onFinish node:_http_outgoing:1073:10
+ Γ¥» callback node:internal/streams/writable:766:21
+ Γ¥» afterWrite node:internal/streams/writable:710:5
+ Γ¥» afterWriteTick node:internal/streams/writable:696:10
+ Γ¥» processTicksAndRejections node:internal/process/task_queues:89:21
+
+This error originated in "test/concurrency.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "should only allow one successful reservation when 20 requests are simultaneous". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Uncaught Exception ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+TypeError: Cannot read properties of undefined (reading 'observe')
+ Γ¥» ServerResponse.<anonymous> src/app.ts:82:25
+     80|     const durationSec = durationMs / 1000;
+     81| 
+     82|     httpRequestDuration.observe(
+       |                         ^
+     83|       {
+     84|         method: req.method,
+ Γ¥» ServerResponse.emit node:events:521:24
+ Γ¥» onFinish node:_http_outgoing:1073:10
+ Γ¥» callback node:internal/streams/writable:766:21
+ Γ¥» afterWrite node:internal/streams/writable:710:5
+ Γ¥» afterWriteTick node:internal/streams/writable:696:10
+ Γ¥» processTicksAndRejections node:internal/process/task_queues:89:21
+
+This error originated in "test/concurrency.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "should only allow one successful reservation when 20 requests are simultaneous". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Uncaught Exception ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+TypeError: Cannot read properties of undefined (reading 'observe')
+ Γ¥» ServerResponse.<anonymous> src/app.ts:82:25
+     80|     const durationSec = durationMs / 1000;
+     81| 
+     82|     httpRequestDuration.observe(
+       |                         ^
+     83|       {
+     84|         method: req.method,
+ Γ¥» ServerResponse.emit node:events:521:24
+ Γ¥» onFinish node:_http_outgoing:1073:10
+ Γ¥» callback node:internal/streams/writable:766:21
+ Γ¥» afterWrite node:internal/streams/writable:710:5
+ Γ¥» afterWriteTick node:internal/streams/writable:696:10
+ Γ¥» processTicksAndRejections node:internal/process/task_queues:89:21
+
+This error originated in "test/concurrency.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "should only allow one successful reservation when 20 requests are simultaneous". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Uncaught Exception ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+TypeError: Cannot read properties of undefined (reading 'observe')
+ Γ¥» ServerResponse.<anonymous> src/app.ts:82:25
+     80|     const durationSec = durationMs / 1000;
+     81| 
+     82|     httpRequestDuration.observe(
+       |                         ^
+     83|       {
+     84|         method: req.method,
+ Γ¥» ServerResponse.emit node:events:521:24
+ Γ¥» onFinish node:_http_outgoing:1073:10
+ Γ¥» callback node:internal/streams/writable:766:21
+ Γ¥» afterWrite node:internal/streams/writable:710:5
+ Γ¥» afterWriteTick node:internal/streams/writable:696:10
+ Γ¥» processTicksAndRejections node:internal/process/task_queues:89:21
+
+This error originated in "test/concurrency.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "should only allow one successful reservation when 20 requests are simultaneous". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Uncaught Exception ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+TypeError: Cannot read properties of undefined (reading 'observe')
+ Γ¥» ServerResponse.<anonymous> src/app.ts:82:25
+     80|     const durationSec = durationMs / 1000;
+     81| 
+     82|     httpRequestDuration.observe(
+       |                         ^
+     83|       {
+     84|         method: req.method,
+ Γ¥» ServerResponse.emit node:events:521:24
+ Γ¥» onFinish node:_http_outgoing:1073:10
+ Γ¥» callback node:internal/streams/writable:766:21
+ Γ¥» afterWrite node:internal/streams/writable:710:5
+ Γ¥» afterWriteTick node:internal/streams/writable:696:10
+ Γ¥» processTicksAndRejections node:internal/process/task_queues:89:21
+
+This error originated in "test/concurrency.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "should only allow one successful reservation when 20 requests are simultaneous". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Uncaught Exception ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+TypeError: Cannot read properties of undefined (reading 'observe')
+ Γ¥» ServerResponse.<anonymous> src/app.ts:82:25
+     80|     const durationSec = durationMs / 1000;
+     81| 
+     82|     httpRequestDuration.observe(
+       |                         ^
+     83|       {
+     84|         method: req.method,
+ Γ¥» ServerResponse.emit node:events:521:24
+ Γ¥» onFinish node:_http_outgoing:1073:10
+ Γ¥» callback node:internal/streams/writable:766:21
+ Γ¥» afterWrite node:internal/streams/writable:710:5
+ Γ¥» afterWriteTick node:internal/streams/writable:696:10
+ Γ¥» processTicksAndRejections node:internal/process/task_queues:89:21
+
+This error originated in "test/concurrency.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "should only allow one successful reservation when 20 requests are simultaneous". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Uncaught Exception ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+TypeError: Cannot read properties of undefined (reading 'observe')
+ Γ¥» ServerResponse.<anonymous> src/app.ts:82:25
+     80|     const durationSec = durationMs / 1000;
+     81| 
+     82|     httpRequestDuration.observe(
+       |                         ^
+     83|       {
+     84|         method: req.method,
+ Γ¥» ServerResponse.emit node:events:521:24
+ Γ¥» onFinish node:_http_outgoing:1073:10
+ Γ¥» callback node:internal/streams/writable:766:21
+ Γ¥» afterWrite node:internal/streams/writable:710:5
+ Γ¥» afterWriteTick node:internal/streams/writable:696:10
+ Γ¥» processTicksAndRejections node:internal/process/task_queues:89:21
+
+This error originated in "test/concurrency.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "should only allow one successful reservation when 20 requests are simultaneous". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Uncaught Exception ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+TypeError: Cannot read properties of undefined (reading 'observe')
+ Γ¥» ServerResponse.<anonymous> src/app.ts:82:25
+     80|     const durationSec = durationMs / 1000;
+     81| 
+     82|     httpRequestDuration.observe(
+       |                         ^
+     83|       {
+     84|         method: req.method,
+ Γ¥» ServerResponse.emit node:events:521:24
+ Γ¥» onFinish node:_http_outgoing:1073:10
+ Γ¥» callback node:internal/streams/writable:766:21
+ Γ¥» afterWrite node:internal/streams/writable:710:5
+ Γ¥» afterWriteTick node:internal/streams/writable:696:10
+ Γ¥» processTicksAndRejections node:internal/process/task_queues:89:21
+
+This error originated in "test/concurrency.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "should only allow one successful reservation when 20 requests are simultaneous". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Uncaught Exception ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+TypeError: Cannot read properties of undefined (reading 'observe')
+ Γ¥» ServerResponse.<anonymous> src/app.ts:82:25
+     80|     const durationSec = durationMs / 1000;
+     81| 
+     82|     httpRequestDuration.observe(
+       |                         ^
+     83|       {
+     84|         method: req.method,
+ Γ¥» ServerResponse.emit node:events:521:24
+ Γ¥» onFinish node:_http_outgoing:1073:10
+ Γ¥» callback node:internal/streams/writable:766:21
+ Γ¥» afterWrite node:internal/streams/writable:710:5
+ Γ¥» afterWriteTick node:internal/streams/writable:696:10
+ Γ¥» processTicksAndRejections node:internal/process/task_queues:89:21
+
+This error originated in "test/concurrency.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "should only allow one successful reservation when 20 requests are simultaneous". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Uncaught Exception ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+TypeError: Cannot read properties of undefined (reading 'observe')
+ Γ¥» ServerResponse.<anonymous> src/app.ts:82:25
+     80|     const durationSec = durationMs / 1000;
+     81| 
+     82|     httpRequestDuration.observe(
+       |                         ^
+     83|       {
+     84|         method: req.method,
+ Γ¥» ServerResponse.emit node:events:521:24
+ Γ¥» onFinish node:_http_outgoing:1073:10
+ Γ¥» callback node:internal/streams/writable:766:21
+ Γ¥» afterWrite node:internal/streams/writable:710:5
+ Γ¥» afterWriteTick node:internal/streams/writable:696:10
+ Γ¥» processTicksAndRejections node:internal/process/task_queues:89:21
+
+This error originated in "test/concurrency.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "should only allow one successful reservation when 20 requests are simultaneous". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Uncaught Exception ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+TypeError: Cannot read properties of undefined (reading 'observe')
+ Γ¥» ServerResponse.<anonymous> src/app.ts:82:25
+     80|     const durationSec = durationMs / 1000;
+     81| 
+     82|     httpRequestDuration.observe(
+       |                         ^
+     83|       {
+     84|         method: req.method,
+ Γ¥» ServerResponse.emit node:events:521:24
+ Γ¥» onFinish node:_http_outgoing:1073:10
+ Γ¥» callback node:internal/streams/writable:766:21
+ Γ¥» afterWrite node:internal/streams/writable:710:5
+ Γ¥» afterWriteTick node:internal/streams/writable:696:10
+ Γ¥» processTicksAndRejections node:internal/process/task_queues:89:21
+
+This error originated in "test/concurrency.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "should only allow one successful reservation when 20 requests are simultaneous". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Uncaught Exception ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+TypeError: Cannot read properties of undefined (reading 'observe')
+ Γ¥» ServerResponse.<anonymous> src/app.ts:82:25
+     80|     const durationSec = durationMs / 1000;
+     81| 
+     82|     httpRequestDuration.observe(
+       |                         ^
+     83|       {
+     84|         method: req.method,
+ Γ¥» ServerResponse.emit node:events:521:24
+ Γ¥» onFinish node:_http_outgoing:1073:10
+ Γ¥» callback node:internal/streams/writable:766:21
+ Γ¥» afterWrite node:internal/streams/writable:710:5
+ Γ¥» afterWriteTick node:internal/streams/writable:696:10
+ Γ¥» processTicksAndRejections node:internal/process/task_queues:89:21
+
+This error originated in "test/concurrency.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "should only allow one successful reservation when 20 requests are simultaneous". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m     Errors [22m [1m[31m22 errors[39m[22m
+[2m   Start at [22m 11:12:24
+[2m   Duration [22m 3.98s[2m (transform 688ms, setup 0ms, collect 517ms, tests 2.47s, environment 0ms, prepare 289ms)[22m
+

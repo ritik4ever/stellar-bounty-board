@@ -1,0 +1,992 @@
+
+[1m[46m RUN [49m[22m [36mv3.2.6 [39m[90mC:/Users/DELL/Desktop/stellar-bounty-board/backend[39m
+
+[2026-06-27 11:25:08.056 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "39ac4d1b-1dd9-4f96-9bef-168456ee66b5"
+    [35mmethod[39m: "GET"
+    [35mpath[39m: "/api/health"
+    [35mstatus[39m: 200
+    [35mdurationMs[39m: 7.794
+[2026-06-27 11:25:08.168 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "4ed8aabd-c85a-44a5-b139-abe659246da5"
+    [35mmethod[39m: "GET"
+    [35mpath[39m: "/api/health"
+    [35mstatus[39m: 200
+    [35mdurationMs[39m: 14.953
+[2026-06-27 11:25:08.333 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "7714be28-be2a-44c0-981c-14ef5d7c6744"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties"
+    [35mstatus[39m: 400
+    [35mdurationMs[39m: 43.565
+ [31mΓ¥»[39m test/api.test.ts [2m([22m[2m37 tests[22m[2m | [22m[31m36 failed[39m[2m)[22m[33m 4390[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m API ΓÇö health and listing[2m > [22mGET /api/health returns ok [33m 2752[2mms[22m[39m
+[31m   [31m├ù[31m API ΓÇö health and listing[2m > [22mGET /api/bounties returns data array[39m[32m 104[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m API ΓÇö health and listing[2m > [22mGET /api/open-issues returns data[39m[32m 77[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m API ΓÇö bounty list deadline filters[2m > [22mdeadlineBefore and deadlineAfter accept ISO 8601 strings[39m[32m 47[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m API ΓÇö bounty list deadline filters[2m > [22minvalid date string returns 400[39m[32m 48[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m API ΓÇö bounty list deadline filters[2m > [22mdeadlineBefore filters correctly[39m[32m 49[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m API ΓÇö bounty list deadline filters[2m > [22mdeadlineAfter filters correctly[39m[32m 54[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m API ΓÇö bounty list deadline filters[2m > [22mdeadlineBefore and deadlineAfter combined with AND logic[39m[32m 43[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m API ΓÇö bounty list deadline filters[2m > [22mdeadline filters combined with q filter[39m[32m 38[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m API ΓÇö admin audit log endpoint[2m > [22mGET /api/audit-log returns all audit logs[39m[32m 35[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m API ΓÇö admin audit log endpoint[2m > [22mGET /api/audit-log filters by actor[39m[32m 41[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m API ΓÇö admin audit log endpoint[2m > [22mGET /api/audit-log filters by transition[39m[32m 42[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m API ΓÇö admin audit log endpoint[2m > [22mGET /api/audit-log uses combined filters[39m[32m 41[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m API ΓÇö bounty lifecycle routes[2m > [22mPOST /api/bounties creates and GET lists it[39m[32m 44[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m API ΓÇö bounty lifecycle routes[2m > [22mPOST create with invalid body returns 400[39m[32m 65[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m API ΓÇö bounty lifecycle routes[2m > [22mPOST create with amount below 1 XLM returns 400[39m[32m 66[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m API ΓÇö bounty lifecycle routes[2m > [22mPOST create with amount above 10000 XLM returns 400[39m[32m 52[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m API ΓÇö bounty lifecycle routes[2m > [22mPOST create with more than 7 decimal places returns 400[39m[32m 89[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m API ΓÇö bounty lifecycle routes[2m > [22mPOST create with exactly 7 decimal places succeeds[39m[32m 53[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m API ΓÇö bounty lifecycle routes[2m > [22mPOST create with 1 XLM succeeds[39m[32m 52[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m API ΓÇö bounty lifecycle routes[2m > [22mPOST create with 10000 XLM succeeds[39m[32m 37[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m API ΓÇö bounty lifecycle routes[2m > [22mreserve ΓåÆ submit ΓåÆ release flow via HTTP[39m[32m 32[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m API ΓÇö bounty lifecycle routes[2m > [22mfull bounty lifecycle: create ΓåÆ reserve ΓåÆ submit ΓåÆ release with detailed assertions[39m[32m 50[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m API ΓÇö bounty lifecycle routes[2m > [22mGET /api/bounties/:id/audit-logs supports pagination[39m[32m 38[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m API ΓÇö bounty lifecycle routes[2m > [22mGET /api/bounties/:id/audit-logs validates query params[39m[32m 29[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m API ΓÇö bounty lifecycle routes[2m > [22mGET /api/bounties/released/export.csv returns CSV export[39m[32m 31[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m API ΓÇö bounty lifecycle routes[2m > [22mPOST /api/bounties/:id/refund returns refunded bounty[39m[32m 47[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m API ΓÇö bounty lifecycle routes[2m > [22minvalid reserve body returns 400[39m[32m 27[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m API ΓÇö bounty lifecycle routes[2m > [22mdomain errors from store return 400 with message[39m[32m 30[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m API ΓÇö bounty lifecycle routes[2m > [22mwrong maintainer on release returns 400[39m[32m 49[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m API ΓÇö bounty lifecycle routes[2m > [22munknown bounty id returns 400 with not found[39m[32m 32[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m GET /api/leaderboard[2m > [22mreturns empty array when no bounties exist[39m[32m 26[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m GET /api/leaderboard[2m > [22mreturns empty array when bounties exist but none are released[39m[32m 25[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m GET /api/leaderboard[2m > [22mreturns contributor after a bounty is released[39m[32m 41[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m GET /api/leaderboard[2m > [22maggregates multiple released bounties for the same contributor[39m[32m 44[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m GET /api/leaderboard[2m > [22mranks higher XLM earner first[39m[32m 28[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m GET /api/leaderboard[2m > [22meach entry has address, totalXlm, and bountiesCompleted fields[39m[32m 25[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+ [31mΓ¥»[39m test/bountyStore.test.ts [2m([22m[2m16 tests[22m[2m | [22m[31m3 failed[39m[2m)[22m[33m 2312[2mms[22m[39m
+   [32mΓ£ô[39m bountyStore lifecycle ΓÇö happy paths[2m > [22mcreate ΓåÆ reserve ΓåÆ submit ΓåÆ release[32m 272[2mms[22m[39m
+   [32mΓ£ô[39m bountyStore lifecycle ΓÇö happy paths[2m > [22mcreate ΓåÆ refund from open[32m 95[2mms[22m[39m
+   [32mΓ£ô[39m bountyStore lifecycle ΓÇö happy paths[2m > [22mcreate ΓåÆ reserve ΓåÆ refund[32m 81[2mms[22m[39m
+[31m   [31m├ù[31m bountyStore lifecycle ΓÇö happy paths[2m > [22maudit log pagination returns stable slices[39m[32m 173[2mms[22m[39m
+[31m     ΓåÆ expected [] to have a length of 2 but got +0[39m
+   [32mΓ£ô[39m bountyStore ΓÇö expiration via normalizeRecords[2m > [22mmarks open bounties past deadline as expired when listed[32m 62[2mms[22m[39m
+   [32mΓ£ô[39m bountyStore ΓÇö expiration via normalizeRecords[2m > [22mmarks reserved bounties past deadline as expired when listed[32m 76[2mms[22m[39m
+   [32mΓ£ô[39m bountyStore ΓÇö invalid transitions and errors[2m > [22mthrows when bounty id is missing[32m 85[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m bountyStore ΓÇö invalid transitions and errors[2m > [22mreserve: rejects non-open statuses [33m 331[2mms[22m[39m
+   [32mΓ£ô[39m bountyStore ΓÇö invalid transitions and errors[2m > [22msubmit: requires reserved and matching contributor[32m 83[2mms[22m[39m
+   [32mΓ£ô[39m bountyStore ΓÇö invalid transitions and errors[2m > [22mrelease: requires maintainer and submitted status[32m 140[2mms[22m[39m
+   [32mΓ£ô[39m bountyStore ΓÇö invalid transitions and errors[2m > [22mrefund: rejects wrong maintainer, submitted, and finalized[32m 262[2mms[22m[39m
+   [32mΓ£ô[39m bountyStore ΓÇö event history and metrics[2m > [22mgetBountyEvents returns event history[32m 84[2mms[22m[39m
+[31m   [31m├ù[31m bountyStore ΓÇö event history and metrics[2m > [22mgetMaintainerMetrics returns accurate counts[39m[32m 136[2mms[22m[39m
+[31m     ΓåÆ expected undefined to be 2 // Object.is equality[39m
+[31m   [31m├ù[31m bountyStore ΓÇö event history and metrics[2m > [22mgetGlobalMetrics returns system-wide counts[39m[32m 100[2mms[22m[39m
+[31m     ΓåÆ actual value must be number or bigint, received "undefined"[39m
+   [32mΓ£ô[39m bountyStore ΓÇö event history and metrics[2m > [22mrace condition prevention: version mismatch on reserve[32m 102[2mms[22m[39m
+   [32mΓ£ô[39m bountyStore ΓÇö event history and metrics[2m > [22mreservation timeout: expired reservations return to open[32m 226[2mms[22m[39m
+[2026-06-27 11:25:17.489 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "99759c7d-93b7-453c-9e4c-8786c2bf9df2"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties"
+    [35mstatus[39m: 201
+    [35mdurationMs[39m: 102.636
+[2026-06-27 11:25:17.529 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "6dfc5f9c-820e-4007-a2dc-6a99114b95c3"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties/BNT-0001/reserve"
+    [35mstatus[39m: 200
+    [35mdurationMs[39m: 16.887
+[2026-06-27 11:25:17.553 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "d9594481-0375-46f3-afd9-ce82b0b9845e"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties/BNT-0001/submit"
+    [35mstatus[39m: 200
+    [35mdurationMs[39m: 10.273
+[2026-06-27 11:25:17.578 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "4230915a-a7af-4753-b8e4-7eea857940f1"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties/BNT-0001/dispute"
+    [35mstatus[39m: 200
+    [35mdurationMs[39m: 11.996
+[2026-06-27 11:25:17.596 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "8aa46189-e6cf-49d5-868c-10da8a887cf3"
+    [35mmethod[39m: "GET"
+    [35mpath[39m: "/api/bounties/BNT-0001/events"
+    [35mstatus[39m: 200
+    [35mdurationMs[39m: 3.341
+[2026-06-27 11:25:17.615 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "04f05d39-a6dd-44c6-817e-a991af2f21b0"
+    [35mmethod[39m: "GET"
+    [35mpath[39m: "/api/bounties/BNT-0001/audit-logs"
+    [35mstatus[39m: 200
+    [35mdurationMs[39m: 2.276
+ [31mΓ¥»[39m test/api.dispute.test.ts [2m([22m[2m6 tests[22m[2m | [22m[31m6 failed[39m[2m)[22m[33m 1820[2mms[22m[39m
+[31m   [31m├ù[31m POST /api/bounties/:id/dispute[2m > [22mdisputes a submitted bounty successfully[39m[33m 1629[2mms[22m[39m
+[31m     ΓåÆ expected undefined to be defined[39m
+[31m   [31m├ù[31m POST /api/bounties/:id/dispute[2m > [22mreturns 400 when contributor does not match the bounty contributor[39m[32m 69[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m POST /api/bounties/:id/dispute[2m > [22mreturns 400 when bounty status is not submitted[39m[32m 32[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m POST /api/bounties/:id/dispute[2m > [22mreturns 400 when reason is empty[39m[32m 28[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m POST /api/bounties/:id/dispute[2m > [22mreturns 400 when contributor address is invalid[39m[32m 29[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m POST /api/bounties/:id/dispute[2m > [22mreturns 400 for unknown bounty id[39m[32m 31[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[2026-06-27 11:25:20.091 +0100] [32mINFO[39m: [36mgithub_webhook_pr_auto_releasing[39m
+    [35mbountyId[39m: "BNT-0001"
+    [35mprUrl[39m: "https://github.com/owner/repo/pull/100"
+    [35mmaintainer[39m: "GB5IWBA6RTXMZSCMHFSVNL6IIZMHH5WJOH7JXZ2UTZD3VP2WBVWJJOOK"
+[2026-06-27 11:25:20.102 +0100] [32mINFO[39m: [36mgithub_webhook_pr_auto_released[39m
+    [35mbountyId[39m: "BNT-0001"
+    [35mprUrl[39m: "https://github.com/owner/repo/pull/100"
+[2026-06-27 11:25:20.106 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "cc7b55ef-ff78-42f1-a150-dd09a8c86c45"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/webhooks/github"
+    [35mstatus[39m: 202
+    [35mdurationMs[39m: 18.855
+ [31mΓ¥»[39m test/githubPrWebhook.test.ts [2m([22m[2m4 tests[22m[2m | [22m[31m3 failed[39m[2m)[22m[33m 1701[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m GitHub webhook PR auto-release[2m > [22mMerged PR triggers bounty release automatically [33m 1422[2mms[22m[39m
+[31m   [31m├ù[31m GitHub webhook PR auto-release[2m > [22mClosed-but-not-merged PR does not trigger release[39m[32m 87[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m GitHub webhook PR auto-release[2m > [22mBounty without matching PR URL is ignored gracefully[39m[32m 89[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m GitHub webhook PR auto-release[2m > [22mManual release still works if webhook was not received[39m[32m 100[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[2026-06-27 11:25:22.786 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "9a43520e-409b-4e7f-9b2b-2063ad852690"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/webhooks/github"
+    [35mstatus[39m: 401
+    [35mdurationMs[39m: 6.352
+ [31mΓ¥»[39m test/webhookSignature.test.ts [2m([22m[2m14 tests[22m[2m | [22m[31m4 failed[39m[2m)[22m[33m 1476[2mms[22m[39m
+   [32mΓ£ô[39m GitHub webhook signature verification[2m > [22maccepts a valid GitHub signature[32m 5[2mms[22m[39m
+   [32mΓ£ô[39m GitHub webhook signature verification[2m > [22mrejects a missing signature[32m 1[2mms[22m[39m
+   [32mΓ£ô[39m GitHub webhook signature verification[2m > [22mrejects an invalid signature[32m 1[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m POST /api/webhooks/github[2m > [22mrejects requests without a signature [33m 1287[2mms[22m[39m
+[31m   [31m├ù[31m POST /api/webhooks/github[2m > [22mrejects requests with an invalid signature[39m[32m 46[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m POST /api/webhooks/github[2m > [22maccepts requests with a valid signature[39m[32m 55[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+   [32mΓ£ô[39m GitHub webhook signature edge cases (#90)[2m > [22mrejects a signature with wrong prefix[32m 1[2mms[22m[39m
+   [32mΓ£ô[39m GitHub webhook signature edge cases (#90)[2m > [22mrejects when the secret is undefined[32m 1[2mms[22m[39m
+   [32mΓ£ô[39m GitHub webhook signature edge cases (#90)[2m > [22mrejects a signature that is the correct length but tampered[32m 1[2mms[22m[39m
+   [32mΓ£ô[39m GitHub webhook signature edge cases (#90)[2m > [22maccepts when the X-Hub-Signature-256 header is an array[32m 17[2mms[22m[39m
+   [32mΓ£ô[39m CORS allowlist middleware (#88)[2m > [22mbuildCorsOptions uses localhost:3000 as default when CORS_ORIGINS is unset[32m 2[2mms[22m[39m
+   [32mΓ£ô[39m CORS allowlist middleware (#88)[2m > [22mbuildCorsOptions rejects unlisted origins[32m 2[2mms[22m[39m
+[31m   [31m├ù[31m Bounty search with ?q= (#85)[2m > [22mreturns all bounties when q is empty[39m[32m 40[2mms[22m[39m
+[31m     ΓåÆ Expected double-quoted property name in JSON at position 333 (line 19 column 7)[39m
+[31m   [31m├ù[31m Bounty search with ?q= (#85)[2m > [22mfilters bounties case-insensitively by title[39m[32m 13[2mms[22m[39m
+[31m     ΓåÆ Expected double-quoted property name in JSON at position 333 (line 19 column 7)[39m
+[2026-06-27 11:25:25.499 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "f1fa2be6-431c-4dc2-8330-43304480d96d"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties"
+    [35mstatus[39m: 201
+    [35mdurationMs[39m: 28.354
+[2026-06-27 11:25:25.540 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "6ff3ddeb-9ba9-4d19-affe-eb1957edb1d5"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties"
+    [35mstatus[39m: 201
+    [35mdurationMs[39m: 19.191
+[2026-06-27 11:25:25.567 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "65193955-2d9f-4245-957b-cae5e5ed145b"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties"
+    [35mstatus[39m: 201
+    [35mdurationMs[39m: 13.245
+[2026-06-27 11:25:25.589 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "2a727479-0cec-45a7-af37-ec590e9c9edb"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties"
+    [35mstatus[39m: 201
+    [35mdurationMs[39m: 8.121
+[2026-06-27 11:25:25.614 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "413602ee-b121-4dfe-b1c6-0411b24a396c"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties"
+    [35mstatus[39m: 201
+    [35mdurationMs[39m: 9.237
+[2026-06-27 11:25:25.632 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "f02e2a0e-7f97-45da-905d-b89e8061120e"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties"
+    [35mstatus[39m: 201
+    [35mdurationMs[39m: 8.507
+[2026-06-27 11:25:25.657 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "e31b3fdb-af63-4e1e-a3fb-9ad2ee146270"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties"
+    [35mstatus[39m: 201
+    [35mdurationMs[39m: 13.057
+[2026-06-27 11:25:25.678 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "38aedffb-cbf4-4370-b8e7-1e8457290723"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties"
+    [35mstatus[39m: 201
+    [35mdurationMs[39m: 9.841
+[2026-06-27 11:25:25.708 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "b1736dfb-864e-4d86-8985-d5673bfcc248"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties"
+    [35mstatus[39m: 201
+    [35mdurationMs[39m: 16.555
+[2026-06-27 11:25:25.761 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "79d67959-96e8-4415-95bd-98178ee77a84"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties"
+    [35mstatus[39m: 201
+    [35mdurationMs[39m: 14.366
+[2026-06-27 11:25:25.778 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "df9c3c8f-8170-4fce-8281-bd17a927da2b"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties"
+    [35mstatus[39m: 201
+    [35mdurationMs[39m: 8.185
+[2026-06-27 11:25:25.797 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "44fc37ed-2a03-43fd-80b2-abf54d70abd1"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties"
+    [35mstatus[39m: 201
+    [35mdurationMs[39m: 8.511
+[2026-06-27 11:25:25.815 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "310376ae-fc40-4334-8422-e7ce6e7ab61d"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties"
+    [35mstatus[39m: 201
+    [35mdurationMs[39m: 7.62
+[2026-06-27 11:25:25.836 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "0aabdfca-a7df-4e77-805b-f3c387f11a78"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties"
+    [35mstatus[39m: 201
+    [35mdurationMs[39m: 8.434
+[2026-06-27 11:25:25.863 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "9c33f47d-91ac-485e-b16f-88a023cef1e8"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties"
+    [35mstatus[39m: 201
+    [35mdurationMs[39m: 18.713
+[2026-06-27 11:25:25.881 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "c0d54c31-a9ed-42fb-bdec-b571bfd859c0"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties"
+    [35mstatus[39m: 201
+    [35mdurationMs[39m: 9.636
+[2026-06-27 11:25:25.901 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "c1d3aa5c-1516-4cb4-806d-25ab159e8ece"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties"
+    [35mstatus[39m: 201
+    [35mdurationMs[39m: 10.56
+[2026-06-27 11:25:25.923 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "e61b0f16-baa2-4a3a-9909-2725275814b1"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties"
+    [35mstatus[39m: 201
+    [35mdurationMs[39m: 12.517
+[2026-06-27 11:25:25.942 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "029335e5-db84-4b6a-843c-7ed94c11769d"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties"
+    [35mstatus[39m: 201
+    [35mdurationMs[39m: 11.652
+[2026-06-27 11:25:25.962 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "55d4a1f7-1227-476a-80c9-7c8dfbb2d882"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties"
+    [35mstatus[39m: 201
+    [35mdurationMs[39m: 10.186
+[2026-06-27 11:25:25.979 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "efb5654d-ab2f-4c67-8f60-26aa2fd626a2"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties"
+    [35mstatus[39m: 201
+    [35mdurationMs[39m: 9.75
+[2026-06-27 11:25:26.000 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "cac8ea37-2b0f-46a8-999e-b8a74140fe27"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties"
+    [35mstatus[39m: 201
+    [35mdurationMs[39m: 8.417
+[2026-06-27 11:25:26.029 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "78eee90f-dcc7-4ff2-af10-37fbd38c4039"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties"
+    [35mstatus[39m: 201
+    [35mdurationMs[39m: 17.985
+[2026-06-27 11:25:26.051 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "09d458eb-cc2c-4a7a-837f-5d861d6be908"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties"
+    [35mstatus[39m: 201
+    [35mdurationMs[39m: 13.03
+[2026-06-27 11:25:26.069 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "5fd1afb7-91a3-4b0f-aa10-08b6d2091b04"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties"
+    [35mstatus[39m: 201
+    [35mdurationMs[39m: 8.637
+[2026-06-27 11:25:26.083 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "c8a527f8-96ca-4c63-adfe-e2aeee1fe16f"
+    [35mmethod[39m: "GET"
+    [35mpath[39m: "/api/bounties"
+    [35mstatus[39m: 200
+    [35mdurationMs[39m: 7.298
+ [31mΓ¥»[39m test/pagination.test.ts [2m([22m[2m8 tests[22m[2m | [22m[31m7 failed[39m[2m)[22m[33m 2246[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m GET /api/bounties ΓÇö pagination[2m > [22mreturns default pageSize=20 and pagination metadata [33m 1958[2mms[22m[39m
+[31m   [31m├ù[31m GET /api/bounties ΓÇö pagination[2m > [22mreturns second page with remaining items[39m[32m 53[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m GET /api/bounties ΓÇö pagination[2m > [22mhasMore is false on the last page[39m[32m 45[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m GET /api/bounties ΓÇö pagination[2m > [22mreturns empty data array when page is beyond total[39m[32m 36[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m GET /api/bounties ΓÇö pagination[2m > [22mreturns 400 when pageSize exceeds maximum of 100[39m[32m 36[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m GET /api/bounties ΓÇö pagination[2m > [22mreturns 400 for non-integer pageSize[39m[32m 43[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m GET /api/bounties ΓÇö pagination[2m > [22maccepts custom pageSize within bounds[39m[32m 40[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m GET /api/bounties ΓÇö pagination[2m > [22mcombines ?q filter with pagination[39m[32m 33[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+{"level":30,"time":1782555928839,"pid":6192,"hostname":"DESKTOP-83DQ4U2","backend":"memory","msg":"cache_backend_selected"}
+{"level":30,"time":1782555928844,"pid":6192,"hostname":"DESKTOP-83DQ4U2","requestId":"cf449c56-1939-40b3-a62a-848dbcacd71e","method":"POST","path":"/api/bounties","status":201,"durationMs":27.724,"msg":"http_request"}
+ [31mΓ¥»[39m test/authMiddleware.test.ts [2m([22m[2m7 tests[22m[2m | [22m[31m7 failed[39m[2m)[22m[33m 933[2mms[22m[39m
+[31m   [31m├ù[31m POST /api/bounties ΓÇö Stellar signature requirement (#366)[2m > [22mreturns 401 when x-stellar-signature header is missing[39m[33m 741[2mms[22m[39m
+[31m     ΓåÆ expected 401 "Unauthorized", got 201 "Created"[39m
+[31m   [31m├ù[31m POST /api/bounties ΓÇö Stellar signature requirement (#366)[2m > [22mreturns 401 when signature is signed by a key that does not match maintainer[39m[32m 33[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m POST /api/bounties ΓÇö Stellar signature requirement (#366)[2m > [22mcreates bounty when signer public key matches maintainer address[39m[32m 30[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m Stellar auth middleware ΓÇö release/refund routes[2m > [22mreturns 401 when Stellar signature headers are missing on release[39m[32m 32[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m Stellar auth middleware ΓÇö release/refund routes[2m > [22mallows release when Stellar payload is signed by the configured maintainer key[39m[32m 32[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m Stellar auth middleware ΓÇö release/refund routes[2m > [22mrejects release when timestamp is too old (stale)[39m[32m 35[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[31m   [31m├ù[31m Stellar auth middleware ΓÇö release/refund routes[2m > [22mrejects release when request is replayed (nonce deduplication)[39m[32m 28[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[2026-06-27 11:25:30.003 +0100] [32mINFO[39m: [36m[ExpirationJob] Expiring stale reservation[39m
+    [35mbountyId[39m: "BNT-TEST-89ca6775-9c99-4123-867c-5dd9a45a7fd7"
+    [35mcontributor[39m: "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF"
+[2026-06-27 11:25:30.055 +0100] [32mINFO[39m: [36m[ExpirationJob] Expiring stale reservation[39m
+    [35mbountyId[39m: "BNT-TEST-7a0682db-d43d-4466-a768-dec87cbc8fc2"
+    [35mcontributor[39m: "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF"
+[2026-06-27 11:25:30.123 +0100] [32mINFO[39m: [36m[ExpirationJob] Expiring stale reservation[39m
+    [35mbountyId[39m: "BNT-TEST-677e73db-8fae-4504-8290-fd49fac92565"
+    [35mcontributor[39m: "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF"
+[2026-06-27 11:25:30.123 +0100] [32mINFO[39m: [36m[ExpirationJob] Expiring stale reservation[39m
+    [35mbountyId[39m: "BNT-TEST-0f1164ad-ba03-4224-938e-79c2a3382437"
+    [35mcontributor[39m: "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF"
+[2026-06-27 11:25:30.201 +0100] [32mINFO[39m: [36m[ExpirationJob] Expiring stale reservation[39m
+    [35mbountyId[39m: "BNT-TEST-1782a33b-c80d-4947-94ed-77f4f08f405e"
+    [35mcontributor[39m: "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF"
+ [31mΓ¥»[39m test/reservationExpirationJob.test.ts [2m([22m[2m10 tests[22m[2m | [22m[31m2 failed[39m[2m)[22m[33m 1084[2mms[22m[39m
+[31m   [31m├ù[31m expireStaleReservations[2m > [22mdoes not expire a fresh reservation[39m[32m 292[2mms[22m[39m
+[31m     ΓåÆ bounty is not defined[39m
+   [32mΓ£ô[39m expireStaleReservations[2m > [22mexpires a stale reservation[32m 65[2mms[22m[39m
+   [32mΓ£ô[39m expireStaleReservations[2m > [22mlogs the bounty ID and contributor address for each expired reservation[32m 43[2mms[22m[39m
+   [32mΓ£ô[39m expireStaleReservations[2m > [22mexpires multiple stale reservations in a single run[32m 74[2mms[22m[39m
+   [32mΓ£ô[39m expireStaleReservations[2m > [22mrespects RESERVATION_TTL_DAYS env var[32m 73[2mms[22m[39m
+[31m   [31m├ù[31m expireStaleReservations[2m > [22mdoes not touch submitted bounties[39m[32m 162[2mms[22m[39m
+[31m     ΓåÆ expected undefined to be 'submitted' // Object.is equality[39m
+   [32mΓ£ô[39m expireStaleReservations[2m > [22mreturns checkedAt timestamp[32m 85[2mms[22m[39m
+   [32mΓ£ô[39m startExpirationJob / stopExpirationJob[2m > [22mstarts and stops without throwing[32m 73[2mms[22m[39m
+   [32mΓ£ô[39m startExpirationJob / stopExpirationJob[2m > [22mdoes not start twice[32m 77[2mms[22m[39m
+   [32mΓ£ô[39m startExpirationJob / stopExpirationJob[2m > [22mruns expiration on start and expires stale bounty[32m 133[2mms[22m[39m
+ [31mΓ¥»[39m test/leaderboard.test.ts [2m([22m[2m4 tests[22m[2m | [22m[31m4 failed[39m[2m)[22m[32m 20[2mms[22m[39m
+[31m   [31m├ù[31m getLeaderboard[2m > [22mreturns an array[39m[32m 12[2mms[22m[39m
+[31m     ΓåÆ (0 , getLeaderboard) is not a function[39m
+[31m   [31m├ù[31m getLeaderboard[2m > [22mreturns at most the requested limit[39m[32m 4[2mms[22m[39m
+[31m     ΓåÆ (0 , getLeaderboard) is not a function[39m
+[31m   [31m├ù[31m getLeaderboard[2m > [22meach entry has the required fields[39m[32m 1[2mms[22m[39m
+[31m     ΓåÆ (0 , getLeaderboard) is not a function[39m
+[31m   [31m├ù[31m getLeaderboard[2m > [22mis sorted by totalXlm descending[39m[32m 1[2mms[22m[39m
+[31m     ΓåÆ (0 , getLeaderboard) is not a function[39m
+ [31mΓ¥»[39m test/openIssues.test.ts [2m([22m[2m2 tests[22m[2m | [22m[31m2 failed[39m[2m)[22m[33m 30125[2mms[22m[39m
+[31m   [31m├ù[31m Open Issues feed[2m > [22mcaches GitHub response and sets Cache-Control[39m[33m 30019[2mms[22m[39m
+[31m     ΓåÆ Test timed out in 30000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".[39m
+[31m   [31m├ù[31m Open Issues feed[2m > [22mserves stale cached response when rate-limited[39m[32m 103[2mms[22m[39m
+[31m     ΓåÆ A metric with the name http_request_duration_seconds has already been registered.[39m
+[2026-06-27 11:25:36.174 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "f2809566-3e7b-40f3-9a43-a5f8ee2329ad"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties"
+    [35mstatus[39m: 201
+    [35mdurationMs[39m: 72.288
+[2026-06-27 11:25:36.468 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "9204f6db-5184-4823-b524-44c7173d0d2f"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties/BNT-0001/reserve"
+    [35mstatus[39m: 400
+    [35mdurationMs[39m: 80.95
+[2026-06-27 11:25:36.469 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "eb4b02eb-05ed-4b80-b4f5-ca682017c394"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties/BNT-0001/reserve"
+    [35mstatus[39m: 400
+    [35mdurationMs[39m: 80.497
+[2026-06-27 11:25:36.495 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "5c7afd0a-d703-42c1-9863-296964a95c46"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties/BNT-0001/reserve"
+    [35mstatus[39m: 400
+    [35mdurationMs[39m: 104.716
+[2026-06-27 11:25:36.498 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "5a280845-d097-4204-9e51-19a2213d2837"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties/BNT-0001/reserve"
+    [35mstatus[39m: 400
+    [35mdurationMs[39m: 102.938
+[2026-06-27 11:25:36.499 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "d496d095-f44c-468c-baa6-ca7fa4e199bd"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties/BNT-0001/reserve"
+    [35mstatus[39m: 400
+    [35mdurationMs[39m: 107.402
+[2026-06-27 11:25:36.500 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "39c82eda-9427-4c05-9093-74c04bc46ef0"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties/BNT-0001/reserve"
+    [35mstatus[39m: 400
+    [35mdurationMs[39m: 102.485
+[2026-06-27 11:25:36.501 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "365e0564-f531-4940-92f1-00841ab00bb2"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties/BNT-0001/reserve"
+    [35mstatus[39m: 400
+    [35mdurationMs[39m: 101.702
+[2026-06-27 11:25:36.504 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "5f3b6dad-2fe2-46c0-bf99-50a9da427f44"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties/BNT-0001/reserve"
+    [35mstatus[39m: 400
+    [35mdurationMs[39m: 102.947
+[2026-06-27 11:25:36.511 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "2d7d786c-9dcb-40c1-89c7-9463edbbf1ac"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties/BNT-0001/reserve"
+    [35mstatus[39m: 400
+    [35mdurationMs[39m: 106.294
+[2026-06-27 11:25:36.514 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "4faeef9d-eec9-4427-bd41-8f763ecb6dda"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties/BNT-0001/reserve"
+    [35mstatus[39m: 400
+    [35mdurationMs[39m: 107.791
+[2026-06-27 11:25:36.517 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "1d8543ec-52dd-41ff-87a5-83c1af84e111"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties/BNT-0001/reserve"
+    [35mstatus[39m: 400
+    [35mdurationMs[39m: 107.449
+[2026-06-27 11:25:36.519 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "823b48ef-d47d-4e09-b8dd-328ed1825099"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties/BNT-0001/reserve"
+    [35mstatus[39m: 400
+    [35mdurationMs[39m: 107.285
+[2026-06-27 11:25:36.521 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "37480ee0-b17d-4808-b5af-d44c1913b763"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties/BNT-0001/reserve"
+    [35mstatus[39m: 400
+    [35mdurationMs[39m: 102.636
+[2026-06-27 11:25:36.522 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "dd935eed-ec79-4608-b9dd-f22c3baa322a"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties/BNT-0001/reserve"
+    [35mstatus[39m: 400
+    [35mdurationMs[39m: 102.285
+[2026-06-27 11:25:36.523 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "b41f9c78-a873-431f-bff9-516e2dae198f"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties/BNT-0001/reserve"
+    [35mstatus[39m: 400
+    [35mdurationMs[39m: 101.849
+[2026-06-27 11:25:36.524 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "f7e684c2-bd56-4f8c-bf83-821f1411f640"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties/BNT-0001/reserve"
+    [35mstatus[39m: 400
+    [35mdurationMs[39m: 101.637
+[2026-06-27 11:25:36.525 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "4ea59b97-b55d-4047-b9f1-eb7137400338"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties/BNT-0001/reserve"
+    [35mstatus[39m: 400
+    [35mdurationMs[39m: 100.996
+[2026-06-27 11:25:36.525 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "1ea81278-8c55-481e-8b01-8a431096986e"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties/BNT-0001/reserve"
+    [35mstatus[39m: 400
+    [35mdurationMs[39m: 100.342
+[2026-06-27 11:25:36.526 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "c2b9b94e-4337-4d71-87ba-f5151d6b4a99"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties/BNT-0001/reserve"
+    [35mstatus[39m: 400
+    [35mdurationMs[39m: 100.195
+[2026-06-27 11:25:36.527 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "ad536384-7d91-4eb1-9daf-f8e763006512"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/bounties/BNT-0001/reserve"
+    [35mstatus[39m: 200
+    [35mdurationMs[39m: 145.978
+ [32mΓ£ô[39m test/concurrency.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 2494[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m Bounty Reservation Concurrency[2m > [22mshould only allow one successful reservation when 20 requests are simultaneous [33m 2490[2mms[22m[39m
+[2026-06-27 11:25:36.649 +0100] [32mINFO[39m: [36mhttp_request[39m
+    [35mrequestId[39m: "33bfec6e-cd47-492f-b6ef-c9ed4595305b"
+    [35mmethod[39m: "GET"
+    [35mpath[39m: "/api/bounties/BNT-0001"
+    [35mstatus[39m: 200
+    [35mdurationMs[39m: 5.523
+ [32mΓ£ô[39m test/reservationExpirationJob.partialFailure.test.ts [2m([22m[2m3 tests[22m[2m)[22m[33m 503[2mms[22m[39m
+ [31mΓ¥»[39m test/openapi.contract.test.ts [2m([22m[2m3 tests[22m[2m | [22m[31m3 failed[39m[2m)[22m[33m 30309[2mms[22m[39m
+[31m   [31m├ù[31m OpenAPI contract ΓÇö responses match zod schemas[2m > [22mGET /api/health matches health schema[39m[32m 141[2mms[22m[39m
+[31m     ΓåÆ [
+  {
+    "code": "unrecognized_keys",
+    "keys": [
+      "service",
+      "status",
+      "timestamp"
+    ],
+    "path": [],
+    "message": "Unrecognized key(s) in object: 'service', 'status', 'timestamp'"
+  }
+][39m
+[31m   [31m├ù[31m OpenAPI contract ΓÇö responses match zod schemas[2m > [22mCreate, reserve, submit, release flow responses conform[39m[32m 148[2mms[22m[39m
+[31m     ΓåÆ expected 201 "Created", got 400 "Bad Request"[39m
+[31m   [31m├ù[31m OpenAPI contract ΓÇö responses match zod schemas[2m > [22mGET /api/open-issues responds with OpenIssue array[39m[33m 30017[2mms[22m[39m
+[31m     ΓåÆ Test timed out in 30000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".[39m
+ [32mΓ£ô[39m test/idempotency.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 296[2mms[22m[39m
+[2026-06-27 11:25:39.016 +0100] [33mWARN[39m: [36mredis_get_failed[39m
+    [35mkey[39m: "k"
+    error: "Error: ECONNREFUSED"
+ [32mΓ£ô[39m test/cache.test.ts [2m([22m[2m7 tests[22m[2m)[22m[33m 514[2mms[22m[39m
+   [33m[2mΓ£ô[22m[39m listBountiesCached[2m > [22mserves a cached list and refreshes only after invalidation [33m 476[2mms[22m[39m
+ [32mΓ£ô[39m test/webhookSecretValidation.test.ts [2m([22m[2m13 tests[22m[2m)[22m[32m 36[2mms[22m[39m
+ [32mΓ£ô[39m test/logger.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Failed Suites 2 ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+
+ FAIL  test/expiry.test.ts [ test/expiry.test.ts ]
+Error: Transform failed with 1 error:
+C:/Users/DELL/Desktop/stellar-bounty-board/backend/test/expiry.test.ts:2:2: ERROR: Unexpected "}"
+  Plugin: vite:esbuild
+  File: C:/Users/DELL/Desktop/stellar-bounty-board/backend/test/expiry.test.ts:2:2
+  
+  Unexpected "}"
+  1  |  
+  2  |    });
+     |    ^
+  3  |  });
+  4  |  
+  
+ Γ¥» failureErrorWithLog node_modules/esbuild/lib/main.js:1748:15
+ Γ¥» node_modules/esbuild/lib/main.js:1017:50
+ Γ¥» responseCallbacks.<computed> node_modules/esbuild/lib/main.js:884:9
+ Γ¥» handleIncomingPacket node_modules/esbuild/lib/main.js:939:12
+ Γ¥» Socket.readFromStdout node_modules/esbuild/lib/main.js:862:7
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[1/79]ΓÄ»
+
+ FAIL  test/utils.test.ts [ test/utils.test.ts ]
+Error: Transform failed with 1 error:
+C:/Users/DELL/Desktop/stellar-bounty-board/backend/test/utils.test.ts:3:2: ERROR: Unexpected "}"
+  Plugin: vite:esbuild
+  File: C:/Users/DELL/Desktop/stellar-bounty-board/backend/test/utils.test.ts:3:2
+  
+  Unexpected "}"
+  1  |  
+  2  |      expect(true).toBe(true);
+  3  |    });
+     |    ^
+  4  |  });
+  5  |  
+  
+ Γ¥» failureErrorWithLog node_modules/esbuild/lib/main.js:1748:15
+ Γ¥» node_modules/esbuild/lib/main.js:1017:50
+ Γ¥» responseCallbacks.<computed> node_modules/esbuild/lib/main.js:884:9
+ Γ¥» handleIncomingPacket node_modules/esbuild/lib/main.js:939:12
+ Γ¥» Socket.readFromStdout node_modules/esbuild/lib/main.js:862:7
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[2/79]ΓÄ»
+
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Failed Tests 77 ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+
+ FAIL  test/api.dispute.test.ts > POST /api/bounties/:id/dispute > disputes a submitted bounty successfully
+AssertionError: expected undefined to be defined
+ Γ¥» test/api.dispute.test.ts:100:26
+     98|       (entry: { transition: string }) => entry.transition === "disputeΓÇª
+     99|     );
+    100|     expect(disputeAudit).toBeDefined();
+       |                          ^
+    101|     expect(disputeAudit.fromStatus).toBe("submitted");
+    102|     expect(disputeAudit.toStatus).toBe("disputed");
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[3/79]ΓÄ»
+
+ FAIL  test/api.dispute.test.ts > POST /api/bounties/:id/dispute > returns 400 when contributor does not match the bounty contributor
+ FAIL  test/api.dispute.test.ts > POST /api/bounties/:id/dispute > returns 400 when bounty status is not submitted
+ FAIL  test/api.dispute.test.ts > POST /api/bounties/:id/dispute > returns 400 when reason is empty
+ FAIL  test/api.dispute.test.ts > POST /api/bounties/:id/dispute > returns 400 when contributor address is invalid
+ FAIL  test/api.dispute.test.ts > POST /api/bounties/:id/dispute > returns 400 for unknown bounty id
+ FAIL  test/api.test.ts > API ΓÇö health and listing > GET /api/bounties returns data array
+ FAIL  test/api.test.ts > API ΓÇö health and listing > GET /api/open-issues returns data
+ FAIL  test/api.test.ts > API ΓÇö bounty list deadline filters > deadlineBefore and deadlineAfter accept ISO 8601 strings
+ FAIL  test/api.test.ts > API ΓÇö bounty list deadline filters > invalid date string returns 400
+ FAIL  test/api.test.ts > API ΓÇö bounty list deadline filters > deadlineBefore filters correctly
+ FAIL  test/api.test.ts > API ΓÇö bounty list deadline filters > deadlineAfter filters correctly
+ FAIL  test/api.test.ts > API ΓÇö bounty list deadline filters > deadlineBefore and deadlineAfter combined with AND logic
+ FAIL  test/api.test.ts > API ΓÇö bounty list deadline filters > deadline filters combined with q filter
+ FAIL  test/api.test.ts > API ΓÇö admin audit log endpoint > GET /api/audit-log returns all audit logs
+ FAIL  test/api.test.ts > API ΓÇö admin audit log endpoint > GET /api/audit-log filters by actor
+ FAIL  test/api.test.ts > API ΓÇö admin audit log endpoint > GET /api/audit-log filters by transition
+ FAIL  test/api.test.ts > API ΓÇö admin audit log endpoint > GET /api/audit-log uses combined filters
+ FAIL  test/api.test.ts > API ΓÇö bounty lifecycle routes > POST /api/bounties creates and GET lists it
+ FAIL  test/api.test.ts > API ΓÇö bounty lifecycle routes > POST create with invalid body returns 400
+ FAIL  test/api.test.ts > API ΓÇö bounty lifecycle routes > POST create with amount below 1 XLM returns 400
+ FAIL  test/api.test.ts > API ΓÇö bounty lifecycle routes > POST create with amount above 10000 XLM returns 400
+ FAIL  test/api.test.ts > API ΓÇö bounty lifecycle routes > POST create with more than 7 decimal places returns 400
+ FAIL  test/api.test.ts > API ΓÇö bounty lifecycle routes > POST create with exactly 7 decimal places succeeds
+ FAIL  test/api.test.ts > API ΓÇö bounty lifecycle routes > POST create with 1 XLM succeeds
+ FAIL  test/api.test.ts > API ΓÇö bounty lifecycle routes > POST create with 10000 XLM succeeds
+ FAIL  test/api.test.ts > API ΓÇö bounty lifecycle routes > reserve ΓåÆ submit ΓåÆ release flow via HTTP
+ FAIL  test/api.test.ts > API ΓÇö bounty lifecycle routes > full bounty lifecycle: create ΓåÆ reserve ΓåÆ submit ΓåÆ release with detailed assertions
+ FAIL  test/api.test.ts > API ΓÇö bounty lifecycle routes > GET /api/bounties/:id/audit-logs supports pagination
+ FAIL  test/api.test.ts > API ΓÇö bounty lifecycle routes > GET /api/bounties/:id/audit-logs validates query params
+ FAIL  test/api.test.ts > API ΓÇö bounty lifecycle routes > GET /api/bounties/released/export.csv returns CSV export
+ FAIL  test/api.test.ts > API ΓÇö bounty lifecycle routes > POST /api/bounties/:id/refund returns refunded bounty
+ FAIL  test/api.test.ts > API ΓÇö bounty lifecycle routes > invalid reserve body returns 400
+ FAIL  test/api.test.ts > API ΓÇö bounty lifecycle routes > domain errors from store return 400 with message
+ FAIL  test/api.test.ts > API ΓÇö bounty lifecycle routes > wrong maintainer on release returns 400
+ FAIL  test/api.test.ts > API ΓÇö bounty lifecycle routes > unknown bounty id returns 400 with not found
+ FAIL  test/api.test.ts > GET /api/leaderboard > returns empty array when no bounties exist
+ FAIL  test/api.test.ts > GET /api/leaderboard > returns empty array when bounties exist but none are released
+ FAIL  test/api.test.ts > GET /api/leaderboard > returns contributor after a bounty is released
+ FAIL  test/api.test.ts > GET /api/leaderboard > aggregates multiple released bounties for the same contributor
+ FAIL  test/api.test.ts > GET /api/leaderboard > ranks higher XLM earner first
+ FAIL  test/api.test.ts > GET /api/leaderboard > each entry has address, totalXlm, and bountiesCompleted fields
+ FAIL  test/authMiddleware.test.ts > POST /api/bounties ΓÇö Stellar signature requirement (#366) > returns 401 when signature is signed by a key that does not match maintainer
+ FAIL  test/authMiddleware.test.ts > POST /api/bounties ΓÇö Stellar signature requirement (#366) > creates bounty when signer public key matches maintainer address
+ FAIL  test/authMiddleware.test.ts > Stellar auth middleware ΓÇö release/refund routes > returns 401 when Stellar signature headers are missing on release
+ FAIL  test/authMiddleware.test.ts > Stellar auth middleware ΓÇö release/refund routes > allows release when Stellar payload is signed by the configured maintainer key
+ FAIL  test/authMiddleware.test.ts > Stellar auth middleware ΓÇö release/refund routes > rejects release when timestamp is too old (stale)
+ FAIL  test/authMiddleware.test.ts > Stellar auth middleware ΓÇö release/refund routes > rejects release when request is replayed (nonce deduplication)
+ FAIL  test/githubPrWebhook.test.ts > GitHub webhook PR auto-release > Closed-but-not-merged PR does not trigger release
+ FAIL  test/githubPrWebhook.test.ts > GitHub webhook PR auto-release > Bounty without matching PR URL is ignored gracefully
+ FAIL  test/githubPrWebhook.test.ts > GitHub webhook PR auto-release > Manual release still works if webhook was not received
+ FAIL  test/openIssues.test.ts > Open Issues feed > serves stale cached response when rate-limited
+ FAIL  test/pagination.test.ts > GET /api/bounties ΓÇö pagination > returns second page with remaining items
+ FAIL  test/pagination.test.ts > GET /api/bounties ΓÇö pagination > hasMore is false on the last page
+ FAIL  test/pagination.test.ts > GET /api/bounties ΓÇö pagination > returns empty data array when page is beyond total
+ FAIL  test/pagination.test.ts > GET /api/bounties ΓÇö pagination > returns 400 when pageSize exceeds maximum of 100
+ FAIL  test/pagination.test.ts > GET /api/bounties ΓÇö pagination > returns 400 for non-integer pageSize
+ FAIL  test/pagination.test.ts > GET /api/bounties ΓÇö pagination > accepts custom pageSize within bounds
+ FAIL  test/pagination.test.ts > GET /api/bounties ΓÇö pagination > combines ?q filter with pagination
+ FAIL  test/webhookSignature.test.ts > POST /api/webhooks/github > rejects requests with an invalid signature
+ FAIL  test/webhookSignature.test.ts > POST /api/webhooks/github > accepts requests with a valid signature
+Error: A metric with the name http_request_duration_seconds has already been registered.
+ Γ¥» Registry.registerMetric node_modules/prom-client/lib/registry.js:103:10
+ Γ¥» new Metric node_modules/prom-client/lib/metric.js:64:13
+ Γ¥» new Histogram node_modules/prom-client/lib/histogram.js:20:3
+ Γ¥» src/metrics.ts:3:36
+      1| import { register, Histogram } from 'prom-client';
+      2| 
+      3| export const httpRequestDuration = new Histogram({
+       |                                    ^
+      4|   name: 'http_request_duration_seconds',
+      5|   help: 'Duration of HTTP requests in seconds',
+ Γ¥» src/app.ts:8:1
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[4/79]ΓÄ»
+
+ FAIL  test/authMiddleware.test.ts > POST /api/bounties ΓÇö Stellar signature requirement (#366) > returns 401 when x-stellar-signature header is missing
+Error: expected 401 "Unauthorized", got 201 "Created"
+ Γ¥» test/authMiddleware.test.ts:96:8
+     94|       .post("/api/bounties")
+     95|       .send(baseCreateBody)
+     96|       .expect(401);
+       |        ^
+     97|     expect(res.body.error).toMatch(/missing.*x-stellar-signature/i);
+     98|   });
+ Γ¥» Test._assertStatus node_modules/supertest/lib/test.js:309:14
+ Γ¥» node_modules/supertest/lib/test.js:365:13
+ Γ¥» Test._assertFunction node_modules/supertest/lib/test.js:342:13
+ Γ¥» Test.assert node_modules/supertest/lib/test.js:195:23
+ Γ¥» localAssert node_modules/supertest/lib/test.js:138:14
+ Γ¥» Server.<anonymous> node_modules/supertest/lib/test.js:152:11
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[5/79]ΓÄ»
+
+ FAIL  test/bountyStore.test.ts > bountyStore lifecycle ΓÇö happy paths > audit log pagination returns stable slices
+AssertionError: expected [] to have a length of 2 but got +0
+
+- Expected
++ Received
+
+- 2
++ 0
+
+ Γ¥» test/bountyStore.test.ts:160:24
+    158| 
+    159|     const first = listBountyAuditLogs(created.id, { limit: 2, offset: ΓÇª
+    160|     expect(first.data).toHaveLength(2);
+       |                        ^
+    161|     expect(first.pagination.hasMore).toBe(true);
+    162|     expect(first.pagination.nextOffset).toBe(2);
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[6/79]ΓÄ»
+
+ FAIL  test/bountyStore.test.ts > bountyStore ΓÇö event history and metrics > getMaintainerMetrics returns accurate counts
+AssertionError: expected undefined to be 2 // Object.is equality
+
+- Expected: 
+2
+
++ Received: 
+undefined
+
+ Γ¥» test/bountyStore.test.ts:453:35
+    451| 
+    452|     const metrics = getMaintainerMetrics(MAINTAINER);
+    453|     expect(metrics.totalBounties).toBe(2);
+       |                                   ^
+    454|     expect(metrics.openCount).toBe(1);
+    455|     expect(metrics.releasedCount).toBe(1);
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[7/79]ΓÄ»
+
+ FAIL  test/bountyStore.test.ts > bountyStore ΓÇö event history and metrics > getGlobalMetrics returns system-wide counts
+TypeError: actual value must be number or bigint, received "undefined"
+ Γ¥» test/bountyStore.test.ts:478:39
+    476|     const metrics = getGlobalMetrics();
+    477|     expect(metrics.totalBounties).toBeGreaterThan(0);
+    478|     expect(metrics.uniqueMaintainers).toBeGreaterThan(0);
+       |                                       ^
+    479|   });
+    480| 
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[8/79]ΓÄ»
+
+ FAIL  test/leaderboard.test.ts > getLeaderboard > returns an array
+TypeError: (0 , getLeaderboard) is not a function
+ Γ¥» test/leaderboard.test.ts:6:20
+      4| describe("getLeaderboard", () => {
+      5|   it("returns an array", () => {
+      6|     const result = getLeaderboard();
+       |                    ^
+      7|     expect(Array.isArray(result)).toBe(true);
+      8|   });
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[9/79]ΓÄ»
+
+ FAIL  test/leaderboard.test.ts > getLeaderboard > returns at most the requested limit
+TypeError: (0 , getLeaderboard) is not a function
+ Γ¥» test/leaderboard.test.ts:11:20
+      9| 
+     10|   it("returns at most the requested limit", () => {
+     11|     const result = getLeaderboard(3);
+       |                    ^
+     12|     expect(result.length).toBeLessThanOrEqual(3);
+     13|   });
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[10/79]ΓÄ»
+
+ FAIL  test/leaderboard.test.ts > getLeaderboard > each entry has the required fields
+TypeError: (0 , getLeaderboard) is not a function
+ Γ¥» test/leaderboard.test.ts:16:20
+     14| 
+     15|   it("each entry has the required fields", () => {
+     16|     const result = getLeaderboard();
+       |                    ^
+     17|     for (const entry of result) {
+     18|       expect(entry).toHaveProperty("address");
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[11/79]ΓÄ»
+
+ FAIL  test/leaderboard.test.ts > getLeaderboard > is sorted by totalXlm descending
+TypeError: (0 , getLeaderboard) is not a function
+ Γ¥» test/leaderboard.test.ts:25:20
+     23| 
+     24|   it("is sorted by totalXlm descending", () => {
+     25|     const result = getLeaderboard();
+       |                    ^
+     26|     for (let i = 1; i < result.length; i++) {
+     27|       expect(result[i].totalXlm).toBeLessThanOrEqual(result[i - 1].totΓÇª
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[12/79]ΓÄ»
+
+ FAIL  test/openapi.contract.test.ts > OpenAPI contract ΓÇö responses match zod schemas > GET /api/health matches health schema
+ZodError: [
+  {
+    "code": "unrecognized_keys",
+    "keys": [
+      "service",
+      "status",
+      "timestamp"
+    ],
+    "path": [],
+    "message": "Unrecognized key(s) in object: 'service', 'status', 'timestamp'"
+  }
+]
+ Γ¥» Object.get error [as error] node_modules/zod/v3/types.js:39:31
+ Γ¥» ZodObject.parse node_modules/zod/v3/types.js:114:22
+ Γ¥» test/openapi.contract.test.ts:19:35
+     17|   it('GET /api/health matches health schema', async () => {
+     18|     const res = await request(app).get('/api/health').expect(200);
+     19|     healthResponseSchema.strict().parse(res.body);
+       |                                   ^
+     20|   });
+     21| 
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[13/79]ΓÄ»
+
+ FAIL  test/openapi.contract.test.ts > OpenAPI contract ΓÇö responses match zod schemas > Create, reserve, submit, release flow responses conform
+Error: expected 201 "Created", got 400 "Bad Request"
+ Γ¥» test/openapi.contract.test.ts:37:81
+     35| 
+     36|     createBountySchema.parse(createBody);
+     37|     const createRes = await request(app).post('/api/bounties').send(crΓÇª
+       |                                                                                 ^
+     38|     const bounty = bountyRecordSchema.strict().parse(createRes.body.daΓÇª
+     39| 
+ Γ¥» Test._assertStatus node_modules/supertest/lib/test.js:309:14
+ Γ¥» node_modules/supertest/lib/test.js:365:13
+ Γ¥» Test._assertFunction node_modules/supertest/lib/test.js:342:13
+ Γ¥» Test.assert node_modules/supertest/lib/test.js:195:23
+ Γ¥» localAssert node_modules/supertest/lib/test.js:138:14
+ Γ¥» Server.<anonymous> node_modules/supertest/lib/test.js:152:11
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[14/79]ΓÄ»
+
+ FAIL  test/openapi.contract.test.ts > OpenAPI contract ΓÇö responses match zod schemas > GET /api/open-issues responds with OpenIssue array
+Error: Test timed out in 30000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ Γ¥» test/openapi.contract.test.ts:63:3
+     61|   });
+     62| 
+     63|   it('GET /api/open-issues responds with OpenIssue array', async () =>ΓÇª
+       |   ^
+     64|     const res = await request(app).get('/api/open-issues').expect(200);
+     65|     const data = z.array(openIssueSchema.strict()).parse(res.body.dataΓÇª
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[15/79]ΓÄ»
+
+ FAIL  test/openIssues.test.ts > Open Issues feed > caches GitHub response and sets Cache-Control
+Error: Test timed out in 30000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ Γ¥» test/openIssues.test.ts:16:3
+     14|   });
+     15| 
+     16|   it("caches GitHub response and sets Cache-Control", async () => {
+       |   ^
+     17|     const issue = { number: 1, title: "Fix loading", labels: [{ name: ΓÇª
+     18|     const fetchMock = vi.fn().mockResolvedValue({
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[16/79]ΓÄ»
+
+ FAIL  test/reservationExpirationJob.test.ts > expireStaleReservations > does not expire a fresh reservation
+ReferenceError: bounty is not defined
+ Γ¥» test/reservationExpirationJob.test.ts:82:31
+     80|     const store = await loadStore();
+     81| 
+     82|     await store.reserveBounty(bounty.id, CONTRIBUTOR);
+       |                               ^
+     83| 
+     84|     const { expireStaleReservations } = await loadJob();
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[17/79]ΓÄ»
+
+ FAIL  test/reservationExpirationJob.test.ts > expireStaleReservations > does not touch submitted bounties
+AssertionError: expected undefined to be 'submitted' // Object.is equality
+
+- Expected: 
+"submitted"
+
++ Received: 
+undefined
+
+ Γ¥» test/reservationExpirationJob.test.ts:169:27
+    167|     const after = store.listBounties().find((item) => item.id === bounΓÇª
+    168| 
+    169|     expect(after?.status).toBe('submitted');
+       |                           ^
+    170|     expect(result.expiredBountyIds).not.toContain(bounty.id);
+    171|   });
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[18/79]ΓÄ»
+
+ FAIL  test/webhookSignature.test.ts > Bounty search with ?q= (#85) > returns all bounties when q is empty
+SyntaxError: Expected double-quoted property name in JSON at position 333 (line 19 column 7)
+ Γ¥» readStore src/services/bountyStore.ts:306:15
+    304|   ensureStore();
+    305|   const storePath = getStorePath();
+    306|   return JSON.parse(fs.readFileSync(storePath, "utf8")) as BountyRecorΓÇª
+       |               ^
+    307| }
+    308| 
+ Γ¥» listBounties src/services/bountyStore.ts:491:36
+ Γ¥» test/webhookSignature.test.ts:239:17
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[19/79]ΓÄ»
+
+ FAIL  test/webhookSignature.test.ts > Bounty search with ?q= (#85) > filters bounties case-insensitively by title
+SyntaxError: Expected double-quoted property name in JSON at position 333 (line 19 column 7)
+ Γ¥» readStore src/services/bountyStore.ts:306:15
+    304|   ensureStore();
+    305|   const storePath = getStorePath();
+    306|   return JSON.parse(fs.readFileSync(storePath, "utf8")) as BountyRecorΓÇª
+       |               ^
+    307| }
+    308| 
+ Γ¥» listBounties src/services/bountyStore.ts:491:36
+ Γ¥» src/services/bountyStore.ts:597:21
+ Γ¥» withStoreLock src/services/bountyStore.ts:587:18
+ Γ¥» test/webhookSignature.test.ts:248:5
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[20/79]ΓÄ»
+
+
+[2m Test Files [22m [1m[31m13 failed[39m[22m[2m | [22m[1m[32m6 passed[39m[22m[90m (19)[39m
+[2m      Tests [22m [1m[31m77 failed[39m[22m[2m | [22m[1m[32m69 passed[39m[22m[90m (146)[39m
+[2m   Start at [22m 11:25:03
+[2m   Duration [22m 38.64s[2m (transform 1.31s, setup 0ms, collect 11.18s, tests 80.27s, environment 11ms, prepare 5.93s)[22m
+

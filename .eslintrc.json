@@ -1,0 +1,38 @@
+{
+  "root": true,
+
+  "rules": {
+    "@typescript-eslint/no-unused-vars": "warn",
+    "@typescript-eslint/no-explicit-any": "error",
+    "import/no-unresolved": "error",
+    "import/extensions": [
+      "error",
+      "ignorePackages",
+      {
+        "js": "never",
+        "jsx": "never",
+        "ts": "never",
+        "tsx": "never"
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["backend/src/**/*.ts", "frontend/src/**/*.{ts,tsx}"],
+      "rules": {
+        "no-console": ["error", { "allow": ["warn", "error"] }]
+      }
+    },
+    {
+      "files": [
+        "backend/test/**/*.ts",
+        "frontend/src/**/*.test.ts",
+        "frontend/src/**/*.test.tsx",
+        "frontend/src/**/*.stories.tsx"
+      ],
+      "rules": {
+        "no-console": "off"
+      }
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum BountyStatus {
+  open
+  reserved
+  submitted
+  released
+  refunded
+  expired
+}
+
+enum BountyTransition {
+  reserve
+  submit
+  release
+  refund
+  expire
+}
+
+model Bounty {
+  id                         String   @id @default(cuid())
+  repo                       String
+  issueNumber                Int
+  title                      String
+  summary                    String
+  maintainer                 String
+  contributor                String?  
+  tokenSymbol                String
+  amount                     Float
+  labels                     String[] @db.Text[] // store labels as text array
+  status                     BountyStatus
+  createdAt                  Int
+  deadlineAt                 Int
+  reservedAt                 Int?    
+  submittedAt                Int?    
+  releasedAt                 Int?    
+  releasedTxHash             String? 
+  refundedAt                 Int?    
+  refundedTxHash             String? 
+  submissionUrl              String? 
+  notes                      String? 
+  version                    Int
+  reservationTimeoutSeconds Int?    
+  events                     Json    // array of event objects
+  auditLogs                  BountyAuditLog[] @relation("BountyAuditLogs")
+}
+
+model BountyAuditLog {
+  id          String   @id @default(cuid())
+  bountyId    String
+  bounty      Bounty   @relation("BountyAuditLogs", fields: [bountyId], references: [id])
+  fromStatus  BountyStatus
+  toStatus    BountyStatus
+  transition  BountyTransition
+  actor       String
+  timestamp   Int
+  metadata    Json?
+}
