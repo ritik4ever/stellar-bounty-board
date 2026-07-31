@@ -292,7 +292,7 @@ export function verifyWithSecretRotation({
 
   // Re-bind to a definitely-string const: TypeScript's narrowing above does
   // not flow into the nested function declaration below.
-  const signature: string = normalizedSignature;
+  const validSignature = normalizedSignature;
 
   // Helper: compute and compare a single candidate secret (timing-safe).
   function matchesSecret(candidate: string): boolean {
@@ -302,7 +302,7 @@ export function verifyWithSecretRotation({
       algorithm: profile.algorithm,
       prefix: profile.prefix,
     });
-    const providedBytes = Buffer.from(signature);
+    const providedBytes = Buffer.from(validSignature);
     const expectedBytes = Buffer.from(expected);
     if (providedBytes.length !== expectedBytes.length) return false;
     return timingSafeEqual(providedBytes, expectedBytes);

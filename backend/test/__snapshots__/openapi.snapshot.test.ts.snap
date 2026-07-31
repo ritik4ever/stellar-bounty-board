@@ -180,6 +180,14 @@ exports[`OpenAPI spec snapshot test > generated OpenAPI spec matches snapshot 1`
             "example": 100,
             "type": "number",
           },
+          "archived": {
+            "description": "When true, the bounty has been archived and is excluded from active listings.",
+            "type": "boolean",
+          },
+          "archivedAt": {
+            "description": "Unix timestamp in seconds of when the bounty was archived.",
+            "type": "number",
+          },
           "canceledAt": {
             "description": "Unix timestamp (seconds) when an open bounty was canceled by the maintainer.",
             "example": 1710007200,
@@ -201,6 +209,15 @@ exports[`OpenAPI spec snapshot test > generated OpenAPI spec matches snapshot 1`
           "deadlineAt": {
             "description": "Unix timestamp (seconds).",
             "example": 1911000000,
+            "type": "number",
+          },
+          "disputeReason": {
+            "example": "Maintainer did not review on time.",
+            "type": "string",
+          },
+          "disputedAt": {
+            "description": "Unix timestamp in seconds of when the bounty was disputed.",
+            "example": 1710007200,
             "type": "number",
           },
           "events": {
@@ -255,12 +272,21 @@ exports[`OpenAPI spec snapshot test > generated OpenAPI spec matches snapshot 1`
             },
             "type": "array",
           },
+          "lastDisputeAlertAt": {
+            "description": "Unix timestamp in seconds of the last admin alert sent for this stuck dispute.",
+            "type": "number",
+          },
           "maintainer": {
             "example": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
             "type": "string",
           },
           "notes": {
             "type": "string",
+          },
+          "protocolFeeCollected": {
+            "description": "Protocol fee collected when this bounty was released (in token units).",
+            "example": 0,
+            "type": "number",
           },
           "refundedAt": {
             "type": "number",
@@ -296,6 +322,7 @@ exports[`OpenAPI spec snapshot test > generated OpenAPI spec matches snapshot 1`
               "released",
               "refunded",
               "expired",
+              "disputed",
             ],
             "example": "open",
             "type": "string",
@@ -578,7 +605,28 @@ exports[`OpenAPI spec snapshot test > generated OpenAPI spec matches snapshot 1`
         "type": "object",
       },
       "HealthResponse": {
-        "properties": {},
+        "properties": {
+          "service": {
+            "example": "stellar-bounty-board-api",
+            "type": "string",
+          },
+          "status": {
+            "enum": [
+              "ok",
+            ],
+            "example": "ok",
+            "type": "string",
+          },
+          "timestamp": {
+            "example": "2026-03-24T19:00:00.000Z",
+            "type": "string",
+          },
+        },
+        "required": [
+          "service",
+          "status",
+          "timestamp",
+        ],
         "type": "object",
       },
       "LeaderboardEntry": {
@@ -668,6 +716,66 @@ exports[`OpenAPI spec snapshot test > generated OpenAPI spec matches snapshot 1`
         ],
         "type": "object",
       },
+      "PublicConfig": {
+        "properties": {
+          "defaultReservationTtlSeconds": {
+            "description": "Default reservation TTL in seconds (7 days = 604800). After this window a reservation returns to open.",
+            "example": 604800,
+            "exclusiveMinimum": 0,
+            "type": "integer",
+          },
+          "disputeWindowSeconds": {
+            "description": "Seconds that must elapse after a dispute is raised before an arbiter can resolve it.",
+            "example": 86400,
+            "minimum": 0,
+            "type": "integer",
+          },
+          "feeBps": {
+            "description": "Protocol fee in basis points (250 = 2.5%). 0 means no protocol fee.",
+            "example": 250,
+            "maximum": 10000,
+            "minimum": 0,
+            "type": "integer",
+          },
+          "maxBountyAmount": {
+            "description": "Maximum allowed bounty amount in the payment token.",
+            "example": 10000,
+            "exclusiveMinimum": 0,
+            "type": "number",
+          },
+          "minBountyAmount": {
+            "description": "Minimum allowed bounty amount in the payment token.",
+            "example": 1,
+            "exclusiveMinimum": 0,
+            "type": "number",
+          },
+          "network": {
+            "description": "Stellar network the backend is connected to (mainnet, testnet, or futurenet).",
+            "example": "testnet",
+            "type": "string",
+          },
+          "supportedTokens": {
+            "additionalProperties": {
+              "type": "string",
+            },
+            "description": "Allowed token symbols mapped to their Soroban contract addresses.",
+            "example": {
+              "XLM": "CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA",
+            },
+            "type": "object",
+          },
+        },
+        "required": [
+          "feeBps",
+          "disputeWindowSeconds",
+          "minBountyAmount",
+          "maxBountyAmount",
+          "supportedTokens",
+          "defaultReservationTtlSeconds",
+          "network",
+        ],
+        "type": "object",
+      },
       "ReserveBountyRequest": {
         "properties": {
           "contributor": {
@@ -683,6 +791,31 @@ exports[`OpenAPI spec snapshot test > generated OpenAPI spec matches snapshot 1`
         },
         "required": [
           "contributor",
+        ],
+        "type": "object",
+      },
+      "ResolveDisputeBountyRequest": {
+        "properties": {
+          "arbiter": {
+            "description": "Stellar public key of the arbiter resolving the dispute.",
+            "example": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            "type": "string",
+          },
+          "release": {
+            "description": "Whether the arbiter resolves the dispute in favor of the contributor.",
+            "example": true,
+            "type": "boolean",
+          },
+          "transactionHash": {
+            "description": "Optional transaction hash for the resolution payout.",
+            "example": "0000000000000000000000000000000000000000000000000000000000000000",
+            "pattern": "^[0-9a-fA-F]{64}$",
+            "type": "string",
+          },
+        },
+        "required": [
+          "arbiter",
+          "release",
         ],
         "type": "object",
       },
@@ -934,7 +1067,7 @@ Maintainers may \`cancel\` an \`open\` bounty before reservation, or \`refund\` 
             "required": false,
             "schema": {
               "description": "Filter bounties with deadline before this ISO 8601 date string.",
-              "example": "2026-08-26T16:01:06.327Z",
+              "example": "2026-08-30T12:00:00.000Z",
               "type": "string",
             },
           },
@@ -944,7 +1077,7 @@ Maintainers may \`cancel\` an \`open\` bounty before reservation, or \`refund\` 
             "required": false,
             "schema": {
               "description": "Filter bounties with deadline after this ISO 8601 date string.",
-              "example": "2026-07-27T16:01:06.328Z",
+              "example": "2026-07-31T12:00:00.000Z",
               "type": "string",
             },
           },
@@ -1236,6 +1369,66 @@ Maintainers may \`cancel\` an \`open\` bounty before reservation, or \`refund\` 
         ],
       },
     },
+    "/api/bounties/:id/resolve-dispute": {
+      "post": {
+        "description": "Resolves a \`disputed\` bounty in favor of either the contributor (\`release: true\`) or the maintainer (\`release: false\`). Only callable once the dispute window has elapsed. Rate-limited to **5 requests per IP per minute**.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "example": "BNT-0001",
+              "type": "string",
+            },
+          },
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveDisputeBountyRequest",
+              },
+            },
+          },
+          "required": true,
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/BountyRecord",
+                    },
+                  },
+                  "required": [
+                    "data",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Dispute resolved.",
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                },
+              },
+            },
+            "description": "Bounty not found, not disputed, dispute window not elapsed, or validation failed.",
+          },
+        },
+        "summary": "Resolve a bounty dispute",
+        "tags": [
+          "Bounties",
+        ],
+      },
+    },
     "/api/bounties/{id}/audit-log": {
       "get": {
         "description": "Returns ordered status transition history for a bounty. Use \`page\` (default 1) and \`pageSize\` (1-100, default 20) for pagination.",
@@ -1488,6 +1681,51 @@ Maintainers may \`cancel\` an \`open\` bounty before reservation, or \`refund\` 
         "summary": "Submit work for a bounty",
         "tags": [
           "Bounties",
+        ],
+      },
+    },
+    "/api/config": {
+      "get": {
+        "description": "Returns non-sensitive runtime values that the frontend and contract-interaction layer need to stay in sync with the backend without hardcoding anything.
+
+**Included:** fee bps, dispute window, min/max bounty amounts, supported token addresses, default reservation TTL, and network label.
+
+**Never included:** API keys, database connection strings, webhook secrets, maintainer public keys, or any other internal-only setting.
+
+Response is cached with \`Cache-Control: public, max-age=300\` (5 min) since these values rarely change.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/PublicConfig",
+                    },
+                  },
+                  "required": [
+                    "data",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Public runtime configuration.",
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                },
+              },
+            },
+            "description": "Failed to build configuration.",
+          },
+        },
+        "summary": "Public runtime configuration",
+        "tags": [
+          "System",
         ],
       },
     },

@@ -1,0 +1,51 @@
+name: Gitleaks Historical Secret Scan
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+jobs:
+  historical-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks against full history
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_NOTIFY_USER: ${{ github.repository_owner }}
+        continue-on-error: true
+
+      - name: Check for gitleaks results
+        id: check_results
+        run: |
+          if [ -f gitleaks-report.json ] && [ -s gitleaks-report.json ]; then
+            echo "findings_detected=true" >> $GITHUB_OUTPUT
+          else
+            echo "findings_detected=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create issue for findings
+        if: steps.check_results.outputs.findings_detected == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = JSON.parse(fs.readFileSync('gitleaks-report.json', 'utf8'));
+            const findings = report.length;
+            const summary = report.slice(0, 10).map(f =>
+              `- **File:** ${f.file}\n  **Secret type:** ${f.rule}\n  **Commit:** ${f.commit}`
+            ).join('\n');
+            const body = `## Gitleaks Historical Scan Results\n\n**${findings} secret(s)** detected in repository history.\n\n### Top Findings\n\n${summary}\n\n${findings > 10 ? `\n*...and ${findings - 10} more findings. See the attached report for details.*\n` : ''}\n\n### Remediation\n\n1. Rotate any exposed secrets immediately.\n2. Consider using \`git filter-branch\` or BFG Repo-Cleaner to remove secrets from history.\n3. Update the PR-scoped gitleaks config to prevent future leaks.`;
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[SECURITY] ${findings} secret(s) found in historical gitleaks scan`,
+              body: body,
+              labels: ['security']
+            });

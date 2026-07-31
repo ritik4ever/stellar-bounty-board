@@ -1076,7 +1076,6 @@ fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
             },
         );
     }
-} main
 }
 
 fn read_bounty(env: &Env, bounty_id: u64) -> Bounty {

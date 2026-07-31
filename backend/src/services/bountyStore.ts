@@ -1053,7 +1053,7 @@ export async function cancelBounty(
   maintainer: string,
   transactionHash?: string,
 ): Promise<BountyRecord> {
-  return withGlobalLock(async () => {
+  return withStoreLock(async () => {
     const records = listBounties();
     const bounty = findBounty(records, id);
 
@@ -1304,7 +1304,7 @@ export async function extendDeadline(
   maintainer: string,
   newDeadline: number,
 ): Promise<BountyRecord> {
-  return withGlobalLock(async () => {
+  return withStoreLock(async () => {
     const records = listBounties();
     const bounty = findBounty(records, id);
 
