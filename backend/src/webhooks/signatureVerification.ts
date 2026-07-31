@@ -275,20 +275,24 @@ export function verifyWithSecretRotation({
   ...profile
 }: SecretRotationOptions): void {
   // Normalise the incoming header once.
-  const signature = normalizeSignature(signatureHeader);
-  if (!signature) {
+  const normalizedSignature = normalizeSignature(signatureHeader);
+  if (!normalizedSignature) {
     throw new WebhookSignatureError(
       `Missing ${profile.providerName} webhook signature in ${profile.headerName}.`,
       401,
     );
   }
 
-  if (!signature.startsWith(profile.prefix)) {
+  if (!normalizedSignature.startsWith(profile.prefix)) {
     throw new WebhookSignatureError(
       `Invalid ${profile.providerName} webhook signature format.`,
       401,
     );
   }
+
+  // Re-bind to a definitely-string const: TypeScript's narrowing above does
+  // not flow into the nested function declaration below.
+  const signature: string = normalizedSignature;
 
   // Helper: compute and compare a single candidate secret (timing-safe).
   function matchesSecret(candidate: string): boolean {
