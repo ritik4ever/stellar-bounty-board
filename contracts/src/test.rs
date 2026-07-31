@@ -5,6 +5,9 @@ extern crate alloc;
 use super::*;
 use alloc::string::ToString;
 use soroban_sdk::{
+    symbol_short,
+    testutils::{Address as _, Events, Ledger},
+    Address, Env, IntoVal, String, Vec,
     testutils::{Address as _, Ledger},
     Address, Env, String,
 };
@@ -1261,6 +1264,64 @@ fn test_get_all_bounties_limit_capped_at_50() {
 fn test_create_bounty_with_custom_dispute_window_override() {
     let env = Env::default();
     env.mock_all_auths();
+    
+    // Note: If your file already had setup code inside this test block above the conflict, 
+    // leave it intact. This makes sure the dispute test runs immediately after.
+    let (client, _, _, _, arbiter, bounty_id) = setup_test(&env);
+    
+    // Dispute after deadline should fail
+    client.dispute_bounty(&bounty_id, &arbiter);
+}
+
+// ─── batch_release_bounty tests ─────────────────────────────────────────────
+
+#[test]
+fn test_batch_release_five_bounties() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, contributor, token_id, _fee_recipient, _arbiter) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &5000);
+
+    let mut bounty_ids = soroban_sdk::Vec::new(&env);
+    for i in 0..5u32 {
+        let bounty_id = client.create_bounty(
+            &maintainer,
+            &token_id,
+            &500,
+            &String::from_str(&env, "repo"),
+            &(i + 1),
+            &String::from_str(&env, "title"),
+            &(env.ledger().timestamp() + 1000),
+            &0u32,
+        );
+        client.reserve_bounty(&bounty_id, &contributor);
+        client.submit_bounty(&bounty_id, &contributor);
+        bounty_ids.push_back(bounty_id);
+    }
+
+    client.batch_release_bounty(&bounty_ids, &maintainer);
+
+    for i in 0..5u32 {
+        let bounty = client.get_bounty(&bounty_ids.get(i).unwrap());
+        assert_eq!(bounty.status, BountyStatus::Released);
+    }
+
+    assert_eq!(token.balance(&contributor), 2500);
+    assert_eq!(token.balance(&client.address), 0);
+}
+
+#[test]
+fn test_batch_release_skips_non_submitted() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, contributor, token_id, _fee_recipient, _arbiter) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &2000);
+
+    let open_id = client.create_bounty(
 
     let (client, maintainer, _contributor, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
@@ -1276,6 +1337,9 @@ fn test_create_bounty_with_custom_dispute_window_override() {
         &String::from_str(&env, "title"),
         &(env.ledger().timestamp() + 1000),
         &0u32,
+    );
+
+    let submitted_id = client.create_bounty(
         &Some(custom_window),
     );
 
@@ -1298,6 +1362,68 @@ fn test_create_bounty_without_override_uses_global_default() {
         &token_id,
         &500,
         &String::from_str(&env, "repo"),
+        &2,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32,
+    );
+    client.reserve_bounty(&submitted_id, &contributor);
+    client.submit_bounty(&submitted_id, &contributor);
+
+    let released_id = create_bounty_with_state(
+        &env,
+        &client,
+        maintainer.clone(),
+        contributor.clone(),
+        token_id.clone(),
+        BountyStatus::Released,
+    );
+
+    let mut ids = soroban_sdk::Vec::new(&env);
+    ids.push_back(open_id);
+    ids.push_back(submitted_id);
+    ids.push_back(released_id);
+
+    client.batch_release_bounty(&ids, &maintainer);
+
+    assert_eq!(
+        client.get_bounty(&open_id).status,
+        BountyStatus::Open
+    );
+    assert_eq!(
+        client.get_bounty(&submitted_id).status,
+        BountyStatus::Released
+    );
+    assert_eq!(
+        client.get_bounty(&released_id).status,
+        BountyStatus::Released
+    );
+}
+
+#[test]
+fn test_batch_release_empty_vec() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, _, _, _, _) = setup_test(&env);
+
+    let ids = soroban_sdk::Vec::new(&env);
+    client.batch_release_bounty(&ids, &maintainer);
+}
+
+#[test]
+#[should_panic(expected = "MaintainerMismatch")]
+fn test_batch_release_wrong_maintainer() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, contributor, token_id, _, _) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    let other = Address::generate(&env);
+
+    let bounty_id = client.create_bounty(
         &1,
         &String::from_str(&env, "title"),
         &(env.ledger().timestamp() + 1000),
@@ -1329,6 +1455,14 @@ fn test_create_bounty_override_below_min_fails() {
         &String::from_str(&env, "title"),
         &(env.ledger().timestamp() + 1000),
         &0u32,
+    );
+    client.reserve_bounty(&bounty_id, &contributor);
+    client.submit_bounty(&bounty_id, &contributor);
+
+    let mut ids = soroban_sdk::Vec::new(&env);
+    ids.push_back(bounty_id);
+
+    client.batch_release_bounty(&ids, &other);
         &Some(30u64),
     );
 }
