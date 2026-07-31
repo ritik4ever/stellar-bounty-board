@@ -123,4 +123,53 @@ describe("MaintainerAnalyticsPage", () => {
 
     expect(onBackMock).toHaveBeenCalledOnce();
   });
+
+  it("renders skeleton placeholders when loading is true", () => {
+    render(
+      <MaintainerAnalyticsPage
+        metrics={mockMetrics}
+        maintainerAddress={mockMetrics.maintainer}
+        bounties={mockBounties}
+        onBack={() => undefined}
+        loading={true}
+      />
+    );
+
+    // The skeleton should be rendered instead of the actual data
+    expect(screen.getByLabelText("Loading metrics")).toBeInTheDocument();
+    expect(screen.getByLabelText("Loading metrics")).toHaveAttribute("aria-busy", "true");
+
+    // Real data should not be visible while loading
+    expect(screen.queryByText("6")).not.toBeInTheDocument();
+    expect(screen.queryByText("600 XLM")).not.toBeInTheDocument();
+  });
+
+  it("renders real data when loading transitions from true to false", () => {
+    const { rerender } = render(
+      <MaintainerAnalyticsPage
+        metrics={mockMetrics}
+        maintainerAddress={mockMetrics.maintainer}
+        bounties={mockBounties}
+        onBack={() => undefined}
+        loading={true}
+      />
+    );
+
+    expect(screen.getByLabelText("Loading metrics")).toBeInTheDocument();
+
+    rerender(
+      <MaintainerAnalyticsPage
+        metrics={mockMetrics}
+        maintainerAddress={mockMetrics.maintainer}
+        bounties={mockBounties}
+        onBack={() => undefined}
+        loading={false}
+      />
+    );
+
+    // After loading completes, real data should be visible
+    expect(screen.getByText("6")).toBeInTheDocument();
+    expect(screen.getByText("600 XLM")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Loading metrics")).not.toBeInTheDocument();
+  });
 });
