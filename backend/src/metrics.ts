@@ -1,5 +1,3 @@
-
-
 import { collectDefaultMetrics, Counter, Histogram, Registry } from "prom-client";
 
 export const register = new Registry();
@@ -61,8 +59,6 @@ export const httpRequestDuration = getOrCreateHistogram(
   "http_request_duration_seconds",
   "Duration of HTTP requests in seconds",
 );
-
-
 
 export async function getMetrics(): Promise<string> {
   return register.metrics();

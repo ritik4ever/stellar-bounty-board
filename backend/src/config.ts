@@ -8,7 +8,6 @@
  */
 
 import { getTokenAddressMap } from './utils';
-import { getAllowedTokenSymbols as _getAllowedTokenSymbols } from './validation/schemas';
 
 export interface PublicConfig {
   /**

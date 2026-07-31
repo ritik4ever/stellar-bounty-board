@@ -665,6 +665,26 @@ async function withStoreLock<T>(fn: () => T | Promise<T>): Promise<T> {
   }
 }
 
+let globalLock: Promise<void> = Promise.resolve();
+
+/**
+ * Simple in-process promise-chain mutex used by operations that have not yet
+ * been migrated to the cross-process {@link withStoreLock} file lock.
+ */
+async function withGlobalLock<T>(fn: () => T | Promise<T>): Promise<T> {
+  const previousLock = globalLock;
+  let resolve: () => void;
+  globalLock = new Promise<void>((r) => {
+    resolve = r;
+  });
+  await previousLock;
+  try {
+    return await fn();
+  } finally {
+    resolve!();
+  }
+}
+
 export async function createBounty(
   input: CreateBountyInput,
 ): Promise<BountyRecord> {
@@ -1384,9 +1404,6 @@ export function listBountyAuditLogs(
   };
 }
 
-/**
- * Options for querying the full audit log.
- */
 export interface ListAllAuditLogsOptions {
   limit?: number;
   offset?: number;
@@ -1398,10 +1415,9 @@ export interface ListAllAuditLogsOptions {
 }
 
 /**
- * Retrieves a paginated, filterable view of the full audit log.
- *
- * @param {ListAllAuditLogsOptions} [options={}] - Query and pagination options.
- * @returns {AuditLogPage} An object containing the requested page of audit logs and pagination metadata.
+ * Retrieves a paginated, filterable view of audit log records across every
+ * bounty. Intended for admin use only — protect this with
+ * `createAdminApiKeyAuthMiddleware`.
  */
 export function listAllAuditLogs(
   options: ListAllAuditLogsOptions = {},
@@ -1459,6 +1475,9 @@ export function getBountyEvents(bountyId: string): BountyEvent[] {
   return bounty.events || [];
 }
 
+/**
+ * Aggregate metrics and performance tracking data for a maintainer.
+ */
 export interface MaintainerMetrics {
   /** The total number of bounties created by the maintainer. */
   totalBounties: number;
@@ -1486,7 +1505,7 @@ export interface MaintainerMetrics {
  * Computes and returns aggregated metrics for a specific maintainer.
  *
  * @param {string} maintainer - The Stellar address of the maintainer.
- * @returns {MaintainerMetrics} Aggregated metrics scoped to the maintainer.
+ * @returns {MaintainerMetrics} An object containing counts, sums, and averages of the maintainer's bounties.
  */
 export function getMaintainerMetrics(maintainer: string): MaintainerMetrics {
   const bounties = listBounties().filter((b) => b.maintainer === maintainer);
@@ -1508,21 +1527,44 @@ export function getMaintainerMetrics(maintainer: string): MaintainerMetrics {
   };
 }
 
+/**
+ * Ecosystem-wide aggregate statistics across all platform activity.
+ */
 export interface GlobalMetrics {
+  /** Total number of bounties created across the platform. */
   totalBounties: number;
+  /** Total count of open bounties. */
   openCount: number;
+  /** Total count of reserved bounties. */
   reservedCount: number;
+  /** Total count of submitted bounties. */
   submittedCount: number;
+  /** Total count of released bounties. */
   releasedCount: number;
+  /** Total count of refunded bounties. */
   refundedCount: number;
+  /** Total count of expired bounties. */
   expiredCount: number;
+  /** Total amount of tokens funded across the platform. */
   totalFunded: number;
+  /** Total amount of tokens released to contributors. */
   totalReleased: number;
+  /** Total number of unique maintainer addresses. */
   uniqueMaintainers: number;
+  /** Total number of unique contributor addresses. */
   uniqueContributors: number;
+  /**
+   * Cumulative protocol fees collected across all released bounties.
+   * Mirrors the on-chain FeeStats.total_collected value indexed by the backend.
+   */
   protocolFeesCollected: number;
 }
 
+/**
+ * Computes and returns global ecosystem-wide metrics for all bounties.
+ *
+ * @returns {GlobalMetrics} An object summarizing total counts, funding, and unique actor metrics.
+ */
 export function getGlobalMetrics(): GlobalMetrics {
   const bounties = listBounties();
   const totalFunded = bounties.reduce((sum, b) => sum + b.amount, 0);

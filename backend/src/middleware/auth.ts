@@ -209,6 +209,9 @@ export function createStellarSignatureAuthMiddleware(): RequestHandler {
 
     nonceCache.add(signatureHeader, 60 * 1000);
 
+    // Attach the authenticated signer's public key for audit logging downstream
+    req.signerPublicKey = publicKeyHeader;
+
     const maintainer = typeof req.body?.maintainer === "string" ? req.body.maintainer : undefined;
     if (maintainer && maintainer !== publicKeyHeader) {
       res.status(401).json({ error: "Request maintainer does not match signer public key." });
