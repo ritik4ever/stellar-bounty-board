@@ -4,11 +4,10 @@ import React, {
   useMemo,
   useCallback,
   useRef,
-  memo,
   Suspense,
-  type ReactNode,
   type FormEvent,
 } from "react";
+import { useBeforeUnload } from "./useBeforeUnload";
 import {
   FolderGit2,
   Moon,
@@ -35,7 +34,6 @@ import {
 import {
   debounce,
   filterBounties,
-  xlmToUsd,
 } from "./utils";
 import {
   type Bounty,
@@ -44,10 +42,10 @@ import {
   type OpenIssue,
 } from "./types";
 
+import BountyCard from "./BountyCard";
 import SkeletonBountyCard from "./SkeletonBountyCard";
 import EmptyState from "./EmptyState";
 import { ShortcutsHelpOverlay } from "./ShortcutsHelpOverlay";
-import BountyCountdown from "./BountyCountdown";
 import BountyDetailPage from "./BountyDetailPage";
 import ContributorProfilePage from "./ContributorProfilePage";
 import ContributorDashboard from "./ContributorDashboard";
@@ -92,10 +90,6 @@ const initialForm: CreateBountyPayload = {
   labels: [{ name: "help wanted", color: "0075ca" }],
 };
 
-function shortAddress(value: string): string {
-  return `${value.slice(0, 6)}...${value.slice(-4)}`;
-}
-
 function validateStellarPublicKey(input: string): string | null {
   const value = input.trim();
   if (!value) return "Address is required.";
@@ -111,178 +105,15 @@ const contributorStatuses: Array<BountyStatus | "all"> = [
   "released",
   "refunded",
   "expired",
+  "disputed",
 ];
 
 type BountyAction = "reserve" | "submit" | "release" | "refund";
-
-function repoOwner(repo: string): string {
-  return repo.split("/")[0] ?? repo;
-}
-
-function isInteractiveTarget(target: EventTarget | null): boolean {
-  return (
-    target instanceof HTMLElement &&
-    Boolean(
-      target.closest(
-        'a, button, input, select, textarea, summary, [role="button"], [role="link"]'
-      )
-    )
-  );
-}
 
 function formatTimestamp(value?: number): string {
   if (!value) return "-";
   return new Date(value * 1000).toLocaleString();
 }
-
-const BountyAmount = memo(function BountyAmount({
-  bounty,
-}: {
-  bounty: Bounty;
-}) {
-  const [usdAmount, setUsdAmount] = useState<string | null>(null);
-
-  useEffect(() => {
-    let active = true;
-
-    if (bounty.tokenSymbol.toUpperCase() === "USDC") {
-      const formatted = new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency: "USD",
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }).format(bounty.amount);
-      setUsdAmount(formatted);
-      return () => {
-        active = false;
-      };
-    }
-
-    if (bounty.tokenSymbol.toUpperCase() !== "XLM") {
-      setUsdAmount(null);
-      return () => {
-        active = false;
-      };
-    }
-
-    setUsdAmount(null);
-    void xlmToUsd(bounty.amount).then((value) => {
-      if (active) {
-        setUsdAmount(value);
-      }
-    });
-
-    return () => {
-      active = false;
-    };
-  }, [bounty.amount, bounty.tokenSymbol]);
-
-  return (
-    <div className="amount-chip">
-      <strong>
-        {bounty.amount} {bounty.tokenSymbol}
-      </strong>
-      {usdAmount && <span>{usdAmount}</span>}
-    </div>
-  );
-});
-
-type BountyCardProps = {
-  bounty: Bounty;
-  onOpen: (id: string) => void;
-  renderActionButton: (
-    bounty: Bounty,
-    action: {
-      action: "reserve" | "submit" | "release" | "refund";
-      label: string;
-      title: string;
-    }
-  ) => ReactNode;
-};
-
-const BountyCard = memo(function BountyCard({
-  bounty,
-  onOpen,
-  renderActionButton,
-}: BountyCardProps) {
-  const openCard = () => onOpen(bounty.id);
-
-  return (
-    <article
-      className="bounty-card"
-      tabIndex={0}
-      aria-label={`Bounty: ${bounty.title}. Press Enter or Space to open details.`}
-      onClick={(event) => {
-        if (isInteractiveTarget(event.target) && event.target !== event.currentTarget) return;
-        openCard();
-      }}
-      onKeyDown={(event) => {
-        if (isInteractiveTarget(event.target) && event.target !== event.currentTarget) return;
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          openCard();
-        }
-      }}
-    >
-      <div className="bounty-card__top">
-        <div>
-          <span
-            className={`status-pill status-pill--${bounty.status}`}
-            title={statusCopy[bounty.status].label}
-          >
-            {statusCopy[bounty.status].label}
-          </span>
-          <h3>{bounty.title}</h3>
-        </div>
-        <BountyAmount bounty={bounty} />
-      </div>
-
-      <p className="bounty-summary">{bounty.summary}</p>
-
-      <div className="meta-grid">
-        <div>
-          <span className="meta-label">Issue</span>
-          <strong>
-            <a
-              className="inline-link"
-              href={`https://github.com/${bounty.repo}/issues/${bounty.issueNumber}`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              {bounty.repo} #{bounty.issueNumber}
-            </a>
-          </strong>
-        </div>
-        <div>
-          <span className="meta-label">Deadline</span>
-          <strong>
-            <BountyCountdown deadlineAt={bounty.deadlineAt} status={bounty.status} />
-          </strong>
-        </div>
-        <div>
-          <span className="meta-label">Maintainer</span>
-          <strong>{shortAddress(bounty.maintainer)}</strong>
-        </div>
-        <div>
-          <span className="meta-label">Contributor</span>
-          <strong>{bounty.contributor ? shortAddress(bounty.contributor) : "Open"}</strong>
-        </div>
-      </div>
-
-      <div className="chip-row">
-        {bounty.labels.map((label) => (
-          <span className="chip" key={label.name}>
-            {label.name}
-          </span>
-        ))}
-      </div>
-
-      <div className="action-row">
-        {(actionCopy[bounty.status] ?? []).map((action) => renderActionButton(bounty, action))}
-      </div>
-    </article>
-  );
-});
 
 function App() {
   const { dark, toggle: toggleDark } = useDarkMode();
@@ -293,6 +124,9 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [showShortcutsOverlay, setShowShortcutsOverlay] = useState(false);
+  const [isFormDirty, setIsFormDirty] = useState(false);
+
+  useBeforeUnload(isFormDirty);
 
   useEffect(() => {
     function goOnline() {
@@ -464,9 +298,15 @@ function App() {
 
   const navigate = useCallback((nextPath: string) => {
     if (nextPath === window.location.pathname) return;
+    if (isFormDirty) {
+      const confirmed = window.confirm(
+        "You have unsaved changes in the bounty creation form. Are you sure you want to leave?",
+      );
+      if (!confirmed) return;
+    }
     window.history.pushState(null, "", nextPath);
     setPathname(nextPath);
-  }, []);
+  }, [isFormDirty]);
 
   const handleOpenBounty = useCallback(
     (id: string) => {
@@ -705,6 +545,7 @@ function App() {
             actionCopy={actionCopy}
             renderActionButton={renderActionButton}
             formatTimestamp={formatTimestamp}
+            bounties={bounties}
           />
         </Suspense>
       </ErrorBoundary>
@@ -721,6 +562,19 @@ function App() {
     event.preventDefault();
     setSubmitting(true);
     try {
+      // Validate required fields
+      if (!form.repo.trim()) {
+        toast.error("Repository is required.");
+        return;
+      }
+      if (!form.title.trim()) {
+        toast.error("Title is required.");
+        return;
+      }
+      if (form.amount <= 0) {
+        toast.error("Reward amount must be greater than 0.");
+        return;
+      }
       const maintainerError = validateStellarPublicKey(form.maintainer);
       if (maintainerError) {
         toast.error(`Maintainer address: ${maintainerError}`);
@@ -732,6 +586,7 @@ function App() {
         labels: form.labels.filter(Boolean),
       });
       setForm({ ...initialForm, issueNumber: form.issueNumber + 1 });
+      setIsFormDirty(false);
       await refresh();
       toast.success("Bounty created successfully!");
     } catch (err) {
@@ -772,7 +627,10 @@ function App() {
                     Repository
                     <input
                       value={form.repo}
-                      onChange={(e) => setForm({ ...form, repo: e.target.value })}
+                      onChange={(e) => {
+                        setForm({ ...form, repo: e.target.value });
+                        setIsFormDirty(true);
+                      }}
                       placeholder="owner/repo"
                     />
                   </label>
@@ -781,7 +639,10 @@ function App() {
                     <input
                       type="number"
                       value={form.issueNumber}
-                      onChange={(e) => setForm({ ...form, issueNumber: Number(e.target.value) })}
+                      onChange={(e) => {
+                        setForm({ ...form, issueNumber: Number(e.target.value) });
+                        setIsFormDirty(true);
+                      }}
                     />
                   </label>
                 </div>
@@ -790,7 +651,10 @@ function App() {
                     Title
                     <input
                       value={form.title}
-                      onChange={(e) => setForm({ ...form, title: e.target.value })}
+                      onChange={(e) => {
+                        setForm({ ...form, title: e.target.value });
+                        setIsFormDirty(true);
+                      }}
                       placeholder="Add WebSocket updates..."
                     />
                   </label>
@@ -801,23 +665,43 @@ function App() {
                     <input
                       type="number"
                       value={form.amount}
-                      onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })}
+                      onChange={(e) => {
+                        setForm({ ...form, amount: Number(e.target.value) });
+                        setIsFormDirty(true);
+                      }}
                     />
                   </label>
                   <label>
                     Asset
                     <select
                       value={form.tokenSymbol}
-                      onChange={(e) => setForm({ ...form, tokenSymbol: e.target.value })}
+                      onChange={(e) => {
+                        setForm({ ...form, tokenSymbol: e.target.value });
+                        setIsFormDirty(true);
+                      }}
                     >
                       <option value="XLM">XLM</option>
                       <option value="USDC">USDC</option>
                     </select>
                   </label>
                 </div>
+                <div className="form-actions">
                 <button type="submit" disabled={submitting}>
                   {submitting ? "Creating..." : "Create Bounty"}
                 </button>
+                {isFormDirty && (
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => {
+                      setForm(initialForm);
+                      setIsFormDirty(false);
+                    }}
+                  >
+                    Discard
+                  </button>
+                )}
+              </div>
               </form>
             </div>
           </div>

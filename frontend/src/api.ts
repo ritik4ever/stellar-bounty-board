@@ -290,6 +290,35 @@ export async function releaseBounty(
   return body.data;
 }
 
+export async function disputeBounty(
+  id: string,
+  contributor: string,
+  reason: string
+): Promise<Bounty> {
+  const body = await requestJson<{ data: Bounty }>(`/bounties/${id}/dispute`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contributor, reason }),
+  });
+
+  return body.data;
+}
+
+export async function resolveDisputeBounty(
+  id: string,
+  arbiter: string,
+  release: boolean,
+  transactionHash?: string
+): Promise<Bounty> {
+  const body = await requestJson<{ data: Bounty }>(`/bounties/${id}/resolve-dispute`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ arbiter, release, transactionHash }),
+  });
+
+  return body.data;
+}
+
 export async function refundBounty(
   id: string,
   maintainer: string,

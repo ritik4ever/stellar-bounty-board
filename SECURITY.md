@@ -49,7 +49,7 @@ Only the latest version of the Stellar Bounty Board is currently supported with 
 If you discover a potential security issue, report it privately using one of these channels:
 
 - **GitHub Private Reporting** — use the [Report a vulnerability](../../security/advisories/new) button in the Security tab of this repository.
-- **Email** — send details to `[Insert Security Email]` with the subject line `[SECURITY] <brief description>`.
+- **Email** — send details to `security@stellarbountyboard.com` with the subject line `[SECURITY] <brief description>`.
 
 Include the following in your report:
 
@@ -57,6 +57,8 @@ Include the following in your report:
 2. Step-by-step reproduction instructions or a proof-of-concept (PoC).
 3. Affected versions, components, or endpoints.
 4. Any suggested mitigations (optional but appreciated).
+
+For detailed information on our Service Level Agreements, response times, and the handling of third-party dependency vulnerabilities, please review our [Security Disclosure Process](docs/issues/security-disclosure-process.md).
 
 We appreciate your help in keeping the Stellar ecosystem safe.
 
@@ -139,6 +141,205 @@ When adding logging:
 ## Authentication Architecture
 
 The maintainer API routes are protected by Stellar keypair signature verification rather than JWT or session tokens. See [ADR 0002 — Stellar Signature Authentication](docs/adr/0002-stellar-signature-auth.md) for the rationale, verification flow, multi-key support, and replay attack considerations.
+
+---
+
+## Contract Security Review: Arbiter Trust Assumptions
+
+**⚠️ CRITICAL:** This section documents the security assumptions and failure modes related to the single arbiter address in the escrow contract. **Review this section whenever the dispute-resolution contract logic changes.**
+
+### Current Trust Assumptions
+
+The Stellar Bounty Board contract (`contracts/src/lib.rs`) currently places **significant trust** in a single arbiter address:
+
+1. **Dispute Initiation Authority**: The arbiter is the only entity that can initiate a dispute on a submitted bounty (`dispute_bounty` function). This requires the arbiter's signature authorization.
+
+2. **Final Dispute Resolution**: The arbiter has unilateral authority to resolve disputes (`resolve_dispute` function), deciding whether funds are released to the contributor or refunded to the maintainer. This decision is final and irreversible.
+
+3. **No Time Constraints on Resolution**: While there is a dispute window that must pass before resolution, once the window expires, the arbiter can resolve at any time without additional constraints.
+
+4. **Single Point of Control**: The arbiter address is set once during contract initialization and cannot be changed without redeploying the entire contract.
+
+5. **No Oversight Mechanisms**: There are no committee voting, multi-signature requirements, or slashing/bonding mechanisms to constrain arbiter behavior.
+
+### Failure Modes
+
+#### 1. Arbiter Key Compromise
+
+**Scenario**: The arbiter's private key is stolen or leaked.
+
+**Impact**:
+- Attacker can dispute any submitted bounty, forcing it into disputed status
+- Attacker can resolve all disputed bounties maliciously (stealing funds or denying legitimate payouts)
+- No mechanism to revoke arbiter authority without full contract redeployment
+- All disputed bounties are immediately vulnerable
+
+**Current Mitigation**: Contract redeployment with new arbiter (see [RUNBOOK.md - Incident Response: Compromised Arbiter Key](./RUNBOOK.md#incident-response-compromised-arbiter-key))
+
+**Severity**: CRITICAL
+
+#### 2. Arbiter Key Loss
+
+**Scenario**: The arbiter loses access to their private key (device failure, death, incapacity).
+
+**Impact**:
+- Disputed bounties cannot be resolved, leaving funds permanently locked in the contract
+- New disputes cannot be initiated (though this is less critical)
+- No recovery mechanism without contract redeployment
+- Contributors with disputed bounties cannot receive funds
+- Maintainers with disputed bounties cannot receive refunds
+
+**Current Mitigation**: Contract redeployment with new arbiter (requires migrating all active bounties)
+
+**Severity**: HIGH
+
+#### 3. Malicious Arbiter Behavior
+
+**Scenario**: The arbiter acts in bad faith (bribery, collusion, arbitrary decisions).
+
+**Impact**:
+- Arbiter can selectively resolve disputes to favor certain parties
+- No mechanism to appeal or reverse arbiter decisions
+- Arbiter can extort maintainers/contributors by threatening adverse resolutions
+- Reputation damage to the bounty board platform
+- Loss of user trust in the dispute resolution system
+
+**Current Mitigation**: None (relies on social reputation and legal recourse)
+
+**Severity**: HIGH
+
+#### 4. Arbiter Unavailability
+
+**Scenario**: The arbiter is temporarily unavailable (vacation, illness, technical issues).
+
+**Impact**:
+- Disputed bounties remain unresolved for extended periods
+- Contributors experience delayed payments
+- Maintainers experience delayed refunds
+- Dispute window may expire but resolution still requires arbiter action
+
+**Current Mitigation**: None (relies on arbiter availability)
+
+**Severity**: MEDIUM
+
+#### 5. Arbiter Front-Running
+
+**Scenario**: The arbiter observes pending transactions and acts on information before transactions complete.
+
+**Impact**:
+- Arbiter could dispute bounties immediately before maintainer cancellation to capture fees
+- Timing attacks on dispute resolution to maximize personal gain
+- Information asymmetry exploitation
+
+**Current Mitigation**: Limited (dispute window provides some protection)
+
+**Severity**: MEDIUM
+
+### Proposed Mitigations (Not Yet Implemented)
+
+The following features have been proposed to address these failure modes but are **not currently implemented** in the contract:
+
+#### 1. Arbiter Rotation with Timelock
+
+**Status**: ❌ Not Implemented
+
+**Description**: Allow the arbiter address to be changed with a timelock delay, enabling recovery from key compromise without full contract redeployment.
+
+**Implementation Reference**: See proposed code in [RUNBOOK.md - Future Improvements](./RUNBOOK.md#future-improvements)
+
+**Addresses**: Key compromise, key loss
+
+**Tracking**: [GitHub Issue #XXX] (placeholder - create issue to track)
+
+#### 2. Emergency Pause Function
+
+**Status**: ❌ Not Implemented
+
+**Description**: Add an emergency pause function callable by admin or timelock-protected multi-sig to halt all contract operations during security incidents.
+
+**Implementation Reference**: See proposed code in [RUNBOOK.md - Future Improvements](./RUNBOOK.md#future-improvements)
+
+**Addresses**: Key compromise, malicious behavior
+
+**Tracking**: [GitHub Issue #XXX] (placeholder - create issue to track)
+
+#### 3. Committee-Based Dispute Resolution
+
+**Status**: ❌ Not Implemented
+
+**Description**: Replace single arbiter with a committee requiring majority vote for dispute resolution, reducing single point of failure and collusion risk.
+
+**Addresses**: Malicious behavior, unavailability
+
+**Tracking**: [GitHub Issue #XXX] (placeholder - create issue to track)
+
+#### 4. Arbiter Bonding and Slashing
+
+**Status**: ❌ Not Implemented
+
+**Description**: Require arbiter to stake tokens that can be slashed for malicious behavior or proven collusion, creating economic disincentives for bad actors.
+
+**Addresses**: Malicious behavior, front-running
+
+**Tracking**: [GitHub Issue #XXX] (placeholder - create issue to track)
+
+#### 5. Multi-Signature Protection
+
+**Status**: ❌ Not Implemented
+
+**Description**: Require multiple signatures for critical arbiter operations, reducing single point of failure risk.
+
+**Addresses**: Key compromise, key loss, malicious behavior
+
+**Tracking**: [GitHub Issue #XXX] (placeholder - create issue to track)
+
+### Security Review Checklist
+
+**When reviewing changes to dispute-resolution logic, verify:**
+
+- [ ] Does the change increase arbiter authority? If so, document the new trust assumption.
+- [ ] Does the change add any mitigation for existing failure modes?
+- [ ] Are there new attack vectors introduced by the change?
+- [ ] Is the arbiter key storage mechanism documented and secure?
+- [ ] Is there a recovery path if the arbiter key is lost?
+- [ ] Is there a containment plan if the arbiter key is compromised?
+- [ ] Does the change affect the dispute window timing? Verify security implications.
+- [ ] Are there new events or logs that could help detect arbiter misconduct?
+- [ ] Does the change require updating this security section?
+
+### Operational Security Recommendations
+
+**For Current Deployment:**
+
+1. **Hardware Wallet Storage**: Store the arbiter private key on a hardware wallet (e.g., Ledger, Trezor) rather than a software wallet or file.
+
+2. **Key Generation Ceremony**: Generate the arbiter keypair using a secure, air-gapped process with multiple witnesses.
+
+3. **Backup Procedure**: Create secure, distributed backups of the arbiter key (e.g., Shamir's Secret Sharing) to prevent loss.
+
+4. **Regular Rotation**: Schedule quarterly arbiter key rotation even if no compromise is suspected (requires contract redeployment).
+
+5. **Monitoring**: Implement monitoring for all arbiter transactions to detect suspicious activity early.
+
+6. **Legal Framework**: Establish a legal agreement with the arbiter outlining responsibilities, liabilities, and dispute resolution procedures.
+
+7. **Transparency**: Publicly document the arbiter identity/organization to enable social accountability.
+
+8. **Incident Response**: Maintain an updated incident response plan (see [RUNBOOK.md](./RUNBOOK.md#incident-response-compromised-arbiter-key)).
+
+### Risk Assessment Summary
+
+| Failure Mode | Likelihood | Impact | Current Mitigation | Priority |
+|-------------|------------|--------|-------------------|----------|
+| Key Compromise | Medium | Critical | Contract redeployment | HIGH |
+| Key Loss | Low | High | Contract redeployment | MEDIUM |
+| Malicious Behavior | Low | High | None (social/legal) | HIGH |
+| Unavailability | Medium | Medium | None | LOW |
+| Front-Running | Low | Medium | Dispute window | LOW |
+
+**Overall Risk Level**: HIGH - Due to single point of failure and lack of implemented mitigations.
+
+**Recommendation**: Prioritize implementation of arbiter rotation and emergency pause functions to reduce critical risk.
 
 ---
 
