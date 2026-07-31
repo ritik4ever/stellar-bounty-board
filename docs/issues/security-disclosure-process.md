@@ -1,63 +1,54 @@
-# Update SECURITY.md With Full Responsible Disclosure Timeline
+# Security Disclosure Process
 
-Labels: `documentation`, `security`, `good first issue`
+## 1. Reporting a Vulnerability
 
-## Summary
+If you discover a potential security issue, please do not open a public GitHub issue. Instead, report it privately using one of these channels:
 
-`SECURITY.md` currently describes the 90-day disclosure window at a high level but lacks a
-step-by-step timeline that reporters and maintainers can follow. This issue asks for a concrete,
-dated-phase breakdown so both sides know exactly what to expect after a report is filed.
+- **GitHub Private Reporting** — use the [Report a vulnerability](https://github.com/ritik4ever/stellar-bounty-board/security/advisories/new) button in the Security tab of this repository.
+- **Email** — send details to security@stellarbountyboard.com with the subject line `[SECURITY] <brief description>`.
 
-## Why It Matters
+Include the following in your report:
+- A clear description of the vulnerability and its potential impact.
+- Step-by-step reproduction instructions or a proof-of-concept (PoC).
+- Affected versions, components, or endpoints.
 
-- Reporters need confidence that their finding will be acted on — a clear timeline builds trust.
-- Maintainers need a shared checklist to avoid missing SLA milestones.
-- A published timeline is a prerequisite for responsible-disclosure badge programmes (e.g., HackerOne, Bugcrowd).
-- It aligns the project with industry norms (Google Project Zero 90-day policy, CERT/CC guidelines).
+## 2. SLA Timelines and Commitments
 
-## Proposed Disclosure Timeline
+We are committed to addressing security vulnerabilities promptly. Our Service Level Agreements (SLAs) vary based on the severity (CVSS v3.1) of the issue:
 
-| Phase                   | Day       | Action                                                                                      |
-| ----------------------- | --------- | ------------------------------------------------------------------------------------------- |
-| **Receipt**             | Day 0     | Reporter submits via private email or GitHub private reporting.                             |
-| **Acknowledgement**     | Day 0–2   | Maintainer acknowledges receipt and assigns a tracking ID.                                  |
-| **Triage**              | Day 2–7   | Maintainer reproduces the issue, assesses severity (CVSS), and confirms scope.              |
-| **Status Update**       | Day 7     | Maintainer sends a written status update to the reporter.                                   |
-| **Fix Development**     | Day 7–45  | Patch developed on a private branch; draft advisory prepared.                               |
-| **Fix Review**          | Day 45–60 | Internal review, testing, and sign-off. Reporter may be invited to verify the fix.          |
-| **Coordinated Release** | Day 60–90 | Patch merged, release tagged, GitHub Security Advisory published.                           |
-| **Public Disclosure**   | Day 90    | Full details published. Reporter credited (with consent).                                   |
-| **Emergency Track**     | Any       | Critical/actively-exploited issues may be released ahead of schedule with reporter consent. |
+| Severity | CVSS Score | Acknowledgement | Triage/Status Update | Fix Development |
+| -------- | ---------- | --------------- | -------------------- | --------------- |
+| Critical | 9.0 - 10.0 | Within 48 hours | Within 2 days        | Within 7 days   |
+| High     | 7.0 - 8.9  | Within 48 hours | Within 5 days        | Within 14 days  |
+| Medium   | 4.0 - 6.9  | Within 48 hours | Within 7 days        | Within 45 days  |
+| Low      | 0.1 - 3.9  | Within 48 hours | Within 7 days        | Within 90 days  |
 
-> **Note:** The 90-day window may be extended by mutual agreement (e.g., complex supply-chain
-> issues). It may be shortened for critical vulnerabilities being actively exploited in the wild.
+*Note: Fix Development SLA represents the maximum time before a fix or mitigation is delivered.*
 
-## Acceptance Criteria
+## 3. Coordinated Disclosure Timeline
 
-- [ ] `SECURITY.md` contains the full phase table above.
-- [ ] Each phase includes the responsible party (reporter vs. maintainer).
-- [ ] An **Emergency Track** clause is documented for critical/zero-day issues.
-- [ ] A **Credits** section explains how reporters are acknowledged.
-- [ ] The private reporting channel (email or GitHub private reporting URL) is clearly stated.
-- [ ] The document references the existing CodeQL automated scanning workflow.
-- [ ] No code changes are required — this is a pure documentation task.
+We follow a 90-day coordinated disclosure policy:
 
-## Files to Edit
+| Phase                   | Window    | Responsible Party     | Action                                                                  |
+| ----------------------- | --------- | --------------------- | ----------------------------------------------------------------------- |
+| **Receipt**             | Day 0     | Reporter              | Submit via private email or GitHub private reporting.                   |
+| **Acknowledgement**     | Day 0–2   | Maintainer            | Confirm receipt and assign a tracking ID.                               |
+| **Triage**              | Day 2–7   | Maintainer            | Reproduce the issue, assess severity, confirm scope.                    |
+| **Status Update**       | Day 7     | Maintainer            | Send a written status update to the reporter.                           |
+| **Fix Development**     | SLA Based | Maintainer            | Develop patch on a private branch; draft GitHub Security Advisory.      |
+| **Fix Review**          | Pre-merge | Maintainer + Reporter | Internal review and testing. Reporter may be invited to verify the fix. |
+| **Coordinated Release** | Day 60–90 | Maintainer            | Merge patch, tag release, publish GitHub Security Advisory.             |
+| **Public Disclosure**   | Day 90    | Maintainer            | Publish full details. Credit reporter (with their consent).             |
 
-- `SECURITY.md`
+## 4. Third-Party Dependency Vulnerabilities
 
-## Getting Started
+If a vulnerability is found in a third-party dependency affecting this project:
 
-```bash
-# Read the current policy first
-cat SECURITY.md
+1. **Verification**: We will assess if the vulnerable code path is actually reachable within our application.
+2. **Upstream Coordination**: If the vulnerability is not yet known to the upstream maintainers, we will coordinate disclosure with them following their security policy.
+3. **Mitigation**: If an upstream fix is not immediately available, we will attempt to implement a workaround or mitigation within our project (within the SLA windows above).
+4. **Disclosure**: We will wait for the upstream maintainer to publish their advisory before we disclose our own mitigation or update, unless a critical actively exploited zero-day requires immediate action.
 
-# Then open for editing
-code SECURITY.md
-```
+## 5. Emergency Track
 
-## Related
-
-- Wave 4 issue #51 — Add security vulnerability disclosure issue template (merged)
-- `.github/workflows/codeql.yml` — automated security scanning already in place
-- `docs/issues/security-disclosure.md` — the reporter-facing issue template
+For vulnerabilities that are **critical severity (CVSS ≥ 9.0)** or are being **actively exploited in the wild**, we reserve the right to release a patch ahead of the 90-day schedule. We will notify the reporter before doing so and coordinate timing where possible.

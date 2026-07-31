@@ -19,6 +19,7 @@ interface MaintainerAnalyticsPageProps {
   maintainerAddress: string;
   bounties: Bounty[];
   onBack: () => void;
+  loading?: boolean;
 }
 
 export default function MaintainerAnalyticsPage({
@@ -26,6 +27,7 @@ export default function MaintainerAnalyticsPage({
   maintainerAddress,
   bounties,
   onBack,
+  loading = false,
 }: MaintainerAnalyticsPageProps) {
   const shortAddress = (val: string) => `${val.slice(0, 6)}...${val.slice(-4)}`;
 
@@ -93,110 +95,155 @@ export default function MaintainerAnalyticsPage({
         </button>
       </div>
 
-      {/* Summary cards */}
-      <section className="analytics-grid" aria-label="Metrics Summary">
-        <article className="analytics-card">
-          <span>Total Bounties</span>
-          <strong>{metrics.totalBounties}</strong>
-        </article>
-        <article className="analytics-card">
-          <span>Total Funded</span>
-          <strong>{metrics.totalFunded} XLM</strong>
-        </article>
-        <article className="analytics-card">
-          <span>Total Released</span>
-          <strong>{metrics.totalReleased} XLM</strong>
-        </article>
-        <article className="analytics-card">
-          <span>Average Reward</span>
-          <strong>{metrics.averageRewardAmount.toFixed(1)} XLM</strong>
-        </article>
-      </section>
+      {loading ? (
+        <AnalyticsChartsSkeleton />
+      ) : (
+        <>
+          {/* Summary cards */}
+          <section className="analytics-grid" aria-label="Metrics Summary">
+            <article className="analytics-card">
+              <span>Total Bounties</span>
+              <strong>{metrics.totalBounties}</strong>
+            </article>
+            <article className="analytics-card">
+              <span>Total Funded</span>
+              <strong>{metrics.totalFunded} XLM</strong>
+            </article>
+            <article className="analytics-card">
+              <span>Total Released</span>
+              <strong>{metrics.totalReleased} XLM</strong>
+            </article>
+            <article className="analytics-card">
+              <span>Average Reward</span>
+              <strong>{metrics.averageRewardAmount.toFixed(1)} XLM</strong>
+            </article>
+          </section>
 
-      {/* Charts section */}
-      <div className="charts-row">
-        {/* Bar Chart */}
-        <section className="chart-container" aria-labelledby="status-chart-title">
-          <div className="analytics-header">
-            <h2 id="status-chart-title" className="chart-title">Bounties by Status</h2>
-            <BarChart3 size={18} className="text-muted" />
-          </div>
-          <div className="chart-wrapper" style={{ height: 260 }}>
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart
-                data={statusData}
-                margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(54,63,59,0.08)" />
-                <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--muted)" }} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: "var(--muted)" }} />
-                <Tooltip
-                  contentStyle={{
-                    background: "var(--ink)",
-                    color: "#fff",
-                    borderRadius: "8px",
-                    border: "none",
-                    fontSize: "12px",
-                  }}
-                />
-                <Bar dataKey="bounties" fill="#4b7fc4" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </section>
-
-        {/* Line Chart */}
-        <section className="chart-container" aria-labelledby="funding-chart-title">
-          <div className="analytics-header">
-            <h2 id="funding-chart-title" className="chart-title">Cumulative Escrow Over Time</h2>
-            <TrendingUp size={18} className="text-muted" />
-          </div>
-          <div className="chart-wrapper" style={{ height: 260 }}>
-            {timelinePoints.length < 2 ? (
-              <div className="empty-state" style={{ height: "100%", justifyContent: "center" }}>
-                Not enough history to display line chart.
+          {/* Charts section */}
+          <div className="charts-row">
+            {/* Bar Chart */}
+            <section className="chart-container" aria-labelledby="status-chart-title">
+              <div className="analytics-header">
+                <h2 id="status-chart-title" className="chart-title">Bounties by Status</h2>
+                <BarChart3 size={18} className="text-muted" />
               </div>
-            ) : (
-              <ResponsiveContainer width="100%" height={260}>
-                <LineChart
-                  data={timelinePoints}
-                  margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(54,63,59,0.08)" />
-                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--muted)" }} />
-                  <YAxis tick={{ fontSize: 10, fill: "var(--muted)" }} />
-                  <Tooltip
-                    contentStyle={{
-                      background: "var(--ink)",
-                      color: "#fff",
-                      borderRadius: "8px",
-                      border: "none",
-                      fontSize: "12px",
-                    }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Line
-                    type="monotone"
-                    dataKey="Total Funded"
-                    stroke="#4b7fc4"
-                    strokeWidth={3}
-                    dot={{ r: 4 }}
-                    activeDot={{ r: 6 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="Total Released"
-                    stroke="#1ebd93"
-                    strokeWidth={3}
-                    dot={{ r: 4 }}
-                    activeDot={{ r: 6 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
+              <div className="chart-wrapper" style={{ height: 260 }}>
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart
+                    data={statusData}
+                    margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(54,63,59,0.08)" />
+                    <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--muted)" }} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: "var(--muted)" }} />
+                    <Tooltip
+                      contentStyle={{
+                        background: "var(--ink)",
+                        color: "#fff",
+                        borderRadius: "8px",
+                        border: "none",
+                        fontSize: "12px",
+                      }}
+                    />
+                    <Bar dataKey="bounties" fill="#4b7fc4" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </section>
+
+            {/* Line Chart */}
+            <section className="chart-container" aria-labelledby="funding-chart-title">
+              <div className="analytics-header">
+                <h2 id="funding-chart-title" className="chart-title">Cumulative Escrow Over Time</h2>
+                <TrendingUp size={18} className="text-muted" />
+              </div>
+              <div className="chart-wrapper" style={{ height: 260 }}>
+                {timelinePoints.length < 2 ? (
+                  <div className="empty-state" style={{ height: "100%", justifyContent: "center" }}>
+                    Not enough history to display line chart.
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={260}>
+                    <LineChart
+                      data={timelinePoints}
+                      margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(54,63,59,0.08)" />
+                      <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--muted)" }} />
+                      <YAxis tick={{ fontSize: 10, fill: "var(--muted)" }} />
+                      <Tooltip
+                        contentStyle={{
+                          background: "var(--ink)",
+                          color: "#fff",
+                          borderRadius: "8px",
+                          border: "none",
+                          fontSize: "12px",
+                        }}
+                      />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Line
+                        type="monotone"
+                        dataKey="Total Funded"
+                        stroke="#4b7fc4"
+                        strokeWidth={3}
+                        dot={{ r: 4 }}
+                        activeDot={{ r: 6 }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="Total Released"
+                        stroke="#1ebd93"
+                        strokeWidth={3}
+                        dot={{ r: 4 }}
+                        activeDot={{ r: 6 }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </section>
           </div>
-        </section>
-      </div>
+        </>
+      )}
     </div>
+  );
+}
+
+/**
+ * Skeleton placeholder for the analytics charts page.
+ * Mirrors the layout of the summary cards + chart containers
+ * to prevent layout shift while data is being fetched.
+ */
+function AnalyticsChartsSkeleton() {
+  return (
+    <>
+      <section className="analytics-grid" aria-label="Loading metrics" aria-busy="true">
+        {[1, 2, 3, 4].map((i) => (
+          <article className="analytics-card" key={i} aria-hidden="true">
+            <span className="skeleton-block skeleton-meta-label" />
+            <strong className="skeleton-block skeleton-meta-value" style={{ marginTop: 8 }} />
+          </article>
+        ))}
+      </section>
+      <div className="charts-row">
+        {[1, 2].map((i) => (
+          <section className="chart-container" key={i} aria-hidden="true">
+            <div className="analytics-header">
+              <span className="skeleton-block skeleton-title" style={{ width: 180, height: 20 }} />
+            </div>
+            <div className="chart-wrapper" style={{ height: 260 }}>
+              <div
+                className="skeleton-block"
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  borderRadius: 8,
+                }}
+              />
+            </div>
+          </section>
+        ))}
+      </div>
+    </>
   );
 }
