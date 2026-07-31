@@ -60,14 +60,7 @@ pub struct AllowlistConfig {
     pub allowed_tokens: Vec<Address>,
 }
 
-impl Default for AllowlistConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            allowed_tokens: Vec::new(),
-        }
-    }
-}
+
 
 
 /// Cumulative fee statistics updated on every payout release.
@@ -98,6 +91,7 @@ enum DataKey {
     Admin,
     PendingArbiter,
     ArbiterRotationTimelock,
+    AllowlistConfig,
 }
 
 #[contracttype]
@@ -230,6 +224,8 @@ pub enum ContractError {
     NotAdmin,
     NoPendingArbiter,
     TimelockNotElapsed,
+    FeeRecipientNotSet,
+    ArbiterNotSet,
 }
 
 /// Maximum allowed bounty amount: 10 billion XLM expressed in stroops
@@ -260,8 +256,6 @@ impl StellarBountyBoardContract {
         String::from_str(&_env, CONTRACT_VERSION)
     }
 
-    pub fn initialize(env: Env, fee_recipient: Address, arbiter: Address, dispute_window: u64) {
-    
     pub fn initialize(env: Env, admin: Address, fee_recipient: Address, arbiter: Address, dispute_window: u64) {
         // Prevent re-initialization
         if env.storage().persistent().has(&DataKey::FeeRecipient) {
@@ -890,56 +884,8 @@ impl StellarBountyBoardContract {
     /// if no bounties have been released yet.
 
     /// Returns all bounties assigned to a given contributor.
-    pub fn get_bounties_by_contributor(env: Env, contributor: Address, start: u64, limit: u32) -> Vec<Bounty> {
-        let enforced_limit = if limit > 50 { 50 } else { limit };
-        let mut result = Vec::new(&env);
-        let next_id = env.storage().persistent().get(&DataKey::NextBountyId).unwrap_or(0);
-        if start == 0 || start > next_id || enforced_limit == 0 {
-            return result;
-        }
-        let mut id = start;
-        let mut count = 0u32;
-        while count < enforced_limit && id <= next_id {
-            if env.storage().persistent().has(&DataKey::Bounty(id)) {
-                let mut bounty = read_bounty(&env, id);
-                expire_if_needed(&env, &mut bounty);
-                if bounty.contributor == Some(contributor.clone()) {
-                    result.push_back(bounty);
-                    count += 1;
-                }
-            }
-            id += 1;
-        }
-        result
-    }
 
-    pub fn get_fee_stats(env: Env) -> FeeStats {
-        env.storage()
-            .persistent()
-            .get(&DataKey::FeeStats)
-            .unwrap_or(FeeStats {
-                total_collected: 0,
-                bounty_count: 0,
-            })
-    }
-}
 
-fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
-    if fee_amount > 0 {
-        let mut stats: FeeStats = env
-            .storage()
-            .persistent()
-            .get(&DataKey::FeeStats)
-            .unwrap_or(FeeStats {
-                total_collected: 0,
-                bounty_count: 0,
-            });
-        stats.total_collected += fee_amount;
-        stats.bounty_count += 1;
-        env.storage()
-            .persistent()
-            .set(&DataKey::FeeStats, &stats);
-    }
 
     /// Returns the effective dispute window for a bounty.
     /// If the bounty has a per-bounty override, returns that value.
@@ -1021,7 +967,30 @@ fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
             },
         );
     }
-} main
+
+    pub fn get_fee_stats(env: Env) -> FeeStats {
+        env.storage()
+            .persistent()
+            .get(&DataKey::FeeStats)
+            .unwrap_or(FeeStats {
+                total_collected: 0,
+                bounty_count: 0,
+            })
+    }
+}
+
+fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
+    let mut stats: FeeStats = env
+        .storage()
+        .persistent()
+        .get(&DataKey::FeeStats)
+        .unwrap_or(FeeStats {
+            total_collected: 0,
+            bounty_count: 0,
+        });
+    stats.total_collected += fee_amount;
+    stats.bounty_count += 1;
+    env.storage().persistent().set(&DataKey::FeeStats, &stats);
 }
 
 fn read_bounty(env: &Env, bounty_id: u64) -> Bounty {
@@ -1065,7 +1034,7 @@ pub fn set_allowlist_enabled(e: &Env, admin: Address, enabled: bool) {
     let mut config = e.storage()
         .instance()
         .get::<_, AllowlistConfig>(&DataKey::AllowlistConfig)
-        .unwrap_or_default();
+        .unwrap_or(AllowlistConfig { enabled: false, allowed_tokens: Vec::new(e) });
     config.enabled = enabled;
     e.storage().instance().set(&DataKey::AllowlistConfig, &config);
 }
@@ -1076,9 +1045,9 @@ pub fn add_allowed_token(e: &Env, admin: Address, token: Address) {
     let mut config = e.storage()
         .instance()
         .get::<_, AllowlistConfig>(&DataKey::AllowlistConfig)
-        .unwrap_or_default();
+        .unwrap_or(AllowlistConfig { enabled: false, allowed_tokens: Vec::new(e) });
     if !config.allowed_tokens.contains(&token) {
-        config.allowed_tokens.push(token);
+        config.allowed_tokens.push_back(token.clone());
         e.storage().instance().set(&DataKey::AllowlistConfig, &config);
         e.events().publish(
             (symbol_short!("allowlist"), symbol_short!("add")),
@@ -1093,9 +1062,15 @@ pub fn remove_allowed_token(e: &Env, admin: Address, token: Address) {
     let mut config = e.storage()
         .instance()
         .get::<_, AllowlistConfig>(&DataKey::AllowlistConfig)
-        .unwrap_or_default();
+        .unwrap_or(AllowlistConfig { enabled: false, allowed_tokens: Vec::new(e) });
     let before = config.allowed_tokens.len();
-    config.allowed_tokens.retain(|t| t != &token);
+    let mut new_tokens = Vec::new(e);
+    for t in config.allowed_tokens.iter() {
+        if t != token {
+            new_tokens.push_back(t);
+        }
+    }
+    config.allowed_tokens = new_tokens;
     if config.allowed_tokens.len() < before {
         e.storage().instance().set(&DataKey::AllowlistConfig, &config);
         e.events().publish(
@@ -1105,37 +1080,4 @@ pub fn remove_allowed_token(e: &Env, admin: Address, token: Address) {
     }
 }
 
-}
-
-/// Atomically add `fee_amount` to the cumulative [`FeeStats`] in persistent storage.
-///
-/// Called after every payout (normal release and dispute-release). When `fee_amount`
-/// is zero the stats are still updated so that `bounty_count` always reflects the
-/// total number of released bounties, not just fee-paying ones.
-fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
-    let mut stats: FeeStats = env
-        .storage()
-        .persistent()
-        .get(&DataKey::FeeStats)
-        .unwrap_or(FeeStats {
-            total_collected: 0,
-            bounty_count: 0,
-        });
-    stats.total_collected += fee_amount;
-    stats.bounty_count += 1;
-    env.storage().persistent().set(&DataKey::FeeStats, &stats);
-}
-
-fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
-    let mut stats: FeeStats = env
-        .storage()
-        .persistent()
-        .get(&DataKey::FeeStats)
-        .unwrap_or(FeeStats {
-            total_collected: 0,
-            bounty_count: 0,
-        });
-    stats.total_collected += fee_amount;
-    stats.bounty_count += 1;
-    env.storage().persistent().set(&DataKey::FeeStats, &stats);
 }
