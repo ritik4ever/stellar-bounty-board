@@ -83,7 +83,7 @@ async function getContractVersion(): Promise<string> {
   }
 
   // Parse ScVal string
-  const scVal = xdr.ScVal.fromXDR(result.retval.toXDR(), 'base64');
+  const scVal = xdr.ScVal.fromXDR(result.retval.toXDR().toString('base64'), 'base64');
   if (scVal.switch() !== xdr.ScValType.scvString()) {
     throw new Error(`Expected string return value, got ${scVal.switch().name}`);
   }

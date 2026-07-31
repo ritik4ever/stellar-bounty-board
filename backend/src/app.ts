@@ -2,6 +2,7 @@ import cors from 'cors';
 import express, { Request, Response, NextFunction } from 'express';
 import { randomUUID, createHash } from 'node:crypto';
 import swaggerUi from 'swagger-ui-express';
+import pinoHttp from 'pino-http';
 
 import { generateOpenApiDocument } from './docs/openapi';
 import { getMetrics, httpRequestDuration } from './metrics';
@@ -22,7 +23,6 @@ import {
   releaseBounty,
   reserveBounty,
   submitBounty,
-  updateBountyNotes,
   getBountyEvents,
   getMaintainerMetrics,
   getGlobalMetrics,
@@ -43,6 +43,7 @@ import {
   reserveBountySchema,
   submitBountySchema,
   updateNotesSchema,
+  zodErrorMessage,
 } from './validation/schemas';
 import { validateBody } from './middleware/validateBody';
 import { isValidStellarAddress } from './utils';
@@ -60,6 +61,8 @@ import { idempotencyMiddleware } from './middleware/idempotency';
 import { requireJsonContentType } from './middleware/contentType';
 import { readLimiter, mutationLimiter } from './utils';
 import { maintainerLimiter } from './middleware/maintainerLimiter';
+import { buildCorsOptions } from './middleware/corsOptions';
+import { runDeepHealthCheck } from './services/deepHealth';
 import { logger } from './logger';
 import { createAdminApiKeyAuthMiddleware } from './middleware/adminAuth';
 import { handleGitHubPrEvent } from './webhooks/githubPrHandler';
@@ -803,6 +806,7 @@ app.post(
 app.get('/api/open-issues', async (_req: Request, res: Response) => {
   try {
     const issues = await listOpenIssues();
+    res.setHeader('Cache-Control', 'max-age=600');
     res.json({ data: issues });
   } catch (error) {
     sendError(res, _req, error, 500);

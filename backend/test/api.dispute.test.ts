@@ -59,7 +59,7 @@ async function fullCycle(app: Express.Application): Promise<string> {
     .post(`/api/bounties/${id}/submit`)
     .send({
       contributor: CONTRIBUTOR,
-      submissionUrl: "https://github.com/owner/repo/pull/1",
+      submissionUrl: "https://github.com/owner/repo-name/pull/1",
     })
     .expect(200);
   return id;
@@ -149,7 +149,8 @@ describe("POST /api/bounties/:id/dispute", () => {
       .send({ contributor: "not-a-valid-address", reason: "Test reason." })
       .expect(400);
 
-    expect(res.body.error).toMatch(/public key|Must be valid/i);
+    expect(res.body.error).toBe("Validation failed");
+    expect(JSON.stringify(res.body.details)).toMatch(/public key|Must be valid/i);
   });
 
   it("returns 400 for unknown bounty id", async () => {

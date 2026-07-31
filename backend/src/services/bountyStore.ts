@@ -9,6 +9,7 @@ import { logStructured } from "../logger";
 import { getCache, type CacheAdapter } from "./cache";
 import { bountiesCreatedTotal, bountiesReleasedTotal } from "../metrics";
 import { validateGithubPrUrlForRepo } from "../validation/prUrl";
+import { resolveTokenAddress } from "../utils";
 
 
 /**
@@ -61,7 +62,7 @@ export type BountyTransitionType =
  */
 export interface BountyEvent {
   /** The type of event (usually matches the resulting status or "created"). */
-  type: BountyStatus | "created" | "notes_updated" | "deadline_extended";
+  type: BountyStatus | "created" | "notes_updated" | "deadline_extended" | "archived";
   /** Unix timestamp in seconds when the event occurred. */
   timestamp: number;
   /** Stellar public key of the actor who triggered the event. */
@@ -1032,7 +1033,7 @@ export async function cancelBounty(
   maintainer: string,
   transactionHash?: string,
 ): Promise<BountyRecord> {
-  return withGlobalLock(async () => {
+  return withStoreLock(async () => {
     const records = listBounties();
     const bounty = findBounty(records, id);
 
@@ -1283,7 +1284,7 @@ export async function extendDeadline(
   maintainer: string,
   newDeadline: number,
 ): Promise<BountyRecord> {
-  return withGlobalLock(async () => {
+  return withStoreLock(async () => {
     const records = listBounties();
     const bounty = findBounty(records, id);
 
@@ -1340,50 +1341,215 @@ export interface AuditLogPage {
   data: BountyAuditLogRecord[];
   /** Pagination metadata. */
   pagination: {
-    /** Total number of audit log records. */
+    /** The limit applied to the query. */
+    limit: number;
+    /** The offset applied to the query. */
+    offset: number;
+    /** Total number of matching records in the system. */
     total: number;
-    /** Current page number (1-indexed). */
-    page: number;
-    /** Number of records per page. */
-    pageSize: number;
-    /** Total number of pages. */
-    totalPages: number;
+    /** Indicates if more records are available. */
+    hasMore: boolean;
+    /** The next offset to query, or null if there are no more records. */
+    nextOffset: number | null;
   };
 }
 
 /**
- * Retrieves a paginated list of audit log records for a specific bounty.
+ * Retrieves paginated audit logs for a specific bounty.
  *
- * @param {string} bountyId - The unique ID of the bounty to retrieve audit logs for.
- * @param {number} [page=1] - The page number to retrieve (1-indexed).
- * @param {number} [pageSize=20] - The number of records per page.
- * @returns {AuditLogPage} A promise that resolves to a paginated response of audit log records.
+ * @param {string} bountyId - The unique ID of the bounty.
+ * @param {Object} [options={}] - Pagination options.
+ * @param {number} [options.limit=20] - The maximum number of log records to return.
+ * @param {number} [options.offset=0] - The starting index for pagination.
+ * @returns {AuditLogPage} An object containing the requested page of audit logs and pagination metadata.
  */
 export function listBountyAuditLogs(
   bountyId: string,
-  page: number = 1,
-  pageSize: number = 20,
+  options: { limit?: number; offset?: number } = {},
 ): AuditLogPage {
-  const allLogs = readAuditStore();
-  const filtered = allLogs.filter((log) => log.bountyId === bountyId);
+  const { limit = 20, offset = 0 } = options;
+  const all = readAuditStore().filter((log) => log.bountyId === bountyId);
+  const total = all.length;
+  const data = all.slice(offset, offset + limit);
+  const hasMore = offset + limit < total;
+  return {
+    data,
+    pagination: {
+      limit,
+      offset,
+      total,
+      hasMore,
+      nextOffset: hasMore ? offset + limit : null,
+    },
+  };
+}
 
-  // Sort by timestamp descending (most recent first)
-  filtered.sort((a, b) => b.timestamp - a.timestamp);
+/**
+ * Options for querying the full audit log.
+ */
+export interface ListAllAuditLogsOptions {
+  limit?: number;
+  offset?: number;
+  actor?: string;
+  transition?: string;
+  bountyId?: string;
+  fromStatus?: string;
+  toStatus?: string;
+}
 
-  const total = filtered.length;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const safePage = Math.min(Math.max(1, page), totalPages);
-  const start = (safePage - 1) * pageSize;
-  const end = start + pageSize;
-  const data = filtered.slice(start, end);
+/**
+ * Retrieves a paginated, filterable view of the full audit log.
+ *
+ * @param {ListAllAuditLogsOptions} [options={}] - Query and pagination options.
+ * @returns {AuditLogPage} An object containing the requested page of audit logs and pagination metadata.
+ */
+export function listAllAuditLogs(
+  options: ListAllAuditLogsOptions = {},
+): AuditLogPage {
+  const {
+    limit = 50,
+    offset = 0,
+    actor,
+    transition,
+    bountyId,
+    fromStatus,
+    toStatus,
+  } = options;
 
-  return { data, pagination: { total, page: safePage, pageSize, totalPages } };
+  let all = readAuditStore();
+
+  if (actor) {
+    all = all.filter((log) => log.actor === actor);
+  }
+
+  if (transition) {
+    all = all.filter((log) => log.transition === transition);
+  }
+
+  if (bountyId) {
+    all = all.filter((log) => log.bountyId === bountyId);
+  }
+
+  if (fromStatus) {
+    all = all.filter((log) => log.fromStatus === fromStatus);
+  }
+
+  if (toStatus) {
+    all = all.filter((log) => log.toStatus === toStatus);
+  }
+
+  const total = all.length;
+  const data = all.slice(offset, offset + limit);
+  const hasMore = offset + limit < total;
+  return {
+    data,
+    pagination: {
+      limit,
+      offset,
+      total,
+      hasMore,
+      nextOffset: hasMore ? offset + limit : null,
+    },
+  };
 }
 
 export function getBountyEvents(bountyId: string): BountyEvent[] {
   const records = listBounties();
   const bounty = findBounty(records, bountyId);
   return bounty.events || [];
+}
+
+export interface MaintainerMetrics {
+  /** The total number of bounties created by the maintainer. */
+  totalBounties: number;
+  /** Count of bounties currently in "open" status. */
+  openCount: number;
+  /** Count of bounties currently in "reserved" status. */
+  reservedCount: number;
+  /** Count of bounties currently in "submitted" status. */
+  submittedCount: number;
+  /** Count of bounties successfully "released" status. */
+  releasedCount: number;
+  /** Count of bounties refunded. */
+  refundedCount: number;
+  /** Count of bounties that have expired. */
+  expiredCount: number;
+  /** Total value of rewards funded by this maintainer. */
+  totalFunded: number;
+  /** Total value of rewards paid out/released to contributors. */
+  totalReleased: number;
+  /** Average reward value for the maintainer's bounties. */
+  averageRewardAmount: number;
+}
+
+/**
+ * Computes and returns aggregated metrics for a specific maintainer.
+ *
+ * @param {string} maintainer - The Stellar address of the maintainer.
+ * @returns {MaintainerMetrics} Aggregated metrics scoped to the maintainer.
+ */
+export function getMaintainerMetrics(maintainer: string): MaintainerMetrics {
+  const bounties = listBounties().filter((b) => b.maintainer === maintainer);
+  const totalFunded = bounties.reduce((sum, b) => sum + b.amount, 0);
+  const released = bounties.filter((b) => b.status === "released");
+  const totalReleased = released.reduce((sum, b) => sum + b.amount, 0);
+  return {
+    totalBounties: bounties.length,
+    openCount: bounties.filter((b) => b.status === "open").length,
+    reservedCount: bounties.filter((b) => b.status === "reserved").length,
+    submittedCount: bounties.filter((b) => b.status === "submitted").length,
+    releasedCount: released.length,
+    refundedCount: bounties.filter((b) => b.status === "refunded").length,
+    expiredCount: bounties.filter((b) => b.status === "expired").length,
+    totalFunded,
+    totalReleased,
+    averageRewardAmount:
+      bounties.length > 0 ? totalFunded / bounties.length : 0,
+  };
+}
+
+export interface GlobalMetrics {
+  totalBounties: number;
+  openCount: number;
+  reservedCount: number;
+  submittedCount: number;
+  releasedCount: number;
+  refundedCount: number;
+  expiredCount: number;
+  totalFunded: number;
+  totalReleased: number;
+  uniqueMaintainers: number;
+  uniqueContributors: number;
+  protocolFeesCollected: number;
+}
+
+export function getGlobalMetrics(): GlobalMetrics {
+  const bounties = listBounties();
+  const totalFunded = bounties.reduce((sum, b) => sum + b.amount, 0);
+  const released = bounties.filter((b) => b.status === "released");
+  const totalReleased = released.reduce((sum, b) => sum + b.amount, 0);
+  const protocolFeesCollected = released.reduce(
+    (sum, b) => sum + (b.protocolFeeCollected ?? 0),
+    0,
+  );
+  const uniqueMaintainers = new Set(bounties.map((b) => b.maintainer)).size;
+  const uniqueContributors = new Set(
+    bounties.filter((b) => b.contributor).map((b) => b.contributor as string),
+  ).size;
+  return {
+    totalBounties: bounties.length,
+    openCount: bounties.filter((b) => b.status === "open").length,
+    reservedCount: bounties.filter((b) => b.status === "reserved").length,
+    submittedCount: bounties.filter((b) => b.status === "submitted").length,
+    releasedCount: released.length,
+    refundedCount: bounties.filter((b) => b.status === "refunded").length,
+    expiredCount: bounties.filter((b) => b.status === "expired").length,
+    totalFunded,
+    totalReleased,
+    uniqueMaintainers,
+    uniqueContributors,
+    protocolFeesCollected,
+  };
 }
 
 const GLOBAL_METRICS_CACHE_KEY = "stats:global";

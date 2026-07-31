@@ -12,6 +12,7 @@ import {
   maintainerActionSchema,
   openIssueSchema,
   reserveBountySchema,
+  resolveDisputeBountySchema,
   submitBountySchema,
   updateNotesSchema,
 } from '../validation/schemas';
@@ -128,11 +129,11 @@ registry.registerPath({
       }),
       deadlineBefore: z.string().optional().openapi({
         description: "Filter bounties with deadline before this ISO 8601 date string.",
-        example: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        example: "2026-08-30T12:00:00.000Z",
       }),
       deadlineAfter: z.string().optional().openapi({
         description: "Filter bounties with deadline after this ISO 8601 date string.",
-        example: new Date().toISOString(),
+        example: "2026-07-31T12:00:00.000Z",
       }),
       page: z.number().int().min(1).optional().openapi({
         description: "Page number (starts at 1, default 1).",
@@ -290,6 +291,26 @@ registry.registerPath({
   responses: {
     200: bountyDataResponse("Bounty canceled."),
     400: errorResponse("Bounty not found, not open, maintainer mismatch, or validation failed."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/bounties/:id/resolve-dispute",
+  tags: ["Bounties"],
+  summary: "Resolve a bounty dispute",
+  description:
+    "Resolves a `disputed` bounty in favor of either the contributor (`release: true`) or " +
+    "the maintainer (`release: false`). " +
+    "Only callable once the dispute window has elapsed. " +
+    "Rate-limited to **5 requests per IP per minute**.",
+  request: {
+    params: z.object({ id: z.string().openapi(bountyIdParam.schema) }),
+    body: jsonBody(resolveDisputeBountySchema),
+  },
+  responses: {
+    200: bountyDataResponse("Dispute resolved."),
+    400: errorResponse("Bounty not found, not disputed, dispute window not elapsed, or validation failed."),
   },
 });
 

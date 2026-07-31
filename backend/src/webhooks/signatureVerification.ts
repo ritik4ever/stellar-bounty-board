@@ -290,6 +290,8 @@ export function verifyWithSecretRotation({
     );
   }
 
+  const validSignature = signature;
+
   // Helper: compute and compare a single candidate secret (timing-safe).
   function matchesSecret(candidate: string): boolean {
     const expected = signWebhookPayload({
@@ -298,7 +300,7 @@ export function verifyWithSecretRotation({
       algorithm: profile.algorithm,
       prefix: profile.prefix,
     });
-    const providedBytes = Buffer.from(signature);
+    const providedBytes = Buffer.from(validSignature);
     const expectedBytes = Buffer.from(expected);
     if (providedBytes.length !== expectedBytes.length) return false;
     return timingSafeEqual(providedBytes, expectedBytes);

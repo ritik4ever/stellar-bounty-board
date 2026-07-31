@@ -291,6 +291,13 @@ export const bountyRecordSchema = z
       .string()
       .optional()
       .openapi({ example: '0'.repeat(64) }),
+    protocolFeeCollected: z
+      .number()
+      .optional()
+      .openapi({
+        example: 0,
+        description: 'Protocol fee collected when this bounty was released (in token units).',
+      }),
     refundedAt: z.number().optional(),
     refundedTxHash: z
       .string()
@@ -304,6 +311,14 @@ export const bountyRecordSchema = z
       .string()
       .optional()
       .openapi({ example: '0'.repeat(64) }),
+    disputedAt: z
+      .number()
+      .optional()
+      .openapi({ example: 1710007200, description: 'Unix timestamp in seconds of when the bounty was disputed.' }),
+    disputeReason: z.string().optional().openapi({ example: 'Maintainer did not review on time.' }),
+    lastDisputeAlertAt: z.number().optional().openapi({
+      description: 'Unix timestamp in seconds of the last admin alert sent for this stuck dispute.',
+    }),
     submissionUrl: z
       .string()
       .optional()
@@ -312,6 +327,12 @@ export const bountyRecordSchema = z
     version: z.number().openapi({ example: 1 }),
     events: z.array(bountyEventSchema),
     reservationTimeoutSeconds: z.number().optional().openapi({ example: 604800 }),
+    archived: z.boolean().optional().openapi({
+      description: 'When true, the bounty has been archived and is excluded from active listings.',
+    }),
+    archivedAt: z.number().optional().openapi({
+      description: 'Unix timestamp in seconds of when the bounty was archived.',
+    }),
   })
   .openapi('BountyRecord');
 
@@ -379,7 +400,9 @@ export const bountyAuditLogListResponseSchema = z
 
 export const healthResponseSchema = z
   .object({
-
+    service: z.string().openapi({ example: 'stellar-bounty-board-api' }),
+    status: z.enum(['ok']).openapi({ example: 'ok' }),
+    timestamp: z.string().openapi({ example: '2024-03-09T12:00:00.000Z' }),
   })
   .openapi('HealthResponse');
 

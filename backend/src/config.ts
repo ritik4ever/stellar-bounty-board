@@ -7,7 +7,7 @@
  * connection strings, API keys, or internal service URLs.
  */
 
-import { getTokenAddressMap, getAllowedTokenSymbols } from './utils';
+import { getTokenAddressMap } from './utils';
 import { getAllowedTokenSymbols as _getAllowedTokenSymbols } from './validation/schemas';
 
 export interface PublicConfig {

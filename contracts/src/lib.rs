@@ -837,7 +837,6 @@ impl StellarBountyBoardContract {
             },
         );
     }
-} main
 }
 
 fn read_bounty(env: &Env, bounty_id: u64) -> Bounty {
