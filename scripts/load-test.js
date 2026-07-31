@@ -33,6 +33,12 @@ const BASE_URL    = parseArg("--url",         "http://localhost:3001");
 const CONNECTIONS = parseArg("--connections", 20);
 const DURATION    = parseArg("--duration",    30);
 const NUM_BOUNTIES = parseArg("--bounties",   20);
+const SCENARIO     = parseArg("--scenario",   "steady");
+
+// Ensure the dispute endpoint's maintainer-key auth has a configured signer.
+// The signature itself is intentionally invalid for this test; we only need
+// the request to reach the rate limiter, which returns 429 once capacity is exceeded.
+process.env.MAINTAINER_PUBLIC_KEYS ||= "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 function request(options, body) {
@@ -138,15 +144,50 @@ function buildRequests(ids) {
   return requests;
 }
 
+// ─── Build dispute-burst request pipeline ──────────────────────────────────────
+function buildDisputeRequests(ids) {
+  if (ids.length === 0) {
+    throw new Error("No bounty IDs available for the dispute load test.");
+  }
+
+  const publicKey = process.env.MAINTAINER_PUBLIC_KEYS?.split(",")[0]?.trim() ??
+    "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
+  const contributor = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
+  const requests = [];
+
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i];
+    const body = JSON.stringify({
+      contributor,
+      reason: "Load-test dispute burst",
+      action: "dispute",
+      bountyId: id,
+      timestamp: Math.floor(Date.now() / 1000),
+    });
+    requests.push({
+      method: "POST",
+      path: `/api/bounties/${id}/dispute`,
+      headers: {
+        "Content-Type": "application/json",
+        "x-stellar-public-key": publicKey,
+        "x-stellar-signature": "0".repeat(64),
+      },
+      body,
+    });
+  }
+
+  return requests;
+}
+
 // ─── Pretty-print results ──────────────────────────────────────────────────────
-function printResults(result) {
+function printResults(result, title = "Load Test Results") {
   const { latency, requests: rps, throughput, errors, non2xx } = result;
 
   const fmt = (v, unit = "") =>
     v !== undefined ? `${v.toFixed ? v.toFixed(2) : v}${unit}` : "n/a";
 
   console.log("\n══════════════════════════════════════════════");
-  console.log("  📊  Load Test Results");
+  console.log(`  ${title}`);
   console.log("══════════════════════════════════════════════");
   console.log(`  Connections  : ${CONNECTIONS}`);
   console.log(`  Duration     : ${DURATION}s`);
@@ -167,48 +208,109 @@ function printResults(result) {
   console.log("══════════════════════════════════════════════\n");
 }
 
+// ─── Dispute-burst scenario ──────────────────────────────────────────────────
+async function runDisputeBurst(ids) {
+  const controlRequests = [{ method: "GET", path: "/api/bounties" }];
+  const disputeRequests = buildDisputeRequests(ids);
+
+  console.log(
+    `\nStarting dispute burst — ${CONNECTIONS} connections × ${DURATION}s`,
+  );
+  console.log("  Control endpoint: GET /api/bounties");
+
+  const [control, burst] = await Promise.all([
+    autocannon({
+      url:         BASE_URL,
+      connections: CONNECTIONS,
+      duration:    DURATION,
+      requests:    controlRequests,
+      setupClient: (client) => {
+        client.setHeaders({ "Content-Type": "application/json" });
+      },
+    }),
+    autocannon({
+      url:         BASE_URL,
+      connections: CONNECTIONS,
+      duration:    DURATION,
+      requests:    disputeRequests,
+      setupClient: (client) => {
+        client.setHeaders({ "Content-Type": "application/json" });
+      },
+    }),
+  ]);
+
+  printResults(control, "Control (GET /api/bounties)");
+  printResults(burst, "Dispute burst (POST /api/bounties/:id/dispute)");
+
+  const controlTotal = control.requests.total || 1;
+  const burstTotal = burst.requests.total || 1;
+  const controlErrorRate = (control.non2xx / controlTotal) * 100;
+  const burstErrorRate = (burst.non2xx / burstTotal) * 100;
+
+  console.log("──────────────────────────────────────────────");
+  console.log(`  Control error rate : ${controlErrorRate.toFixed(2)}%`);
+  console.log(`  Burst error rate   : ${burstErrorRate.toFixed(2)}%`);
+  console.log("══════════════════════════════════════════════\n");
+
+  if (controlErrorRate > 5) {
+    console.error("Control endpoint degraded under dispute burst.");
+    return { success: false, exitCode: 1 };
+  }
+
+  if (burstErrorRate < 50) {
+    console.error("Dispute burst did not produce expected rate-limit shedding.");
+    return { success: false, exitCode: 1 };
+  }
+
+  console.log("Rate limiter shed dispute load without degrading control endpoint.");
+  return { success: true, exitCode: 0 };
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 (async () => {
   try {
-    // 1. Health check
     const health = await request({ path: "/api/health" });
     if (health.status !== 200) {
       console.error(
-        `❌  Backend not reachable at ${BASE_URL} (status ${health.status}). ` +
+        `Backend not reachable at ${BASE_URL} (status ${health.status}). ` +
         "Start the backend before running the load test.",
       );
       process.exit(1);
     }
-    console.log(`✅  Backend healthy at ${BASE_URL}`);
+    console.log(`Backend healthy at ${BASE_URL}`);
 
-    // 2. Seed bounties
     const ids = await seedBounties(NUM_BOUNTIES);
 
-    // 3. Build workload
-    const requests = buildRequests(ids);
+    if (SCENARIO === "steady") {
+      const requests = buildRequests(ids);
 
-    // 4. Run autocannon
-    console.log(
-      `\n🚀  Starting load test — ${CONNECTIONS} connections × ${DURATION}s…`,
-    );
+      console.log(
+        `\nStarting steady-state load test — ${CONNECTIONS} connections × ${DURATION}s…`,
+      );
 
-    const result = await autocannon({
-      url:         BASE_URL,
-      connections: CONNECTIONS,
-      duration:    DURATION,
-      requests,
-      setupClient: (client) => {
-        // rotate through requests round-robin
-        client.setHeaders({ "Content-Type": "application/json" });
-      },
-    });
+      const result = await autocannon({
+        url:         BASE_URL,
+        connections: CONNECTIONS,
+        duration:    DURATION,
+        requests,
+        setupClient: (client) => {
+          client.setHeaders({ "Content-Type": "application/json" });
+        },
+      });
 
-    // 5. Print summary
-    printResults(result);
+      printResults(result, "Steady-state load test");
+      process.exit(result.errors > 0 ? 1 : 0);
+    }
 
-    process.exit(result.errors > 0 ? 1 : 0);
+    if (SCENARIO === "dispute") {
+      const { exitCode } = await runDisputeBurst(ids);
+      process.exit(exitCode);
+    }
+
+    console.error(`Unknown scenario: ${SCENARIO}. Use "steady" or "dispute".`);
+    process.exit(1);
   } catch (err) {
-    console.error("❌  Load test failed:", err.message);
+    console.error("Load test failed:", err.message);
     process.exit(1);
   }
 })();

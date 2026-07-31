@@ -1,6 +1,6 @@
 import cors from 'cors';
 import express, { Request, Response, NextFunction } from 'express';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import swaggerUi from 'swagger-ui-express';
 import pinoHttp from 'pino-http';
 
@@ -13,6 +13,7 @@ import {
   createBounty,
   disputeBounty,
   extendDeadline,
+  resolveDisputeBounty,
   updateBountyNotes,
   listBountyAuditLogs,
   listAllAuditLogs,
@@ -39,6 +40,7 @@ import {
   createBountySchema,
   disputeBountySchema,
   extendDeadlineSchema,
+  resolveDisputeBountySchema,
   maintainerActionSchema,
   reserveBountySchema,
   submitBountySchema,
@@ -47,6 +49,7 @@ import {
 } from './validation/schemas';
 import { validateBody } from './middleware/validateBody';
 import { isValidStellarAddress } from './utils';
+import { getPublicConfig } from './config';
 
 import {
   captureRawBody,
@@ -59,6 +62,7 @@ import {
 import { idempotencyMiddleware } from './middleware/idempotency';
 import { requireJsonContentType } from './middleware/contentType';
 import { readLimiter, mutationLimiter } from './utils';
+import { maintainerLimiter } from './middleware/maintainerLimiter';
 import { logger } from './logger';
 import { createAdminApiKeyAuthMiddleware } from './middleware/adminAuth';
 import { handleGitHubPrEvent } from './webhooks/githubPrHandler';
@@ -397,8 +401,36 @@ app.get('/api/bounties', async (req: Request, res: Response) => {
     const data = all.slice(start, start + pageSize);
     const hasMore = start + data.length < total;
 
+    let maxTimestamp = 0;
+    for (const bounty of all) {
+      if (bounty.events && bounty.events.length > 0) {
+        const lastEvent = bounty.events[bounty.events.length - 1];
+        if (lastEvent.timestamp > maxTimestamp) {
+          maxTimestamp = lastEvent.timestamp;
+        }
+      } else if (bounty.createdAt > maxTimestamp) {
+        maxTimestamp = bounty.createdAt;
+      }
+    }
+
+    if (maxTimestamp > 0) {
+      const lastModifiedDate = new Date(maxTimestamp * 1000);
+      res.setHeader('Last-Modified', lastModifiedDate.toUTCString());
+    }
+
+    const responsePayload = { data, total, page, pageSize, hasMore };
+    const responseString = JSON.stringify(responsePayload);
+    const etag = `"${createHash('md5').update(responseString).digest('hex')}"`;
+    res.setHeader('ETag', etag);
+
+    if (req.headers['if-none-match'] === etag) {
+      res.status(304).end();
+      return;
+    }
+
     res.setHeader('X-Total-Count', String(total));
-    res.json({ data, total, page, pageSize, hasMore });
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.send(responseString);
   } catch (error) {
     sendError(res, req, error);
   }
@@ -524,6 +556,7 @@ app.post(
   '/api/bounties',
   mutationLimiter,
   requireJsonContentType,
+  maintainerLimiter,
   createBountyCreationSignatureMiddleware(),
   validateBody(createBountySchema),
   async (req: Request, res: Response) => {
@@ -662,6 +695,26 @@ app.post(
   }
 );
 
+app.post(
+  '/api/bounties/:id/resolve-dispute',
+  mutationLimiter,
+  validateBody(resolveDisputeBountySchema),
+  async (req: Request, res: Response) => {
+    try {
+      const bounty = await resolveDisputeBounty(
+        parseId(req.params.id),
+        req.body.arbiter,
+        req.body.release,
+        req.body.transactionHash
+      );
+
+      res.json({ data: bounty });
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  }
+);
+
 app.patch(
   '/api/bounties/:id/notes',
   mutationLimiter,
@@ -714,12 +767,29 @@ app.post(
   '/api/webhooks/github',
   createGitHubWebhookSignatureMiddleware(() => process.env.GITHUB_WEBHOOK_SECRET),
   async (req: Request, res: Response) => {
+    const rawDeliveryId = req.headers['x-github-delivery'];
+    const deliveryId = Array.isArray(rawDeliveryId) ? rawDeliveryId[0] : rawDeliveryId;
+
+    let result: { duplicate: boolean };
     try {
-      await handleGitHubPrEvent(req.body);
+      result = await handleGitHubPrEvent(req.body, deliveryId);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Webhook processing error';
 
       res.status(500).json({ error: message, requestId: req.requestId });
+      return;
+    }
+
+    if (result.duplicate) {
+      // Already processed this delivery ID — acknowledge without re-running side-effects
+      res.status(200).json({
+        data: {
+          authenticated: true,
+          provider: 'github',
+          received: true,
+          duplicate: true,
+        },
+      });
       return;
     }
 
@@ -820,6 +890,30 @@ app.get('/api/stats', async (_req: Request, res: Response) => {
   try {
     const metrics = await aggregatedMetrics.getCached();
     res.json({ data: metrics });
+  } catch (error) {
+    sendError(res, _req, error, 500);
+  }
+});
+
+/**
+ * GET /api/config
+ *
+ * Returns non-sensitive runtime configuration so the frontend and contract-
+ * interaction layer can stay in sync without hardcoding values.
+ *
+ * Exposed values: fee bps, dispute window, min/max bounty amounts, supported
+ * tokens (symbol → contract address), default reservation TTL, and network.
+ *
+ * Nothing sensitive (API keys, DB strings, webhook secrets, maintainer keys)
+ * is ever included in this response.
+ *
+ * Cache-Control: max-age=300 (5 min) — these values change infrequently.
+ */
+app.get('/api/config', (_req: Request, res: Response) => {
+  try {
+    const config = getPublicConfig();
+    res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=60');
+    res.json({ data: config });
   } catch (error) {
     sendError(res, _req, error, 500);
   }

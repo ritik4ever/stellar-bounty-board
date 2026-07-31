@@ -53,6 +53,7 @@ export type BountyTransitionType =
   | "cancel"
   | "expire"
   | "dispute"
+  | "resolve_dispute"
   | "update_notes"
   | "extend_deadline";
 
@@ -150,6 +151,8 @@ export interface BountyRecord {
   disputedAt?: number;
   /** Reason provided by the contributor for disputing the bounty. */
   disputeReason?: string;
+  /** Unix timestamp in seconds of the last admin alert sent for this stuck dispute. */
+  lastDisputeAlertAt?: number;
   // Race condition prevention
   /** Version number of the record used for optimistic locking. */
   version: number;
@@ -159,6 +162,11 @@ export interface BountyRecord {
   // Reservation timeout (in seconds from reservation)
   /** Number of seconds after reservation before it automatically times out. */
   reservationTimeoutSeconds?: number;
+  // Soft-archive flag
+  /** When true, the bounty has been archived and is excluded from active listings. */
+  archived?: boolean;
+  /** Unix timestamp in seconds of when the bounty was archived. */
+  archivedAt?: number;
 }
 
 /**
@@ -826,7 +834,7 @@ export async function submitBounty(
       throw new Error("Only the reserved contributor can submit this bounty.");
     }
 
-    validateGithubPrUrlForRepo(submissionUrl, bounty.repo);
+    await validateGithubPrUrlForRepo(submissionUrl, bounty.repo, bounty.issueNumber);
 
     const now = nowInSeconds();
     const updated: BountyRecord = {
@@ -1182,76 +1190,45 @@ export async function disputeBounty(
   });
 }
 
-export type ForceExpireTrigger = "already_expired" | "reservation_timeout";
-
-export interface ForceExpireResult {
-  bounty: BountyRecord;
-  trigger: ForceExpireTrigger;
-  mutated: boolean;
-}
-
-/**
- * Force-expires a bounty on an operator's behalf, through the same locked,
- * audited path as every other state transition — replacing direct
- * bounties.json edits.
- *
- * listBounties() already auto-expires open/reserved bounties whose deadline
- * has passed on every read (see normalizeRecords) — including the read this
- * function itself does — so a genuinely stale bounty will already be
- * "expired" by the time this runs. The scenario this exists for is
- * releasing a *reserved* bounty whose contributor has gone unresponsive,
- * before its reservation timeout naturally elapses — an operator override,
- * not something the passive read-time check can do.
- *
- * Eligible bounties:
- *  - "reserved": released back to "open" regardless of whether the
- *    reservation timeout has technically elapsed yet (that's the "force").
- *  - "expired": idempotent no-op success — the operator asked to expire an
- *    already-stale bounty, which is already satisfied.
- *
- * An "open" bounty that has not reached its deadline is not eligible — that
- * is an active bounty, not a stale one; use cancelBounty for that instead.
- *
- * @param id - The unique ID of the bounty.
- * @param actor - Identity of the operator performing the force-expire (for the audit log).
- * @throws {Error} If the bounty is not found.
- * @throws {Error} If the bounty is not eligible (not reserved, and not already expired).
- */
-export async function adminForceExpireBounty(
+export async function resolveDisputeBounty(
   id: string,
-  actor: string,
-): Promise<ForceExpireResult> {
+  arbiter: string,
+  release: boolean,
+  transactionHash?: string,
+): Promise<BountyRecord> {
   return withStoreLock(async () => {
     const records = listBounties();
     const bounty = findBounty(records, id);
+
+    if (bounty.status !== "disputed") {
+      throw new Error("Only disputed bounties can be resolved.");
+    }
+
+    const configuredArbiter = process.env.ARBITER_ADDRESS?.trim();
+    if (configuredArbiter && arbiter !== configuredArbiter) {
+      throw new Error("Only the configured arbiter can resolve disputes.");
+    }
+
     const now = nowInSeconds();
-
-    if (bounty.status === "expired") {
-      return { bounty, trigger: "already_expired", mutated: false };
-    }
-
-    if (bounty.status !== "reserved") {
-      throw new Error(
-        `Bounty ${id} is not eligible for force-expiration (status: ${bounty.status}). ` +
-          "Only a reserved bounty (to release its reservation) or an already-expired bounty can be force-expired.",
-      );
-    }
-
-    const trigger: ForceExpireTrigger = "reservation_timeout";
-
     const updated: BountyRecord = {
       ...bounty,
-      status: "open",
-      contributor: undefined,
-      reservedAt: undefined,
+      status: release ? "released" : "refunded",
+      releasedAt: release ? now : bounty.releasedAt,
+      releasedTxHash: release
+        ? transactionHash?.trim() || bounty.releasedTxHash
+        : bounty.releasedTxHash,
+      refundedAt: release ? bounty.refundedAt : now,
+      refundedTxHash: release
+        ? bounty.refundedTxHash
+        : transactionHash?.trim() || bounty.refundedTxHash,
       version: bounty.version + 1,
       events: [
         ...bounty.events,
         {
-          type: "expired",
+          type: release ? "released" : "refunded",
           timestamp: now,
-          actor,
-          details: { reason: "admin_force_expire", trigger },
+          actor: arbiter,
+          details: { resolution: release ? "released" : "refunded" },
         },
       ],
     };
@@ -1261,15 +1238,18 @@ export async function adminForceExpireBounty(
       {
         bountyId: id,
         fromStatus: bounty.status,
-        toStatus: "open",
-        transition: "expire",
-        actor,
-        metadata: { reason: "admin_force_expire", trigger },
+        toStatus: updated.status,
+        transition: "resolve_dispute",
+        actor: arbiter,
+        metadata: {
+          release,
+          transactionHash: transactionHash?.trim() || undefined,
+        },
       },
     ]);
     await invalidateBountyCache();
 
-    return { bounty: persisted, trigger, mutated: true };
+    return persisted;
   });
 }
 
