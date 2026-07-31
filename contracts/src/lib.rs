@@ -8,7 +8,7 @@ use soroban_sdk::{
     token::Client as TokenClient, Address, Env, String, Vec,
 };
 
-// ─── Contract Version ─────────────────────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ Contract Version ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 /// Semver string pulled from Cargo.toml at compile time.
 pub const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -40,7 +40,7 @@ pub struct Bounty {
     pub dispute_raised_at: u64,
 }
 
-/// Token allowlist configuration — restricts which SAC tokens can fund bounties
+/// Token allowlist configuration ΓÇö restricts which SAC tokens can fund bounties
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AllowlistConfig {
@@ -80,6 +80,14 @@ enum DataKey {
     Admin,
     PendingArbiter,
     ArbiterRotationTimelock,
+    AllowlistConfig,
+    /// Optional IPFS CID stored when a dispute is raised.
+    /// Key format: DisputeEvidence(bounty_id).
+    /// Expected CID format: CIDv1 base32 string, e.g.
+    ///   "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"
+    /// Off-chain indexers should fetch evidence from an IPFS gateway using:
+    ///   https://ipfs.io/ipfs/<cid>  or  https://<cid>.ipfs.dweb.link
+    DisputeEvidence(u64),
 }
 
 #[contracttype]
@@ -133,12 +141,27 @@ pub struct BountyCanceled {
     pub amount: i128,
 }
 
+/// Event emitted when a dispute is raised on a bounty.
+///
+/// The `evidence_cid` field carries an optional IPFS Content Identifier (CID)
+/// that points to off-chain evidence supporting the dispute.
+///
+/// Expected CID format (for indexers/backend consumers):
+///   - CIDv1 base32 string, e.g.:
+///       "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"
+///   - Fetch via:  https://ipfs.io/ipfs/<cid>
+///                 https://<cid>.ipfs.dweb.link
+///   - The CID is stored as a UTF-8 encoded Soroban `String` (max ~59 chars for CIDv1 base32).
+///   - A value of `None` means no evidence was provided; the dispute is still valid.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BountyDisputed {
+pub struct DisputeRaised {
     pub bounty_id: u64,
     pub contributor: Address,
     pub arbiter: Address,
+    /// Optional IPFS CID referencing off-chain dispute evidence.
+    /// None when the caller omitted the evidence parameter.
+    pub evidence_cid: Option<String>,
 }
 
 #[contracttype]
@@ -192,14 +215,16 @@ pub enum ContractError {
     NotAdmin,
     NoPendingArbiter,
     TimelockNotElapsed,
+    FeeRecipientNotSet,
+    ArbiterNotSet,
 }
 
 /// Maximum allowed bounty amount: 10 billion XLM expressed in stroops
-/// (1 XLM = 10_000_000 stroops, so 10_000_000_000 XLM × 10_000_000 = 10^17 stroops).
+/// (1 XLM = 10_000_000 stroops, so 10_000_000_000 XLM ├ù 10_000_000 = 10^17 stroops).
 ///
 /// Rationale: Without an upper bound an attacker could create a bounty with
 /// i128::MAX.  Fee math performs  `amount * protocol_fee_bps / 10_000`, which
-/// overflows for values close to i128::MAX (≈ 1.7 × 10^38).  Capping at 10 B
+/// overflows for values close to i128::MAX (Γëê 1.7 ├ù 10^38).  Capping at 10 B
 /// XLM in stroops (10^17) leaves more than 20 orders-of-magnitude of headroom
 /// below the i128 ceiling, making overflow arithmetically impossible while
 /// still allowing any realistic on-chain bounty value.
@@ -214,7 +239,7 @@ pub struct StellarBountyBoardContract;
 
 #[contractimpl]
 impl StellarBountyBoardContract {
-    // ─── Version ─────────────────────────────────────────────────────────────
+    // ΓöÇΓöÇΓöÇ Version ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     /// Returns the contract version as a semver string (e.g. "0.1.0").
     pub fn get_version(_env: Env) -> String {
         // We use _env because String::from_str needs it, but in future
@@ -383,7 +408,7 @@ impl StellarBountyBoardContract {
         let token_client = TokenClient::new(&env, &bounty.token);
         let contract_address = env.current_contract_address();
 
-        // ── Fee calculation ──────────────────────────────────────────────
+        // ΓöÇΓöÇ Fee calculation ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
         // Fee is deducted FROM the payout, never added on top.
         // fee_amount = floor(amount * protocol_fee_bps / 10_000)
         // net_payout = amount - fee_amount
@@ -409,7 +434,7 @@ impl StellarBountyBoardContract {
                 .unwrap_or_else(|| panic_error(ContractError::FeeRecipientNotSet));
             token_client.transfer(&contract_address, &fee_recipient, &fee_amount);
         }
-        // ────────────────────────────────────────────────────────────────
+        // ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
         // Atomically update FeeStats
         accumulate_fee_stats(&env, fee_amount);
@@ -523,7 +548,29 @@ impl StellarBountyBoardContract {
         );
     }
 
-    pub fn dispute_bounty(env: Env, bounty_id: u64, arbiter: Address) {
+    /// Raise a dispute on a submitted bounty.
+    ///
+    /// # Parameters
+    /// - `bounty_id`    – ID of the bounty to dispute.
+    /// - `arbiter`      – Address of the registered arbiter (must match the stored arbiter).
+    /// - `evidence_cid` – Optional IPFS Content Identifier pointing to off-chain evidence.
+    ///
+    /// # IPFS CID format (for indexers/backend consumers)
+    /// The evidence CID must be a valid CIDv1 base32 string, e.g.:
+    ///   "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"
+    ///
+    /// Indexers can fetch the evidence document via an IPFS gateway:
+    ///   - https://ipfs.io/ipfs/<cid>
+    ///   - https://<cid>.ipfs.dweb.link
+    ///
+    /// Passing `None` for `evidence_cid` is valid; the dispute will still succeed
+    /// and `get_dispute_evidence` will return `None` for that bounty.
+    pub fn dispute_bounty(
+        env: Env,
+        bounty_id: u64,
+        arbiter: Address,
+        evidence_cid: Option<String>,
+    ) {
         let mut bounty = read_bounty(&env, bounty_id);
 
         if env.ledger().timestamp() > bounty.deadline {
@@ -555,14 +602,41 @@ impl StellarBountyBoardContract {
         bounty.dispute_raised_at = env.ledger().timestamp();
         write_bounty(&env, bounty_id, &bounty);
 
+        // Persist the evidence CID separately so it can be queried independently.
+        // Only write to storage when a CID was actually provided to avoid
+        // unnecessary storage slot allocation.
+        if let Some(ref cid) = evidence_cid {
+            env.storage()
+                .persistent()
+                .set(&DataKey::DisputeEvidence(bounty_id), cid);
+        }
+
+        // Emit DisputeRaised event — includes the evidence CID so off-chain
+        // indexers can begin fetching the evidence document without a separate
+        // get_dispute_evidence call.
         env.events().publish(
             (symbol_short!("Bounty"), symbol_short!("Dispt")),
-            BountyDisputed {
+            DisputeRaised {
                 bounty_id,
                 contributor,
                 arbiter,
+                evidence_cid,
             },
         );
+    }
+
+    /// Returns the IPFS CID of the dispute evidence for the given bounty, if any.
+    ///
+    /// Returns `None` when:
+    ///   - The bounty has never been disputed, OR
+    ///   - The dispute was raised without providing an evidence CID.
+    ///
+    /// The returned `String` is a CIDv1 base32 identifier that can be fetched via:
+    ///   https://ipfs.io/ipfs/<cid>
+    pub fn get_dispute_evidence(env: Env, bounty_id: u64) -> Option<String> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::DisputeEvidence(bounty_id))
     }
 
     pub fn resolve_dispute(env: Env, bounty_id: u64, release: bool) {
@@ -690,7 +764,7 @@ impl StellarBountyBoardContract {
     /// using the same start/limit pagination as [`get_all_bounties`].
     ///
     /// Only bounties in `Reserved`, `Submitted`, `Released`, or `Disputed` state
-    /// are ever returned — `Open` bounties have no contributor and are always
+    /// are ever returned ΓÇö `Open` bounties have no contributor and are always
     /// excluded.  `Expired` and `Refunded` bounties that were previously reserved
     /// by this contributor will also appear so callers can see their full history.
     ///
@@ -734,31 +808,6 @@ impl StellarBountyBoardContract {
     ///
     /// Returns a [`FeeStats`] with `total_collected = 0` and `bounty_count = 0`
     /// if no bounties have been released yet.
-
-    /// Returns all bounties assigned to a given contributor.
-    pub fn get_bounties_by_contributor(env: Env, contributor: Address, start: u64, limit: u32) -> Vec<Bounty> {
-        let enforced_limit = if limit > 50 { 50 } else { limit };
-        let mut result = Vec::new(&env);
-        let next_id = env.storage().persistent().get(&DataKey::NextBountyId).unwrap_or(0);
-        if start == 0 || start > next_id || enforced_limit == 0 {
-            return result;
-        }
-        let mut id = start;
-        let mut count = 0u32;
-        while count < enforced_limit && id <= next_id {
-            if env.storage().persistent().has(&DataKey::Bounty(id)) {
-                let mut bounty = read_bounty(&env, id);
-                expire_if_needed(&env, &mut bounty);
-                if bounty.contributor == Some(contributor.clone()) {
-                    result.push_back(bounty);
-                    count += 1;
-                }
-            }
-            id += 1;
-        }
-        result
-    }
-
     pub fn get_fee_stats(env: Env) -> FeeStats {
         env.storage()
             .persistent()
@@ -837,7 +886,6 @@ impl StellarBountyBoardContract {
             },
         );
     }
-} main
 }
 
 fn read_bounty(env: &Env, bounty_id: u64) -> Bounty {
@@ -860,8 +908,10 @@ fn expire_if_needed(env: &Env, bounty: &mut Bounty) {
     {
         bounty.status = BountyStatus::Expired;
     }
+}
 
 /// Check if a token is allowed to fund bounties
+#[allow(dead_code)]
 fn is_token_allowed(e: &Env, token: &Address) -> bool {
     e.storage()
         .instance()
@@ -876,6 +926,7 @@ fn is_token_allowed(e: &Env, token: &Address) -> bool {
 }
 
 /// Admin: set allowlist enabled state
+#[allow(dead_code)]
 pub fn set_allowlist_enabled(e: &Env, admin: Address, enabled: bool) {
     admin.require_auth();
     let mut config = e.storage()
@@ -887,6 +938,7 @@ pub fn set_allowlist_enabled(e: &Env, admin: Address, enabled: bool) {
 }
 
 /// Admin: add a token to the allowlist
+#[allow(dead_code)]
 pub fn add_allowed_token(e: &Env, admin: Address, token: Address) {
     admin.require_auth();
     let mut config = e.storage()
@@ -904,6 +956,7 @@ pub fn add_allowed_token(e: &Env, admin: Address, token: Address) {
 }
 
 /// Admin: remove a token from the allowlist
+#[allow(dead_code)]
 pub fn remove_allowed_token(e: &Env, admin: Address, token: Address) {
     admin.require_auth();
     let mut config = e.storage()
@@ -919,8 +972,6 @@ pub fn remove_allowed_token(e: &Env, admin: Address, token: Address) {
             token,
         );
     }
-}
-
 }
 
 /// Atomically add `fee_amount` to the cumulative [`FeeStats`] in persistent storage.
