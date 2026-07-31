@@ -83,6 +83,7 @@ export function loadBounties<T = unknown>(storePath?: string): T[] {
   // Main file is missing or corrupt – try the backup.
   const bak = tryParse<T[]>(backup);
   if (bak !== null) {
+    // eslint-disable-next-line no-console
     console.warn(
       `[store] WARNING: "${store}" is missing or contains invalid JSON. ` +
         `Restored ${bak.length} bounties from backup "${backup}".`
@@ -91,6 +92,7 @@ export function loadBounties<T = unknown>(storePath?: string): T[] {
     try {
       fs.writeFileSync(store, JSON.stringify(bak, null, 2), "utf8");
     } catch (writeErr) {
+      // eslint-disable-next-line no-console
       console.warn(
         `[store] WARNING: Could not restore main store from backup: ${writeErr}`
       );

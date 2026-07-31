@@ -85,6 +85,7 @@ export function warnIfProductionCorsMisconfigured(): void {
 
   const raw = process.env.ALLOWED_ORIGINS?.trim();
   if (!raw) {
+    // eslint-disable-next-line no-console
     console.warn(
       "[cors] NODE_ENV=production but ALLOWED_ORIGINS is unset; browser origins will be rejected.",
     );
