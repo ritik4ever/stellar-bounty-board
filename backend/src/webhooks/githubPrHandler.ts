@@ -1,6 +1,7 @@
 import { parsePrUrl } from "../validation/urlParser";
 import { listBounties, releaseBounty } from "../services/bountyStore";
 import { logStructured } from "../logger";
+import { hasBeenProcessed, markAsProcessed } from "./deliveryDedup";
 
 export type WebhookProvider = "github" | "gitlab" | "bitbucket";
 
@@ -133,12 +134,26 @@ function detectAndExtract(body: unknown): NormalisedPrEvent | null {
  *  2. Closed-but-not-merged / non-merge events → returns early without touching any bounty.
  *  3. No matching bounty URL → ignored gracefully (log only).
  *  4. Manual release via the API endpoint is unaffected.
+ *  5. Duplicate delivery ID (same X-GitHub-Delivery) → returns early without
+ *     re-running any side-effects (deduplication).
  */
-export async function handlePrEvent(body: unknown): Promise<void> {
-  const event = detectAndExtract(body);
+export async function handleGitHubPrEvent(body: unknown, deliveryId?: string): Promise<{ duplicate: boolean }> {
+  // Deduplication: if we have already processed this delivery ID, return early
+  // without re-running any side-effects to prevent double-releases.
+  if (deliveryId) {
+    if (hasBeenProcessed(deliveryId)) {
+      logStructured("info", "github_webhook_duplicate_delivery", {
+        deliveryId,
+        reason: "delivery ID already processed within TTL window",
+      });
+      return { duplicate: true };
+    }
+  }
 
-  if (!event) {
-    return;
+  if (!isPrPayload(body)) {
+    // Not a PR event we can handle — skip silently
+    if (deliveryId) markAsProcessed(deliveryId);
+    return { duplicate: false };
   }
 
   if (!event.isMerged) {
@@ -147,7 +162,8 @@ export async function handlePrEvent(body: unknown): Promise<void> {
       prUrl: event.prUrl,
       reason: "not_merged",
     });
-    return;
+    if (deliveryId) markAsProcessed(deliveryId);
+    return { duplicate: false };
   }
 
   const { prUrl } = event;
@@ -160,7 +176,8 @@ export async function handlePrEvent(body: unknown): Promise<void> {
       prUrl,
       reason: "URL does not match known PR/MR format",
     });
-    return;
+    if (deliveryId) markAsProcessed(deliveryId);
+    return { duplicate: false };
   }
 
   // Find a submitted bounty whose submissionUrl matches the merged PR/MR URL
@@ -175,7 +192,8 @@ export async function handlePrEvent(body: unknown): Promise<void> {
       prUrl,
       reason: "no submitted bounty with matching submissionUrl",
     });
-    return;
+    if (deliveryId) markAsProcessed(deliveryId);
+    return { duplicate: false };
   }
 
   logStructured("info", "pr_webhook_auto_releasing", {
@@ -192,6 +210,9 @@ export async function handlePrEvent(body: unknown): Promise<void> {
     prUrl,
     provider: event.provider,
   });
+
+  if (deliveryId) markAsProcessed(deliveryId);
+  return { duplicate: false };
 }
 
 /** @deprecated Use `handlePrEvent` which supports GitHub, GitLab, and Bitbucket. */

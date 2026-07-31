@@ -7,9 +7,9 @@ import {
 } from "./notificationService";
 import { logStructured } from "../logger";
 import { getCache, type CacheAdapter } from "./cache";
- feat/concurrency-file-locking
 import { bountiesCreatedTotal, bountiesReleasedTotal } from "../metrics";
-import { validatePrUrlForRepo } from "../validation/prUrl";
+import { validateGithubPrUrlForRepo } from "../validation/prUrl";
+import { resolveTokenAddress } from "../utils";
 
 
 /**
@@ -53,6 +53,7 @@ export type BountyTransitionType =
   | "cancel"
   | "expire"
   | "dispute"
+  | "resolve_dispute"
   | "update_notes"
   | "extend_deadline";
 
@@ -61,7 +62,7 @@ export type BountyTransitionType =
  */
 export interface BountyEvent {
   /** The type of event (usually matches the resulting status or "created"). */
-  type: BountyStatus | "created" | "notes_updated" | "deadline_extended";
+  type: BountyStatus | "created" | "notes_updated" | "deadline_extended" | "archived";
   /** Unix timestamp in seconds when the event occurred. */
   timestamp: number;
   /** Stellar public key of the actor who triggered the event. */
@@ -150,6 +151,8 @@ export interface BountyRecord {
   disputedAt?: number;
   /** Reason provided by the contributor for disputing the bounty. */
   disputeReason?: string;
+  /** Unix timestamp in seconds of the last admin alert sent for this stuck dispute. */
+  lastDisputeAlertAt?: number;
   // Race condition prevention
   /** Version number of the record used for optimistic locking. */
   version: number;
@@ -159,6 +162,11 @@ export interface BountyRecord {
   // Reservation timeout (in seconds from reservation)
   /** Number of seconds after reservation before it automatically times out. */
   reservationTimeoutSeconds?: number;
+  // Soft-archive flag
+  /** When true, the bounty has been archived and is excluded from active listings. */
+  archived?: boolean;
+  /** Unix timestamp in seconds of when the bounty was archived. */
+  archivedAt?: number;
 }
 
 /**
@@ -657,6 +665,26 @@ async function withStoreLock<T>(fn: () => T | Promise<T>): Promise<T> {
   }
 }
 
+let globalLock: Promise<void> = Promise.resolve();
+
+/**
+ * Simple in-process promise-chain mutex used by operations that have not yet
+ * been migrated to the cross-process {@link withStoreLock} file lock.
+ */
+async function withGlobalLock<T>(fn: () => T | Promise<T>): Promise<T> {
+  const previousLock = globalLock;
+  let resolve: () => void;
+  globalLock = new Promise<void>((r) => {
+    resolve = r;
+  });
+  await previousLock;
+  try {
+    return await fn();
+  } finally {
+    resolve!();
+  }
+}
+
 export async function createBounty(
   input: CreateBountyInput,
 ): Promise<BountyRecord> {
@@ -806,7 +834,7 @@ export async function submitBounty(
       throw new Error("Only the reserved contributor can submit this bounty.");
     }
 
-    validatePrUrlForRepo(submissionUrl, bounty.repo);
+    await validateGithubPrUrlForRepo(submissionUrl, bounty.repo, bounty.issueNumber);
 
     const now = nowInSeconds();
     const updated: BountyRecord = {
@@ -1162,6 +1190,69 @@ export async function disputeBounty(
   });
 }
 
+export async function resolveDisputeBounty(
+  id: string,
+  arbiter: string,
+  release: boolean,
+  transactionHash?: string,
+): Promise<BountyRecord> {
+  return withStoreLock(async () => {
+    const records = listBounties();
+    const bounty = findBounty(records, id);
+
+    if (bounty.status !== "disputed") {
+      throw new Error("Only disputed bounties can be resolved.");
+    }
+
+    const configuredArbiter = process.env.ARBITER_ADDRESS?.trim();
+    if (configuredArbiter && arbiter !== configuredArbiter) {
+      throw new Error("Only the configured arbiter can resolve disputes.");
+    }
+
+    const now = nowInSeconds();
+    const updated: BountyRecord = {
+      ...bounty,
+      status: release ? "released" : "refunded",
+      releasedAt: release ? now : bounty.releasedAt,
+      releasedTxHash: release
+        ? transactionHash?.trim() || bounty.releasedTxHash
+        : bounty.releasedTxHash,
+      refundedAt: release ? bounty.refundedAt : now,
+      refundedTxHash: release
+        ? bounty.refundedTxHash
+        : transactionHash?.trim() || bounty.refundedTxHash,
+      version: bounty.version + 1,
+      events: [
+        ...bounty.events,
+        {
+          type: release ? "released" : "refunded",
+          timestamp: now,
+          actor: arbiter,
+          details: { resolution: release ? "released" : "refunded" },
+        },
+      ],
+    };
+
+    const persisted = persistUpdated(records, updated);
+    appendAuditLogs([
+      {
+        bountyId: id,
+        fromStatus: bounty.status,
+        toStatus: updated.status,
+        transition: "resolve_dispute",
+        actor: arbiter,
+        metadata: {
+          release,
+          transactionHash: transactionHash?.trim() || undefined,
+        },
+      },
+    ]);
+    await invalidateBountyCache();
+
+    return persisted;
+  });
+}
+
 export async function updateBountyNotes(
   id: string,
   maintainer: string,
@@ -1270,44 +1361,113 @@ export interface AuditLogPage {
   data: BountyAuditLogRecord[];
   /** Pagination metadata. */
   pagination: {
-    /** Total number of audit log records. */
+    /** The limit applied to the query. */
+    limit: number;
+    /** The offset applied to the query. */
+    offset: number;
+    /** Total number of matching records in the system. */
     total: number;
-    /** Current page number (1-indexed). */
-    page: number;
-    /** Number of records per page. */
-    pageSize: number;
-    /** Total number of pages. */
-    totalPages: number;
+    /** Indicates if more records are available. */
+    hasMore: boolean;
+    /** The next offset to query, or null if there are no more records. */
+    nextOffset: number | null;
   };
 }
 
 /**
- * Retrieves a paginated list of audit log records for a specific bounty.
+ * Retrieves paginated audit logs for a specific bounty.
  *
- * @param {string} bountyId - The unique ID of the bounty to retrieve audit logs for.
- * @param {number} [page=1] - The page number to retrieve (1-indexed).
- * @param {number} [pageSize=20] - The number of records per page.
- * @returns {AuditLogPage} A promise that resolves to a paginated response of audit log records.
+ * @param {string} bountyId - The unique ID of the bounty.
+ * @param {Object} [options={}] - Pagination options.
+ * @param {number} [options.limit=20] - The maximum number of log records to return.
+ * @param {number} [options.offset=0] - The starting index for pagination.
+ * @returns {AuditLogPage} An object containing the requested page of audit logs and pagination metadata.
  */
 export function listBountyAuditLogs(
   bountyId: string,
-  page: number = 1,
-  pageSize: number = 20,
+  options: { limit?: number; offset?: number } = {},
 ): AuditLogPage {
-  const allLogs = readAuditStore();
-  const filtered = allLogs.filter((log) => log.bountyId === bountyId);
+  const { limit = 20, offset = 0 } = options;
+  const all = readAuditStore().filter((log) => log.bountyId === bountyId);
+  const total = all.length;
+  const data = all.slice(offset, offset + limit);
+  const hasMore = offset + limit < total;
+  return {
+    data,
+    pagination: {
+      limit,
+      offset,
+      total,
+      hasMore,
+      nextOffset: hasMore ? offset + limit : null,
+    },
+  };
+}
 
-  // Sort by timestamp descending (most recent first)
-  filtered.sort((a, b) => b.timestamp - a.timestamp);
+export interface ListAllAuditLogsOptions {
+  limit?: number;
+  offset?: number;
+  actor?: string;
+  transition?: string;
+  bountyId?: string;
+  fromStatus?: string;
+  toStatus?: string;
+}
 
-  const total = filtered.length;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const safePage = Math.min(Math.max(1, page), totalPages);
-  const start = (safePage - 1) * pageSize;
-  const end = start + pageSize;
-  const data = filtered.slice(start, end);
+/**
+ * Retrieves a paginated, filterable view of audit log records across every
+ * bounty. Intended for admin use only — protect this with
+ * `createAdminApiKeyAuthMiddleware`.
+ */
+export function listAllAuditLogs(
+  options: ListAllAuditLogsOptions = {},
+): AuditLogPage {
+  const {
+    limit = 50,
+    offset = 0,
+    actor,
+    transition,
+    bountyId,
+    fromStatus,
+    toStatus,
+  } = options;
 
+  let all = readAuditStore();
 
+  if (actor) {
+    all = all.filter((log) => log.actor === actor);
+  }
+
+  if (transition) {
+    all = all.filter((log) => log.transition === transition);
+  }
+
+  if (bountyId) {
+    all = all.filter((log) => log.bountyId === bountyId);
+  }
+
+  if (fromStatus) {
+    all = all.filter((log) => log.fromStatus === fromStatus);
+  }
+
+  if (toStatus) {
+    all = all.filter((log) => log.toStatus === toStatus);
+  }
+
+  const total = all.length;
+  const data = all.slice(offset, offset + limit);
+  const hasMore = offset + limit < total;
+  return {
+    data,
+    pagination: {
+      limit,
+      offset,
+      total,
+      hasMore,
+      nextOffset: hasMore ? offset + limit : null,
+    },
+  };
+}
 
 export function getBountyEvents(bountyId: string): BountyEvent[] {
   const records = listBounties();
@@ -1315,10 +1475,124 @@ export function getBountyEvents(bountyId: string): BountyEvent[] {
   return bounty.events || [];
 }
 
+/**
+ * Aggregate metrics and performance tracking data for a maintainer.
+ */
+export interface MaintainerMetrics {
+  /** The total number of bounties created by the maintainer. */
+  totalBounties: number;
+  /** Count of bounties currently in "open" status. */
+  openCount: number;
+  /** Count of bounties currently in "reserved" status. */
+  reservedCount: number;
+  /** Count of bounties currently in "submitted" status. */
+  submittedCount: number;
+  /** Count of bounties successfully "released" status. */
+  releasedCount: number;
+  /** Count of bounties refunded. */
+  refundedCount: number;
+  /** Count of bounties that have expired. */
+  expiredCount: number;
+  /** Total value of rewards funded by this maintainer. */
+  totalFunded: number;
+  /** Total value of rewards paid out/released to contributors. */
+  totalReleased: number;
+  /** Average reward value for the maintainer's bounties. */
+  averageRewardAmount: number;
+}
 
+/**
+ * Computes and returns aggregated metrics for a specific maintainer.
+ *
+ * @param {string} maintainer - The Stellar address of the maintainer.
+ * @returns {MaintainerMetrics} An object containing counts, sums, and averages of the maintainer's bounties.
+ */
+export function getMaintainerMetrics(maintainer: string): MaintainerMetrics {
+  const bounties = listBounties().filter((b) => b.maintainer === maintainer);
+  const totalFunded = bounties.reduce((sum, b) => sum + b.amount, 0);
+  const released = bounties.filter((b) => b.status === "released");
+  const totalReleased = released.reduce((sum, b) => sum + b.amount, 0);
+  return {
+    totalBounties: bounties.length,
+    openCount: bounties.filter((b) => b.status === "open").length,
+    reservedCount: bounties.filter((b) => b.status === "reserved").length,
+    submittedCount: bounties.filter((b) => b.status === "submitted").length,
+    releasedCount: released.length,
+    refundedCount: bounties.filter((b) => b.status === "refunded").length,
+    expiredCount: bounties.filter((b) => b.status === "expired").length,
+    totalFunded,
+    totalReleased,
+    averageRewardAmount:
+      bounties.length > 0 ? totalFunded / bounties.length : 0,
   };
 }
- feat/concurrency-file-locking
+
+/**
+ * Ecosystem-wide aggregate statistics across all platform activity.
+ */
+export interface GlobalMetrics {
+  /** Total number of bounties created across the platform. */
+  totalBounties: number;
+  /** Total count of open bounties. */
+  openCount: number;
+  /** Total count of reserved bounties. */
+  reservedCount: number;
+  /** Total count of submitted bounties. */
+  submittedCount: number;
+  /** Total count of released bounties. */
+  releasedCount: number;
+  /** Total count of refunded bounties. */
+  refundedCount: number;
+  /** Total count of expired bounties. */
+  expiredCount: number;
+  /** Total amount of tokens funded across the platform. */
+  totalFunded: number;
+  /** Total amount of tokens released to contributors. */
+  totalReleased: number;
+  /** Total number of unique maintainer addresses. */
+  uniqueMaintainers: number;
+  /** Total number of unique contributor addresses. */
+  uniqueContributors: number;
+  /**
+   * Cumulative protocol fees collected across all released bounties.
+   * Mirrors the on-chain FeeStats.total_collected value indexed by the backend.
+   */
+  protocolFeesCollected: number;
+}
+
+/**
+ * Computes and returns global ecosystem-wide metrics for all bounties.
+ *
+ * @returns {GlobalMetrics} An object summarizing total counts, funding, and unique actor metrics.
+ */
+export function getGlobalMetrics(): GlobalMetrics {
+  const bounties = listBounties();
+  const totalFunded = bounties.reduce((sum, b) => sum + b.amount, 0);
+  const released = bounties.filter((b) => b.status === "released");
+  const totalReleased = released.reduce((sum, b) => sum + b.amount, 0);
+  const protocolFeesCollected = released.reduce(
+    (sum, b) => sum + (b.protocolFeeCollected ?? 0),
+    0,
+  );
+  const uniqueMaintainers = new Set(bounties.map((b) => b.maintainer)).size;
+  const uniqueContributors = new Set(
+    bounties.filter((b) => b.contributor).map((b) => b.contributor as string),
+  ).size;
+  return {
+    totalBounties: bounties.length,
+    openCount: bounties.filter((b) => b.status === "open").length,
+    reservedCount: bounties.filter((b) => b.status === "reserved").length,
+    submittedCount: bounties.filter((b) => b.status === "submitted").length,
+    releasedCount: released.length,
+    refundedCount: bounties.filter((b) => b.status === "refunded").length,
+    expiredCount: bounties.filter((b) => b.status === "expired").length,
+    totalFunded,
+    totalReleased,
+    uniqueMaintainers,
+    uniqueContributors,
+    protocolFeesCollected,
+  };
+}
 
 const GLOBAL_METRICS_CACHE_KEY = "stats:global";
 const GLOBAL_METRICS_TTL_SECONDS = 30;
@@ -1397,4 +1671,3 @@ export function getLeaderboard(limit = 10): LeaderboardEntry[] {
     )
     .slice(0, limit);
 }
- main
