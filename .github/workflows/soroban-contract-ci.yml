@@ -52,10 +52,11 @@ jobs:
 
       - name: Check for merge markers
         run: |
-          if grep -rnE '<<<<<<< |=======|>>>>>>> ' .; then
+          if grep -rnE '^<<<<<<<|^=======($| )|^>>>>>>>' --exclude-dir={.git,node_modules,target} .; then
             echo "Merge markers found! Please resolve them."
             exit 1
           fi
+
 
       - name: Run cargo clippy
         working-directory: contracts
