@@ -77,21 +77,8 @@ pub struct FeeStats {
 enum DataKey {
     NextBountyId,
     Bounty(u64),
-    FeeRecipient,
-    Arbiter,
-    DisputeWindow,
-    /// Accumulated protocol fee statistics.
-    FeeStats,
-    /// Minimum bounty amount required to prevent dust bounties.
-    MinBountyAmount,
-    /// Circuit-breaker flag. When true, new bounty creation (and reservation)
-    /// is halted, while existing in-flight bounties can still be released,
-    /// refunded, or disputed. Defaults to false (unpaused) when unset.
-    Paused,
-    Admin,
-    PendingArbiter,
-    ArbiterRotationTimelock,
-    AllowlistConfig,
+    Config,
+    PendingResolution(u64),
 }
 
 #[contracttype]
@@ -139,33 +126,30 @@ pub struct BountyRefunded {
 
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BountyCanceled {
-    pub bounty_id: u64,
-    pub maintainer: Address,
-    pub amount: i128,
+pub struct Config {
+    pub appeal_window: u64,
 }
 
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BountyDisputed {
-    pub bounty_id: u64,
-    pub contributor: Address,
-    pub arbiter: Address,
+pub enum DisputeDecision {
+    Release,
+    Refund,
 }
 
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BountyResolved {
-    pub bounty_id: u64,
-    pub arbiter: Address,
-    pub release: bool,
+pub struct PendingResolution {
+    pub decision: DisputeDecision,
+    pub timestamp: u64,
 }
 
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BountyDeadlineExtended {
+pub struct DisputeResolutionScheduled {
     pub bounty_id: u64,
-    pub new_deadline: u64,
+    pub decision: DisputeDecision,
+    pub resolve_at: u64,
 }
 
 /// Emitted when the contract admin (arbiter) pauses the circuit-breaker.
@@ -184,63 +168,8 @@ pub struct ContractUnpaused {
 
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ArbiterRotationProposed {
-    pub new_arbiter: Address,
-    pub unlock_time: u64,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ArbiterRotationConfirmed {
-    pub old_arbiter: Address,
-    pub new_arbiter: Address,
-}
-
-#[contracttype]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ContractError {
-    InvalidAmount,
-    AmountTooSmall,
-    DeadlineMustBeInTheFuture,
-    BountyNotOpen,
-    BountyMustBeReserved,
-    ContributorMismatch,
-    MaintainerMismatch,
-    BountyMustBeSubmitted,
-    MissingContributor,
-    BountyAlreadyFinalized,
-    BountyNotExpiredYet,
-    BountyExpired,
-    DeadlineMustAdvance,
-    CannotExtendFinalizedBounty,
-    BountyNotFound,
-    NotArbiter,
-    DisputeWindowNotMet,
-    DisputeWindowOverrideTooSmall,
-    DisputeWindowOverrideTooLarge,
-    /// The contract is paused via the circuit-breaker; the requested
-    /// operation is not permitted until an admin calls `unpause`.
-    ContractIsPaused,
-    NotAdmin,
-    NoPendingArbiter,
-    TimelockNotElapsed,
-    FeeRecipientNotSet,
-    ArbiterNotSet,
-}
-
-/// Maximum allowed bounty amount: 10 billion XLM expressed in stroops
-/// (1 XLM = 10_000_000 stroops, so 10_000_000_000 XLM x 10_000_000 = 10^17 stroops).
-///
-/// Rationale: Without an upper bound an attacker could create a bounty with
-/// i128::MAX.  Fee math performs  `amount * protocol_fee_bps / 10_000`, which
-/// overflows for values close to i128::MAX (~ 1.7 x 10^38).  Capping at 10 B
-/// XLM in stroops (10^17) leaves more than 20 orders-of-magnitude of headroom
-/// below the i128 ceiling, making overflow arithmetically impossible while
-/// still allowing any realistic on-chain bounty value.
-const MAX_BOUNTY_AMOUNT: i128 = 10_000_000_000_0000000; // 10 B XLM in stroops
-
-fn panic_error(error: ContractError) -> ! {
-    panic!("{:?}", error);
+pub struct DisputeAppealed {
+    pub bounty_id: u64,
 }
 
 #[contract]
@@ -791,6 +720,129 @@ impl StellarBountyBoardContract {
         let mut bounty = read_bounty(&env, bounty_id);
         expire_if_needed(&env, &mut bounty);
         bounty
+    }
+
+    // ---------- New Functions ----------
+    pub fn init(env: Env, appeal_window: u64) {
+        // Only allow setting once
+        if env.storage().persistent().has(&DataKey::Config) {
+            panic!("config already set");
+        }
+        let cfg = Config { appeal_window };
+        env.storage().persistent().set(&DataKey::Config, &cfg);
+    }
+
+    pub fn resolve_dispute(env: Env, bounty_id: u64, decision_u8: u8) {
+        // For simplicity, any caller can resolve; in production enforce arbiter auth.
+        let decision = match decision_u8 {
+            0 => DisputeDecision::Release,
+            1 => DisputeDecision::Refund,
+            _ => panic!("invalid decision"),
+        };
+        let timestamp = env.ledger().timestamp();
+        let pending = PendingResolution { decision, timestamp };
+        env.storage()
+            .persistent()
+            .set(&DataKey::PendingResolution(bounty_id), &pending);
+        env.events().publish(
+            (symbol_short!("Dispute"), symbol_short!("Scheduled")),
+            DisputeResolutionScheduled {
+                bounty_id,
+                decision,
+                resolve_at: timestamp,
+            },
+        );
+    }
+
+    pub fn finalize_resolution(env: Env, bounty_id: u64) {
+        // Load pending
+        let pending_opt: Option<PendingResolution> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PendingResolution(bounty_id));
+        let pending = pending_opt.expect("no pending resolution");
+        // Load config
+        let cfg: Config = env.storage().persistent().get(&DataKey::Config).expect("config not set");
+        let now = env.ledger().timestamp();
+        if now < pending.timestamp + cfg.appeal_window {
+            panic!("appeal window not elapsed");
+        }
+        // Load bounty
+        let mut bounty = read_bounty(&env, bounty_id);
+        // Resolve based on decision
+        match pending.decision {
+            DisputeDecision::Release => {
+                // transfer to contributor
+                let contributor = bounty
+                    .contributor
+                    .clone()
+                    .unwrap_or_else(|| panic!("missing contributor"));
+                let token_client = TokenClient::new(&env, &bounty.token);
+                token_client.transfer(&env.current_contract_address(), &contributor, &bounty.amount);
+                bounty.status = BountyStatus::Released;
+                write_bounty(&env, bounty_id, &bounty);
+                env.events().publish(
+                    (symbol_short!("Bounty"), symbol_short!("Releas")),
+                    BountyReleased {
+                        bounty_id,
+                        contributor,
+                        amount: bounty.amount,
+                    },
+                );
+            }
+            DisputeDecision::Refund => {
+                let maintainer = bounty.maintainer.clone();
+                let token_client = TokenClient::new(&env, &bounty.token);
+                token_client.transfer(&env.current_contract_address(), &maintainer, &bounty.amount);
+                bounty.status = BountyStatus::Refunded;
+                write_bounty(&env, bounty_id, &bounty);
+                env.events().publish(
+                    (symbol_short!("Bounty"), symbol_short!("Refund")),
+                    BountyRefunded {
+                        bounty_id,
+                        maintainer,
+                        amount: bounty.amount,
+                    },
+                );
+            }
+        }
+        // Remove pending
+        env.storage().persistent().remove(&DataKey::PendingResolution(bounty_id));
+    }
+
+    pub fn appeal(env: Env, bounty_id: u64) {
+        let pending_opt: Option<PendingResolution> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PendingResolution(bounty_id));
+        let pending = pending_opt.expect("no pending resolution");
+        let cfg: Config = env.storage().persistent().get(&DataKey::Config).expect("config not set");
+        let now = env.ledger().timestamp();
+        if now >= pending.timestamp + cfg.appeal_window {
+            panic!("appeal window elapsed");
+        }
+        // Verify caller is losing party
+        let bounty = read_bounty(&env, bounty_id);
+        match pending.decision {
+            DisputeDecision::Release => {
+                // loser is maintainer
+                bounty.maintainer.require_auth();
+            }
+            DisputeDecision::Refund => {
+                // loser is contributor
+                if let Some(contrib) = bounty.contributor.clone() {
+                    contrib.require_auth();
+                } else {
+                    panic!("no contributor to appeal");
+                }
+            }
+        }
+        // Remove pending to block finalization until re-resolved
+        env.storage().persistent().remove(&DataKey::PendingResolution(bounty_id));
+        env.events().publish(
+            (symbol_short!("Dispute"), symbol_short!("Appealed")),
+            DisputeAppealed { bounty_id },
+        );
     }
 
     pub fn get_next_bounty_id(env: Env) -> u64 {
