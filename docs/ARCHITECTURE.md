@@ -266,6 +266,63 @@ stateDiagram-v2
 
 The following Mermaid diagrams show the detailed sequence of interactions for each bounty lifecycle action.
 
+### 0. Maintainer-Raised Dispute Flow
+
+```mermaid
+sequenceDiagram
+    actor Maintainer
+    actor Contributor
+    actor Arbiter
+    participant Frontend
+    participant Backend
+    participant Contract
+    participant Notification
+
+    Maintainer->>Frontend: Flags submission as invalid
+    Frontend->>Backend: POST /api/bounties/:id/dispute
+    activate Backend
+    Backend->>Backend: Validate maintainer role & bounty status=SUBMITTED
+    Backend->>Contract: dispute_bounty(bounty_id, raised_by=maintainer)
+    Contract-->>Backend: Bounty status: disputed
+    deactivate Backend
+
+    Backend->>Notification: Send dispute-opened alert
+    Notification-->>Contributor: "A dispute has been opened on your submission"
+    Notification-->>Arbiter: "New dispute requires review"
+
+    Contributor->>Frontend: Submits evidence/response
+    Frontend->>Backend: POST /api/bounties/:id/dispute/respond
+    activate Backend
+    Backend->>Backend: Attach evidence to dispute record
+    Backend-->>Frontend: Response recorded
+    deactivate Backend
+
+    Arbiter->>Frontend: Reviews case & evidence
+    Frontend->>Backend: POST /api/bounties/:id/dispute/resolve
+    activate Backend
+    Backend->>Backend: Validate arbiter role
+    Backend->>Contract: resolve_dispute(bounty_id, ruling)
+    
+    alt Ruling: award contributor
+        Contract-->>Contributor: Transfer escrowed funds
+        Contract-->>Backend: Bounty status: released
+        Backend->>Notification: Payout confirmed
+        Notification-->>Maintainer: Dispute resolved — funds released to contributor
+        Notification-->>Contributor: Dispute resolved — payout received
+    else Ruling: award maintainer
+        Contract-->>Maintainer: Return escrowed funds
+        Contract-->>Backend: Bounty status: refunded
+        Backend->>Notification: Refund confirmed
+        Notification-->>Maintainer: Dispute resolved — funds returned
+        Notification-->>Contributor: Dispute resolved — submission rejected
+    end
+    deactivate Backend
+
+    Backend-->>Frontend: Dispute resolution recorded
+    Frontend-->>Maintainer: Final status displayed
+    Frontend-->>Contributor: Final status displayed
+```
+
 ### 1. Create Bounty
 
 ```mermaid
