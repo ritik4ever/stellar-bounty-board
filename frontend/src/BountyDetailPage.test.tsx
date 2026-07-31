@@ -139,3 +139,100 @@ describe("BountyDetailPage copy actions", () => {
     expect(screen.queryByText("Bounty #73 status changed to Reserved")).not.toBeInTheDocument();
   });
 });
+
+describe("BountyDetailPage social share buttons", () => {
+  it("renders the Twitter/X share button", () => {
+    renderDetail();
+    expect(
+      screen.getByRole("button", { name: /share on twitter/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("renders the LinkedIn share button", () => {
+    renderDetail();
+    expect(
+      screen.getByRole("button", { name: /share on linkedin/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("opens Twitter/X share URL with pre-filled text and link", () => {
+    const windowOpen = vi.fn();
+    vi.stubGlobal("open", windowOpen);
+
+    renderDetail();
+
+    const twitterButton = screen.getByRole("button", {
+      name: /share on twitter/i,
+    });
+    twitterButton.click();
+
+    expect(windowOpen).toHaveBeenCalledOnce();
+    const twitterUrl = windowOpen.mock.calls[0][0] as string;
+
+    // Should contain the Twitter intent URL
+    expect(twitterUrl).toContain("https://twitter.com/intent/tweet");
+
+    // Should contain pre-filled text with bounty title and amount
+    expect(twitterUrl).toContain("Copy+button+test+bounty");
+    expect(twitterUrl).toContain("150");
+    expect(twitterUrl).toContain("XLM");
+
+    // Should contain the bounty detail URL
+    expect(twitterUrl).toContain("bounties%2FBNTY-42");
+
+    // Should open in a new tab
+    expect(windowOpen.mock.calls[0][1]).toBe("_blank");
+    expect(windowOpen.mock.calls[0][2]).toBe("noopener,noreferrer");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("opens LinkedIn share URL with bounty link", () => {
+    const windowOpen = vi.fn();
+    vi.stubGlobal("open", windowOpen);
+
+    renderDetail();
+
+    const linkedinButton = screen.getByRole("button", {
+      name: /share on linkedin/i,
+    });
+    linkedinButton.click();
+
+    expect(windowOpen).toHaveBeenCalledOnce();
+    const linkedinUrl = windowOpen.mock.calls[0][0] as string;
+
+    // Should contain the LinkedIn share URL
+    expect(linkedinUrl).toContain("https://www.linkedin.com/sharing/share-offsite/");
+
+    // Should contain the bounty detail URL
+    expect(linkedinUrl).toContain("bounties%2FBNTY-42");
+
+    // Should open in a new tab
+    expect(windowOpen.mock.calls[0][1]).toBe("_blank");
+    expect(windowOpen.mock.calls[0][2]).toBe("noopener,noreferrer");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("share buttons are disabled when bounty is null", () => {
+    const props = detailProps();
+    const { rerender } = render(
+      <BountyDetailPage {...props} />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: /share on twitter/i }),
+    ).not.toBeDisabled();
+
+    rerender(
+      <BountyDetailPage {...props} bounty={null} />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: /share on twitter/i }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: /share on linkedin/i }),
+    ).toBeDisabled();
+  });
+});

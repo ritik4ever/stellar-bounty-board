@@ -1,5 +1,5 @@
 import { ReactNode, useState, useCallback, useEffect, useRef } from "react";
-import { ArrowUpRight, Check, Clock, Copy, Share2, Printer } from "lucide-react";
+import { ArrowUpRight, Check, Clock, Copy, Linkedin, Share2, Printer } from "lucide-react";
 import { Bounty, BountyEvent, BountyStatus } from "./types";
 import BountyCountdown from "./BountyCountdown";
 import UsdAmount from "./UsdAmount";
@@ -151,6 +151,23 @@ export default function BountyDetailPage({
     });
   }
 
+  function handleTwitterShare() {
+    if (!bounty) return;
+    const permalink = `${window.location.origin}/bounties/${encodeURIComponent(bounty.id)}`;
+    const text = encodeURIComponent(
+      `${bounty.title} — ${bounty.amount} ${bounty.tokenSymbol} bounty on Stellar Bounty Board`,
+    );
+    const url = `https://twitter.com/intent/tweet?text=${text}&url=${encodeURIComponent(permalink)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
+  function handleLinkedInShare() {
+    if (!bounty) return;
+    const permalink = `${window.location.origin}/bounties/${encodeURIComponent(bounty.id)}`;
+    const url = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(permalink)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
   return (
     <div className="page-shell">
       <div className="sr-only" aria-live="polite" aria-atomic="true">
@@ -166,6 +183,36 @@ export default function BountyDetailPage({
             <h2>{bounty ? bounty.title : "Bounty"}</h2>
           </div>
           <div className="panel-header__actions">
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={handleTwitterShare}
+              disabled={loading || !bounty}
+              aria-label="Share on Twitter/X"
+              title="Share on Twitter/X"
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+              </svg>
+              Tweet
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={handleLinkedInShare}
+              disabled={loading || !bounty}
+              aria-label="Share on LinkedIn"
+              title="Share on LinkedIn"
+            >
+              <Linkedin size={16} />
+              Share
+            </button>
             <button
               type="button"
               className="secondary-button print-button"
