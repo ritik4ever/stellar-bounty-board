@@ -4,7 +4,7 @@
 mod test;
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short,
+    contract, contractimpl, contracttype, symbol_short,
     token::Client as TokenClient, Address, Env, String, Vec,
 };
 
@@ -691,6 +691,50 @@ impl StellarBountyBoardContract {
         result
     }
 
+    /// Returns all bounties where the contributor field matches the given address,
+    /// using the same start/limit pagination as [`get_all_bounties`].
+    ///
+    /// Only bounties in `Reserved`, `Submitted`, `Released`, or `Disputed` state
+    /// are ever returned — `Open` bounties have no contributor and are always
+    /// excluded.  `Expired` and `Refunded` bounties that were previously reserved
+    /// by this contributor will also appear so callers can see their full history.
+    ///
+    /// The `limit` parameter is capped at 50 matching the rest of the API.
+    pub fn get_bounties_by_contributor(env: Env, contributor: Address, start: u64, limit: u32) -> Vec<Bounty> {
+        let enforced_limit = if limit > 50 { 50 } else { limit };
+        let mut result = Vec::new(&env);
+
+        if enforced_limit == 0 {
+            return result;
+        }
+
+        let next_id: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::NextBountyId)
+            .unwrap_or(0);
+
+        if start == 0 || start > next_id {
+            return result;
+        }
+
+        let mut id = start;
+
+        while result.len() < enforced_limit && id <= next_id {
+            if env.storage().persistent().has(&DataKey::Bounty(id)) {
+                let mut bounty = read_bounty(&env, id);
+                expire_if_needed(&env, &mut bounty);
+                // Include the bounty only if this contributor was assigned to it
+                if bounty.contributor.as_ref() == Some(&contributor) {
+                    result.push_back(bounty);
+                }
+            }
+            id += 1;
+        }
+
+        result
+    }
+
     /// Returns the cumulative fee statistics for the contract.
     ///
     /// Returns a [`FeeStats`] with `total_collected = 0` and `bounty_count = 0`
@@ -884,6 +928,11 @@ pub fn remove_allowed_token(e: &Env, admin: Address, token: Address) {
 
 }
 
+/// Atomically add `fee_amount` to the cumulative [`FeeStats`] in persistent storage.
+///
+/// Called after every payout (normal release and dispute-release). When `fee_amount`
+/// is zero the stats are still updated so that `bounty_count` always reflects the
+/// total number of released bounties, not just fee-paying ones.
 fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
     let mut stats: FeeStats = env
         .storage()

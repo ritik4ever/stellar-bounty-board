@@ -162,6 +162,11 @@ export interface BountyRecord {
   // Reservation timeout (in seconds from reservation)
   /** Number of seconds after reservation before it automatically times out. */
   reservationTimeoutSeconds?: number;
+  // Soft-archive flag
+  /** When true, the bounty has been archived and is excluded from active listings. */
+  archived?: boolean;
+  /** Unix timestamp in seconds of when the bounty was archived. */
+  archivedAt?: number;
 }
 
 /**

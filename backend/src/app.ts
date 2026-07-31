@@ -761,12 +761,29 @@ app.post(
   '/api/webhooks/github',
   createGitHubWebhookSignatureMiddleware(() => process.env.GITHUB_WEBHOOK_SECRET),
   async (req: Request, res: Response) => {
+    const rawDeliveryId = req.headers['x-github-delivery'];
+    const deliveryId = Array.isArray(rawDeliveryId) ? rawDeliveryId[0] : rawDeliveryId;
+
+    let result: { duplicate: boolean };
     try {
-      await handleGitHubPrEvent(req.body);
+      result = await handleGitHubPrEvent(req.body, deliveryId);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Webhook processing error';
 
       res.status(500).json({ error: message, requestId: req.requestId });
+      return;
+    }
+
+    if (result.duplicate) {
+      // Already processed this delivery ID — acknowledge without re-running side-effects
+      res.status(200).json({
+        data: {
+          authenticated: true,
+          provider: 'github',
+          received: true,
+          duplicate: true,
+        },
+      });
       return;
     }
 
