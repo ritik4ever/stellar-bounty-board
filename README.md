@@ -259,6 +259,11 @@ For common issues, troubleshooting steps, wallet setup, testnet funding, transac
 
 Contribution-ready issue drafts live in `docs/issues`.
 
+See the wave backlog documents for organized issue sets:
+- [Wave 4](docs/wave-4.md) — 60 issues across frontend, backend, contracts, docs, and DevOps
+- [Wave 5](docs/wave-5.md) — 40 issues focusing on security, observability, and polish
+- [Wave 6](docs/wave-6.md) — 7 issues for production readiness: database migration, wallet auth, and GitHub integration
+
 Suggested first issues:
 
 - Wallet-authenticated maintainer actions
