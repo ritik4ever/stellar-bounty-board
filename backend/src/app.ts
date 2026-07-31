@@ -2,9 +2,12 @@ import cors from 'cors';
 import express, { Request, Response, NextFunction } from 'express';
 import { randomUUID, createHash } from 'node:crypto';
 import swaggerUi from 'swagger-ui-express';
+import pinoHttp from 'pino-http';
 
 import { generateOpenApiDocument } from './docs/openapi';
 import { getMetrics, httpRequestDuration } from './metrics';
+import { buildCorsOptions } from './middleware/corsOptions';
+import { runDeepHealthCheck } from './services/deepHealth';
 
 import {
   createBounty,
@@ -22,7 +25,6 @@ import {
   releaseBounty,
   reserveBounty,
   submitBounty,
-  updateBountyNotes,
   getBountyEvents,
   getMaintainerMetrics,
   getGlobalMetrics,
@@ -43,6 +45,7 @@ import {
   reserveBountySchema,
   submitBountySchema,
   updateNotesSchema,
+  zodErrorMessage,
 } from './validation/schemas';
 import { validateBody } from './middleware/validateBody';
 import { isValidStellarAddress } from './utils';
@@ -800,12 +803,13 @@ app.post(
   }
 );
 
-app.get('/api/open-issues', async (_req: Request, res: Response) => {
+app.get('/api/open-issues', async (req: Request, res: Response) => {
   try {
-    const issues = await listOpenIssues();
-    res.json({ data: issues });
+    const data = await listOpenIssues();
+    res.set('Cache-Control', 'max-age=600');
+    res.json({ data });
   } catch (error) {
-    sendError(res, _req, error, 500);
+    sendError(res, req, error, 502);
   }
 });
 

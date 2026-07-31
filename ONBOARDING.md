@@ -20,6 +20,7 @@ Welcome to **Stellar Bounty Board** a contribution-focused Stellar MVP for open 
 12. [Submitting a Pull Request](#12-submitting-a-pull-request)
 13. [Architecture & Deployment Links](#13-architecture--deployment-links)
 14. [Getting Help](#14-getting-help)
+15. [Stellar & Soroban Glossary](#15-stellar--soroban-glossary)
 
 ---
 
@@ -35,6 +36,9 @@ Maintainer creates bounty → Contributor reserves it
 ```
 
 The backend uses JSON file persistence today, with a clear path to Postgres. The Soroban contract models the same lifecycle on-chain, ready to become the source of truth once wallet authentication is wired up.
+
+> [!NOTE]
+> **New to Stellar or Soroban?** Terms like _Soroban_, _XLM_, _escrow_, _SAC_, _XDR_, and _Horizon_ appear throughout these docs. Jump to the [Stellar & Soroban Glossary](#15-stellar--soroban-glossary) at any time for plain-English definitions and links to the official reference.
 
 ---
 
