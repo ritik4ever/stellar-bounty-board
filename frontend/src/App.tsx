@@ -21,11 +21,13 @@ import {
   getBounty,
   listBounties,
   listOpenIssues,
-  refundBounty,
-  releaseBounty,
+  releaseBountySigned,
+  refundBountySigned,
   reserveBounty,
   submitBounty,
 } from "./api";
+import { useFreighter } from "./hooks/useFreighter";
+import FreighterConnectButton from "./components/FreighterConnectButton";
 import {
   statusCopy,
   actionCopy,
@@ -117,6 +119,7 @@ function formatTimestamp(value?: number): string {
 
 function App() {
   const { dark, toggle: toggleDark } = useDarkMode();
+  const freighter = useFreighter();
   const initialFilters = useMemo(() => readInitialFilters(), []);
   const [form, setForm] = useState<CreateBountyPayload>(initialForm);
   const [bounties, setBounties] = useState<Bounty[]>([]);
@@ -373,38 +376,82 @@ function App() {
   }
 
   async function handleRelease(bounty: Bounty) {
-    const maintainer = window.prompt("Maintainer Stellar address", bounty.maintainer);
-    if (!maintainer) return;
-    const maintainerError = validateStellarPublicKey(maintainer);
-    if (maintainerError) {
-      window.alert(maintainerError);
+    // Require Freighter connection for maintainer actions
+    if (!freighter.isConnected || !freighter.publicKey) {
+      toast.error("Please connect your Freighter wallet first to sign the release action.");
       return;
     }
+    if (!freighter.isOnCorrectNetwork) {
+      toast.error("Please switch to the correct Stellar network in Freighter.");
+      return;
+    }
+
     const transactionHash = window.prompt("Transaction hash (64 hex chars, optional)") ?? undefined;
+    const timestamp = Math.floor(Date.now() / 1000);
+    const payload = {
+      maintainer: freighter.publicKey,
+      ...(transactionHash ? { transactionHash } : {}),
+      action: "release" as const,
+      bountyId: bounty.id,
+      timestamp,
+    };
+
     try {
-      await releaseBounty(bounty.id, maintainer.trim(), transactionHash || undefined);
+      // Sign the payload with Freighter
+      const { signature, publicKey } = await freighter.signPayload(payload);
+
+      // Send the signed request
+      await releaseBountySigned(
+        bounty.id,
+        payload,
+        signature,
+        publicKey
+      );
       await refresh();
       toast.success("Bounty released — payment sent!");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to release bounty.");
+      const message = err instanceof Error ? err.message : "Failed to release bounty.";
+      toast.error(message);
     }
   }
 
   async function handleRefund(bounty: Bounty) {
-    const maintainer = window.prompt("Maintainer Stellar address", bounty.maintainer);
-    if (!maintainer) return;
-    const maintainerError = validateStellarPublicKey(maintainer);
-    if (maintainerError) {
-      window.alert(maintainerError);
+    // Require Freighter connection for maintainer actions
+    if (!freighter.isConnected || !freighter.publicKey) {
+      toast.error("Please connect your Freighter wallet first to sign the refund action.");
       return;
     }
+    if (!freighter.isOnCorrectNetwork) {
+      toast.error("Please switch to the correct Stellar network in Freighter.");
+      return;
+    }
+
     const transactionHash = window.prompt("Transaction hash (64 hex chars, optional)") ?? undefined;
+    const timestamp = Math.floor(Date.now() / 1000);
+    const payload = {
+      maintainer: freighter.publicKey,
+      ...(transactionHash ? { transactionHash } : {}),
+      action: "refund" as const,
+      bountyId: bounty.id,
+      timestamp,
+    };
+
     try {
-      await refundBounty(bounty.id, maintainer.trim(), transactionHash || undefined);
+      // Sign the payload with Freighter
+      const { signature, publicKey } = await freighter.signPayload(payload);
+
+      // Send the signed request
+      await refundBountySigned(
+        bounty.id,
+        payload,
+        signature,
+        publicKey
+      );
       await refresh();
       toast.success("Bounty refunded successfully!");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to refund bounty.");
+      const message = err instanceof Error ? err.message : "Failed to refund bounty.";
+      toast.error(message);
     }
   }
 
@@ -605,6 +652,7 @@ function App() {
             <h1>Stellar Bounty Board</h1>
           </div>
           <div className="header-actions">
+            <FreighterConnectButton freighter={freighter} compact />
             <button className="theme-toggle" onClick={toggleDark}>
               {dark ? <Sun size={20} /> : <Moon size={20} />}
             </button>
