@@ -1,0 +1,589 @@
+name: Backend Canary and Blue-Green Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target deployment environment
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+      stable_url:
+        description: Base URL of the stable blue backend
+        required: true
+        type: string
+      canary_url:
+        description: Base URL of the candidate green backend
+        required: true
+        type: string
+      canary_percentage:
+        description: Percentage of traffic intended for the green candidate
+        required: true
+        default: '5'
+        type: choice
+        options:
+          - '5'
+          - '25'
+          - '50'
+          - '100'
+      error_rate_threshold:
+        description: Maximum allowed HTTP 5xx error rate percentage
+        required: true
+        default: '1'
+        type: string
+      p95_latency_ms_threshold:
+        description: Maximum allowed p95 request latency in milliseconds
+        required: true
+        default: '1000'
+        type: string
+      evaluation_window_seconds:
+        description: Time to observe the canary before evaluating metrics
+        required: true
+        default: '60'
+        type: string
+      promote:
+        description: Promote green to 100 percent after all gates pass
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-canary-${{ inputs.environment }}
+  cancel-in-progress: false
+
+env:
+  STABLE_URL: ${{ inputs.stable_url }}
+  CANARY_URL: ${{ inputs.canary_url }}
+  CANARY_PERCENTAGE: ${{ inputs.canary_percentage }}
+  ERROR_RATE_THRESHOLD: ${{ inputs.error_rate_threshold }}
+  P95_LATENCY_MS_THRESHOLD: ${{ inputs.p95_latency_ms_threshold }}
+  EVALUATION_WINDOW_SECONDS: ${{ inputs.evaluation_window_seconds }}
+
+jobs:
+  validate:
+    name: Validate rollout inputs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate URLs, percentages, and thresholds
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 <<'PY'
+          import os
+          from urllib.parse import urlparse
+
+          stable_url = os.environ["STABLE_URL"].strip()
+          canary_url = os.environ["CANARY_URL"].strip()
+          canary_percentage = int(os.environ["CANARY_PERCENTAGE"])
+          error_threshold = float(os.environ["ERROR_RATE_THRESHOLD"])
+          latency_threshold = float(os.environ["P95_LATENCY_MS_THRESHOLD"])
+          evaluation_window = int(os.environ["EVALUATION_WINDOW_SECONDS"])
+
+          for label, value in (
+              ("stable_url", stable_url),
+              ("canary_url", canary_url),
+          ):
+              parsed = urlparse(value)
+
+              if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                  raise SystemExit(
+                      f"{label} must be a complete HTTP or HTTPS URL"
+                  )
+
+          if stable_url.rstrip("/") == canary_url.rstrip("/"):
+              raise SystemExit(
+                  "stable_url and canary_url must identify different deployments"
+              )
+
+          if canary_percentage not in {5, 25, 50, 100}:
+              raise SystemExit(
+                  "canary_percentage must be one of 5, 25, 50, or 100"
+              )
+
+          if error_threshold < 0 or error_threshold > 100:
+              raise SystemExit(
+                  "error_rate_threshold must be between 0 and 100"
+              )
+
+          if latency_threshold <= 0:
+              raise SystemExit(
+                  "p95_latency_ms_threshold must be greater than zero"
+              )
+
+          if evaluation_window < 0 or evaluation_window > 3600:
+              raise SystemExit(
+                  "evaluation_window_seconds must be between 0 and 3600"
+              )
+
+          print("Rollout inputs are valid.")
+          print(f"Stable blue URL: {stable_url}")
+          print(f"Candidate green URL: {canary_url}")
+          print(f"Requested canary percentage: {canary_percentage}%")
+          print(f"Maximum error rate: {error_threshold}%")
+          print(f"Maximum p95 latency: {latency_threshold} ms")
+          print(f"Evaluation window: {evaluation_window} seconds")
+          PY
+
+  deploy-canary:
+    name: Deploy green and set canary percentage
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Deploy green candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "DEPLOYMENT STUB"
+          echo "Deploy commit ${GITHUB_SHA} as the green backend."
+          echo "The provider integration must leave blue running."
+          echo "Candidate URL: ${CANARY_URL}"
+          echo
+          echo "Example provider action:"
+          echo "  deploy backend release ${GITHUB_SHA} to the green service"
+          echo
+          echo "No provider-specific deployment command is executed by this stub."
+
+      - name: Verify stable blue health before traffic change
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          stable_base="${STABLE_URL%/}"
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 3 \
+            --retry-delay 5 \
+            "${stable_base}/api/health"
+
+      - name: Verify candidate green basic health
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          canary_base="${CANARY_URL%/}"
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 3 \
+            --retry-delay 5 \
+            "${canary_base}/api/health"
+
+      - name: Verify candidate green deep health
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          canary_base="${CANARY_URL%/}"
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 3 \
+            --retry-delay 5 \
+            "${canary_base}/api/health/deep" \
+            | python3 -c '
+          import json
+          import sys
+
+          result = json.load(sys.stdin)
+
+          if result.get("overall") != "up":
+              raise SystemExit(
+                  f"Deep health gate failed: {json.dumps(result)}"
+              )
+
+          print("Candidate deep health is up.")
+          print(json.dumps(result, indent=2))
+          '
+
+      - name: Apply requested canary traffic percentage
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          stable_percentage=$((100 - CANARY_PERCENTAGE))
+
+          echo "TRAFFIC SHIFT STUB"
+          echo "Set blue traffic to ${stable_percentage}%."
+          echo "Set green traffic to ${CANARY_PERCENTAGE}%."
+          echo
+          echo "The provider-specific load-balancer or routing command belongs here."
+          echo "No real traffic is changed by this initial workflow stub."
+
+  evaluate-metrics:
+    name: Evaluate canary health metrics
+    needs: deploy-canary
+    runs-on: ubuntu-latest
+
+    outputs:
+      error_rate: ${{ steps.metrics.outputs.error_rate }}
+      p95_latency_ms: ${{ steps.metrics.outputs.p95_latency_ms }}
+
+    steps:
+      - name: Observe the canary
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Observing the ${CANARY_PERCENTAGE}% canary for ${EVALUATION_WINDOW_SECONDS} seconds."
+
+          if [ "${EVALUATION_WINDOW_SECONDS}" -gt 0 ]; then
+            sleep "${EVALUATION_WINDOW_SECONDS}"
+          fi
+
+      - name: Recheck basic and deep health
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          canary_base="${CANARY_URL%/}"
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 2 \
+            --retry-delay 5 \
+            "${canary_base}/api/health"
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 2 \
+            --retry-delay 5 \
+            "${canary_base}/api/health/deep" \
+            | python3 -c '
+          import json
+          import sys
+
+          result = json.load(sys.stdin)
+
+          if result.get("overall") != "up":
+              raise SystemExit(
+                  f"Deep health gate failed: {json.dumps(result)}"
+              )
+
+          print("Deep health gate passed.")
+          '
+
+      - name: Fetch Prometheus metrics
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          canary_base="${CANARY_URL%/}"
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 2 \
+            --retry-delay 5 \
+            "${canary_base}/api/metrics" \
+            --output "${RUNNER_TEMP}/canary-metrics.txt"
+
+          test -s "${RUNNER_TEMP}/canary-metrics.txt"
+
+      - name: Apply error-rate and p95 latency gates
+        id: metrics
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 <<'PY'
+          import math
+          import os
+          import re
+          from pathlib import Path
+
+          metrics_path = Path(
+              os.environ["RUNNER_TEMP"]
+          ) / "canary-metrics.txt"
+
+          error_threshold = float(
+              os.environ["ERROR_RATE_THRESHOLD"]
+          )
+
+          p95_threshold_ms = float(
+              os.environ["P95_LATENCY_MS_THRESHOLD"]
+          )
+
+          text = metrics_path.read_text(encoding="utf-8")
+
+          count_pattern = re.compile(
+              r"^http_request_duration_seconds_count"
+              r"\{([^}]*)\}\s+([0-9.eE+-]+)$"
+          )
+
+          bucket_pattern = re.compile(
+              r"^http_request_duration_seconds_bucket"
+              r"\{([^}]*)\}\s+([0-9.eE+-]+)$"
+          )
+
+          total_requests = 0.0
+          server_errors = 0.0
+          bucket_totals = {}
+
+          for line in text.splitlines():
+              count_match = count_pattern.match(line)
+
+              if count_match:
+                  labels = count_match.group(1)
+                  count = float(count_match.group(2))
+                  status_match = re.search(
+                      r'status_code="(\d{3})"',
+                      labels,
+                  )
+
+                  total_requests += count
+
+                  if (
+                      status_match
+                      and 500 <= int(status_match.group(1)) <= 599
+                  ):
+                      server_errors += count
+
+                  continue
+
+              bucket_match = bucket_pattern.match(line)
+
+              if not bucket_match:
+                  continue
+
+              labels = bucket_match.group(1)
+              count = float(bucket_match.group(2))
+              le_match = re.search(r'le="([^"]+)"', labels)
+
+              if not le_match:
+                  continue
+
+              upper_bound = le_match.group(1)
+              bucket_totals[upper_bound] = (
+                  bucket_totals.get(upper_bound, 0.0) + count
+              )
+
+          if total_requests <= 0:
+              raise SystemExit(
+                  "Metrics gate failed: no HTTP request samples were found"
+              )
+
+          error_rate = server_errors / total_requests * 100.0
+
+          infinite_total = bucket_totals.get("+Inf", 0.0)
+
+          if infinite_total <= 0:
+              raise SystemExit(
+                  "Metrics gate failed: no latency histogram samples were found"
+              )
+
+          target = infinite_total * 0.95
+          finite_buckets = []
+
+          for upper_bound, count in bucket_totals.items():
+              if upper_bound == "+Inf":
+                  continue
+
+              try:
+                  finite_buckets.append(
+                      (float(upper_bound), count)
+                  )
+              except ValueError:
+                  continue
+
+          finite_buckets.sort(key=lambda item: item[0])
+
+          p95_seconds = math.inf
+
+          for upper_bound, count in finite_buckets:
+              if count >= target:
+                  p95_seconds = upper_bound
+                  break
+
+          p95_latency_ms = p95_seconds * 1000.0
+
+          print(f"Total observed requests: {total_requests:.0f}")
+          print(f"Observed HTTP 5xx responses: {server_errors:.0f}")
+          print(f"Observed error rate: {error_rate:.4f}%")
+          print(f"Estimated p95 latency: {p95_latency_ms:.2f} ms")
+          print(f"Allowed error rate: {error_threshold:.4f}%")
+          print(f"Allowed p95 latency: {p95_threshold_ms:.2f} ms")
+
+          with open(
+              os.environ["GITHUB_OUTPUT"],
+              "a",
+              encoding="utf-8",
+          ) as output:
+              output.write(f"error_rate={error_rate:.4f}\n")
+              output.write(
+                  f"p95_latency_ms={p95_latency_ms:.2f}\n"
+              )
+
+          failures = []
+
+          if error_rate > error_threshold:
+              failures.append(
+                  f"HTTP 5xx error rate {error_rate:.4f}% "
+                  f"exceeds {error_threshold:.4f}%"
+              )
+
+          if (
+              not math.isfinite(p95_latency_ms)
+              or p95_latency_ms > p95_threshold_ms
+          ):
+              failures.append(
+                  f"p95 latency {p95_latency_ms:.2f} ms "
+                  f"exceeds {p95_threshold_ms:.2f} ms"
+              )
+
+          if failures:
+              raise SystemExit(
+                  "Canary metrics gate failed: "
+                  + "; ".join(failures)
+              )
+
+          print("Canary metrics gate passed.")
+          PY
+
+  hold:
+    name: Hold at requested canary percentage
+    needs: evaluate-metrics
+    if: ${{ needs.evaluate-metrics.result == 'success' && inputs.promote == false }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Report successful gated canary
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "The ${CANARY_PERCENTAGE}% canary passed all gates."
+          echo "Full promotion was not requested."
+          echo "Continue monitoring or rerun the workflow at the next stage."
+
+  promote:
+    name: Promote green to full traffic
+    needs: evaluate-metrics
+    if: ${{ needs.evaluate-metrics.result == 'success' && inputs.promote }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Promote candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "PROMOTION STUB"
+          echo "Set blue traffic to 0%."
+          echo "Set green traffic to 100%."
+          echo "Retain blue as the rollback target during the soak period."
+          echo
+          echo "No provider-specific traffic command is executed by this stub."
+
+      - name: Verify promoted green
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          canary_base="${CANARY_URL%/}"
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 3 \
+            --retry-delay 5 \
+            "${canary_base}/api/health"
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 3 \
+            --retry-delay 5 \
+            "${canary_base}/api/health/deep" \
+            | python3 -c '
+          import json
+          import sys
+
+          result = json.load(sys.stdin)
+
+          if result.get("overall") != "up":
+              raise SystemExit(
+                  f"Post-promotion health failed: {json.dumps(result)}"
+              )
+
+          print("Post-promotion deep health passed.")
+          '
+
+  rollback:
+    name: Roll back to stable blue
+    needs:
+      - deploy-canary
+      - evaluate-metrics
+    if: ${{ always() && (needs.deploy-canary.result == 'failure' || needs.evaluate-metrics.result == 'failure') }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Restore stable traffic
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "ROLLBACK STUB"
+          echo "Set blue traffic to 100%."
+          echo "Set green traffic to 0%."
+          echo "Stop further promotion and preserve green logs."
+          echo
+          echo "No provider-specific rollback command is executed by this stub."
+
+      - name: Verify stable blue after rollback
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          stable_base="${STABLE_URL%/}"
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 3 \
+            --retry-delay 5 \
+            "${stable_base}/api/health"
+
+      - name: Record rollback trigger
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Canary rollout aborted."
+          echo "Deploy result: ${{ needs.deploy-canary.result }}"
+          echo "Metrics result: ${{ needs.evaluate-metrics.result }}"
+          echo "Requested canary percentage: ${CANARY_PERCENTAGE}%"
+          echo "Review docs/canary-blue-green-deployment.md before retrying."
