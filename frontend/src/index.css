@@ -2447,6 +2447,95 @@ select {
 .lo-orders-section { margin-top: 8px; }
 .lo-orders-heading { display: flex; align-items: center; gap: 10px; font-size: 1.15rem; margin: 0 0 16px; color: var(--ink); }
 
+/* ── Activity Heatmap ────────────────────────────────────────────────── */
+
+.heatmap-section {
+  margin-top: 28px;
+  padding: 0 4px;
+}
+
+.heatmap-section__header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.heatmap-section__title {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--ink);
+}
+
+.heatmap-section__stats {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.heatmap-section__empty {
+  margin: 8px 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.heatmap-container {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.heatmap-labels {
+  display: grid;
+  grid-template-rows: repeat(7, 14px);
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.heatmap-labels__label {
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--muted);
+}
+
+.heatmap-grid {
+  display: flex;
+  gap: 3px;
+}
+
+.heatmap-grid__week {
+  display: grid;
+  grid-template-rows: repeat(7, 14px);
+  gap: 3px;
+}
+
+.heatmap-cell {
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.heatmap-cell:hover {
+  opacity: 0.8;
+}
+
+.heatmap-tooltip {
+  position: fixed;
+  background: var(--ink);
+  color: #fff;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 0.75rem;
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 100;
+  font-family: "IBM Plex Mono", monospace;
+}
+
 .lo-table__wrapper {
   overflow-x: auto; border-radius: 22px;
   border: 1px solid var(--line); background: var(--surface);
