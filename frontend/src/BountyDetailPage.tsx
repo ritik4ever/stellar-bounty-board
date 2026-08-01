@@ -5,6 +5,7 @@ import BountyCountdown from "./BountyCountdown";
 import UsdAmount from "./UsdAmount";
 import { updateSocialMetaTags } from "./metaTags";
 import CopyIcon from "./CopyIcons";
+import { QRCodeButton } from "./QRCodeModal";
 import { extendDeadline } from "./api";
 import { findSimilarBounties, type BountyRecommendation } from "./recommendations";
 
@@ -276,6 +277,7 @@ export default function BountyDetailPage({
                 <strong className="copy-row">
                   {bounty.maintainer}
                   <CopyIcon text={bounty.maintainer} label="maintainer wallet address" />
+                  <QRCodeButton address={bounty.maintainer} label="Maintainer" />
                 </strong>
               </div>
               <div>
@@ -283,7 +285,10 @@ export default function BountyDetailPage({
                 <strong className="copy-row">
                   {bounty.contributor ?? "Open"}
                   {bounty.contributor && (
-                    <CopyIcon text={bounty.contributor} label="contributor address" />
+                    <>
+                      <CopyIcon text={bounty.contributor} label="contributor address" />
+                      <QRCodeButton address={bounty.contributor} label="Contributor" />
+                    </>
                   )}
                 </strong>
               </div>

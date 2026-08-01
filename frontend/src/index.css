@@ -1754,6 +1754,104 @@ select {
   background: #c62828;
 }
 
+/* ---- QR code modal ---- */
+
+.qr-modal {
+  border: none;
+  border-radius: 28px;
+  padding: 0;
+  background: var(--surface-strong);
+  box-shadow: 0 32px 100px rgba(60, 43, 17, 0.22);
+  max-width: 400px;
+  width: calc(100% - 32px);
+}
+
+.qr-modal::backdrop {
+  background: rgba(31, 36, 33, 0.48);
+  backdrop-filter: blur(4px);
+}
+
+.qr-modal__inner {
+  position: relative;
+  padding: 28px;
+  display: grid;
+  gap: 18px;
+}
+
+.qr-modal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.qr-modal__header h2 {
+  margin: 6px 0 0;
+  font-size: 1.4rem;
+}
+
+.qr-modal__body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 0;
+}
+
+.qr-modal__image {
+  border-radius: 12px;
+  background: #fff;
+  padding: 16px;
+  box-shadow: 0 2px 8px rgba(60, 43, 17, 0.1);
+}
+
+.qr-modal__address {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.85rem;
+  color: var(--muted);
+  word-break: break-all;
+  text-align: center;
+  max-width: 100%;
+  margin: 0;
+}
+
+.qr-modal__loading {
+  color: var(--muted);
+  font-style: italic;
+  margin: 0;
+}
+
+.qr-modal__error {
+  color: var(--rose);
+  margin: 0;
+}
+
+/* Small QR icon button next to wallet addresses */
+.qr-button {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 6px;
+  cursor: pointer;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.qr-button:hover {
+  background: rgba(54, 63, 59, 0.08);
+  color: var(--ink);
+}
+
+.qr-button:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
+
 /* ── Copy-to-clipboard ────────────────────────────────────────────────── */
 
 .copy-row {
