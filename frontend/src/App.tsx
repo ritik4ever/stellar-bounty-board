@@ -53,6 +53,7 @@ import ContributorProfilePage from "./ContributorProfilePage";
 import ContributorDashboard from "./ContributorDashboard";
 import ErrorBoundary from "./ErrorBoundary";
 import SubmissionChecklistModal, { type SubmissionFormData } from "./SubmissionChecklistModal";
+import BountyTemplatePicker from "./components/BountyTemplatePicker";
 
 const DARK_MODE_KEY = "stellar-bounty-board-theme";
 
@@ -643,6 +644,18 @@ function App() {
     }
   }
 
+  function handleTemplateSelect(template: import("./types").BountyTemplate) {
+    setForm({
+      ...form,
+      amount: template.amount,
+      deadlineDays: template.deadlineDays,
+      labels: template.labels,
+      tokenSymbol: template.tokenSymbol,
+    });
+    setIsFormDirty(true);
+    toast.success(`Template "${template.name}" applied — you can still edit any field before submitting.`);
+  }
+
   return (
     <div className="app-container">
       <header className="main-header">
@@ -732,6 +745,9 @@ function App() {
                       <option value="USDC">USDC</option>
                     </select>
                   </label>
+                </div>
+                <div className="form-actions">
+                <BountyTemplatePicker onSelect={handleTemplateSelect} />
                 </div>
                 <div className="form-actions">
                 <button type="submit" disabled={submitting}>
