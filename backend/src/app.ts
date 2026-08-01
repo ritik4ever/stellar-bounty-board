@@ -65,7 +65,7 @@ import { readLimiter, mutationLimiter } from './utils';
 import { maintainerLimiter } from './middleware/maintainerLimiter';
 import { logger } from './logger';
 import { createAdminApiKeyAuthMiddleware } from './middleware/adminAuth';
-import { handleGitHubPrEvent } from './webhooks/githubPrHandler';
+import { handlePrEvent } from './webhooks/githubPrHandler';
 import { draining } from './shutdown';
 
 
@@ -775,7 +775,6 @@ app.post(
       result = await handleGitHubPrEvent(req.body, deliveryId);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Webhook processing error';
-
       res.status(500).json({ error: message, requestId: req.requestId });
       return;
     }
@@ -794,13 +793,25 @@ app.post(
     }
 
     res.status(202).json({
-      data: {
-        authenticated: true,
-        provider: 'github',
-        received: true,
-      },
+      data: { authenticated: true, provider, received: true },
     });
-  }
+  };
+}
+
+app.post(
+  '/api/webhooks/github',
+  createGitHubWebhookSignatureMiddleware(() => process.env.GITHUB_WEBHOOK_SECRET),
+  createWebhookHandler('github'),
+);
+
+app.post(
+  '/api/webhooks/gitlab',
+  createWebhookHandler('gitlab'),
+);
+
+app.post(
+  '/api/webhooks/bitbucket',
+  createWebhookHandler('bitbucket'),
 );
 
 app.get('/api/open-issues', async (req: Request, res: Response) => {

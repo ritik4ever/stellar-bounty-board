@@ -214,3 +214,17 @@ export async function validateGithubPrUrlForRepo(
     }
   }
 }
+
+export const prUrlSchema = submissionUrlSchema;
+
+export function validatePrUrlForRepo(submissionUrl: string, bountyRepo: string): void {
+  const repo = extractRepoFromPrUrl(submissionUrl);
+  if (!repo) {
+    throw new Error(
+      "Submission URL must be a valid GitHub pull request, GitLab merge request, or Bitbucket pull request URL."
+    );
+  }
+  if (repo !== bountyRepo) {
+    throw new Error(`Submission URL repository must match bounty repo ${bountyRepo}.`);
+  }
+}
