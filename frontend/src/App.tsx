@@ -53,6 +53,7 @@ import ContributorProfilePage from "./ContributorProfilePage";
 import ContributorDashboard from "./ContributorDashboard";
 import ErrorBoundary from "./ErrorBoundary";
 import SubmissionChecklistModal, { type SubmissionFormData } from "./SubmissionChecklistModal";
+import FilterPresets from "./FilterPresets";
 
 const DARK_MODE_KEY = "stellar-bounty-board-theme";
 
@@ -564,6 +565,31 @@ function App() {
     maxReward !== "" ||
     repoFilter !== "";
 
+  const handleApplyPreset = useCallback(
+    (filters: import("./constants").FilterState) => {
+      setSearchQuery(filters.searchQuery);
+      setStatusFilter(filters.statusFilter);
+      setMinReward(filters.minReward);
+      setMaxReward(filters.maxReward);
+      setRepoFilter(filters.repoFilter);
+      setTokenFilter(filters.tokenFilter);
+      setSortOption(filters.sortOption);
+      setSortDirection(filters.sortDirection);
+    },
+    []
+  );
+
+  const currentFilters: import("./constants").FilterState = {
+    searchQuery,
+    statusFilter,
+    minReward,
+    maxReward,
+    repoFilter,
+    tokenFilter,
+    sortOption,
+    sortDirection,
+  };
+
   const { emptyStateHeading, emptyStateMessage } = useMemo(() => {
     if (debouncedSearchQuery.trim()) {
       return {
@@ -779,6 +805,7 @@ function App() {
                 </button>
               ))}
             </div>
+            <FilterPresets currentFilters={currentFilters} onApplyPreset={handleApplyPreset} />
           </div>
 
           {loading ? (
