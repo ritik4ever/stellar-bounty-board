@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { ArrowLeft, BarChart3, TrendingUp } from "lucide-react";
 import {
   BarChart,
@@ -13,6 +13,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { Bounty, MaintainerMetrics } from "./types";
+import AnalyticsExport from "./AnalyticsExport";
 
 interface MaintainerAnalyticsPageProps {
   metrics: MaintainerMetrics;
@@ -30,6 +31,8 @@ export default function MaintainerAnalyticsPage({
   loading = false,
 }: MaintainerAnalyticsPageProps) {
   const shortAddress = (val: string) => `${val.slice(0, 6)}...${val.slice(-4)}`;
+  const statusChartRef = useRef<HTMLDivElement>(null);
+  const fundingChartRef = useRef<HTMLDivElement>(null);
 
   // 1. Process Bar Chart Data (bounties by status)
   const statusData = useMemo(() => {
@@ -89,10 +92,17 @@ export default function MaintainerAnalyticsPage({
           <span className="meta-label">Maintainer Metrics</span>
           <h1 title={maintainerAddress}>Dashboard for {shortAddress(maintainerAddress)}</h1>
         </div>
-        <button className="secondary-button" onClick={onBack} aria-label="Go back to dashboard">
-          <ArrowLeft size={16} style={{ marginRight: 8 }} />
-          Back to board
-        </button>
+        <div className="analytics-header__actions">
+          <AnalyticsExport
+            maintainerAddress={maintainerAddress}
+            statusChartRef={statusChartRef}
+            fundingChartRef={fundingChartRef}
+          />
+          <button className="secondary-button" onClick={onBack} aria-label="Go back to dashboard">
+            <ArrowLeft size={16} style={{ marginRight: 8 }} />
+            Back to board
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -122,7 +132,7 @@ export default function MaintainerAnalyticsPage({
           {/* Charts section */}
           <div className="charts-row">
             {/* Bar Chart */}
-            <section className="chart-container" aria-labelledby="status-chart-title">
+            <section className="chart-container" aria-labelledby="status-chart-title" ref={statusChartRef}>
               <div className="analytics-header">
                 <h2 id="status-chart-title" className="chart-title">Bounties by Status</h2>
                 <BarChart3 size={18} className="text-muted" />
@@ -152,7 +162,7 @@ export default function MaintainerAnalyticsPage({
             </section>
 
             {/* Line Chart */}
-            <section className="chart-container" aria-labelledby="funding-chart-title">
+            <section className="chart-container" aria-labelledby="funding-chart-title" ref={fundingChartRef}>
               <div className="analytics-header">
                 <h2 id="funding-chart-title" className="chart-title">Cumulative Escrow Over Time</h2>
                 <TrendingUp size={18} className="text-muted" />
