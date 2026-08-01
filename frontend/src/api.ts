@@ -2,6 +2,7 @@ import type {
   Bounty,
   BountyEvent,
   CreateBountyPayload,
+  DisputeEvent,
   GlobalMetrics,
   MaintainerMetrics,
   OpenIssue,
@@ -439,6 +440,15 @@ export async function getBountyEvents(id: string): Promise<BountyEvent[]> {
   const body = await requestJson<{ data: BountyEvent[] }>(`/bounties/${id}/events`, {
     retry: true,
     retryLabel: 'Loading bounty events',
+  });
+
+  return body.data;
+}
+
+export async function getDisputeHistory(id: string): Promise<DisputeEvent[]> {
+  const body = await requestJson<{ data: DisputeEvent[] }>(`/bounties/${id}/dispute-history`, {
+    retry: true,
+    retryLabel: 'Loading dispute history',
   });
 
   return body.data;

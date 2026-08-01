@@ -95,6 +95,18 @@ export interface MaintainerMetrics {
   averageRewardAmount: number;
 }
 
+export type DisputeEventType =
+  | "dispute_raised"
+  | "evidence_added"
+  | "resolution";
+
+export interface DisputeEvent {
+  type: DisputeEventType;
+  timestamp: number;
+  actor: string;
+  description: string;
+}
+
 export interface GlobalMetrics {
   totalBounties: number;
   openCount: number;
