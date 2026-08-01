@@ -270,3 +270,43 @@ Suggested first issues:
 - GitHub webhook sync for PR state
 - Event indexer for contract payouts
 - Postgres persistence and audit log support
+
+## Visual Regression Testing
+
+This project uses [Chromatic](https://www.chromatic.com/) for visual regression testing, integrated with Storybook.
+
+### How it works
+
+1. **Storybook stories** are written for each component (see `src/**/*.stories.tsx`).
+2. **On every PR**, the Chromatic CI job builds Storybook and takes snapshots of every story.
+3. **Visual diffs** are flagged for review — if a PR introduces an intentional visual change, the diff must be approved in the Chromatic UI before merging.
+4. **Approved diffs** update the baseline for future comparisons.
+
+### Running locally
+
+```bash
+cd frontend
+
+# Start Storybook
+npm run storybook
+
+# Build Storybook for production
+npm run build-storybook
+```
+
+### CI integration
+
+The Chromatic workflow is defined in `.github/workflows/chromatic.yml`. It requires the `CHROMATIC_PROJECT_TOKEN` secret to be set in the repository, which the maintainer can obtain from the [Chromatic dashboard](https://www.chromatic.com/start).
+
+### Adding visual regression for a new component
+
+1. Create a Storybook story file: `src/YourComponent.stories.tsx`
+2. Write stories covering the component's key states (default, loading, error, empty, etc.)
+3. Submit your PR — Chromatic will automatically capture snapshots and flag any visual differences.
+
+### Approval workflow
+
+1. A PR with visual changes triggers Chromatic to publish a review link as a GitHub status check.
+2. Click the "🔍 Visit Chromatic to review changes" details link.
+3. Review the diff — accept if the change is intentional, reject if it's a regression.
+4. Once approved, the PR can be merged; the baseline updates automatically.
