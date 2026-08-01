@@ -28,6 +28,8 @@ import {
 } from "./api";
 import { useFreighter } from "./hooks/useFreighter";
 import FreighterConnectButton from "./components/FreighterConnectButton";
+import { LanguageSwitcher } from "./i18n/LanguageSwitcher";
+import { useI18n } from "./i18n/I18nContext";
 import {
   statusCopy,
   actionCopy,
@@ -119,6 +121,7 @@ function formatTimestamp(value?: number): string {
 
 function App() {
   const { dark, toggle: toggleDark } = useDarkMode();
+  const { t } = useI18n();
   const freighter = useFreighter();
   const initialFilters = useMemo(() => readInitialFilters(), []);
   const [form, setForm] = useState<CreateBountyPayload>(initialForm);
@@ -652,6 +655,7 @@ function App() {
             <h1>Stellar Bounty Board</h1>
           </div>
           <div className="header-actions">
+            <LanguageSwitcher />
             <FreighterConnectButton freighter={freighter} compact />
             <button className="theme-toggle" onClick={toggleDark}>
               {dark ? <Sun size={20} /> : <Moon size={20} />}
@@ -664,10 +668,9 @@ function App() {
         <section className="dashboard-hero">
           <div className="hero-grid">
             <div className="hero-main">
-              <h2>Fund GitHub issues with on-chain escrow</h2>
+              <h2>{t('app.tagline')}</h2>
               <p>
-                A decentralized bounty platform powered by Stellar. Reserve tasks, submit solutions,
-                and get paid instantly.
+                {t('app.description')}
               </p>
               <form className="bounty-form" onSubmit={handleCreate}>
                 <div className="form-row">

@@ -2485,3 +2485,56 @@ select {
   .lo-table__cell { padding: 4px 0; display: flex; flex-direction: column; gap: 2px; }
   .lo-table__cell::before { content: attr(data-label); font-family: "IBM Plex Mono", monospace; text-transform: uppercase; font-size: 10px; color: var(--muted); letter-spacing: 0.06em; }
 }
+
+/* ── Language Switcher ─────────────────────────────────────────────────── */
+
+.language-switcher {
+  display: inline-flex;
+  align-items: center;
+}
+
+.locale-select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 4px 28px 4px 12px;
+  font-size: 0.82rem;
+  color: var(--ink);
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2355615c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 12px;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.locale-select:hover {
+  border-color: var(--mint);
+}
+
+.locale-select:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+  border-color: var(--mint);
+}
+
+[data-theme="dark"] .locale-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238aa099' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+}
+
+/* ── Screen-reader only utility ────────────────────────────────────────── */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
