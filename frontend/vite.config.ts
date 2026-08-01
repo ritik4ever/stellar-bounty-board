@@ -33,6 +33,32 @@ export default defineConfig({
         theme_color: "#1e8f6f",
         background_color: "#f6efe3",
         display: "standalone",
+        start_url: "/",
+        id: "/",
+        icons: [
+          {
+            src: "/icons/icon-192x192.svg",
+            sizes: "192x192",
+            type: "image/svg+xml",
+          },
+          {
+            src: "/icons/icon-512x512.svg",
+            sizes: "512x512",
+            type: "image/svg+xml",
+          },
+          {
+            src: "/icons/icon-192x192.svg",
+            sizes: "192x192",
+            type: "image/svg+xml",
+            purpose: "maskable",
+          },
+          {
+            src: "/icons/icon-512x512.svg",
+            sizes: "512x512",
+            type: "image/svg+xml",
+            purpose: "maskable",
+          },
+        ],
       },
     }),
   ],

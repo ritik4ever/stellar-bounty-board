@@ -53,6 +53,7 @@ import ContributorProfilePage from "./ContributorProfilePage";
 import ContributorDashboard from "./ContributorDashboard";
 import ErrorBoundary from "./ErrorBoundary";
 import SubmissionChecklistModal, { type SubmissionFormData } from "./SubmissionChecklistModal";
+import OfflineBanner from "./components/OfflineBanner";
 
 const DARK_MODE_KEY = "stellar-bounty-board-theme";
 
@@ -661,6 +662,7 @@ function App() {
       </header>
 
       <main className="main-content">
+        <OfflineBanner />
         <section className="dashboard-hero">
           <div className="hero-grid">
             <div className="hero-main">
