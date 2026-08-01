@@ -1,11 +1,12 @@
 import { ReactNode, useState, useCallback, useEffect, useRef } from "react";
-import { ArrowUpRight, Check, Clock, Copy, Share2, Printer } from "lucide-react";
+import { ArrowUpRight, Check, Clock, Copy, Flag, Printer, Share2 } from "lucide-react";
 import { Bounty, BountyEvent, BountyStatus } from "./types";
 import BountyCountdown from "./BountyCountdown";
 import UsdAmount from "./UsdAmount";
 import { updateSocialMetaTags } from "./metaTags";
 import CopyIcon from "./CopyIcons";
-import { extendDeadline } from "./api";
+import { extendDeadline, reportBounty } from "./api";
+import ReportBountyModal from "./ReportBountyModal";
 
 
 type BountyAction = "reserve" | "submit" | "release" | "refund";
@@ -121,6 +122,10 @@ export default function BountyDetailPage({
 }: Props) {
 
   const statusAnnouncement = useBountyStatusAnnouncement(bounty, statusCopy);
+  const [reportModalOpen, setReportModalOpen] = useState(false);
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const [reportSuccess, setReportSuccess] = useState(false);
 
   useEffect(() => {
     updateSocialMetaTags(bounty);
@@ -151,6 +156,21 @@ export default function BountyDetailPage({
     });
   }
 
+  async function handleReportSubmit(reason: string, details: string) {
+    if (!bounty) return;
+    setReportSubmitting(true);
+    setReportError(null);
+    try {
+      await reportBounty(bounty.id, reason, details || undefined);
+      setReportSuccess(true);
+      setReportModalOpen(false);
+    } catch (err) {
+      setReportError(err instanceof Error ? err.message : "Failed to submit report. Please try again.");
+    } finally {
+      setReportSubmitting(false);
+    }
+  }
+
   return (
     <div className="page-shell">
       <div className="sr-only" aria-live="polite" aria-atomic="true">
@@ -166,27 +186,45 @@ export default function BountyDetailPage({
             <h2>{bounty ? bounty.title : "Bounty"}</h2>
           </div>
           <div className="panel-header__actions">
-            <button
-              type="button"
-              className="secondary-button print-button"
-              onClick={handlePrint}
-              disabled={loading || !bounty}
-              aria-label="Print / Export PDF"
-              title="Print / Export PDF"
-            >
-              <Printer size={16} />
-              Print / Export PDF
-            </button>
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={onBack}
-              disabled={loading}
-            >
-              Back
-            </button>
-          </div>
+                      <button
+                        type="button"
+                        className="secondary-button print-button"
+                        onClick={handlePrint}
+                        disabled={loading || !bounty}
+                        aria-label="Print / Export PDF"
+                        title="Print / Export PDF"
+                      >
+                        <Printer size={16} />
+                        Print / Export PDF
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => setReportModalOpen(true)}
+                        disabled={loading || !bounty || reportSuccess}
+                        aria-label="Report this bounty"
+                        title="Report this bounty"
+                      >
+                        <Flag size={16} />
+                        Report
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={onBack}
+                        disabled={loading}
+                      >
+                        Back
+                      </button>
+                    </div>
         </div>
+
+        {reportSuccess && bounty && (
+          <div className="report-banner report-banner--success" role="status">
+            <Check size={16} />
+            Thank you. This bounty has been flagged for review by the platform maintainers.
+          </div>
+        )}
 
         {loading && !bounty ? (
           <div className="empty-state">Loading bounty...</div>
@@ -359,6 +397,19 @@ export default function BountyDetailPage({
               <BountyTimeline events={bounty.events} formatTimestamp={formatTimestamp} />
             )}
           </div>
+        )}
+
+        {reportModalOpen && bounty && (
+          <ReportBountyModal
+            bounty={bounty}
+            submitting={reportSubmitting}
+            error={reportError}
+            onSubmit={handleReportSubmit}
+            onClose={() => {
+              setReportModalOpen(false);
+              setReportError(null);
+            }}
+          />
         )}
       </section>
     </div>

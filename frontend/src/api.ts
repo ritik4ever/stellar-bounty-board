@@ -374,11 +374,24 @@ export async function getGlobalMetrics(): Promise<GlobalMetrics> {
   return body.data;
 }
 
+export async function reportBounty(
+  id: string,
+  reason: string,
+  details?: string,
+): Promise<{ success: boolean }> {
+  const body = await requestJson<{ data: { success: boolean } }>(`/bounties/${id}/report`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason, details }),
+  });
+
+  return body.data;
+}
+
 /**
  * Map a backend bounty status string to the on-chain contract enum.
  * Keeps the frontend aligned with the Soroban ABI: if the contract adds or
- * reorders a variant, the generated enum will change and TypeScript will
- * surface the drift here.
+ * reorders a variant, the generated enum will surface the drift here.
  */
 export function toContractBountyStatus(status: Bounty['status']): ContractBountyStatus {
   return frontendStatusToContract(status);
