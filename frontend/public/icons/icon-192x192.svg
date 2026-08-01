@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1e8f6f"/>
+      <stop offset="100%" stop-color="#146b52"/>
+    </linearGradient>
+  </defs>
+  <rect width="192" height="192" rx="32" fill="url(#bg)"/>
+  <!-- Star / bounty badge -->
+  <path d="M96 28l16 49 51 4-39 33 12 50-40-30-40 30 12-50-39-33 51-4z" fill="#f6efe3" opacity="0.95"/>
+  <!-- Stellar-like dot -->
+  <circle cx="96" cy="128" r="12" fill="#f6efe3" opacity="0.8"/>
+</svg>
