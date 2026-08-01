@@ -7,6 +7,7 @@ import { updateSocialMetaTags } from "./metaTags";
 import CopyIcon from "./CopyIcons";
 import { extendDeadline } from "./api";
 import { findSimilarBounties, type BountyRecommendation } from "./recommendations";
+import DisputeTimeline from "./DisputeTimeline";
 
 
 type BountyAction = "reserve" | "submit" | "release" | "refund";
@@ -371,6 +372,10 @@ export default function BountyDetailPage({
 
             {!["released", "refunded"].includes(bounty.status) && (
               <ExtendDeadlineControl bounty={bounty} formatTimestamp={formatTimestamp} />
+            )}
+
+            {bounty.status === "disputed" && (
+              <DisputeTimeline bountyId={bounty.id} formatTimestamp={formatTimestamp} />
             )}
 
             {bounty.events && bounty.events.length > 0 && (
