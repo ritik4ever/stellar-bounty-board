@@ -1,6 +1,7 @@
 import type {
   Bounty,
   BountyEvent,
+  BountyTemplate,
   CreateBountyPayload,
   GlobalMetrics,
   MaintainerMetrics,
@@ -417,6 +418,16 @@ export async function listOpenIssues(signal?: AbortSignal): Promise<OpenIssue[]>
   const body = await requestJson<{ data: OpenIssue[] }>('/open-issues', {
     retry: true,
     retryLabel: 'Loading open issues',
+    signal,
+  });
+
+  return body.data;
+}
+
+export async function listBountyTemplates(signal?: AbortSignal): Promise<BountyTemplate[]> {
+  const body = await requestJson<{ data: BountyTemplate[] }>('/bounty-templates', {
+    retry: true,
+    retryLabel: 'Loading bounty templates',
     signal,
   });
 
