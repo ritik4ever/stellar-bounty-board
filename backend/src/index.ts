@@ -1,12 +1,15 @@
 import "dotenv/config";
-import http from "node:http";
 import path from "node:path";
 import { Worker } from "node:worker_threads";
 import { app } from "./app";
 import { logStructured } from "./logger";
-import path from "node:path";
-import { Worker } from "node:worker_threads";
 import { invalidateBountyCache } from "./services/bountyStore";
+import { startExpirationJob, stopExpirationJob } from "./services/reservationExpirationJob";
+import { setDraining, DRAIN_TIMEOUT_MS } from "./shutdown";
+import {
+  startDisputeAlertJob,
+  stopDisputeAlertJob,
+} from "./services/disputeAlertJob";
 
 const port = Number(process.env.PORT ?? 3001);
 const keepAliveTimeout = Number(process.env.KEEP_ALIVE_TIMEOUT ?? 65000);
@@ -65,10 +68,11 @@ function startIndexerWorker() {
   spawn();
 }
 
-// Only start the indexer and expiration job when running the main server (not in tests)
+// Only start the indexer and background jobs when running the main server (not in tests)
 if (process.env.NODE_ENV !== "test") {
   startIndexerWorker();
   startExpirationJob();
+  startDisputeAlertJob();
 }
 
 async function shutdown(signal: string): Promise<void> {
@@ -77,8 +81,9 @@ async function shutdown(signal: string): Promise<void> {
   // Mark server as draining so new requests get 503
   setDraining();
 
-  // Stop expiration job before draining connections
+  // Stop background jobs before draining connections
   stopExpirationJob();
+  stopDisputeAlertJob();
 
   // Stop the indexer worker
   if (indexerWorker) {

@@ -8,6 +8,7 @@ This runbook provides step-by-step procedures for common operational tasks in pr
 - [Rotate Maintainer Public Key](#rotate-maintainer-public-key)
 - [Force-Expire a Reservation](#force-expire-a-reservation)
 - [Recover from Corrupt JSON](#recover-from-corrupt-json)
+- [Emergency Contract Pause](#emergency-contract-pause)
 - [Redeploy Contract](#redeploy-contract)
 - [Incident Response: Compromised Arbiter Key](#incident-response-compromised-arbiter-key)
 - [Update OpenAPI Snapshot](#update-openapi-snapshot)
@@ -471,6 +472,84 @@ EOF
 - If data was lost during recovery, check the corrupted backup file for recoverable fragments
 - Consider reaching out to maintainers to recreate lost bounties if necessary
 - Audit log can be rebuilt from bounty event history if needed
+
+---
+
+## Emergency Contract Pause
+
+**Use case:** A critical vulnerability, exploit, or severe anomaly is detected in the Soroban smart contract, requiring an immediate halt of all contract interactions to prevent fund loss.
+
+### Prerequisites
+
+- Access to the Soroban CLI
+- The admin secret key for the deployed contract (only the contract admin holds this authority)
+- The deployed contract ID
+- Access to project communication channels to notify maintainers and contributors
+
+### 1. Invoke the Pause Function
+
+Only the address holding admin authority for the contract can invoke the `pause()` function.
+
+```bash
+# Invoke the circuit breaker to pause the contract
+soroban contract invoke \
+  --id $SOROBAN_CONTRACT_ID \
+  --source YOUR_ADMIN_SECRET_KEY \
+  --network $SOROBAN_NETWORK_URL \
+  -- \
+  pause
+```
+
+Verify the contract is paused by attempting a non-state-changing read or by checking the pause status if a getter is available:
+```bash
+soroban contract invoke \
+  --id $SOROBAN_CONTRACT_ID \
+  --source YOUR_ADMIN_SECRET_KEY \
+  --network $SOROBAN_NETWORK_URL \
+  -- \
+  is_paused
+```
+
+### 2. Post-Pause Triage
+
+Once the contract is paused, immediately begin triage:
+1. **Assess Affected Bounties:** Query the contract or backend database to identify bounties that were in an active, funded, or payout state at the time of the exploit.
+2. **Review On-Chain Data:** Check recent transactions to the contract to isolate the exploit vector and determine if funds were already compromised.
+3. **Notify Users:** Communicate the incident to the community immediately to prevent confusion.
+
+### 3. Incident Communication Template
+
+Use the following template to communicate the incident in the project's Discord/Slack and GitHub discussions:
+
+> **[URGENT] Stellar Bounty Board Contract Paused**
+> 
+> **Status:** The smart contract has been temporarily paused by administrators.
+> **Reason:** We are investigating a potential security anomaly/vulnerability.
+> **Impact:** All bounty creations, claims, and payouts are currently halted. Existing funds are secured (or state current status of funds). 
+> **Next Steps:** Our team is actively investigating the issue and working on a remediation. We will provide another update within [Timeframe, e.g., 2 hours]. 
+> 
+> Please do not attempt to interact with the contract until further notice. Thank you for your patience.
+
+### 4. Remediation and Unpause Criteria
+
+Do **NOT** unpause the contract until all of the following criteria are strictly met:
+
+1. **Vulnerability Identified:** The root cause of the exploit or anomaly has been definitively identified.
+2. **Patch Developed and Audited:** A fix has been developed, tested on testnet, and reviewed by at least two core maintainers (and ideally a security auditor).
+3. **Contract Upgraded/Migrated:** The patched contract has been deployed (either via contract upgrade if supported, or via a state migration to a new contract ID).
+4. **State Verification:** All bounty states and balances have been verified as correct or restored from a known good snapshot.
+5. **Admin Consensus:** A formal sign-off from the core maintainer team is required to resume operations.
+
+Once approved, the admin can invoke the `unpause()` function (or deploy the new contract) to resume normal operations.
+
+```bash
+soroban contract invoke \
+  --id $SOROBAN_CONTRACT_ID \
+  --source YOUR_ADMIN_SECRET_KEY \
+  --network $SOROBAN_NETWORK_URL \
+  -- \
+  unpause
+```
 
 ---
 

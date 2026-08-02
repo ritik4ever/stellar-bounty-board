@@ -388,6 +388,60 @@ registry.registerPath({
   },
 });
 
+const publicConfigSchema = z
+  .object({
+    feeBps: z.number().int().min(0).max(10_000).openapi({
+      example: 250,
+      description: "Protocol fee in basis points (250 = 2.5%). 0 means no protocol fee.",
+    }),
+    disputeWindowSeconds: z.number().int().min(0).openapi({
+      example: 86400,
+      description: "Seconds that must elapse after a dispute is raised before an arbiter can resolve it.",
+    }),
+    minBountyAmount: z.number().positive().openapi({
+      example: 1,
+      description: "Minimum allowed bounty amount in the payment token.",
+    }),
+    maxBountyAmount: z.number().positive().openapi({
+      example: 10000,
+      description: "Maximum allowed bounty amount in the payment token.",
+    }),
+    supportedTokens: z.record(z.string()).openapi({
+      example: { XLM: "CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA" },
+      description: "Allowed token symbols mapped to their Soroban contract addresses.",
+    }),
+    defaultReservationTtlSeconds: z.number().int().positive().openapi({
+      example: 604800,
+      description: "Default reservation TTL in seconds (7 days = 604800). After this window a reservation returns to open.",
+    }),
+    network: z.string().openapi({
+      example: "testnet",
+      description: "Stellar network the backend is connected to (mainnet, testnet, or futurenet).",
+    }),
+  })
+  .openapi("PublicConfig");
+
+registry.register("PublicConfig", publicConfigSchema);
+
+registry.registerPath({
+  method: "get",
+  path: "/api/config",
+  tags: ["System"],
+  summary: "Public runtime configuration",
+  description:
+    "Returns non-sensitive runtime values that the frontend and contract-interaction layer " +
+    "need to stay in sync with the backend without hardcoding anything.\n\n" +
+    "**Included:** fee bps, dispute window, min/max bounty amounts, supported token addresses, " +
+    "default reservation TTL, and network label.\n\n" +
+    "**Never included:** API keys, database connection strings, webhook secrets, " +
+    "maintainer public keys, or any other internal-only setting.\n\n" +
+    "Response is cached with `Cache-Control: public, max-age=300` (5 min) since these values rarely change.",
+  responses: {
+    200: jsonResponse("Public runtime configuration.", z.object({ data: publicConfigSchema })),
+    500: errorResponse("Failed to build configuration."),
+  },
+});
+
 registry.registerPath({
   method: "get",
   path: "/api/audit-log",
