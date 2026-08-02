@@ -1,4 +1,6 @@
+import { collectDefaultMetrics, Counter, Histogram, Registry } from "prom-client";
 
+export const register = new Registry();
 
 import { register, collectDefaultMetrics, Counter, Histogram } from "prom-client";
 
@@ -57,10 +59,8 @@ export const bountiesDisputedTotal = getOrCreateCounter(
 
 export const httpRequestDuration = getOrCreateHistogram(
   "http_request_duration_seconds",
-  "HTTP request duration in seconds",
+  "Duration of HTTP requests in seconds",
 );
-
-
 
 export async function getMetrics(): Promise<string> {
   return register.metrics();

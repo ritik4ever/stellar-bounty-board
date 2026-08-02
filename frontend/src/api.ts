@@ -26,6 +26,14 @@ type RequestOptions = RequestInit & {
   retryLabel?: string;
 };
 
+type SignedMaintainerActionPayload<Action extends 'release' | 'refund'> = {
+  maintainer: string;
+  transactionHash?: string;
+  action: Action;
+  bountyId: string;
+  timestamp: number;
+};
+
 async function parseResponse<T>(response: Response): Promise<T> {
   const body = (await response.json().catch(() => ({}))) as ApiBody<T>;
 
@@ -74,6 +82,15 @@ function formatRetryError(label: string, attempts: number, reason?: string): Err
   );
 }
 
+function ensureRequestId(headers: Record<string, string>) {
+  if (!headers['X-Request-ID'] && !headers['x-request-id']) {
+    headers['X-Request-ID'] =
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : Math.random().toString(36).substring(2) + Date.now().toString(36);
+  }
+}
+
 async function requestJson<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const {
     retry = true,
@@ -83,11 +100,7 @@ async function requestJson<T>(path: string, options: RequestOptions = {}): Promi
   } = options;
 
   const headers = { ...((init.headers || {}) as Record<string, string>) };
-  if (!headers['X-Request-ID'] && !headers['x-request-id']) {
-    headers['X-Request-ID'] = typeof crypto !== 'undefined' && crypto.randomUUID 
-      ? crypto.randomUUID() 
-      : Math.random().toString(36).substring(2) + Date.now().toString(36);
-  }
+  ensureRequestId(headers);
   init.headers = headers;
 
   let lastError: unknown;
@@ -139,11 +152,7 @@ async function requestBlob(
   } = options;
 
   const headers = { ...((init.headers || {}) as Record<string, string>) };
-  if (!headers['X-Request-ID'] && !headers['x-request-id']) {
-    headers['X-Request-ID'] = typeof crypto !== 'undefined' && crypto.randomUUID 
-      ? crypto.randomUUID() 
-      : Math.random().toString(36).substring(2) + Date.now().toString(36);
-  }
+  ensureRequestId(headers);
   init.headers = headers;
 
   let lastError: unknown;
@@ -218,9 +227,9 @@ async function requestBlob(
 }
 
 export async function listBounties(signal?: AbortSignal): Promise<Bounty[]> {
-  const body = await requestJson<{ data: Bounty[] }>("/bounties", {
+  const body = await requestJson<{ data: Bounty[] }>('/bounties', {
     retry: true,
-    retryLabel: "Loading bounties",
+    retryLabel: 'Loading bounties',
     signal,
   });
 
@@ -230,7 +239,6 @@ export async function listBounties(signal?: AbortSignal): Promise<Bounty[]> {
 export async function getBounty(id: string, signal?: AbortSignal): Promise<Bounty> {
   const body = await requestJson<{ data: Bounty }>(`/bounties/${id}`, {
     retry: true,
-
     signal,
   });
 
@@ -276,6 +284,56 @@ export async function submitBounty(
   return body.data;
 }
 
+/**
+ * Signed release action - requires a Freighter signature.
+ * The caller must sign the exact payload sent in the request body.
+ */
+export async function releaseBountySigned(
+  id: string,
+  payload: SignedMaintainerActionPayload<'release'>,
+  signature: string,
+  publicKey: string
+): Promise<Bounty> {
+  const body = await requestJson<{ data: Bounty }>(`/bounties/${id}/release`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-stellar-signature': signature,
+      'x-stellar-public-key': publicKey,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return body.data;
+}
+
+/**
+ * Signed refund action - requires a Freighter signature.
+ * The caller must sign the exact payload sent in the request body.
+ */
+export async function refundBountySigned(
+  id: string,
+  payload: SignedMaintainerActionPayload<'refund'>,
+  signature: string,
+  publicKey: string
+): Promise<Bounty> {
+  const body = await requestJson<{ data: Bounty }>(`/bounties/${id}/refund`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-stellar-signature': signature,
+      'x-stellar-public-key': publicKey,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return body.data;
+}
+
+/**
+ * Legacy release function without Freighter signing.
+ * Use releaseBountySigned() for the signed flow.
+ */
 export async function releaseBounty(
   id: string,
   maintainer: string,
@@ -290,6 +348,10 @@ export async function releaseBounty(
   return body.data;
 }
 
+/**
+ * Legacy refund function without Freighter signing.
+ * Use refundBountySigned() for the signed flow.
+ */
 export async function disputeBounty(
   id: string,
   contributor: string,
@@ -420,3 +482,10 @@ export function toContractBountyStatus(status: Bounty['status']): ContractBounty
 export function getContractErrorLabel(error: ContractError): string {
   return CONTRACT_ERROR_LABELS[error] ?? 'UnknownContractError';
 }
+
+/**
+ * Stellar test network configuration for Freighter.
+ */
+export const STELLAR_NETWORK_PASSPHRASE =
+  import.meta.env.VITE_STELLAR_NETWORK_PASSPHRASE ??
+  'Test SDF Network ; September 2015';

@@ -129,3 +129,66 @@ describe("GET /api/health/deep", () => {
     }
   });
 });
+
+describe("GET /api/health/deep — Soroban RPC chaos (#908)", () => {
+  it("marks soroban degraded on a simulated connection timeout, while other checks stay independently healthy", async () => {
+    // Simulate what a real fetch abort (RPC_TIMEOUT_MS exceeded) produces,
+    // without waiting out the real timeout.
+    globalThis.fetch = vi
+      .fn()
+      .mockRejectedValue(new DOMException("The operation was aborted.", "AbortError")) as typeof fetch;
+    vi.resetModules();
+
+    const app = await getApp();
+    const res = await request(app).get("/api/health/deep").expect(503);
+
+    expect(res.body.overall).toBe("down");
+    expect(res.body.components.soroban).toBe("down");
+    expect(res.body.components.store).toBe("up");
+    expect(res.body.components.contract).toBe("up");
+    expect(res.body.components.auth).toBe("up");
+  });
+
+  it("marks soroban degraded on a simulated RPC error response, while other checks stay independently healthy", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: async () => ({ error: "Service Unavailable" }),
+    }) as typeof fetch;
+    vi.resetModules();
+
+    const app = await getApp();
+    const res = await request(app).get("/api/health/deep").expect(503);
+
+    expect(res.body.overall).toBe("down");
+    expect(res.body.components.soroban).toBe("down");
+    expect(res.body.components.store).toBe("up");
+    expect(res.body.components.contract).toBe("up");
+    expect(res.body.components.auth).toBe("up");
+  });
+
+  it("fully recovers once the simulated RPC outage ends", async () => {
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error("connection refused")) as typeof fetch;
+    vi.resetModules();
+
+    const app = await getApp();
+    const duringOutage = await request(app).get("/api/health/deep").expect(503);
+    expect(duringOutage.body.components.soroban).toBe("down");
+    expect(duringOutage.body.overall).toBe("down");
+
+    // End the simulated outage: RPC responds healthy again.
+    mockHealthyRpc();
+    vi.resetModules();
+
+    const appRecovered = await getApp();
+    const afterRecovery = await request(appRecovered).get("/api/health/deep").expect(200);
+
+    expect(afterRecovery.body.overall).toBe("up");
+    expect(afterRecovery.body.components).toEqual({
+      store: "up",
+      soroban: "up",
+      contract: "up",
+      auth: "up",
+    });
+  });
+});

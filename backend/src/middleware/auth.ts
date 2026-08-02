@@ -1,4 +1,5 @@
-
+import type { Request, RequestHandler } from "express";
+import { Keypair } from "@stellar/stellar-sdk";
 
 const HEADER_SIGNATURE = "x-stellar-signature";
 const HEADER_PUBLIC_KEY = "x-stellar-public-key";
@@ -207,6 +208,9 @@ export function createStellarSignatureAuthMiddleware(): RequestHandler {
     }
 
     nonceCache.add(signatureHeader, 60 * 1000);
+
+    // Attach the authenticated signer's public key for audit logging downstream
+    req.signerPublicKey = publicKeyHeader;
 
     const maintainer = typeof req.body?.maintainer === "string" ? req.body.maintainer : undefined;
     if (maintainer && maintainer !== publicKeyHeader) {
