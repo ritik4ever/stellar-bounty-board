@@ -91,35 +91,45 @@ describe("Wave 7 bounty endpoints", () => {
     process.env.NOTIFICATION_CHANNEL = "WEBHOOK";
     const app = await getApp();
     const bounty = await createBounty(app);
-
-    await request(app)
-      .post(`/api/bounties/${bounty.id}/reserve`)
-      .set("Idempotency-Key", "reserve-wave-7")
-      .send({ contributor: CONTRIBUTOR })
-      .expect(200);
-    await request(app)
-      .post(`/api/bounties/${bounty.id}/submit`)
-      .set("Idempotency-Key", "submit-wave-7")
-      .send({
-        contributor: CONTRIBUTOR,
-        submissionUrl: "https://github.com/owner/repo-name/pull/1",
-      })
-      .expect(200);
-
-    const response = await request(app).get(`/api/bounties/${bounty.id}/timeline`).expect(200);
-    const entries = response.body.data;
-
-    expect(entries).toEqual(expect.arrayContaining([
-      expect.objectContaining({ source: "contract", type: "created" }),
-      expect.objectContaining({ source: "audit", type: "reserve" }),
-      expect.objectContaining({ source: "notification", type: "bounty_reserved" }),
-    ]));
-    expect(entries).toEqual(
-      [...entries].sort(
-        (left: { timestamp: number; id: string }, right: { timestamp: number; id: string }) =>
-          left.timestamp - right.timestamp || left.id.localeCompare(right.id),
-      ),
+    const githubFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ body: "Closes #99" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
     );
+
+    try {
+      await request(app)
+        .post(`/api/bounties/${bounty.id}/reserve`)
+        .set("Idempotency-Key", "reserve-wave-7")
+        .send({ contributor: CONTRIBUTOR })
+        .expect(200);
+      await request(app)
+        .post(`/api/bounties/${bounty.id}/submit`)
+        .set("Idempotency-Key", "submit-wave-7")
+        .send({
+          contributor: CONTRIBUTOR,
+          submissionUrl: "https://github.com/owner/repo-name/pull/1",
+        })
+        .expect(200);
+
+      const response = await request(app).get(`/api/bounties/${bounty.id}/timeline`).expect(200);
+      const entries = response.body.data;
+
+      expect(entries).toEqual(expect.arrayContaining([
+        expect.objectContaining({ source: "contract", type: "created" }),
+        expect.objectContaining({ source: "audit", type: "reserve" }),
+        expect.objectContaining({ source: "notification", type: "bounty_reserved" }),
+      ]));
+      expect(entries).toEqual(
+        [...entries].sort(
+          (left: { timestamp: number; id: string }, right: { timestamp: number; id: string }) =>
+            left.timestamp - right.timestamp || left.id.localeCompare(right.id),
+        ),
+      );
+    } finally {
+      githubFetch.mockRestore();
+    }
   });
 
   it("exports filtered audit logs as CSV and JSON", async () => {

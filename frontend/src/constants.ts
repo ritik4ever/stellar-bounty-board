@@ -29,6 +29,10 @@ export const statusCopy: Record<BountyStatus, { label: string; description: stri
     label: "Expired",
     description: "Bounty deadline passed without completion.",
   },
+  disputed: {
+    label: "Disputed",
+    description: "A contributor raised a dispute while the submission was under review.",
+  },
 };
 
 export const statusOptions = [
@@ -39,6 +43,7 @@ export const statusOptions = [
   { value: "released", label: "Released" },
   { value: "refunded", label: "Refunded" },
   { value: "expired", label: "Expired" },
+  { value: "disputed", label: "Disputed" },
 ];
 
 export const sortOptions = [
@@ -101,6 +106,7 @@ export const actionCopy: Record<BountyStatus, Action[]> = {
   ],
   released: [],
   refunded: [],
+  disputed: [],
   expired: [
     { action: "refund", label: "Refund", title: "Refund an expired bounty.", requires: "maintainer" },
   ],

@@ -170,6 +170,29 @@ export const disputeBountySchema = z
   })
   .openapi('DisputeBountyRequest');
 
+export const resolveDisputeBountySchema = z
+  .object({
+    arbiter: stellarAccountSchema.openapi({
+      description: 'Stellar public key of the arbiter resolving the dispute.',
+    }),
+    release: z
+      .boolean()
+      .openapi({
+        example: true,
+        description: 'Whether the arbiter resolves the dispute in favor of the contributor.',
+      }),
+    transactionHash: z
+      .string()
+      .trim()
+      .regex(TX_HASH_REGEX, 'Transaction hash must be a 64 character hex string.')
+      .optional()
+      .openapi({
+        example: '0'.repeat(64),
+        description: 'Optional transaction hash for the resolution payout.',
+      }),
+  })
+  .openapi('ResolveDisputeBountyRequest');
+
 export const maintainerActionSchema = z
   .object({
     maintainer: stellarAccountSchema.openapi({
@@ -266,7 +289,7 @@ export const bountyRecordSchema = z
     amount: z.number().openapi({ example: 100 }),
     labels: z.array(z.string()).openapi({ example: ['bug', 'help wanted'] }),
     status: z
-      .enum(['open', 'reserved', 'submitted', 'released', 'refunded', 'expired'])
+      .enum(['open', 'reserved', 'submitted', 'released', 'refunded', 'expired', 'disputed'])
       .openapi({ example: 'open' }),
     createdAt: z
       .number()
@@ -281,6 +304,10 @@ export const bountyRecordSchema = z
       .string()
       .optional()
       .openapi({ example: '0'.repeat(64) }),
+    protocolFeeCollected: z.number().optional().openapi({
+      example: 0,
+      description: 'Protocol fee collected when this bounty was released (in token units).',
+    }),
     refundedAt: z.number().optional(),
     refundedTxHash: z
       .string()
@@ -299,6 +326,8 @@ export const bountyRecordSchema = z
       .optional()
       .openapi({ example: 'https://github.com/owner/repo/pull/99' }),
     notes: z.string().optional(),
+    disputedAt: z.number().optional().openapi({ example: 1710010800 }),
+    disputeReason: z.string().optional(),
     version: z.number().openapi({ example: 1 }),
     events: z.array(bountyEventSchema),
     reservationTimeoutSeconds: z.number().optional().openapi({ example: 604800 }),
@@ -369,7 +398,9 @@ export const bountyAuditLogListResponseSchema = z
 
 export const healthResponseSchema = z
   .object({
-
+    service: z.string().openapi({ example: 'stellar-bounty-board-backend' }),
+    status: z.string().openapi({ example: 'ok' }),
+    timestamp: z.string().openapi({ example: '2026-03-24T19:00:00.000Z' }),
   })
   .openapi('HealthResponse');
 

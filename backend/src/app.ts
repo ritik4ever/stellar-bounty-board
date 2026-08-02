@@ -1,15 +1,19 @@
 import cors from 'cors';
 import express, { Request, Response, NextFunction } from 'express';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import swaggerUi from 'swagger-ui-express';
+import pinoHttp from 'pino-http';
 
 import { generateOpenApiDocument } from './docs/openapi';
 import { getMetrics, httpRequestDuration } from './metrics';
+import { buildCorsOptions } from './middleware/corsOptions';
+import { runDeepHealthCheck } from './services/deepHealth';
 
 import {
   createBounty,
   disputeBounty,
   extendDeadline,
+  resolveDisputeBounty,
   updateBountyNotes,
   listBountyAuditLogs,
   listAllAuditLogs,
@@ -37,6 +41,7 @@ import {
   disputeBountySchema,
   extendDeadlineSchema,
   bulkBountyActionSchema,
+  resolveDisputeBountySchema,
   maintainerActionSchema,
   reserveBountySchema,
   submitBountySchema,
@@ -45,6 +50,7 @@ import {
 } from './validation/schemas';
 import { validateBody } from './middleware/validateBody';
 import { isValidStellarAddress } from './utils';
+import { getPublicConfig } from './config';
 
 import {
   captureRawBody,
@@ -57,12 +63,11 @@ import {
 import { idempotencyMiddleware } from './middleware/idempotency';
 import { requireJsonContentType } from './middleware/contentType';
 import { readLimiter, mutationLimiter } from './utils';
+import { maintainerLimiter } from './middleware/maintainerLimiter';
 import { logger } from './logger';
 import { createAdminApiKeyAuthMiddleware } from './middleware/adminAuth';
 import { handleGitHubPrEvent } from './webhooks/githubPrHandler';
 import { draining } from './shutdown';
-import { buildCorsOptions } from './middleware/corsOptions';
-import { runDeepHealthCheck } from './services/deepHealth';
 import { getBountyTimeline } from './services/timelineService';
 
 
@@ -83,7 +88,7 @@ function resolveRequestId(req: Request): string {
 }
 
 function requestContextMiddleware(req: Request, res: Response, next: NextFunction): void {
-  req.requestId = resolveRequestId(req);
+  req.requestId = req.id as string;
   res.setHeader('X-Request-ID', req.requestId);
 
   const start = process.hrtime.bigint();
@@ -119,6 +124,23 @@ app.use(
   })
 );
 
+app.use(
+  pinoHttp({
+    logger: logger as any,
+    genReqId: (req) => resolveRequestId(req),
+    customLogLevel: (req, res, err) => {
+      if (res.statusCode >= 500 || err) return 'error';
+      if (res.statusCode >= 400) return 'warn';
+      return 'info';
+    },
+    autoLogging: {
+      ignore: (req) => {
+        const url = req.url ?? '';
+        return url === '/api/health' || url === '/api/health/deep' || url === '/worker/health';
+      },
+    },
+  })
+);
 app.use(requestContextMiddleware);
 
 const healthHandler = (_req: Request, res: Response) => {
@@ -404,8 +426,36 @@ app.get('/api/bounties', async (req: Request, res: Response) => {
     const data = all.slice(start, start + pageSize);
     const hasMore = start + data.length < total;
 
+    let maxTimestamp = 0;
+    for (const bounty of all) {
+      if (bounty.events && bounty.events.length > 0) {
+        const lastEvent = bounty.events[bounty.events.length - 1];
+        if (lastEvent.timestamp > maxTimestamp) {
+          maxTimestamp = lastEvent.timestamp;
+        }
+      } else if (bounty.createdAt > maxTimestamp) {
+        maxTimestamp = bounty.createdAt;
+      }
+    }
+
+    if (maxTimestamp > 0) {
+      const lastModifiedDate = new Date(maxTimestamp * 1000);
+      res.setHeader('Last-Modified', lastModifiedDate.toUTCString());
+    }
+
+    const responsePayload = { data, total, page, pageSize, hasMore };
+    const responseString = JSON.stringify(responsePayload);
+    const etag = `"${createHash('md5').update(responseString).digest('hex')}"`;
+    res.setHeader('ETag', etag);
+
+    if (req.headers['if-none-match'] === etag) {
+      res.status(304).end();
+      return;
+    }
+
     res.setHeader('X-Total-Count', String(total));
-    res.json({ data, total, page, pageSize, hasMore });
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.send(responseString);
   } catch (error) {
     sendError(res, req, error);
   }
@@ -540,6 +590,7 @@ app.post(
   '/api/bounties',
   mutationLimiter,
   requireJsonContentType,
+  maintainerLimiter,
   createBountyCreationSignatureMiddleware(),
   validateBody(createBountySchema),
   async (req: Request, res: Response) => {
@@ -569,6 +620,7 @@ app.post(
   async (req: Request, res: Response) => {
     const { bountyIds, action, maintainer, transactionHash } = req.body;
     const results = [];
+
     for (const bountyId of bountyIds) {
       try {
         const data =
@@ -593,7 +645,7 @@ app.post(
   },
 );
 
-app.post('/api/bounties/:id/reserve', mutationLimiter, idempotencyMiddleware, validateBody(reserveBountySchema), async (req: Request, res: Response) => {
+app.post('/api/bounties/:id/reserve', mutationLimiter, requireJsonContentType, idempotencyMiddleware, validateBody(reserveBountySchema), async (req: Request, res: Response) => {
   try {
     const bounty = await reserveBounty(
       parseId(req.params.id),
@@ -607,7 +659,7 @@ app.post('/api/bounties/:id/reserve', mutationLimiter, idempotencyMiddleware, va
   }
 });
 
-app.post('/api/bounties/:id/submit', mutationLimiter, idempotencyMiddleware, validateBody(submitBountySchema), async (req: Request, res: Response) => {
+app.post('/api/bounties/:id/submit', mutationLimiter, requireJsonContentType, idempotencyMiddleware, validateBody(submitBountySchema), async (req: Request, res: Response) => {
   try {
     const bounty = await submitBounty(
       parseId(req.params.id),
@@ -712,6 +764,26 @@ app.post(
   }
 );
 
+app.post(
+  '/api/bounties/:id/resolve-dispute',
+  mutationLimiter,
+  validateBody(resolveDisputeBountySchema),
+  async (req: Request, res: Response) => {
+    try {
+      const bounty = await resolveDisputeBounty(
+        parseId(req.params.id),
+        req.body.arbiter,
+        req.body.release,
+        req.body.transactionHash
+      );
+
+      res.json({ data: bounty });
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  }
+);
+
 app.patch(
   '/api/bounties/:id/notes',
   mutationLimiter,
@@ -764,12 +836,29 @@ app.post(
   '/api/webhooks/github',
   createGitHubWebhookSignatureMiddleware(() => process.env.GITHUB_WEBHOOK_SECRET),
   async (req: Request, res: Response) => {
+    const rawDeliveryId = req.headers['x-github-delivery'];
+    const deliveryId = Array.isArray(rawDeliveryId) ? rawDeliveryId[0] : rawDeliveryId;
+
+    let result: { duplicate: boolean };
     try {
-      await handleGitHubPrEvent(req.body);
+      result = await handleGitHubPrEvent(req.body, deliveryId);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Webhook processing error';
 
       res.status(500).json({ error: message, requestId: req.requestId });
+      return;
+    }
+
+    if (result.duplicate) {
+      // Already processed this delivery ID — acknowledge without re-running side-effects
+      res.status(200).json({
+        data: {
+          authenticated: true,
+          provider: 'github',
+          received: true,
+          duplicate: true,
+        },
+      });
       return;
     }
 
@@ -783,13 +872,13 @@ app.post(
   }
 );
 
-app.get('/api/open-issues', async (_req: Request, res: Response) => {
+app.get('/api/open-issues', async (req: Request, res: Response) => {
   try {
-    const issues = await listOpenIssues();
-    res.setHeader('Cache-Control', 'max-age=600');
-    res.json({ data: issues });
+    const data = await listOpenIssues();
+    res.set('Cache-Control', 'max-age=600');
+    res.json({ data });
   } catch (error) {
-    sendError(res, _req, error);
+    sendError(res, req, error, 502);
   }
 });
 
@@ -870,6 +959,30 @@ app.get('/api/stats', async (_req: Request, res: Response) => {
   try {
     const metrics = await aggregatedMetrics.getCached();
     res.json({ data: metrics });
+  } catch (error) {
+    sendError(res, _req, error, 500);
+  }
+});
+
+/**
+ * GET /api/config
+ *
+ * Returns non-sensitive runtime configuration so the frontend and contract-
+ * interaction layer can stay in sync without hardcoding values.
+ *
+ * Exposed values: fee bps, dispute window, min/max bounty amounts, supported
+ * tokens (symbol → contract address), default reservation TTL, and network.
+ *
+ * Nothing sensitive (API keys, DB strings, webhook secrets, maintainer keys)
+ * is ever included in this response.
+ *
+ * Cache-Control: max-age=300 (5 min) — these values change infrequently.
+ */
+app.get('/api/config', (_req: Request, res: Response) => {
+  try {
+    const config = getPublicConfig();
+    res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=60');
+    res.json({ data: config });
   } catch (error) {
     sendError(res, _req, error, 500);
   }
