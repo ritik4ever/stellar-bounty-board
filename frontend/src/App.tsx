@@ -36,6 +36,8 @@ import {
 import {
   debounce,
   filterBounties,
+  formatAmountInput,
+  parseAmountInput,
 } from "./utils";
 import {
   type Bounty,
@@ -128,6 +130,9 @@ function App() {
   const [submitting, setSubmitting] = useState(false);
   const [showShortcutsOverlay, setShowShortcutsOverlay] = useState(false);
   const [isFormDirty, setIsFormDirty] = useState(false);
+  const [displayAmount, setDisplayAmount] = useState<string>(
+    formatAmountInput(initialForm.amount)
+  );
 
   useBeforeUnload(isFormDirty);
 
@@ -711,12 +716,31 @@ function App() {
                   <label>
                     Reward
                     <input
-                      type="number"
-                      value={form.amount}
+                      type="text"
+                      inputMode="decimal"
+                      value={displayAmount}
                       onChange={(e) => {
-                        setForm({ ...form, amount: Number(e.target.value) });
+                        const raw = e.target.value;
+                        // Allow typing digits and decimal point only
+                        const cleaned = raw.replace(/[^0-9.]/g, "");
+                        const num = parseAmountInput(cleaned);
+                        setForm({ ...form, amount: num });
+                        setDisplayAmount(cleaned);
                         setIsFormDirty(true);
                       }}
+                      onPaste={(e) => {
+                        e.preventDefault();
+                        const pasted = e.clipboardData.getData("text");
+                        const cleaned = pasted.replace(/[^0-9.]/g, "");
+                        const num = parseAmountInput(cleaned);
+                        setForm({ ...form, amount: num });
+                        setDisplayAmount(formatAmountInput(num));
+                        setIsFormDirty(true);
+                      }}
+                      onBlur={() => {
+                        setDisplayAmount(formatAmountInput(form.amount));
+                      }}
+                      placeholder="0"
                     />
                   </label>
                   <label>
