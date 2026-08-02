@@ -134,7 +134,7 @@ describe("bounty-creation form validation", () => {
     await user.clear(titleInput);
     await user.type(titleInput, "Valid title");
 
-    const amountInput = screen.getByRole("spinbutton", { name: /reward/i });
+    const amountInput = screen.getByRole("textbox", { name: /reward/i });
     await user.clear(amountInput);
     await user.type(amountInput, "0");
 
@@ -201,5 +201,55 @@ describe("bounty-creation form validation", () => {
     await waitFor(() => {
       expect(toast.success).toHaveBeenCalledWith("Bounty created successfully!");
     });
+  });
+});
+
+describe("amount input masking (#855)", () => {
+  it("displays formatted amount with thousands separators on blur", async () => {
+    const user = userEvent.setup();
+    await renderBoard();
+
+    const amountInput = screen.getByRole("textbox", { name: /reward/i });
+    await user.clear(amountInput);
+    await user.type(amountInput, "1500");
+
+    // Blur to trigger formatting
+    await user.tab();
+
+    expect(amountInput).toHaveValue("1,500");
+  });
+
+  it("shows a clean number on type before blur", async () => {
+    const user = userEvent.setup();
+    await renderBoard();
+
+    const amountInput = screen.getByRole("textbox", { name: /reward/i });
+    await user.clear(amountInput);
+    await user.type(amountInput, "1234");
+
+    // Before blur, the display is the raw digits
+    expect(amountInput).toHaveValue("1234");
+  });
+
+  it("handles pasted values by stripping formatting", async () => {
+    const user = userEvent.setup();
+    await renderBoard();
+
+    const amountInput = screen.getByRole("textbox", { name: /reward/i }) as HTMLInputElement;
+    await user.clear(amountInput);
+
+    // Focus the input
+    await user.click(amountInput);
+
+    // Simulate paste event
+    const pasteEvent = new Event("paste", { bubbles: true });
+    Object.defineProperty(pasteEvent, "clipboardData", {
+      value: { getData: () => "$1,500.50 USD" },
+      writable: false,
+    });
+    amountInput.dispatchEvent(pasteEvent);
+
+    // After paste, the value should be formatted
+    expect(amountInput).toHaveValue("1,500.50");
   });
 });
