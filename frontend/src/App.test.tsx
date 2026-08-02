@@ -61,7 +61,7 @@ function mockBrowserApis() {
 }
 
 async function renderBoard() {
-  vi.mocked(api.listBounties).mockResolvedValue([openBounty]);
+  vi.mocked(api.listBounties).mockResolvedValue({ data: [openBounty], total: 1, page: 1, pageSize: 20, hasMore: false });
   vi.mocked(api.listOpenIssues).mockResolvedValue([]);
   vi.mocked(api.getBounty).mockResolvedValue(openBounty);
 

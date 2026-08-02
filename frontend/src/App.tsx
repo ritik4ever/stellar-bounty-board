@@ -25,6 +25,7 @@ import {
   refundBountySigned,
   reserveBounty,
   submitBounty,
+  type PaginatedBounties,
 } from "./api";
 import { useFreighter } from "./hooks/useFreighter";
 import FreighterConnectButton from "./components/FreighterConnectButton";
@@ -122,9 +123,13 @@ function App() {
   const freighter = useFreighter();
   const initialFilters = useMemo(() => readInitialFilters(), []);
   const [form, setForm] = useState<CreateBountyPayload>(initialForm);
-  const [bounties, setBounties] = useState<Bounty[]>([]);
+  const [allBounties, setAllBounties] = useState<Bounty[]>([]);
   const [, setIssues] = useState<OpenIssue[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const PAGE_SIZE = 20;
   const [submitting, setSubmitting] = useState(false);
   const [showShortcutsOverlay, setShowShortcutsOverlay] = useState(false);
   const [isFormDirty, setIsFormDirty] = useState(false);
@@ -185,13 +190,20 @@ function App() {
   const [submissionModalError, setSubmissionModalError] = useState<string | null>(null);
   const submissionReturnFocusRef = useRef<HTMLElement | null>(null);
 
-  const refresh = useCallback(async (signal?: AbortSignal) => {
+  const refresh = useCallback(async (signal?: AbortSignal, pageNum = 1, append = false) => {
     const [bountyData, issueData] = await Promise.all([
-      listBounties(signal),
+      listBounties(signal, pageNum, PAGE_SIZE),
       listOpenIssues(signal),
     ]);
-    setBounties(bountyData);
+    if (append) {
+      setAllBounties((prev) => [...prev, ...bountyData.data]);
+    } else {
+      setAllBounties(bountyData.data);
+    }
     setIssues(issueData);
+    setPage(pageNum);
+    setHasMore(bountyData.hasMore);
+    return bountyData;
   }, []);
 
   useEffect(() => {
@@ -200,7 +212,7 @@ function App() {
 
     async function bootstrap() {
       try {
-        await refresh(signal);
+        await refresh(signal, 1, false);
       } catch (err) {
         if (signal.aborted) return;
         console.error("Failed to load project data:", err);
@@ -215,7 +227,7 @@ function App() {
 
     const timer = window.setInterval(() => {
       const pollController = new AbortController();
-      void refresh(pollController.signal).catch(() => { });
+      void refresh(pollController.signal, 1, false).catch(() => { });
     }, 7000);
 
     return () => {
@@ -250,6 +262,29 @@ function App() {
     sortOption,
     sortDirection,
     pathname,
+  ]);
+
+  // Reset pagination when filters change
+  useEffect(() => {
+    setAllBounties([]);
+    setPage(1);
+    setHasMore(true);
+    setLoading(true);
+    const controller = new AbortController();
+    void refresh(controller.signal, 1, false).then(() => {
+      if (!controller.signal.aborted) setLoading(false);
+    });
+    return () => controller.abort();
+  }, [
+    debouncedSearchQuery,
+    statusFilter,
+    minReward,
+    maxReward,
+    repoFilter,
+    tokenFilter,
+    sortOption,
+    sortDirection,
+    refresh,
   ]);
 
   useEffect(() => {
@@ -480,6 +515,34 @@ function App() {
     [refresh]
   );
 
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      await refresh(undefined, page + 1, true);
+    } catch {
+      // silently handle — user can scroll again
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, hasMore, page, refresh]);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          void loadMore();
+        }
+      },
+      { rootMargin: "200px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [loadMore, filteredBounties]);
+
   const repoRoute = useMemo(() => {
     const match = pathname.match(/^\/repo\/([^/]+)\/([^/]+)$/);
     return match
@@ -522,7 +585,7 @@ function App() {
 
   const filteredBounties = useMemo(() => {
     const effectiveRepoFilter = repoRoute ? `${repoRoute.owner}/${repoRoute.name}` : repoFilter;
-    return filterBounties(bounties, {
+    return filterBounties(allBounties, {
       searchQuery: debouncedSearchQuery,
       statusFilter,
       minReward,
@@ -533,7 +596,7 @@ function App() {
       sortDirection,
     });
   }, [
-    bounties,
+    allBounties,
     debouncedSearchQuery,
     statusFilter,
     minReward,
@@ -592,7 +655,7 @@ function App() {
             actionCopy={actionCopy}
             renderActionButton={renderActionButton}
             formatTimestamp={formatTimestamp}
-            bounties={bounties}
+            bounties={allBounties}
           />
         </Suspense>
       </ErrorBoundary>
@@ -755,7 +818,7 @@ function App() {
           </div>
         </section>
 
-        <ContributorDashboard bounties={bounties} loading={loading} />
+        <ContributorDashboard bounties={allBounties} loading={loading} />
 
         <section className="board-section">
           <div className="board-filters">
@@ -788,6 +851,7 @@ function App() {
               ))}
             </div>
           ) : Object.keys(groupedBounties).length > 0 ? (
+            <>
             <div className="board-groups">
               {Object.entries(groupedBounties).map(([repo, repoBounties]) => (
                 <div key={repo} className="repo-group">
@@ -807,6 +871,15 @@ function App() {
                 </div>
               ))}
             </div>
+            {loadingMore && (
+              <div className="board-grid">
+                {[1, 2, 3].map((i) => (
+                  <SkeletonBountyCard key={`more-${i}`} />
+                ))}
+              </div>
+            )}
+            <div ref={sentinelRef} style={{ height: 1 }} />
+            </>
           ) : (
             <EmptyState
               heading={emptyStateHeading}

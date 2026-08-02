@@ -226,14 +226,29 @@ async function requestBlob(
   throw formatRetryError(retryLabel, retryAttempts, message);
 }
 
-export async function listBounties(signal?: AbortSignal): Promise<Bounty[]> {
-  const body = await requestJson<{ data: Bounty[] }>('/bounties', {
+export interface PaginatedBounties {
+  data: Bounty[];
+  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+}
+
+export async function listBounties(
+  signal?: AbortSignal,
+  page = 1,
+  pageSize = 20,
+): Promise<PaginatedBounties> {
+  const params = new URLSearchParams();
+  params.set('page', String(page));
+  params.set('pageSize', String(pageSize));
+  const body = await requestJson<PaginatedBounties>(`/bounties?${params.toString()}`, {
     retry: true,
     retryLabel: 'Loading bounties',
     signal,
   });
 
-  return body.data;
+  return body;
 }
 
 export async function getBounty(id: string, signal?: AbortSignal): Promise<Bounty> {

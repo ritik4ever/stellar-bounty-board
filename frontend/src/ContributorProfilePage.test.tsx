@@ -71,7 +71,7 @@ const mockLeaderboard = [
 
 beforeEach(() => {
   window.localStorage.clear();
-  vi.mocked(listBounties).mockResolvedValue(mockBounties);
+  vi.mocked(listBounties).mockResolvedValue({ data: mockBounties, total: mockBounties.length, page: 1, pageSize: 20, hasMore: false });
   const globalAny: any = global;
   globalAny.fetch = vi.fn((url: string) => {
     if (url.includes("/api/bounties")) {
