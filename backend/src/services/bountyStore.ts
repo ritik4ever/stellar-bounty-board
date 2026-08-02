@@ -1053,7 +1053,7 @@ export async function cancelBounty(
   maintainer: string,
   transactionHash?: string,
 ): Promise<BountyRecord> {
-  return withGlobalLock(async () => {
+  return withStoreLock(async () => {
     const records = listBounties();
     const bounty = findBounty(records, id);
 
@@ -1304,12 +1304,16 @@ export async function extendDeadline(
   maintainer: string,
   newDeadline: number,
 ): Promise<BountyRecord> {
-  return withGlobalLock(async () => {
+  return withStoreLock(async () => {
     const records = listBounties();
     const bounty = findBounty(records, id);
 
     if (bounty.maintainer !== maintainer) {
       throw new Error("Maintainer address does not match this bounty.");
+    }
+
+    if (bounty.status === "disputed") {
+      throw new Error("Cannot extend deadline on a disputed bounty.");
     }
 
     const now = nowInSeconds();
@@ -1383,6 +1387,59 @@ export interface AuditLogPage {
  * @param {number} [options.offset=0] - The starting index for pagination.
  * @returns {AuditLogPage} An object containing the requested page of audit logs and pagination metadata.
  */
+export interface MaintainerMetrics {
+  totalBounties: number;
+  openCount: number;
+  reservedCount: number;
+  submittedCount: number;
+  releasedCount: number;
+  refundedCount: number;
+  expiredCount: number;
+  totalFunded: number;
+  totalReleased: number;
+  averageRewardAmount: number;
+}
+
+export function getMaintainerMetrics(maintainer: string): MaintainerMetrics {
+  const records = listBounties().filter((b) => b.maintainer === maintainer);
+
+  let openCount = 0;
+  let reservedCount = 0;
+  let submittedCount = 0;
+  let releasedCount = 0;
+  let refundedCount = 0;
+  let expiredCount = 0;
+  let totalFunded = 0;
+  let totalReleased = 0;
+
+  for (const b of records) {
+    totalFunded += b.amount || 0;
+    if (b.status === "open") openCount++;
+    else if (b.status === "reserved") reservedCount++;
+    else if (b.status === "submitted") submittedCount++;
+    else if (b.status === "released") {
+      releasedCount++;
+      totalReleased += b.amount || 0;
+    } else if (b.status === "refunded") refundedCount++;
+    else if (b.status === "expired") expiredCount++;
+  }
+
+  const averageRewardAmount = records.length > 0 ? totalFunded / records.length : 0;
+
+  return {
+    totalBounties: records.length,
+    openCount,
+    reservedCount,
+    submittedCount,
+    releasedCount,
+    refundedCount,
+    expiredCount,
+    totalFunded,
+    totalReleased,
+    averageRewardAmount,
+  };
+}
+
 export function listBountyAuditLogs(
   bountyId: string,
   options: { limit?: number; offset?: number } = {},

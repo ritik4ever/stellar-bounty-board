@@ -2,6 +2,8 @@ import { collectDefaultMetrics, Counter, Histogram, Registry } from "prom-client
 
 export const register = new Registry();
 
+import { register, collectDefaultMetrics, Counter, Histogram } from "prom-client";
+
 try {
   if (!register.getSingleMetric("process_cpu_user_seconds_total")) {
     collectDefaultMetrics({ register });

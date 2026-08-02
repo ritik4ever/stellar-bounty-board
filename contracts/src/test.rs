@@ -123,8 +123,13 @@ fn create_bounty_with_state(
         BountyStatus::Disputed => {
             client.reserve_bounty(&bounty_id, &contributor);
             client.submit_bounty(&bounty_id, &contributor);
-            // This helper doesn't put it in disputed state directly,
-            // but we can manually do it if needed in specific tests.
+            let arbiter: Address = env.as_contract(&client.address, || {
+                env.storage()
+                    .persistent()
+                    .get(&DataKey::Arbiter)
+                    .unwrap()
+            });
+            client.dispute_bounty(&bounty_id, &arbiter);
             bounty_id
         }
     }
@@ -825,6 +830,19 @@ invalid_transition_test!(
         }
     }
 );
+invalid_transition_test!(
+    extend_disputed,
+    BountyStatus::Disputed,
+    "CannotExtendDisputedBounty",
+    {
+        |client: &StellarBountyBoardContractClient<'static>,
+         bounty_id: u64,
+         maintainer: Address,
+         _contributor: Address| {
+            client.extend_deadline(&bounty_id, &maintainer, &1000000)
+        }
+    }
+);
 
 #[test]
 #[should_panic(expected = "BountyNotOpen")]
@@ -1131,6 +1149,77 @@ fn test_extend_deadline_earlier() {
     // Attempting to set a deadline earlier than the initial one
     let earlier_deadline = initial_deadline - 100;
     client.extend_deadline(&bounty_id, &maintainer, &earlier_deadline);
+}
+
+#[test]
+fn test_extend_deadline_disputed_rejected_and_state_unmutated() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, contributor, token_id, _, arbiter) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    let initial_deadline = env.ledger().timestamp() + 1000;
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &initial_deadline,
+        &0u32,
+    );
+
+    // Reserve, submit, and dispute the bounty to reach Disputed state
+    client.reserve_bounty(&bounty_id, &contributor);
+    client.submit_bounty(&bounty_id, &contributor);
+    client.dispute_bounty(&bounty_id, &arbiter);
+
+    let disputed_bounty = client.get_bounty(&bounty_id);
+    assert_eq!(disputed_bounty.status, BountyStatus::Disputed);
+
+    let new_deadline = initial_deadline + 5000;
+    // Attempt extend_deadline using try_extend_deadline to capture rejection
+    let res = client.try_extend_deadline(&bounty_id, &maintainer, &new_deadline);
+    assert!(res.is_err());
+
+    // Verify deadline field remains unchanged
+    let bounty_after = client.get_bounty(&bounty_id);
+    assert_eq!(bounty_after.deadline, initial_deadline);
+}
+
+#[test]
+fn test_extend_deadline_reserved_bounty_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, contributor, token_id, _, _) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    let initial_deadline = env.ledger().timestamp() + 1000;
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &initial_deadline,
+        &0u32,
+    );
+
+    client.reserve_bounty(&bounty_id, &contributor);
+    let reserved_bounty = client.get_bounty(&bounty_id);
+    assert_eq!(reserved_bounty.status, BountyStatus::Reserved);
+
+    let new_deadline = initial_deadline + 5000;
+    client.extend_deadline(&bounty_id, &maintainer, &new_deadline);
+
+    let updated_bounty = client.get_bounty(&bounty_id);
+    assert_eq!(updated_bounty.deadline, new_deadline);
 }
 
 #[test]

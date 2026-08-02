@@ -67,6 +67,8 @@ import { logger } from './logger';
 import { createAdminApiKeyAuthMiddleware } from './middleware/adminAuth';
 import { handleGitHubPrEvent } from './webhooks/githubPrHandler';
 import { draining } from './shutdown';
+import { buildCorsOptions } from './middleware/corsOptions';
+import { runDeepHealthCheck } from './services/deepHealth';
 
 
 const INCOMING_REQUEST_ID = /^[a-zA-Z0-9-]{1,128}$/;
@@ -741,19 +743,13 @@ app.post(
   mutationLimiter,
   idempotencyMiddleware,
   createStellarSignatureAuthMiddleware(),
+  validateBody(extendDeadlineSchema),
   async (req: Request, res: Response) => {
-    const parsedBody = extendDeadlineSchema.safeParse(req.body);
-
-    if (!parsedBody.success) {
-      jsonError(res, req, 400, zodErrorMessage(parsedBody.error));
-      return;
-    }
-
     try {
       const bounty = await extendDeadline(
         parseId(req.params.id),
-        parsedBody.data.maintainer,
-        parsedBody.data.newDeadline
+        req.body.maintainer,
+        req.body.newDeadline
       );
 
       res.json({ data: bounty });

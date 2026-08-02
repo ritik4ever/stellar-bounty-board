@@ -624,6 +624,10 @@ impl StellarBountyBoardContract {
             panic_error(ContractError::CannotExtendFinalizedBounty);
         }
 
+        if bounty.status == BountyStatus::Disputed {
+            panic_error(ContractError::CannotExtendDisputedBounty);
+        }
+
         if new_deadline <= bounty.deadline {
             panic_error(ContractError::DeadlineMustAdvance);
         }

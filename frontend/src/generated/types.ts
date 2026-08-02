@@ -31,9 +31,10 @@ export enum ContractError {
   BountyExpired = 10,
   DeadlineMustAdvance = 11,
   CannotExtendFinalizedBounty = 12,
-  BountyNotFound = 13,
-  NotArbiter = 14,
-  DisputeWindowNotMet = 15,
+  CannotExtendDisputedBounty = 13,
+  BountyNotFound = 14,
+  NotArbiter = 15,
+  DisputeWindowNotMet = 16,
 }
 
 export interface Bounty {
@@ -182,6 +183,7 @@ export const CONTRACT_ERROR_LABELS: Record<ContractError, string> = {
   [ContractError.BountyExpired]: "BountyExpired",
   [ContractError.DeadlineMustAdvance]: "DeadlineMustAdvance",
   [ContractError.CannotExtendFinalizedBounty]: "CannotExtendFinalizedBounty",
+  [ContractError.CannotExtendDisputedBounty]: "CannotExtendDisputedBounty",
   [ContractError.BountyNotFound]: "BountyNotFound",
   [ContractError.NotArbiter]: "NotArbiter",
   [ContractError.DisputeWindowNotMet]: "DisputeWindowNotMet",
