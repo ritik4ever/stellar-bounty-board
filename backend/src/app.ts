@@ -40,6 +40,7 @@ import {
   createBountySchema,
   disputeBountySchema,
   extendDeadlineSchema,
+  bulkBountyActionSchema,
   resolveDisputeBountySchema,
   maintainerActionSchema,
   reserveBountySchema,
@@ -67,6 +68,7 @@ import { logger } from './logger';
 import { createAdminApiKeyAuthMiddleware } from './middleware/adminAuth';
 import { handleGitHubPrEvent } from './webhooks/githubPrHandler';
 import { draining } from './shutdown';
+import { getBountyTimeline } from './services/timelineService';
 
 
 const INCOMING_REQUEST_ID = /^[a-zA-Z0-9-]{1,128}$/;
@@ -224,6 +226,29 @@ function escapeCsv(value: unknown): string {
   }
 
   return raw;
+}
+
+function parseAuditTimestamp(raw: unknown, field: string): number | undefined {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value !== 'string') throw new Error(`${field} must be an ISO date or Unix timestamp.`);
+
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) return Math.floor(numeric);
+
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) throw new Error(`${field} must be an ISO date or Unix timestamp.`);
+  return Math.floor(parsed / 1000);
+}
+
+function requireIdempotencyKey(req: Request, res: Response, next: NextFunction): void {
+  const rawKey = req.headers['idempotency-key'];
+  const key = Array.isArray(rawKey) ? rawKey[0] : rawKey;
+  if (!key || typeof key !== 'string' || key.trim().length === 0) {
+    jsonError(res, req, 400, 'Idempotency-Key header is required.');
+    return;
+  }
+  idempotencyMiddleware(req, res, next);
 }
 
 function sendError(res: Response, req: Request, error: unknown, statusCode = 400): void {
@@ -485,6 +510,15 @@ app.get('/api/bounties/:id/audit-log', (req: Request, res: Response) => {
   }
 });
 
+app.get('/api/bounties/:id/timeline', async (req: Request, res: Response) => {
+  try {
+    const entries = await getBountyTimeline(parseId(req.params.id));
+    res.json({ data: entries });
+  } catch (error) {
+    sendError(res, req, error);
+  }
+});
+
 app.get('/api/bounties/released/export.csv', (req: Request, res: Response) => {
   try {
     const { repo, contributor, asset, issueNumber } = req.query;
@@ -574,6 +608,41 @@ app.post(
       sendError(res, req, error);
     }
   }
+);
+
+app.post(
+  '/api/bounties/bulk-action',
+  mutationLimiter,
+  requireJsonContentType,
+  requireIdempotencyKey,
+  createAdminApiKeyAuthMiddleware(),
+  validateBody(bulkBountyActionSchema),
+  async (req: Request, res: Response) => {
+    const { bountyIds, action, maintainer, transactionHash } = req.body;
+    const results = [];
+
+    for (const bountyId of bountyIds) {
+      try {
+        const data =
+          action === 'release'
+            ? await releaseBounty(bountyId, maintainer, transactionHash)
+            : await refundBounty(bountyId, maintainer, transactionHash);
+        results.push({ bountyId, success: true, data });
+      } catch (error) {
+        results.push({
+          bountyId,
+          success: false,
+          error: error instanceof Error ? error.message : 'Unexpected error',
+        });
+      }
+    }
+
+    const succeeded = results.filter((result) => result.success).length;
+    res.json({
+      data: results,
+      summary: { total: results.length, succeeded, failed: results.length - succeeded },
+    });
+  },
 );
 
 app.post('/api/bounties/:id/reserve', mutationLimiter, requireJsonContentType, idempotencyMiddleware, validateBody(reserveBountySchema), async (req: Request, res: Response) => {
@@ -939,6 +1008,8 @@ app.get(
       const bountyId = typeof req.query.bountyId === "string" ? req.query.bountyId : undefined;
       const fromStatus = typeof req.query.fromStatus === "string" ? req.query.fromStatus : undefined;
       const toStatus = typeof req.query.toStatus === "string" ? req.query.toStatus : undefined;
+      const fromTimestamp = parseAuditTimestamp(req.query.from, 'from');
+      const toTimestamp = parseAuditTimestamp(req.query.to, 'to');
       
       const page = listAllAuditLogs({ 
         limit, 
@@ -947,9 +1018,74 @@ app.get(
         transition, 
         bountyId, 
         fromStatus, 
-        toStatus 
+        toStatus,
+        fromTimestamp,
+        toTimestamp,
       });
       res.json(page);
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  },
+);
+
+function getAuditExportData(req: Request) {
+  const fromTimestamp = parseAuditTimestamp(req.query.from, 'from');
+  const toTimestamp = parseAuditTimestamp(req.query.to, 'to');
+  if (fromTimestamp !== undefined && toTimestamp !== undefined && fromTimestamp > toTimestamp) {
+    throw new Error('from must be earlier than or equal to to.');
+  }
+
+  return listAllAuditLogs({ limit: 10_000, fromTimestamp, toTimestamp }).data;
+}
+
+app.get(
+  '/api/audit-log/export.csv',
+  createAdminApiKeyAuthMiddleware(),
+  (req: Request, res: Response) => {
+    try {
+      const logs = getAuditExportData(req);
+      const header = [
+        'id',
+        'bounty_id',
+        'from_status',
+        'to_status',
+        'transition',
+        'actor',
+        'timestamp',
+        'metadata',
+      ].join(',');
+      const rows = logs.map((log) =>
+        [
+          log.id,
+          log.bountyId,
+          log.fromStatus,
+          log.toStatus,
+          log.transition,
+          log.actor,
+          new Date(log.timestamp * 1000).toISOString(),
+          log.metadata ? JSON.stringify(log.metadata) : '',
+        ]
+          .map(escapeCsv)
+          .join(','),
+      );
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="audit-log.csv"');
+      res.send(`${[header, ...rows].join('\n')}\n`);
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  },
+);
+
+app.get(
+  '/api/audit-log/export.json',
+  createAdminApiKeyAuthMiddleware(),
+  (req: Request, res: Response) => {
+    try {
+      const data = getAuditExportData(req);
+      res.json({ data, total: data.length });
     } catch (error) {
       sendError(res, req, error);
     }

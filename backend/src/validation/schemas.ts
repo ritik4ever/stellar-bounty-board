@@ -210,6 +210,19 @@ export const maintainerActionSchema = z
   })
   .openapi('MaintainerActionRequest');
 
+export const bulkBountyActionSchema = z
+  .object({
+    bountyIds: z.array(bountyIdSchema).min(1).max(100),
+    action: z.enum(['release', 'refund']),
+    maintainer: stellarAccountSchema,
+    transactionHash: z
+      .string()
+      .trim()
+      .regex(TX_HASH_REGEX, 'Transaction hash must be a 64 character hex string.')
+      .optional(),
+  })
+  .openapi('BulkBountyActionRequest');
+
 export const updateNotesSchema = z
   .object({
     maintainer: stellarAccountSchema.openapi({

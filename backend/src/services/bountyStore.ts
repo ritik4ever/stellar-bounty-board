@@ -1412,6 +1412,8 @@ export interface ListAllAuditLogsOptions {
   bountyId?: string;
   fromStatus?: string;
   toStatus?: string;
+  fromTimestamp?: number;
+  toTimestamp?: number;
 }
 
 /**
@@ -1430,6 +1432,8 @@ export function listAllAuditLogs(
     bountyId,
     fromStatus,
     toStatus,
+    fromTimestamp,
+    toTimestamp,
   } = options;
 
   let all = readAuditStore();
@@ -1452,6 +1456,14 @@ export function listAllAuditLogs(
 
   if (toStatus) {
     all = all.filter((log) => log.toStatus === toStatus);
+  }
+
+  if (fromTimestamp !== undefined) {
+    all = all.filter((log) => log.timestamp >= fromTimestamp);
+  }
+
+  if (toTimestamp !== undefined) {
+    all = all.filter((log) => log.timestamp <= toTimestamp);
   }
 
   const total = all.length;

@@ -66,12 +66,12 @@ describe("admin auth middleware — functional behavior", () => {
     const res = await request(app)
       .get("/admin/protected")
       .set("x-admin-api-key", COMPLETELY_WRONG_KEY)
-      .expect(401);
+      .expect(403);
     expect(res.body.error).toMatch(/invalid admin api key/i);
   });
 
   it("rejects the request when the x-admin-api-key header is missing", async () => {
-    const res = await request(app).get("/admin/protected").expect(401);
+    const res = await request(app).get("/admin/protected").expect(403);
     expect(res.body.error).toMatch(/missing/i);
   });
 });
