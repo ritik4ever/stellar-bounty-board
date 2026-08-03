@@ -8,8 +8,8 @@ import {
 import { logStructured } from "../logger";
 import { getCache, type CacheAdapter } from "./cache";
 import { bountiesCreatedTotal, bountiesReleasedTotal } from "../metrics";
-import { validateGithubPrUrlForRepo } from "../validation/prUrl";
 import { resolveTokenAddress } from "../utils";
+import { validateGithubPrUrlForRepo } from "../validation/prUrl";
 
 
 /**
@@ -796,7 +796,11 @@ export async function reserveBounty(
         contributor,
       },
     ).catch((err) =>
-      console.warn("[reserveBounty] Notification failed (non-blocking):", err),
+      logStructured("warn", "notification_failed", {
+        operation: "reserveBounty",
+        bountyId: id,
+        message: err instanceof Error ? err.message : String(err),
+      }),
     );
 
     return persisted;
@@ -878,7 +882,11 @@ export async function submitBounty(
         submissionUrl,
       },
     ).catch((err) =>
-      console.warn("[submitBounty] Notification failed (non-blocking):", err),
+      logStructured("warn", "notification_failed", {
+        operation: "submitBounty",
+        bountyId: id,
+        message: err instanceof Error ? err.message : String(err),
+      }),
     );
 
     return persisted;
@@ -1026,9 +1034,13 @@ export async function refundBounty(
           amount: bounty.amount,
           tokenSymbol: bounty.tokenSymbol,
         },
-      ).catch((err) =>
-        console.warn("[refundBounty] Notification failed (non-blocking):", err),
-      );
+    ).catch((err) =>
+      logStructured("warn", "notification_failed", {
+        operation: "refundBounty",
+        bountyId: id,
+        message: err instanceof Error ? err.message : String(err),
+      }),
+    );
     }
 
     return persisted;

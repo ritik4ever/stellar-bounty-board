@@ -45,3 +45,6 @@ coverage
 .cache
 .temp
 tmp
+
+# Generated OpenAPI spec — must match raw `npm run gen:openapi` output for CI drift check
+docs/openapi.generated.json

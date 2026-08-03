@@ -26,7 +26,8 @@
     "express-rate-limit": "^8.4.1",
     "swagger-ui-express": "^5.0.1",
     "yaml": "^2.8.3",
-    "zod": "^4.3.6"
+    "zod": "^4.3.6",
+    "express": "^5.2.1"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
@@ -44,6 +45,7 @@
     "husky": "^9.0.0",
     "lint-staged": "^15.2.0",
     "prettier": "^3.8.3",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "picomatch": "^4.0.5"
   }
 }

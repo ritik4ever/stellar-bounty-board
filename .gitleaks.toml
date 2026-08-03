@@ -1,13 +1,36 @@
+# Stellar Bounty Board gitleaks config (v8 format — compatible with
+# gitleaks/gitleaks-action@v2, which runs gitleaks v8.x).
+
 title = "Stellar Bounty Board gitleaks config"
 
-# Allowlist known non-secret test vectors and example placeholders so gitleaks
-# doesn't fail on expected fixtures and docs. Keep this minimal — if you
-# intentionally commit a real secret, the action should fail.
+# Extend the default rule set shipped with gitleaks.
+[extend]
+useDefault = true
 
-[[allowlist]]
-description = "Env example placeholders"
-regex = '''your_github_webhook_secret_here|example|EXAMPLE|dummy'''
+# Allowlist known non-secret values so the scan doesn't fail on expected
+# fixtures and docs. Keep this minimal — if you intentionally commit a real
+# secret, the action should fail.
+[allowlist]
+description = "Env example placeholders, non-secret test fixtures, and public Soroban contract addresses"
 
-[[allowlist]]
-description = "Test fixtures and docs (non-secret examples)"
-paths = ["test/**", "docs/**", "**/*.md", "backend/worker/**"]
+# Regexes are matched against the leaked value.
+regexes = [
+  '''your_github_webhook_secret_here|example|EXAMPLE|dummy''',
+  # Public Soroban/SAC contract addresses (e.g. testnet USDC token) — these are
+  # on-chain identifiers, not credentials. Pattern: C + 55 base32 chars.
+  '''C[A-Z2-7]{55}''',
+  # Stellar public keys (G + 55 base32 chars) — public wallet addresses used as
+  # mock fixtures in load tests and Playwright specs, not secrets.
+  '''G[A-Z2-7]{55}''',
+]
+
+# Paths are regexes matched against file paths.
+paths = [
+  '''test/''',
+  '''docs/''',
+  '''.*\.md$''',
+  '''backend/worker/''',
+  '''backend/data/''',
+  '''scripts/''',
+  '''playwright/tests/''',
+]

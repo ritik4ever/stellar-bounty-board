@@ -1,6 +1,9 @@
 import { useCallback } from 'react';
 
 import { useLocalStorage } from './useLocalStorage';
+
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore - @stellar/freighter-api may not be installed in all environments
 import { isConnected as checkIsFreighterConnected, requestAccess } from '@stellar/freighter-api';
 
 const WALLET_STORAGE_KEY = 'stellar-bounty-board-wallet';
@@ -12,13 +15,15 @@ export function useWallet() {
     try {
       const installed = await checkIsFreighterConnected();
       if (!installed) {
-        window.alert('Freighter wallet is not installed. Please install it from https://freighter.app/');
+        window.alert(
+          'Freighter wallet is not installed. Please install it from https://freighter.app/'
+        );
         return;
       }
 
-      const publicKey = await requestAccess();
-      if (publicKey) {
-        setAddress(publicKey);
+      const result = await requestAccess();
+      if (result.address) {
+        setAddress(result.address);
       }
     } catch (error) {
       console.error('Failed to connect to Freighter:', error);

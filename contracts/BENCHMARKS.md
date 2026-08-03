@@ -19,21 +19,22 @@ The following table shows the CPU instruction count and memory usage for each co
 
 **Note:** These measurements are from Rust test execution and are likely underestimated compared to actual WASM execution on-chain. For production cost estimation, use RPC simulation.
 
-| Entry Point | CPU Instructions | Memory (bytes) | Notes |
-|-------------|-----------------|----------------|-------|
-| `initialize` | TBD | TBD | Contract initialization |
-| `create_bounty` | TBD | TBD | Creates new bounty with token transfer |
-| `reserve_bounty` | TBD | TBD | Reserves bounty for contributor |
-| `submit_bounty` | TBD | TBD | Submits completed work |
-| `release_bounty` | TBD | TBD | Releases payment to contributor (with fee deduction) |
-| `refund_bounty` | TBD | TBD | Refunds to maintainer after deadline |
-| `extend_deadline` | TBD | TBD | Extends bounty deadline |
-| `dispute_bounty` | TBD | TBD | Raises dispute for arbiter resolution |
-| `resolve_dispute` (release) | TBD | TBD | Resolves dispute by releasing to contributor |
-| `resolve_dispute` (refund) | TBD | TBD | Resolves dispute by refunding to maintainer |
-| `get_bounty` | TBD | TBD | Read-only bounty retrieval |
-| `get_fee_recipient` | TBD | TBD | Read-only fee recipient retrieval |
-| `get_next_bounty_id` | TBD | TBD | Read-only next ID retrieval |
+| Entry Point                         | CPU Instructions | Memory (bytes) | Notes                                                |
+| ----------------------------------- | ---------------- | -------------- | ---------------------------------------------------- |
+| `initialize`                        | TBD              | TBD            | Contract initialization                              |
+| `create_bounty`                     | TBD              | TBD            | Creates new bounty with token transfer               |
+| `reserve_bounty`                    | TBD              | TBD            | Reserves bounty for contributor                      |
+| `submit_bounty`                     | TBD              | TBD            | Submits completed work                               |
+| `release_bounty`                    | TBD              | TBD            | Releases payment to contributor (with fee deduction) |
+| `refund_bounty`                     | TBD              | TBD            | Refunds to maintainer after deadline                 |
+| `extend_deadline`                   | TBD              | TBD            | Extends bounty deadline                              |
+| `dispute_bounty`                    | TBD              | TBD            | Raises dispute for arbiter resolution                |
+| `resolve_dispute` (release)         | TBD              | TBD            | Resolves dispute by releasing to contributor         |
+| `resolve_dispute` (refund)          | TBD              | TBD            | Resolves dispute by refunding to maintainer          |
+| `get_bounty`                        | TBD              | TBD            | Read-only bounty retrieval                           |
+| `get_all_bounties` (1000+ bounties) | See benchmark    | See benchmark  | Paginated read across 1001 bounties, 21 pages        |
+| `get_fee_recipient`                 | TBD              | TBD            | Read-only fee recipient retrieval                    |
+| `get_next_bounty_id`                | TBD              | TBD            | Read-only next ID retrieval                          |
 
 ## Cost Analysis
 
@@ -83,7 +84,7 @@ println!("Memory: {}", env.cost_estimate().budget().memory_bytes_cost());
 
 When modifying contract logic:
 
-1. Re-run benchmarks: `cargo test benchmark -- --nocapture`
+1. Re-run benchmarks: `cargo test bench_get_all_bounties_1000_plus -- --ignored --nocapture`
 2. Update this document with new measurements
 3. Investigate significant cost regressions
 4. Consider optimizations if costs increase substantially

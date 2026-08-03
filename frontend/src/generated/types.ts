@@ -120,21 +120,20 @@ export interface BountyDeadlineExtended {
 export function contractStatusToFrontend(status: BountyStatus): string {
   switch (status) {
     case BountyStatus.Open:
-      return "open";
+      return 'open';
     case BountyStatus.Reserved:
-      return "reserved";
+      return 'reserved';
     case BountyStatus.Submitted:
-      return "submitted";
+      return 'submitted';
     case BountyStatus.Released:
-      return "released";
+      return 'released';
     case BountyStatus.Refunded:
-      return "refunded";
+      return 'refunded';
     case BountyStatus.Expired:
-      return "expired";
+      return 'expired';
     case BountyStatus.Disputed:
-      return "disputed";
+      return 'disputed';
     default: {
-      // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
       throw new Error(`Unknown contract status: ${status}`);
     }
   }
@@ -145,19 +144,19 @@ export function contractStatusToFrontend(status: BountyStatus): string {
  */
 export function frontendStatusToContract(status: string): BountyStatus {
   switch (status) {
-    case "open":
+    case 'open':
       return BountyStatus.Open;
-    case "reserved":
+    case 'reserved':
       return BountyStatus.Reserved;
-    case "submitted":
+    case 'submitted':
       return BountyStatus.Submitted;
-    case "released":
+    case 'released':
       return BountyStatus.Released;
-    case "refunded":
+    case 'refunded':
       return BountyStatus.Refunded;
-    case "expired":
+    case 'expired':
       return BountyStatus.Expired;
-    case "disputed":
+    case 'disputed':
       return BountyStatus.Disputed;
     default:
       throw new Error(`Unknown frontend status: ${status}`);
@@ -169,20 +168,20 @@ export function frontendStatusToContract(status: string): BountyStatus {
  * failure reasons returned by the backend/indexer.
  */
 export const CONTRACT_ERROR_LABELS: Record<ContractError, string> = {
-  [ContractError.InvalidAmount]: "InvalidAmount",
-  [ContractError.DeadlineMustBeInTheFuture]: "DeadlineMustBeInTheFuture",
-  [ContractError.BountyNotOpen]: "BountyNotOpen",
-  [ContractError.BountyMustBeReserved]: "BountyMustBeReserved",
-  [ContractError.ContributorMismatch]: "ContributorMismatch",
-  [ContractError.MaintainerMismatch]: "MaintainerMismatch",
-  [ContractError.BountyMustBeSubmitted]: "BountyMustBeSubmitted",
-  [ContractError.MissingContributor]: "MissingContributor",
-  [ContractError.BountyAlreadyFinalized]: "BountyAlreadyFinalized",
-  [ContractError.BountyNotExpiredYet]: "BountyNotExpiredYet",
-  [ContractError.BountyExpired]: "BountyExpired",
-  [ContractError.DeadlineMustAdvance]: "DeadlineMustAdvance",
-  [ContractError.CannotExtendFinalizedBounty]: "CannotExtendFinalizedBounty",
-  [ContractError.BountyNotFound]: "BountyNotFound",
-  [ContractError.NotArbiter]: "NotArbiter",
-  [ContractError.DisputeWindowNotMet]: "DisputeWindowNotMet",
+  [ContractError.InvalidAmount]: 'InvalidAmount',
+  [ContractError.DeadlineMustBeInTheFuture]: 'DeadlineMustBeInTheFuture',
+  [ContractError.BountyNotOpen]: 'BountyNotOpen',
+  [ContractError.BountyMustBeReserved]: 'BountyMustBeReserved',
+  [ContractError.ContributorMismatch]: 'ContributorMismatch',
+  [ContractError.MaintainerMismatch]: 'MaintainerMismatch',
+  [ContractError.BountyMustBeSubmitted]: 'BountyMustBeSubmitted',
+  [ContractError.MissingContributor]: 'MissingContributor',
+  [ContractError.BountyAlreadyFinalized]: 'BountyAlreadyFinalized',
+  [ContractError.BountyNotExpiredYet]: 'BountyNotExpiredYet',
+  [ContractError.BountyExpired]: 'BountyExpired',
+  [ContractError.DeadlineMustAdvance]: 'DeadlineMustAdvance',
+  [ContractError.CannotExtendFinalizedBounty]: 'CannotExtendFinalizedBounty',
+  [ContractError.BountyNotFound]: 'BountyNotFound',
+  [ContractError.NotArbiter]: 'NotArbiter',
+  [ContractError.DisputeWindowNotMet]: 'DisputeWindowNotMet',
 };

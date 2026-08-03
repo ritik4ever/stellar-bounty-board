@@ -48,7 +48,7 @@ export const maintainerLimiter: RequestHandler = async (req: Request, res: Respo
   let release: () => Promise<void>;
   try {
     release = await lockfile.lock(storePath, {
-      retries: { retries: 5, minTimeout: 10, maxTimeout: 50 },
+      retries: 5,
       stale: 5000,
     });
   } catch (err) {

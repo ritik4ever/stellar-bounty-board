@@ -78,6 +78,7 @@ export function getTokenAddressMap(): Record<string, string> {
         }
       }
     } catch (err) {
+      // eslint-disable-next-line no-console
       console.warn("Failed to parse TOKEN_ADDRESS_MAP env variable as JSON", err);
     }
   }

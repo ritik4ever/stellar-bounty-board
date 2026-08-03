@@ -95,7 +95,7 @@ export function getCache(): CacheAdapter {
 
   const url = process.env.REDIS_URL?.trim();
   if (url) {
-    const client = new Redis(url, { maxRetriesPerRequest: 2 });
+    const client = new Redis({ host: new URL(url).hostname, port: Number(new URL(url).port) || 6379, maxRetriesPerRequest: 2 });
     client.on("error", (error: Error) =>
       logStructured("warn", "redis_connection_error", { error: String(error) }),
     );
