@@ -65,6 +65,14 @@ pub struct Bounty {
     pub dispute_window_override: Option<u64>,
 }
 
+/// Token allowlist configuration — restricts which SAC tokens can fund bounties
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AllowlistConfig {
+    pub enabled: bool,
+    pub allowed_tokens: Vec<Address>,
+}
+
 /// Cumulative fee statistics updated on every payout release.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -79,18 +87,7 @@ pub struct FeeStats {
 enum DataKey {
     NextBountyId,
     Bounty(u64),
-    Admin,
-    FeeRecipient,
-    Arbiter,
-    DisputeWindow,
-    MinBountyAmount,
-    Paused,
-    /// Accumulated protocol fee statistics.
-    FeeStats,
-    /// Arbiter rotation: proposed replacement waiting for the timelock.
-    PendingArbiter,
-    /// Timestamp after which the pending arbiter rotation can be confirmed.
-    ArbiterRotationTimelock,
+
 }
 
 #[contracttype]
@@ -114,6 +111,14 @@ pub struct BountyReserved {
 
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BountyReassigned {
+    pub bounty_id: u64,
+    pub old_contributor: Address,
+    pub new_contributor: Address,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BountySubmitted {
     pub bounty_id: u64,
     pub contributor: Address,
@@ -124,7 +129,7 @@ pub struct BountySubmitted {
 pub struct BountyReleased {
     pub bounty_id: u64,
     pub contributor: Address,
-    pub amount: i128,     // net payout after fee
+    pub amount: i128,      // net payout after fee
     pub fee_amount: i128, // how much went to fee recipient
 }
 
@@ -183,52 +188,7 @@ pub struct ContractUnpaused {
 
 /// Emitted when a new arbiter is proposed for rotation (start of the timelock).
 #[contracttype]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ArbiterRotationProposed {
-    pub new_arbiter: Address,
-    pub unlock_time: u64,
-}
 
-/// Emitted when the arbiter rotation is confirmed after the timelock elapses.
-#[contracttype]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ArbiterRotationConfirmed {
-    pub old_arbiter: Address,
-    pub new_arbiter: Address,
-}
-
-#[contracttype]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ContractError {
-    InvalidAmount,
-    DeadlineMustBeInTheFuture,
-    BountyNotOpen,
-    BountyMustBeReserved,
-    ContributorMismatch,
-    MaintainerMismatch,
-    BountyMustBeSubmitted,
-    MissingContributor,
-    BountyAlreadyFinalized,
-    BountyNotExpiredYet,
-    BountyExpired,
-    DeadlineMustAdvance,
-    CannotExtendFinalizedBounty,
-    BountyNotFound,
-    NotArbiter,
-    ArbiterNotSet,
-    DisputeWindowNotMet,
-    AmountTooSmall,
-    FeeRecipientNotSet,
-    DisputeWindowOverrideTooSmall,
-    DisputeWindowOverrideTooLarge,
-    ContractIsPaused,
-    NotAdmin,
-    NoPendingArbiter,
-    TimelockNotElapsed,
-}
-
-fn panic_error(error: ContractError) -> ! {
-    panic!("{:?}", error);
 }
 
 #[contract]
@@ -464,6 +424,9 @@ impl StellarBountyBoardContract {
         if protocol_fee_bps > 0 && !env.storage().persistent().has(&DataKey::FeeRecipient) {
             panic_error(ContractError::FeeRecipientNotSet);
         }
+        if !is_token_allowed(&env, token.clone()) {
+            panic_error(ContractError::TokenNotAllowed);
+        }
 
         // Validate dispute window override if provided
         if let Some(override_value) = dispute_window_override {
@@ -547,6 +510,43 @@ impl StellarBountyBoardContract {
             BountyReserved {
                 bounty_id,
                 contributor,
+            },
+        );
+    }
+
+    pub fn reassign_bounty(
+        env: Env,
+        bounty_id: u64,
+        maintainer: Address,
+        new_contributor: Address,
+    ) {
+        maintainer.require_auth();
+
+        let mut bounty = read_bounty(&env, bounty_id);
+        expire_if_needed(&env, &mut bounty);
+
+        if bounty.maintainer != maintainer {
+            panic_error(ContractError::MaintainerMismatch);
+        }
+
+        if bounty.status != BountyStatus::Reserved {
+            panic_error(ContractError::BountyMustBeReserved);
+        }
+
+        let old_contributor = bounty
+            .contributor
+            .clone()
+            .unwrap_or_else(|| panic_error(ContractError::MissingContributor));
+
+        bounty.contributor = Some(new_contributor.clone());
+        write_bounty(&env, bounty_id, &bounty);
+
+        env.events().publish(
+            (symbol_short!("Bounty"), symbol_short!("Reassign")),
+            BountyReassigned {
+                bounty_id,
+                old_contributor,
+                new_contributor,
             },
         );
     }
@@ -970,6 +970,168 @@ impl StellarBountyBoardContract {
     }
 }
 
+fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
+    if fee_amount > 0 {
+        let mut stats: FeeStats = env
+            .storage()
+            .persistent()
+            .get(&DataKey::FeeStats)
+            .unwrap_or(FeeStats {
+                total_collected: 0,
+                bounty_count: 0,
+            });
+        stats.total_collected += fee_amount;
+        stats.bounty_count += 1;
+        env.storage()
+            .persistent()
+            .set(&DataKey::FeeStats, &stats);
+    }
+
+    /// Returns the effective dispute window for a bounty.
+    /// If the bounty has a per-bounty override, returns that value.
+    /// Otherwise returns the global DisputeWindow configured at initialization.
+    pub fn get_effective_dispute_window(env: Env, bounty_id: u64) -> u64 {
+        let bounty = read_bounty(&env, bounty_id);
+        bounty.dispute_window_override.unwrap_or_else(|| {
+            env.storage()
+                .persistent()
+                .get(&DataKey::DisputeWindow)
+                .unwrap_or(0)
+        })
+    }
+    pub fn set_arbiter(env: Env, new_arbiter: Address) {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_error(ContractError::NotAdmin));
+        admin.require_auth();
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::PendingArbiter, &new_arbiter);
+        
+        let timelock = env.ledger().timestamp() + 86400 * 2; // 2 days delay
+        env.storage()
+            .persistent()
+            .set(&DataKey::ArbiterRotationTimelock, &timelock);
+
+        env.events().publish(
+            (symbol_short!("Arbiter"), symbol_short!("Proposed")),
+            ArbiterRotationProposed {
+                new_arbiter,
+                unlock_time: timelock,
+            },
+        );
+    }
+
+    pub fn confirm_arbiter(env: Env) {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_error(ContractError::NotAdmin));
+        admin.require_auth();
+
+        let pending_arbiter: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PendingArbiter)
+            .unwrap_or_else(|| panic_error(ContractError::NoPendingArbiter));
+
+        let timelock: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::ArbiterRotationTimelock)
+            .unwrap_or_else(|| panic_error(ContractError::NoPendingArbiter));
+
+        if env.ledger().timestamp() < timelock {
+            panic_error(ContractError::TimelockNotElapsed);
+        }
+
+        let old_arbiter: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Arbiter)
+            .unwrap();
+
+        env.storage().persistent().set(&DataKey::Arbiter, &pending_arbiter);
+        env.storage().persistent().remove(&DataKey::PendingArbiter);
+        env.storage().persistent().remove(&DataKey::ArbiterRotationTimelock);
+
+        env.events().publish(
+            (symbol_short!("Arbiter"), symbol_short!("Confirmd")),
+            ArbiterRotationConfirmed {
+                old_arbiter,
+                new_arbiter: pending_arbiter,
+            },
+        );
+    }
+
+    /// Admin: set allowlist enabled state
+    pub fn set_allowlist_enabled(env: Env, admin: Address, enabled: bool) {
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_error(ContractError::NotAdmin));
+        if admin != stored_admin {
+            panic_error(ContractError::NotAdmin);
+        }
+        admin.require_auth();
+        let mut config = get_allowlist_config(&env);
+        config.enabled = enabled;
+        env.storage().instance().set(&DataKey::AllowlistConfig, &config);
+    }
+
+    /// Admin: add a token to the allowlist
+    pub fn add_allowed_token(env: Env, admin: Address, token: Address) {
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_error(ContractError::NotAdmin));
+        if admin != stored_admin {
+            panic_error(ContractError::NotAdmin);
+        }
+        admin.require_auth();
+        let mut config = get_allowlist_config(&env);
+        if !config.allowed_tokens.contains(&token) {
+            config.allowed_tokens.push_back(token.clone());
+            env.storage().instance().set(&DataKey::AllowlistConfig, &config);
+            env.events().publish(
+                (symbol_short!("allowlist"), symbol_short!("add")),
+                token,
+            );
+        }
+    }
+
+    /// Admin: remove a token from the allowlist
+    pub fn remove_allowed_token(env: Env, admin: Address, token: Address) {
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_error(ContractError::NotAdmin));
+        if admin != stored_admin {
+            panic_error(ContractError::NotAdmin);
+        }
+        admin.require_auth();
+        let mut config = get_allowlist_config(&env);
+        
+        if let Some(index) = config.allowed_tokens.first_index_of(&token) {
+            config.allowed_tokens.remove(index);
+            env.storage().instance().set(&DataKey::AllowlistConfig, &config);
+            env.events().publish(
+                (symbol_short!("allowlist"), symbol_short!("remove")),
+                token,
+            );
+        }
+    }
+}
+
+// ─── Helper Functions ────────────────────────────────────────────────────────
+
 fn read_bounty(env: &Env, bounty_id: u64) -> Bounty {
     env.storage()
         .persistent()
@@ -992,6 +1154,25 @@ fn expire_if_needed(env: &Env, bounty: &mut Bounty) {
     }
 }
 
+fn get_allowlist_config(env: &Env) -> AllowlistConfig {
+    env.storage()
+        .instance()
+        .get::<_, AllowlistConfig>(&DataKey::AllowlistConfig)
+        .unwrap_or_else(|| AllowlistConfig {
+            enabled: false,
+            allowed_tokens: Vec::new(env),
+        })
+}
+
+/// Check if a token is allowed to fund bounties
+fn is_token_allowed(env: &Env, token: Address) -> bool {
+    let config = get_allowlist_config(env);
+    if !config.enabled {
+        return true;
+    }
+    config.allowed_tokens.contains(token)
+}
+
 /// Atomically add `fee_amount` to the cumulative [`FeeStats`] in persistent storage.
 ///
 /// Called after every payout (normal release and dispute-release). When `fee_amount`
@@ -1006,7 +1187,10 @@ fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
             total_collected: 0,
             bounty_count: 0,
         });
+
     stats.total_collected += fee_amount;
     stats.bounty_count += 1;
+
     env.storage().persistent().set(&DataKey::FeeStats, &stats);
+
 }
