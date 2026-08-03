@@ -1,1 +1,508 @@
-[]
+[
+  {
+    "id": "BNT-0015",
+    "repo": "owner/repo",
+    "issueNumber": 123,
+    "title": "Contract test bounty",
+    "summary": "A sufficiently long summary for the contract test.",
+    "maintainer": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    "tokenSymbol": "XLM",
+    "tokenAddress": "CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA",
+    "amount": 10,
+    "labels": ["help wanted"],
+    "status": "released",
+    "createdAt": 1785748789,
+    "deadlineAt": 1786353589,
+    "version": 4,
+    "events": [
+      {
+        "type": "created",
+        "timestamp": 1785748789
+      },
+      {
+        "type": "reserved",
+        "timestamp": 1785748789,
+        "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF"
+      },
+      {
+        "type": "submitted",
+        "timestamp": 1785748789,
+        "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF"
+      },
+      {
+        "type": "released",
+        "timestamp": 1785748789,
+        "actor": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+      }
+    ],
+    "reservationTimeoutSeconds": 604800,
+    "contributor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "reservedAt": 1785748789,
+    "submittedAt": 1785748789,
+    "submissionUrl": "https://github.com/owner/repo/pull/1",
+    "releasedAt": 1785748789,
+    "protocolFeeCollected": 0
+  },
+  {
+    "id": "BNT-0014",
+    "repo": "test/repo",
+    "issueNumber": 9999,
+    "title": "UNIQUE_XYZZY_TITLE",
+    "summary": "some description",
+    "maintainer": "GAAAA",
+    "tokenSymbol": "XLM",
+    "tokenAddress": "CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA",
+    "amount": 10,
+    "labels": [],
+    "status": "open",
+    "createdAt": 1785748770,
+    "deadlineAt": 1788340770,
+    "version": 1,
+    "events": [
+      {
+        "type": "created",
+        "timestamp": 1785748770
+      }
+    ],
+    "reservationTimeoutSeconds": 604800
+  },
+  {
+    "id": "BNT-0013",
+    "repo": "owner/repo",
+    "issueNumber": 123,
+    "title": "Contract test bounty",
+    "summary": "A sufficiently long summary for the contract test.",
+    "maintainer": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    "tokenSymbol": "XLM",
+    "tokenAddress": "CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA",
+    "amount": 10,
+    "labels": ["help wanted"],
+    "status": "released",
+    "createdAt": 1785748586,
+    "deadlineAt": 1786353386,
+    "version": 4,
+    "events": [
+      {
+        "type": "created",
+        "timestamp": 1785748586
+      },
+      {
+        "type": "reserved",
+        "timestamp": 1785748586,
+        "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF"
+      },
+      {
+        "type": "submitted",
+        "timestamp": 1785748586,
+        "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF"
+      },
+      {
+        "type": "released",
+        "timestamp": 1785748586,
+        "actor": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+      }
+    ],
+    "reservationTimeoutSeconds": 604800,
+    "contributor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "reservedAt": 1785748586,
+    "submittedAt": 1785748586,
+    "submissionUrl": "https://github.com/owner/repo/pull/1",
+    "releasedAt": 1785748586,
+    "protocolFeeCollected": 0
+  },
+  {
+    "id": "BNT-0012",
+    "repo": "test/repo",
+    "issueNumber": 9999,
+    "title": "UNIQUE_XYZZY_TITLE",
+    "summary": "some description",
+    "maintainer": "GAAAA",
+    "tokenSymbol": "XLM",
+    "tokenAddress": "CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA",
+    "amount": 10,
+    "labels": [],
+    "status": "open",
+    "createdAt": 1785748578,
+    "deadlineAt": 1788340578,
+    "version": 1,
+    "events": [
+      {
+        "type": "created",
+        "timestamp": 1785748578
+      }
+    ],
+    "reservationTimeoutSeconds": 604800
+  },
+  {
+    "id": "BNT-0011",
+    "repo": "owner/repo",
+    "issueNumber": 123,
+    "title": "Contract test bounty",
+    "summary": "A sufficiently long summary for the contract test.",
+    "maintainer": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    "tokenSymbol": "XLM",
+    "tokenAddress": "CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA",
+    "amount": 10,
+    "labels": ["help wanted"],
+    "status": "released",
+    "createdAt": 1785748424,
+    "deadlineAt": 1786353224,
+    "version": 4,
+    "events": [
+      {
+        "type": "created",
+        "timestamp": 1785748424
+      },
+      {
+        "type": "reserved",
+        "timestamp": 1785748424,
+        "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF"
+      },
+      {
+        "type": "submitted",
+        "timestamp": 1785748424,
+        "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF"
+      },
+      {
+        "type": "released",
+        "timestamp": 1785748424,
+        "actor": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+      }
+    ],
+    "reservationTimeoutSeconds": 604800,
+    "contributor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "reservedAt": 1785748424,
+    "submittedAt": 1785748424,
+    "submissionUrl": "https://github.com/owner/repo/pull/1",
+    "releasedAt": 1785748424,
+    "protocolFeeCollected": 0
+  },
+  {
+    "id": "BNT-0010",
+    "repo": "test/repo",
+    "issueNumber": 9999,
+    "title": "UNIQUE_XYZZY_TITLE",
+    "summary": "some description",
+    "maintainer": "GAAAA",
+    "tokenSymbol": "XLM",
+    "tokenAddress": "CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA",
+    "amount": 10,
+    "labels": [],
+    "status": "open",
+    "createdAt": 1785748416,
+    "deadlineAt": 1788340416,
+    "version": 1,
+    "events": [
+      {
+        "type": "created",
+        "timestamp": 1785748416
+      }
+    ],
+    "reservationTimeoutSeconds": 604800
+  },
+  {
+    "id": "BNT-0009",
+    "repo": "owner/repo",
+    "issueNumber": 123,
+    "title": "Contract test bounty",
+    "summary": "A sufficiently long summary for the contract test.",
+    "maintainer": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    "tokenSymbol": "XLM",
+    "tokenAddress": "CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA",
+    "amount": 10,
+    "labels": ["help wanted"],
+    "status": "released",
+    "createdAt": 1785748275,
+    "deadlineAt": 1786353075,
+    "version": 4,
+    "events": [
+      {
+        "type": "created",
+        "timestamp": 1785748275
+      },
+      {
+        "type": "reserved",
+        "timestamp": 1785748275,
+        "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF"
+      },
+      {
+        "type": "submitted",
+        "timestamp": 1785748275,
+        "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF"
+      },
+      {
+        "type": "released",
+        "timestamp": 1785748275,
+        "actor": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+      }
+    ],
+    "reservationTimeoutSeconds": 604800,
+    "contributor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "reservedAt": 1785748275,
+    "submittedAt": 1785748275,
+    "submissionUrl": "https://github.com/owner/repo/pull/1",
+    "releasedAt": 1785748275,
+    "protocolFeeCollected": 0
+  },
+  {
+    "id": "BNT-0008",
+    "repo": "test/repo",
+    "issueNumber": 9999,
+    "title": "UNIQUE_XYZZY_TITLE",
+    "summary": "some description",
+    "maintainer": "GAAAA",
+    "tokenSymbol": "XLM",
+    "tokenAddress": "CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA",
+    "amount": 10,
+    "labels": [],
+    "status": "open",
+    "createdAt": 1785748265,
+    "deadlineAt": 1788340265,
+    "version": 1,
+    "events": [
+      {
+        "type": "created",
+        "timestamp": 1785748265
+      }
+    ],
+    "reservationTimeoutSeconds": 604800
+  },
+  {
+    "id": "BNT-0007",
+    "repo": "owner/repo",
+    "issueNumber": 123,
+    "title": "Contract test bounty",
+    "summary": "A sufficiently long summary for the contract test.",
+    "maintainer": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    "tokenSymbol": "XLM",
+    "tokenAddress": "CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA",
+    "amount": 10,
+    "labels": ["help wanted"],
+    "status": "released",
+    "createdAt": 1785748189,
+    "deadlineAt": 1786352989,
+    "version": 4,
+    "events": [
+      {
+        "type": "created",
+        "timestamp": 1785748189
+      },
+      {
+        "type": "reserved",
+        "timestamp": 1785748189,
+        "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF"
+      },
+      {
+        "type": "submitted",
+        "timestamp": 1785748189,
+        "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF"
+      },
+      {
+        "type": "released",
+        "timestamp": 1785748189,
+        "actor": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+      }
+    ],
+    "reservationTimeoutSeconds": 604800,
+    "contributor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "reservedAt": 1785748189,
+    "submittedAt": 1785748189,
+    "submissionUrl": "https://github.com/owner/repo/pull/1",
+    "releasedAt": 1785748189,
+    "protocolFeeCollected": 0
+  },
+  {
+    "id": "BNT-0006",
+    "repo": "test/repo",
+    "issueNumber": 9999,
+    "title": "UNIQUE_XYZZY_TITLE",
+    "summary": "some description",
+    "maintainer": "GAAAA",
+    "tokenSymbol": "XLM",
+    "tokenAddress": "CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA",
+    "amount": 10,
+    "labels": [],
+    "status": "open",
+    "createdAt": 1785748184,
+    "deadlineAt": 1788340184,
+    "version": 1,
+    "events": [
+      {
+        "type": "created",
+        "timestamp": 1785748184
+      }
+    ],
+    "reservationTimeoutSeconds": 604800
+  },
+  {
+    "id": "BNT-0005",
+    "repo": "owner/repo",
+    "issueNumber": 123,
+    "title": "Contract test bounty",
+    "summary": "A sufficiently long summary for the contract test.",
+    "maintainer": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    "tokenSymbol": "XLM",
+    "tokenAddress": "CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA",
+    "amount": 10,
+    "labels": ["help wanted"],
+    "status": "released",
+    "createdAt": 1785748103,
+    "deadlineAt": 1786352903,
+    "version": 4,
+    "events": [
+      {
+        "type": "created",
+        "timestamp": 1785748103
+      },
+      {
+        "type": "reserved",
+        "timestamp": 1785748103,
+        "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF"
+      },
+      {
+        "type": "submitted",
+        "timestamp": 1785748103,
+        "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF"
+      },
+      {
+        "type": "released",
+        "timestamp": 1785748103,
+        "actor": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+      }
+    ],
+    "reservationTimeoutSeconds": 604800,
+    "contributor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "reservedAt": 1785748103,
+    "submittedAt": 1785748103,
+    "submissionUrl": "https://github.com/owner/repo/pull/1",
+    "releasedAt": 1785748103,
+    "protocolFeeCollected": 0
+  },
+  {
+    "id": "BNT-0004",
+    "repo": "owner/repo",
+    "issueNumber": 123,
+    "title": "Contract test bounty",
+    "summary": "A sufficiently long summary for the contract test.",
+    "maintainer": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    "tokenSymbol": "XLM",
+    "tokenAddress": "CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA",
+    "amount": 10,
+    "labels": ["help wanted"],
+    "status": "released",
+    "createdAt": 1785748010,
+    "deadlineAt": 1786352810,
+    "version": 4,
+    "events": [
+      {
+        "type": "created",
+        "timestamp": 1785748010
+      },
+      {
+        "type": "reserved",
+        "timestamp": 1785748010,
+        "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF"
+      },
+      {
+        "type": "submitted",
+        "timestamp": 1785748010,
+        "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF"
+      },
+      {
+        "type": "released",
+        "timestamp": 1785748010,
+        "actor": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+      }
+    ],
+    "reservationTimeoutSeconds": 604800,
+    "contributor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "reservedAt": 1785748010,
+    "submittedAt": 1785748010,
+    "submissionUrl": "https://github.com/owner/repo/pull/1",
+    "releasedAt": 1785748010,
+    "protocolFeeCollected": 0
+  },
+  {
+    "id": "BNT-0003",
+    "repo": "owner/repo",
+    "issueNumber": 123,
+    "title": "Contract test bounty",
+    "summary": "A sufficiently long summary for the contract test.",
+    "maintainer": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    "tokenSymbol": "XLM",
+    "tokenAddress": "CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA",
+    "amount": 10,
+    "labels": ["help wanted"],
+    "status": "reserved",
+    "createdAt": 1785746155,
+    "deadlineAt": 1786350955,
+    "version": 2,
+    "events": [
+      {
+        "type": "created",
+        "timestamp": 1785746155
+      },
+      {
+        "type": "reserved",
+        "timestamp": 1785746155,
+        "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF"
+      }
+    ],
+    "reservationTimeoutSeconds": 604800,
+    "contributor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "reservedAt": 1785746155
+  },
+  {
+    "id": "BNT-0002",
+    "repo": "test/repo",
+    "issueNumber": 9999,
+    "title": "UNIQUE_XYZZY_TITLE",
+    "summary": "some description",
+    "maintainer": "GAAAA",
+    "tokenSymbol": "XLM",
+    "tokenAddress": "CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA",
+    "amount": 10,
+    "labels": [],
+    "status": "open",
+    "createdAt": 1785746011,
+    "deadlineAt": 1788338011,
+    "version": 1,
+    "events": [
+      {
+        "type": "created",
+        "timestamp": 1785746011
+      }
+    ],
+    "reservationTimeoutSeconds": 604800
+  },
+  {
+    "id": "BNT-0001",
+    "repo": "owner/repo",
+    "issueNumber": 123,
+    "title": "Contract test bounty",
+    "summary": "A sufficiently long summary for the contract test.",
+    "maintainer": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    "tokenSymbol": "XLM",
+    "tokenAddress": "CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA",
+    "amount": 10,
+    "labels": ["help wanted"],
+    "status": "reserved",
+    "createdAt": 1785746000,
+    "deadlineAt": 1786350800,
+    "version": 2,
+    "events": [
+      {
+        "type": "created",
+        "timestamp": 1785746000
+      },
+      {
+        "type": "reserved",
+        "timestamp": 1785746000,
+        "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF"
+      }
+    ],
+    "reservationTimeoutSeconds": 604800,
+    "contributor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "reservedAt": 1785746000
+  }
+]

@@ -21,9 +21,9 @@ export function useWallet() {
         return;
       }
 
-      const publicKey = await requestAccess();
-      if (publicKey) {
-        setAddress(publicKey);
+      const result = await requestAccess();
+      if (result.address) {
+        setAddress(result.address);
       }
     } catch (error) {
       console.error('Failed to connect to Freighter:', error);

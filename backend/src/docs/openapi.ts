@@ -128,11 +128,11 @@ registry.registerPath({
       }),
       deadlineBefore: z.string().optional().openapi({
         description: "Filter bounties with deadline before this ISO 8601 date string.",
-        example: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        example: "2026-09-01T00:00:00.000Z",
       }),
       deadlineAfter: z.string().optional().openapi({
         description: "Filter bounties with deadline after this ISO 8601 date string.",
-        example: new Date().toISOString(),
+        example: "2026-08-01T00:00:00.000Z",
       }),
       page: z.number().int().min(1).optional().openapi({
         description: "Page number (starts at 1, default 1).",

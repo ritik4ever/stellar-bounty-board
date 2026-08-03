@@ -86,7 +86,7 @@ function resolveRequestId(req: Request): string {
 }
 
 function requestContextMiddleware(req: Request, res: Response, next: NextFunction): void {
-  req.requestId = req.id as string;
+  req.requestId = (req as unknown as Record<string, unknown>).id as string;
   res.setHeader('X-Request-ID', req.requestId);
 
   const start = process.hrtime.bigint();
@@ -100,7 +100,7 @@ function requestContextMiddleware(req: Request, res: Response, next: NextFunctio
       {
         method: req.method,
         route: req.route?.path || req.path,
-        status_code: res.statusCode,
+        status_code: String(res.statusCode),
       },
       durationSec
     );
@@ -125,19 +125,14 @@ app.use(
 app.use(
   pinoHttp({
     logger: logger as any,
-    genReqId: (req) => resolveRequestId(req),
-    customLogLevel: (req, res, err) => {
-      if (res.statusCode >= 500 || err) return 'error';
-      if (res.statusCode >= 400) return 'warn';
-      return 'info';
-    },
+    genReqId: ((req: any, _res: any) => resolveRequestId(req as Request)) as any,
     autoLogging: {
-      ignore: (req) => {
+      ignore: ((req: any) => {
         const url = req.url ?? '';
         return url === '/api/health' || url === '/api/health/deep' || url === '/worker/health';
-      },
+      }) as any,
     },
-  })
+  } as any)
 );
 app.use(requestContextMiddleware);
 
@@ -956,12 +951,13 @@ app.get(
   },
 );
 
-app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-  if ((err as any).type === 'entity.too.large') {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(app as any).use((err: any, req: any, res: any, next: any) => {
+  if (err.type === 'entity.too.large') {
     res.status(413).json({ error: 'Payload too large', maxBytes: 32768 });
     return;
   }
-  if (err instanceof SyntaxError && (err as any).type === 'entity.parse.failed' && (err as any).body) {
+  if ((err.type === 'entity.parse.failed' || err.status === 400) && err.body) {
     res.status(400).json({ error: 'Invalid JSON' });
     return;
   }

@@ -18,6 +18,8 @@ vi.mock('./api', () => ({
   submitBounty: vi.fn(),
   releaseBounty: vi.fn(),
   refundBounty: vi.fn(),
+  releaseBountySigned: vi.fn(),
+  refundBountySigned: vi.fn(),
   listBounties: vi.fn().mockResolvedValue([]),
   listOpenIssues: vi.fn().mockResolvedValue([]),
   getBounty: vi.fn(),
@@ -25,6 +27,28 @@ vi.mock('./api', () => ({
 }));
 
 import * as api from './api';
+
+// Mock useFreighter to return connected state from the start
+vi.mock('./hooks/useFreighter', () => ({
+  useFreighter: () => ({
+    isConnected: true,
+    publicKey: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
+    isOnCorrectNetwork: true,
+    error: null,
+    connecting: false,
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+    signPayload: vi
+      .fn()
+      .mockResolvedValue({
+        signature: 'mock-signature',
+        publicKey: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
+      }),
+  }),
+  STELLAR_NETWORK_PASSPHRASE: 'Test SDF Network ; September 2015',
+  STELLAR_NETWORK: 'TESTNET',
+}));
+
 import App from './App';
 
 const baseBounty: Bounty = {
@@ -50,6 +74,24 @@ beforeEach(() => {
   vi.mocked(api.listOpenIssues).mockResolvedValue([]);
   window.prompt = vi.fn();
   window.alert = vi.fn();
+
+  // Mock Freighter wallet for release/refund flows
+  Object.defineProperty(window, 'freighter', {
+    writable: true,
+    value: {
+      isConnected: vi.fn().mockResolvedValue({ isConnected: true }),
+      getPublicKey: vi
+        .fn()
+        .mockResolvedValue('GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF'),
+      getNetwork: vi
+        .fn()
+        .mockResolvedValue({
+          network: 'TESTNET',
+          networkPassphrase: 'Test SDF Network ; September 2015',
+        }),
+      signMessage: vi.fn().mockResolvedValue({ signature: 'mock-signature' }),
+    },
+  });
 });
 
 describe('Toast notifications for async bounty actions', () => {
@@ -105,9 +147,7 @@ describe('Toast notifications for async bounty actions', () => {
 
     vi.mocked(api.listBounties).mockResolvedValue([bounty]);
 
-    vi.mocked(window.prompt).mockReturnValueOnce(baseBounty.maintainer).mockReturnValueOnce('');
-
-    vi.mocked(api.releaseBounty).mockResolvedValue({
+    vi.mocked(api.releaseBountySigned).mockResolvedValue({
       ...bounty,
       status: 'released',
     });
@@ -132,9 +172,7 @@ describe('Toast notifications for async bounty actions', () => {
 
     vi.mocked(api.listBounties).mockResolvedValue([bounty]);
 
-    vi.mocked(window.prompt).mockReturnValueOnce(baseBounty.maintainer).mockReturnValueOnce('');
-
-    vi.mocked(api.refundBounty).mockResolvedValue({
+    vi.mocked(api.refundBountySigned).mockResolvedValue({
       ...bounty,
       status: 'refunded',
     });
