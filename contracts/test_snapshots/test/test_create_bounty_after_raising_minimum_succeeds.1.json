@@ -40,6 +40,25 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
+                  "i128": "10000"
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "function_name": "set_min_bounty_amount",
+              "args": [
+                {
                   "i128": "1000"
                 }
               ]
@@ -65,7 +84,7 @@
                   "address": "CD3FXVGYSLQFFTW3UH6WFF2OKZH7VERGZJZAMJHTGHBWO4F6URWEJL23"
                 },
                 {
-                  "i128": "500"
+                  "i128": "1000"
                 },
                 {
                   "string": "repo"
@@ -100,7 +119,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
                     },
                     {
-                      "i128": "500"
+                      "i128": "1000"
                     }
                   ]
                 }
@@ -237,7 +256,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "500"
+                      "i128": "1000"
                     }
                   },
                   {
@@ -408,7 +427,7 @@
               },
               "durability": "persistent",
               "val": {
-                "i128": "100"
+                "i128": "1000"
               }
             }
           },
@@ -472,6 +491,26 @@
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
               "key": {
                 "ledger_key_nonce": {
+                  "nonce": "4837995959683129791"
+                }
+              },
+              "durability": "temporary",
+              "val": "void"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 6311999
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
+              "key": {
+                "ledger_key_nonce": {
                   "nonce": "1033654523790656264"
                 }
               },
@@ -528,7 +567,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "500"
+                      "i128": "1000"
                     }
                   },
                   {
@@ -580,7 +619,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "500"
+                      "i128": "9000"
                     }
                   },
                   {

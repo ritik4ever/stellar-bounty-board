@@ -65,7 +65,7 @@
                   "address": "CD3FXVGYSLQFFTW3UH6WFF2OKZH7VERGZJZAMJHTGHBWO4F6URWEJL23"
                 },
                 {
-                  "i128": "500"
+                  "i128": "100"
                 },
                 {
                   "string": "repo"
@@ -100,7 +100,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
                     },
                     {
-                      "i128": "500"
+                      "i128": "100"
                     }
                   ]
                 }
@@ -237,7 +237,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "500"
+                      "i128": "100"
                     }
                   },
                   {
@@ -528,7 +528,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "500"
+                      "i128": "100"
                     }
                   },
                   {
@@ -580,7 +580,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "500"
+                      "i128": "900"
                     }
                   },
                   {
