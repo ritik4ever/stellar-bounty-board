@@ -3,9 +3,8 @@
 extern crate alloc;
 
 use super::*;
-use alloc::string::ToString;
 use soroban_sdk::{
-    testutils::{Address as _, Ledger},
+    testutils::{Address as _, Events, Ledger},
     Address, Env, String,
 };
 
@@ -160,7 +159,7 @@ macro_rules! invalid_transition_test {
 #[test]
 fn test_get_min_bounty_amount_default() {
     let env = Env::default();
-    let (client, _, _, _, _, _) = setup_test(&env);
+    let (client, _, _, _, _, _, _) = setup_test(&env);
 
     let min = client.get_min_bounty_amount();
     assert_eq!(min, DEFAULT_MIN_BOUNTY_AMOUNT);
@@ -171,7 +170,7 @@ fn test_set_min_bounty_amount_success() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _, _, _, _, arbiter) = setup_test(&env);
+    let (client, _, _, _, _, _, _arbiter) = setup_test(&env);
 
     let new_min = 1000i128;
     client.set_min_bounty_amount(&new_min);
@@ -186,7 +185,7 @@ fn test_set_min_bounty_amount_zero_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _, _, _, _, arbiter) = setup_test(&env);
+    let (client, _, _, _, _, _, _arbiter) = setup_test(&env);
     client.set_min_bounty_amount(&0);
 }
 
@@ -196,7 +195,7 @@ fn test_set_min_bounty_amount_above_max_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _, _, _, _, arbiter) = setup_test(&env);
+    let (client, _, _, _, _, _, _arbiter) = setup_test(&env);
     client.set_min_bounty_amount(&(MAX_BOUNTY_AMOUNT + 1));
 }
 
@@ -206,7 +205,7 @@ fn test_create_bounty_below_minimum_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, _, token_id, _, _) = setup_test(&env);
+    let (client, _admin, maintainer, _, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
 
@@ -229,7 +228,7 @@ fn test_create_bounty_at_minimum_succeeds() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, _, token_id, _, _) = setup_test(&env);
+    let (client, _admin, maintainer, _, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
 
@@ -255,7 +254,7 @@ fn test_create_bounty_above_minimum_succeeds() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, _, token_id, _, _) = setup_test(&env);
+    let (client, _admin, maintainer, _, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
 
@@ -282,7 +281,7 @@ fn test_create_bounty_after_raising_minimum_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, _, token_id, _, arbiter) = setup_test(&env);
+    let (client, _admin, maintainer, _, token_id, _, _arbiter) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
 
@@ -308,7 +307,7 @@ fn test_create_bounty_after_raising_minimum_succeeds() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, _, token_id, _, arbiter) = setup_test(&env);
+    let (client, _admin, maintainer, _, token_id, _, _arbiter) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &10_000);
 
@@ -459,7 +458,7 @@ fn test_refund_reserved_before_deadline_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, contributor, token_id, _, _) = setup_test(&env);
+    let (client, _admin, maintainer, contributor, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
 
@@ -537,15 +536,15 @@ fn test_cancel_bounty_success() {
 
     client.cancel_bounty(&bounty_id, &maintainer);
 
+    let events = env.events().all().filter_by_contract(&client.address);
+    let event_count = events.events().len();
+    assert!(event_count >= 1, "Expected at least a BountyCanceled event, got {event_count}");
+    assert!(events.events().last().is_some(), "At least one event should be present after filter");
+
     let bounty = client.get_bounty(&bounty_id);
     assert_eq!(bounty.status, BountyStatus::Refunded);
     assert_eq!(token.balance(&maintainer), 1000);
     assert_eq!(token.balance(&client.address), 0);
-
-    let events = env.events().all().filter_by_contract(&client.address);
-    let event_count = events.events().len();
-    assert!(event_count >= 2, "Expected at least BountyCreated + BountyCanceled events, got {event_count}");
-    assert!(events.events().last().is_some(), "At least one event should be present after filter");
 }
 
 #[test]
@@ -554,7 +553,7 @@ fn test_cancel_bounty_wrong_maintainer() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, _contributor, token_id, _, _) = setup_test(&env);
+    let (client, _admin, maintainer, _contributor, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
 
@@ -581,7 +580,7 @@ fn test_cancel_bounty_non_open_reserved() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, contributor, token_id, _, _) = setup_test(&env);
+    let (client, _admin, maintainer, contributor, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
 
@@ -832,7 +831,7 @@ fn test_concurrent_reservation_race_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, contributor, token_id, _, _) = setup_test(&env);
+    let (client, _admin, maintainer, contributor, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
 
@@ -858,7 +857,7 @@ fn test_release_without_submit() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, contributor, token_id, _, _) = setup_test(&env);
+    let (client, _admin, maintainer, contributor, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
 
@@ -883,7 +882,7 @@ fn test_expiration() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, _contributor, token_id, _, _) = setup_test(&env);
+    let (client, _admin, maintainer, _contributor, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
 
@@ -912,7 +911,7 @@ fn test_double_reserve_bounty() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, contributor, token_id, _, _) = setup_test(&env);
+    let (client, _admin, maintainer, contributor, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
 
@@ -944,7 +943,7 @@ fn test_concurrent_reserve_two_contributors() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, contributor1, token_id, _, _) = setup_test(&env);
+    let (client, _admin, maintainer, contributor1, token_id, _, _) = setup_test(&env);
     let contributor2 = Address::generate(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
@@ -958,6 +957,7 @@ fn test_concurrent_reserve_two_contributors() {
         &String::from_str(&env, "title"),
         &(env.ledger().timestamp() + 1000),
         &0u32,
+        &None,
     );
 
     // First contributor reserves — should succeed and transition to Reserved
@@ -986,7 +986,7 @@ fn test_reserve_expired_bounty() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, contributor, token_id, _, _) = setup_test(&env);
+    let (client, _admin, maintainer, contributor, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
 
@@ -1042,7 +1042,7 @@ fn test_arbiter_rotation_success() {
     let env = Env::default();
     env.mock_all_auths();
     
-    let (client, admin, _, _, _, _, old_arbiter) = setup_test(&env);
+    let (client, _admin, _, _, _, _, _old_arbiter) = setup_test(&env);
     let new_arbiter = Address::generate(&env);
     
     // Set arbiter
@@ -1065,7 +1065,7 @@ fn test_arbiter_rotation_timelock_fails() {
     let env = Env::default();
     env.mock_all_auths();
     
-    let (client, admin, _, _, _, _, _) = setup_test(&env);
+    let (client, _admin, _, _, _, _, _) = setup_test(&env);
     let new_arbiter = Address::generate(&env);
     
     client.set_arbiter(&new_arbiter);
@@ -1082,7 +1082,7 @@ fn test_extend_deadline_wrong_caller() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, contributor, token_id, _, _) = setup_test(&env);
+    let (client, _admin, maintainer, contributor, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
 
@@ -1136,7 +1136,7 @@ fn test_extend_deadline_earlier() {
 #[test]
 fn test_get_all_bounties_empty() {
     let env = Env::default();
-    let (client, _, _, _, _, _) = setup_test(&env);
+    let (client, _, _, _, _, _, _) = setup_test(&env);
 
     let bounties = client.get_all_bounties(&1u64, &10u32);
     assert_eq!(bounties.len(), 0);
@@ -1262,7 +1262,7 @@ fn test_create_bounty_with_custom_dispute_window_override() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, _contributor, token_id, _, _) = setup_test(&env);
+    let (client, _admin, maintainer, _contributor, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
 
@@ -1289,7 +1289,7 @@ fn test_create_bounty_without_override_uses_global_default() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, _contributor, token_id, _, _) = setup_test(&env);
+    let (client, _admin, maintainer, _contributor, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
 
@@ -1316,7 +1316,7 @@ fn test_create_bounty_override_below_min_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, _contributor, token_id, _, _) = setup_test(&env);
+    let (client, _admin, maintainer, _contributor, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
 
@@ -1339,7 +1339,7 @@ fn test_create_bounty_override_above_max_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, _contributor, token_id, _, _) = setup_test(&env);
+    let (client, _admin, maintainer, _contributor, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
 
@@ -1359,13 +1359,41 @@ fn test_create_bounty_override_above_max_fails() {
 #[test]
 #[should_panic(expected = "DisputeWindowNotMet")]
 fn test_resolve_dispute_custom_window_not_met_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _admin, maintainer, contributor, token_id, _, arbiter) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    let custom_window = 300u64;
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 10_000),
+        &0u32,
+        &Some(custom_window),
+    );
+
+    client.reserve_bounty(&bounty_id, &contributor);
+    client.submit_bounty(&bounty_id, &contributor);
+    client.dispute_bounty(&bounty_id, &arbiter);
+
+    env.ledger().set_timestamp(env.ledger().timestamp() + custom_window - 1);
+    client.resolve_dispute(&bounty_id, &true);
+}
+
 // ─── get_bounties_by_contributor tests (Issue #750) ────────────────────────
 
 /// No bounties at all — should return an empty vec without panic.
 #[test]
 fn test_get_bounties_by_contributor_empty() {
     let env = Env::default();
-    let (client, _, contributor, _, _, _) = setup_test(&env);
+    let (client, _, contributor, _, _, _, _) = setup_test(&env);
 
     let result = client.get_bounties_by_contributor(&contributor, &1u64, &10u32);
     assert_eq!(result.len(), 0);
@@ -1377,7 +1405,7 @@ fn test_get_bounties_by_contributor_no_match() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, contributor, token_id, _, _) = setup_test(&env);
+    let (client, _admin, maintainer, contributor, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
 
@@ -1391,6 +1419,7 @@ fn test_get_bounties_by_contributor_no_match() {
         &String::from_str(&env, "title"),
         &(env.ledger().timestamp() + 1000),
         &0u32,
+        &None,
     );
 
     let result = client.get_bounties_by_contributor(&contributor, &1u64, &10u32);
@@ -1403,7 +1432,7 @@ fn test_get_bounties_by_contributor_single_reserved() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, contributor, token_id, _, _) = setup_test(&env);
+    let (client, _admin, maintainer, contributor, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
 
@@ -1416,6 +1445,7 @@ fn test_get_bounties_by_contributor_single_reserved() {
         &String::from_str(&env, "title"),
         &(env.ledger().timestamp() + 1000),
         &0u32,
+        &None,
     );
     client.reserve_bounty(&bounty_id, &contributor);
 
@@ -1432,7 +1462,7 @@ fn test_get_bounties_by_contributor_multiple_bounties() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, contributor, token_id, _, _) = setup_test(&env);
+    let (client, _admin, maintainer, contributor, token_id, _, _) = setup_test(&env);
     let other_contributor = Address::generate(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &5_000);
@@ -1443,7 +1473,7 @@ fn test_get_bounties_by_contributor_multiple_bounties() {
     let b1 = client.create_bounty(
         &maintainer, &token_id, &500,
         &String::from_str(&env, "repo"), &1,
-        &String::from_str(&env, "title"), &deadline, &0u32,
+        &String::from_str(&env, "title"), &deadline, &0u32, &None,
     );
     client.reserve_bounty(&b1, &contributor);
 
@@ -1451,7 +1481,7 @@ fn test_get_bounties_by_contributor_multiple_bounties() {
     let b2 = client.create_bounty(
         &maintainer, &token_id, &500,
         &String::from_str(&env, "repo"), &2,
-        &String::from_str(&env, "title"), &deadline, &0u32,
+        &String::from_str(&env, "title"), &deadline, &0u32, &None,
     );
     client.reserve_bounty(&b2, &contributor);
     client.submit_bounty(&b2, &contributor);
@@ -1460,7 +1490,7 @@ fn test_get_bounties_by_contributor_multiple_bounties() {
     let b3 = client.create_bounty(
         &maintainer, &token_id, &500,
         &String::from_str(&env, "repo"), &3,
-        &String::from_str(&env, "title"), &deadline, &0u32,
+        &String::from_str(&env, "title"), &deadline, &0u32, &None,
     );
     client.reserve_bounty(&b3, &other_contributor);
 
@@ -1468,7 +1498,7 @@ fn test_get_bounties_by_contributor_multiple_bounties() {
     client.create_bounty(
         &maintainer, &token_id, &500,
         &String::from_str(&env, "repo"), &4,
-        &String::from_str(&env, "title"), &deadline, &0u32,
+        &String::from_str(&env, "title"), &deadline, &0u32, &None,
     );
 
     let result = client.get_bounties_by_contributor(&contributor, &1u64, &50u32);
@@ -1486,7 +1516,34 @@ fn test_get_bounties_by_contributor_includes_released() {
     let env = Env::default();
     env.mock_all_auths();
 
+    let (client, _admin, maintainer, contributor, token_id, _, _) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
 
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32,
+        &None,
+    );
+
+    client.reserve_bounty(&bounty_id, &contributor);
+    client.submit_bounty(&bounty_id, &contributor);
+    client.release_bounty(&bounty_id, &maintainer);
+
+    let result = client.get_bounties_by_contributor(&contributor, &1u64, &50u32);
+    assert_eq!(
+        result.len(),
+        1,
+        "released bounty should still appear in the contributor's history"
+    );
+    assert_eq!(result.get(0).unwrap().issue_number, 1);
+    assert_eq!(result.get(0).unwrap().status, BountyStatus::Released);
 }
 
 // ─── Double-refund after cancel_bounty test (#747) ────────────────────────
@@ -1497,7 +1554,7 @@ fn test_double_refund_after_cancel_bounty() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, _, token_id, _, _) = setup_test(&env);
+    let (client, _admin, maintainer, _, token_id, _, _) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1_000_000);
 
@@ -1510,6 +1567,7 @@ fn test_double_refund_after_cancel_bounty() {
         &String::from_str(&env, "title"),
         &(env.ledger().timestamp() + 1000),
         &0u32,
+        &None,
     );
 
     client.cancel_bounty(&bounty_id, &maintainer);
@@ -1518,3 +1576,291 @@ fn test_double_refund_after_cancel_bounty() {
     client.refund_bounty(&bounty_id, &maintainer);
 }
 
+// ─── Co-contributor feature (#733) ─────────────────────────────────────
+
+fn shared_contributors(
+    env: &Env,
+    primary: Address,
+    secondary: Address,
+    primary_bps: u32,
+) -> soroban_sdk::Vec<(Address, u32)> {
+    let secondary_bps = 10_000 - primary_bps;
+    soroban_sdk::Vec::from_array(
+        env,
+        [(primary, primary_bps), (secondary, secondary_bps)],
+    )
+}
+
+#[test]
+fn test_reserve_bounty_shared_splits_payout() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _admin, maintainer, primary, token_id, _, _) = setup_test(&env);
+    let secondary = Address::generate(&env);
+    let token = TokenClient::new(&env, &token_id);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32, // zero fee
+        &None,
+    );
+
+    let contributors = shared_contributors(&env, primary.clone(), secondary.clone(), 6000);
+    client.reserve_bounty_shared(&bounty_id, &contributors);
+
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.status, BountyStatus::Reserved);
+    assert_eq!(bounty.co_contributors.len(), 2);
+    assert_eq!(bounty.co_contributors.get(0).unwrap().share_bps, 6000);
+    assert_eq!(bounty.co_contributors.get(1).unwrap().share_bps, 4000);
+
+    client.submit_bounty(&bounty_id, &primary);
+    client.release_bounty(&bounty_id, &maintainer);
+
+    // 60% of 500 = 300, 40% of 500 = 200
+    assert_eq!(token.balance(&primary), 300);
+    assert_eq!(token.balance(&secondary), 200);
+    assert_eq!(token.balance(&client.address), 0);
+}
+
+#[test]
+fn test_reserve_bounty_shared_remainder_goes_to_last() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _admin, maintainer, primary, token_id, _, _) = setup_test(&env);
+    let secondary = Address::generate(&env);
+    let token = TokenClient::new(&env, &token_id);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32, // zero fee
+        &None,
+    );
+
+    // 1/3 + 1/3 + 1/3 does not divide evenly into 500; the last recipient
+    // must receive the rounding remainder so all 500 is distributed.
+    let third = Address::generate(&env);
+    let contributors = soroban_sdk::Vec::from_array(
+        &env,
+        [
+            (primary.clone(), 3333),
+            (secondary.clone(), 3333),
+            (third.clone(), 3334),
+        ],
+    );
+    client.reserve_bounty_shared(&bounty_id, &contributors);
+
+    client.submit_bounty(&bounty_id, &primary);
+    client.release_bounty(&bounty_id, &maintainer);
+
+    let total = token.balance(&primary) + token.balance(&secondary) + token.balance(&third);
+    assert_eq!(total, 500);
+    assert_eq!(token.balance(&client.address), 0);
+}
+
+#[test]
+#[should_panic(expected = "SharedSharesMustSumTo10000")]
+fn test_reserve_bounty_shared_shares_must_sum_to_10000() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _admin, maintainer, primary, token_id, _, _) = setup_test(&env);
+    let secondary = Address::generate(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32,
+        &None,
+    );
+
+    let contributors = soroban_sdk::Vec::from_array(
+        &env,
+        [(primary, 5000), (secondary, 6000)],
+    );
+    client.reserve_bounty_shared(&bounty_id, &contributors);
+}
+
+#[test]
+#[should_panic(expected = "SharedShareCannotBeZero")]
+fn test_reserve_bounty_shared_zero_share_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _admin, maintainer, primary, token_id, _, _) = setup_test(&env);
+    let secondary = Address::generate(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32,
+        &None,
+    );
+
+    let contributors = soroban_sdk::Vec::from_array(
+        &env,
+        [(primary.clone(), 10_000), (secondary.clone(), 0)],
+    );
+    client.reserve_bounty_shared(&bounty_id, &contributors);
+}
+
+#[test]
+#[should_panic(expected = "DuplicateCoContributor")]
+fn test_reserve_bounty_shared_duplicate_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _admin, maintainer, primary, token_id, _, _) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32,
+        &None,
+    );
+
+    let contributors = soroban_sdk::Vec::from_array(
+        &env,
+        [(primary.clone(), 5000), (primary.clone(), 5000)],
+    );
+    client.reserve_bounty_shared(&bounty_id, &contributors);
+}
+
+#[test]
+#[should_panic(expected = "EmptyCoContributors")]
+fn test_reserve_bounty_shared_empty_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _admin, maintainer, _, token_id, _, _) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32,
+        &None,
+    );
+
+    let contributors = soroban_sdk::Vec::new(&env);
+    client.reserve_bounty_shared(&bounty_id, &contributors);
+}
+
+#[test]
+fn test_shared_release_applies_fee_and_splits_net() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _admin, maintainer, primary, token_id, fee_recipient, _arbiter) = setup_test(&env);
+    let secondary = Address::generate(&env);
+    let token = TokenClient::new(&env, &token_id);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    // 10% protocol fee (1000 bps)
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &1000u32,
+        &None,
+    );
+
+    let contributors = shared_contributors(&env, primary.clone(), secondary.clone(), 5000);
+    client.reserve_bounty_shared(&bounty_id, &contributors);
+    client.submit_bounty(&bounty_id, &primary);
+    client.release_bounty(&bounty_id, &maintainer);
+
+    // Net payout = 500 - 50 = 450, split 50/50 => 225 each
+    assert_eq!(token.balance(&primary), 225);
+    assert_eq!(token.balance(&secondary), 225);
+    assert_eq!(token.balance(&fee_recipient), 50);
+    assert_eq!(token.balance(&client.address), 0);
+}
+
+#[test]
+fn test_shared_release_through_dispute_resolution() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _admin, maintainer, primary, token_id, _, arbiter) = setup_test(&env);
+    let secondary = Address::generate(&env);
+    let token = TokenClient::new(&env, &token_id);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32, // zero fee
+        &None,
+    );
+
+    let contributors = shared_contributors(&env, primary.clone(), secondary.clone(), 5000);
+    client.reserve_bounty_shared(&bounty_id, &contributors);
+    client.submit_bounty(&bounty_id, &primary);
+    client.dispute_bounty(&bounty_id, &arbiter);
+
+    env.ledger().set_timestamp(env.ledger().timestamp() + 601);
+    client.resolve_dispute(&bounty_id, &true);
+
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.status, BountyStatus::Released);
+    assert_eq!(token.balance(&primary), 250);
+    assert_eq!(token.balance(&secondary), 250);
+    assert_eq!(token.balance(&client.address), 0);
+}

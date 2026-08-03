@@ -1,7 +1,6 @@
 node_modules/
 dist/
 frontend/storybook-static/
-.env
 *.log
 .DS_Store
 backend/data/*.local.json
@@ -11,3 +10,4 @@ contracts/.stellar/
 issue.md
 pr.md
 frontend/storybook-static/
+config.bat
