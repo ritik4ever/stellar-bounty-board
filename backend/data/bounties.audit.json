@@ -1389,5 +1389,222 @@
     "transition": "release",
     "actor": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
     "timestamp": 1785748789
+  },
+  {
+    "id": "AUD-000113",
+    "bountyId": "BNT-0017",
+    "fromStatus": "open",
+    "toStatus": "reserved",
+    "transition": "reserve",
+    "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "timestamp": 1785752954
+  },
+  {
+    "id": "AUD-000114",
+    "bountyId": "BNT-0017",
+    "fromStatus": "reserved",
+    "toStatus": "submitted",
+    "transition": "submit",
+    "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "timestamp": 1785752954,
+    "metadata": {
+      "submissionUrl": "https://github.com/owner/repo/pull/1",
+      "hasNotes": false
+    }
+  },
+  {
+    "id": "AUD-000115",
+    "bountyId": "BNT-0017",
+    "fromStatus": "submitted",
+    "toStatus": "released",
+    "transition": "release",
+    "actor": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    "timestamp": 1785752954
+  },
+  {
+    "id": "AUD-000116",
+    "bountyId": "BNT-0019",
+    "fromStatus": "open",
+    "toStatus": "reserved",
+    "transition": "reserve",
+    "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "timestamp": 1785753057
+  },
+  {
+    "id": "AUD-000117",
+    "bountyId": "BNT-0019",
+    "fromStatus": "reserved",
+    "toStatus": "submitted",
+    "transition": "submit",
+    "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "timestamp": 1785753057,
+    "metadata": {
+      "submissionUrl": "https://github.com/owner/repo/pull/1",
+      "hasNotes": false
+    }
+  },
+  {
+    "id": "AUD-000118",
+    "bountyId": "BNT-0019",
+    "fromStatus": "submitted",
+    "toStatus": "released",
+    "transition": "release",
+    "actor": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    "timestamp": 1785753057
+  },
+  {
+    "id": "AUD-000119",
+    "bountyId": "BNT-0021",
+    "fromStatus": "open",
+    "toStatus": "reserved",
+    "transition": "reserve",
+    "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "timestamp": 1785755481
+  },
+  {
+    "id": "AUD-000120",
+    "bountyId": "BNT-0021",
+    "fromStatus": "reserved",
+    "toStatus": "submitted",
+    "transition": "submit",
+    "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "timestamp": 1785755481,
+    "metadata": {
+      "submissionUrl": "https://github.com/owner/repo/pull/1",
+      "hasNotes": false
+    }
+  },
+  {
+    "id": "AUD-000121",
+    "bountyId": "BNT-0021",
+    "fromStatus": "submitted",
+    "toStatus": "released",
+    "transition": "release",
+    "actor": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    "timestamp": 1785755481
+  },
+  {
+    "id": "AUD-000122",
+    "bountyId": "BNT-0023",
+    "fromStatus": "open",
+    "toStatus": "reserved",
+    "transition": "reserve",
+    "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "timestamp": 1785755558
+  },
+  {
+    "id": "AUD-000123",
+    "bountyId": "BNT-0023",
+    "fromStatus": "reserved",
+    "toStatus": "submitted",
+    "transition": "submit",
+    "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "timestamp": 1785755558,
+    "metadata": {
+      "submissionUrl": "https://github.com/owner/repo/pull/1",
+      "hasNotes": false
+    }
+  },
+  {
+    "id": "AUD-000124",
+    "bountyId": "BNT-0023",
+    "fromStatus": "submitted",
+    "toStatus": "released",
+    "transition": "release",
+    "actor": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    "timestamp": 1785755558
+  },
+  {
+    "id": "AUD-000125",
+    "bountyId": "BNT-0025",
+    "fromStatus": "open",
+    "toStatus": "reserved",
+    "transition": "reserve",
+    "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "timestamp": 1785755629
+  },
+  {
+    "id": "AUD-000126",
+    "bountyId": "BNT-0025",
+    "fromStatus": "reserved",
+    "toStatus": "submitted",
+    "transition": "submit",
+    "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "timestamp": 1785755629,
+    "metadata": {
+      "submissionUrl": "https://github.com/owner/repo/pull/1",
+      "hasNotes": false
+    }
+  },
+  {
+    "id": "AUD-000127",
+    "bountyId": "BNT-0025",
+    "fromStatus": "submitted",
+    "toStatus": "released",
+    "transition": "release",
+    "actor": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    "timestamp": 1785755629
+  },
+  {
+    "id": "AUD-000128",
+    "bountyId": "BNT-0027",
+    "fromStatus": "open",
+    "toStatus": "reserved",
+    "transition": "reserve",
+    "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "timestamp": 1785756422
+  },
+  {
+    "id": "AUD-000129",
+    "bountyId": "BNT-0027",
+    "fromStatus": "reserved",
+    "toStatus": "submitted",
+    "transition": "submit",
+    "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "timestamp": 1785756422,
+    "metadata": {
+      "submissionUrl": "https://github.com/owner/repo/pull/1",
+      "hasNotes": false
+    }
+  },
+  {
+    "id": "AUD-000130",
+    "bountyId": "BNT-0027",
+    "fromStatus": "submitted",
+    "toStatus": "released",
+    "transition": "release",
+    "actor": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    "timestamp": 1785756422
+  },
+  {
+    "id": "AUD-000131",
+    "bountyId": "BNT-0029",
+    "fromStatus": "open",
+    "toStatus": "reserved",
+    "transition": "reserve",
+    "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "timestamp": 1785756905
+  },
+  {
+    "id": "AUD-000132",
+    "bountyId": "BNT-0029",
+    "fromStatus": "reserved",
+    "toStatus": "submitted",
+    "transition": "submit",
+    "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "timestamp": 1785756905,
+    "metadata": {
+      "submissionUrl": "https://github.com/owner/repo/pull/1",
+      "hasNotes": false
+    }
+  },
+  {
+    "id": "AUD-000133",
+    "bountyId": "BNT-0029",
+    "fromStatus": "submitted",
+    "toStatus": "released",
+    "transition": "release",
+    "actor": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    "timestamp": 1785756905
   }
 ]

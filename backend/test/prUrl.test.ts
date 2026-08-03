@@ -21,7 +21,9 @@ describe("PR URL repo validation", () => {
   });
 
   it("rejects non-GitHub URLs", async () => {
-    await expect(validateGithubPrUrlForRepo("https://gitlab.com/owner/repo/pull/123", "owner/repo")).rejects.toThrow(/github\.com/i);
+    await expect(validateGithubPrUrlForRepo("https://gitlab.com/owner/repo/pull/123", "owner/repo")).rejects.toThrow(
+      "Submission URL must be from github.com",
+    );
   });
 
   it("rejects a GitHub PR that does not reference the issue number", async () => {

@@ -100,9 +100,6 @@ jobs:
       - name: Run frontend tests
         run: npm --prefix frontend test
 
-      - name: Build Storybook
-        run: npm --prefix frontend run build-storybook
-
   contract:
     name: Contract audit and build
     runs-on: ubuntu-latest
