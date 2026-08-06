@@ -270,3 +270,8 @@ Suggested first issues:
 - GitHub webhook sync for PR state
 - Event indexer for contract payouts
 - Postgres persistence and audit log support
+
+
+## CI/CD
+
+- **Testnet Auto-Deploy**: On merge to `main` touching `contracts/`, contracts are built, tested, and deployed to Soroban testnet. Requires `STELLAR_DEPLOYER_SECRET` repository secret.
