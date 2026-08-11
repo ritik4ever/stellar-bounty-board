@@ -564,3 +564,30 @@ chmod +x .husky/pre-commit
 We value quality contributions and clear communication. If this guide is missing something, a PR improving it is one of the most valuable contributions you can make.
 
 Happy coding! 🚀
+
+## Quick Setup (2 minutes)
+
+```bash
+# Clone
+git clone https://github.com/ritik4ever/stellar-bounty-board
+cd stellar-bounty-board
+
+# Install dependencies
+cd backend && npm install && cd ..
+cd frontend && npm install && cd ..
+
+# Run in development
+docker compose -f stacks/bounty-board/docker-compose.yml up -d
+
+# Or without Docker
+cd backend && npm run dev &
+cd frontend && npm run dev
+```
+
+### Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| Port already in use | `lsof -ti:3000,4000 | xargs kill` |
+| Docker not running | Start Docker Desktop or `sudo systemctl start docker` |
+| Node version wrong | Use Node 20+: `nvm use 20` or `fnm use 20` |
