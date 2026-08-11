@@ -18,7 +18,9 @@ const WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000);
 const READ_MAX = Number(process.env.RATE_LIMIT_READ_MAX ?? 120);
 const MUTATION_MAX = Number(process.env.RATE_LIMIT_MUTATION_MAX ?? 10);
 
-const isTest = process.env.NODE_ENV === "test";
+function shouldSkipRateLimits(): boolean {
+  return process.env.NODE_ENV === "test" && process.env.RATE_LIMIT_TEST_MODE !== "true";
+}
 
 const HEALTH_PATHS = new Set(["/api/health", "/api/health/deep", "/worker/health"]);
 
@@ -30,7 +32,7 @@ function isHealthPath(req: Request): boolean {
 const passthrough: RequestHandler = (_req, _res, next) => next();
 
 function makeLimiter(limit: number, options: { getOnly?: boolean } = {}): RequestHandler {
-  if (isTest) {
+  if (shouldSkipRateLimits()) {
     return passthrough;
   }
   return rateLimit({
