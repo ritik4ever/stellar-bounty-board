@@ -78,6 +78,29 @@ const EVENT_LABELS: Record<string, string> = {
   disputed: "Dispute raised",
 };
 
+function stellarExpertTxUrl(hash: string) {
+  return `https://stellar.expert/explorer/testnet/tx/${hash}`;
+}
+
+function formatTxHash(hash: string) {
+  if (hash.length <= 16) return hash;
+  return `${hash.slice(0, 8)}...${hash.slice(-8)}`;
+}
+
+function TransactionHashLink({ hash }: { hash: string }) {
+  return (
+    <a
+      className="inline-link"
+      href={stellarExpertTxUrl(hash)}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={hash}
+    >
+      {formatTxHash(hash)}
+    </a>
+  );
+}
+
 function BountyTimeline({ events, formatTimestamp }: { events: BountyEvent[]; formatTimestamp: (v?: number) => string }) {
   if (!events || events.length === 0) return null;
 
@@ -315,7 +338,7 @@ export default function BountyDetailPage({
                 <div>
                   <span className="meta-label">Release tx</span>
                   <strong className="copy-row">
-                    {bounty.releasedTxHash}
+                    <TransactionHashLink hash={bounty.releasedTxHash} />
                     <CopyIcon text={bounty.releasedTxHash} label="release transaction hash" />
                   </strong>
                 </div>
@@ -324,7 +347,7 @@ export default function BountyDetailPage({
                 <div>
                   <span className="meta-label">Refund tx</span>
                   <strong className="copy-row">
-                    {bounty.refundedTxHash}
+                    <TransactionHashLink hash={bounty.refundedTxHash} />
                     <CopyIcon text={bounty.refundedTxHash} label="refund transaction hash" />
                   </strong>
                 </div>

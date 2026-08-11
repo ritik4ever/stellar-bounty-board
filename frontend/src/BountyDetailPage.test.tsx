@@ -154,6 +154,40 @@ describe("BountyDetailPage copy actions", () => {
     expect(print).toHaveBeenCalledOnce();
   });
 
+  it("links release and refund transaction hashes to Stellar Expert", () => {
+    const releasedTxHash =
+      "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+    const refundedTxHash =
+      "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
+
+    renderDetail({
+      ...bounty,
+      status: "refunded",
+      releasedTxHash,
+      refundedTxHash,
+      releasedAt: 1_700_000_200,
+      refundedAt: 1_700_000_300,
+    });
+
+    const releaseLink = screen.getByRole("link", { name: "abcdef01...23456789" });
+    expect(releaseLink).toHaveAttribute(
+      "href",
+      `https://stellar.expert/explorer/testnet/tx/${releasedTxHash}`,
+    );
+    expect(releaseLink).toHaveAttribute("target", "_blank");
+    expect(releaseLink).toHaveAttribute("rel", "noopener noreferrer");
+    expect(releaseLink).toHaveAttribute("title", releasedTxHash);
+
+    const refundLink = screen.getByRole("link", { name: "12345678...90abcdef" });
+    expect(refundLink).toHaveAttribute(
+      "href",
+      `https://stellar.expert/explorer/testnet/tx/${refundedTxHash}`,
+    );
+    expect(refundLink).toHaveAttribute("target", "_blank");
+    expect(refundLink).toHaveAttribute("rel", "noopener noreferrer");
+    expect(refundLink).toHaveAttribute("title", refundedTxHash);
+  });
+
   it("announces status changes for assistive technology", () => {
     const { rerender } = renderDetail();
     const reservedBounty: Bounty = {
