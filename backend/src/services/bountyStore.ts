@@ -592,6 +592,66 @@ const BOUNTY_LIST_TTL_SECONDS = 5;
  * @param {CacheAdapter} [cache=getCache()] - The cache adapter to use for caching.
  * @returns {Promise<BountyRecord[]>} A promise that resolves to the sorted and filtered list of bounty records.
  */
+export function updateBountyMetadata(
+  id: string,
+  maintainer: string,
+  newTitle: string,
+): BountyRecord {
+  return withGlobalLock(async () => {
+    const records = listBounties();
+    const bounty = findBounty(records, id);
+
+    if (bounty.maintainer !== maintainer) {
+      throw new Error("Only the original maintainer can update bounty metadata.");
+    }
+    if (
+      bounty.status === "released" ||
+      bounty.status === "refunded" ||
+      bounty.status === "expired"
+    ) {
+      throw new Error("Cannot update metadata for finalized bounties.");
+    }
+
+    const now = nowInSeconds();
+    const updated: BountyRecord = {
+      ...bounty,
+      title: newTitle,
+      version: bounty.version + 1,
+      events: [
+        ...bounty.events,
+        {
+          type: "created" as any, // Using 'created' as a placeholder for metadata update
+          timestamp: now,
+          actor: maintainer,
+          details: {
+            oldTitle: bounty.title,
+            newTitle: newTitle,
+            event: "BountyMetadataUpdated",
+          },
+        },
+      ],
+    };
+
+    const persisted = persistUpdated(records, updated);
+    appendAuditLogs([
+      {
+        bountyId: id,
+        fromStatus: bounty.status,
+        toStatus: bounty.status,
+        transition: "create" as any, // Placeholder transition
+        actor: maintainer,
+        timestamp: now,
+        metadata: {
+          oldTitle: bounty.title,
+          newTitle: newTitle,
+        },
+      },
+    ]);
+    invalidateBountyCache();
+    return persisted;
+  });
+}
+
 export async function listBountiesCached(
   options: ListBountiesOptions = {},
   cache: CacheAdapter = getCache(),

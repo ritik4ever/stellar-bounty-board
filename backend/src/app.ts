@@ -822,7 +822,25 @@ app.get('/api/bounties/:id/events', (req: Request, res: Response) => {
   }
 });
 
-app.get('/api/bounties/:id', (req: Request, res: Response) => {
+app.patch(
+  '/api/bounties/:id/metadata',
+  async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { maintainer, newTitle } = req.body;
+
+      if (!maintainer || !newTitle) {
+        jsonError(res, req, 400, 'Maintainer address and newTitle are required.');
+        return;
+      }
+
+      const updatedBounty = await updateBountyMetadata(id, maintainer, newTitle);
+      res.json({ data: updatedBounty });
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  }
+);
   try {
     const id = parseId(req.params.id);
     const bounties = listBounties();
