@@ -1,0 +1,111 @@
+.skeleton-bounty-card {
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.skeleton-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.skeleton-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #e0e0e0;
+}
+
+.skeleton-title {
+  width: 60%;
+  height: 20px;
+  background: #e0e0e0;
+  border-radius: 4px;
+}
+
+.skeleton-body {
+  margin-bottom: 16px;
+}
+
+.skeleton-description {
+  width: 100%;
+  height: 14px;
+  background: #e0e0e0;
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+
+.skeleton-description.skeleton-short {
+  width: 70%;
+}
+
+.skeleton-footer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.skeleton-tag {
+  width: 60px;
+  height: 24px;
+  background: #e0e0e0;
+  border-radius: 12px;
+}
+
+.skeleton-amount {
+  width: 80px;
+  height: 24px;
+  background: #e0e0e0;
+  border-radius: 4px;
+  margin-left: auto;
+}
+
+.skeleton-pulse {
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes skeleton-pulse {
+  0% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.6;
+  }
+}
+
+.bounty-list-skeleton {
+  padding: 24px;
+}
+
+.bounty-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.bounty-list-error {
+  text-align: center;
+  padding: 48px;
+  color: #d32f2f;
+}
+
+.retry-button {
+  margin-top: 16px;
+  padding: 8px 24px;
+  background: #1976d2;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.retry-button:hover {
+  background: #1565c0;
+}
