@@ -1383,7 +1383,27 @@ export interface AuditLogPage {
  * @param {number} [options.offset=0] - The starting index for pagination.
  * @returns {AuditLogPage} An object containing the requested page of audit logs and pagination metadata.
  */
+
+export function listAllAuditLogs(options: { limit?: number; offset?: number } = {}): AuditLogPage {
+  const { limit = 50, offset = 0 } = options;
+  const all = readAuditStore();
+  const total = all.length;
+  const data = all.slice(offset, offset + limit);
+  const hasMore = offset + limit < total;
+  return {
+    data,
+    pagination: {
+      limit,
+      offset,
+      total,
+      hasMore,
+      nextOffset: hasMore ? offset + limit : null,
+    },
+  };
+}
+
 export function listBountyAuditLogs(
+
   bountyId: string,
   options: { limit?: number; offset?: number } = {},
 ): AuditLogPage {

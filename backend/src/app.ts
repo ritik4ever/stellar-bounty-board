@@ -822,7 +822,17 @@ app.get('/api/bounties/:id/events', (req: Request, res: Response) => {
   }
 });
 
+app.get('/api/bounties/:id/events', (req: Request, res: Response) => {
+  try {
+    const events = getBountyEvents(parseId(req.params.id));
+    res.json({ data: events });
+  } catch (error) {
+    sendError(res, req, error);
+  }
+});
+
 app.get('/api/bounties/:id', (req: Request, res: Response) => {
+
   try {
     const id = parseId(req.params.id);
     const bounties = listBounties();
