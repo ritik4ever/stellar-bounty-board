@@ -109,11 +109,20 @@ function requestContextMiddleware(req: Request, res: Response, next: NextFunctio
   next();
 }
 
+function requireJsonContentType(req: Request, res: Response, next: NextFunction): void {
+  if ((req.method === "POST" || req.method === "PATCH") && !req.is("application/json")) {
+    res.status(415).json({ error: "Content-Type must be application/json" });
+    return;
+  }
+  next();
+}
+
 export const app = express();
 
 
 
 app.use(cors(buildCorsOptions()));
+app.use(requireJsonContentType);
 
 app.use(
   express.json({
