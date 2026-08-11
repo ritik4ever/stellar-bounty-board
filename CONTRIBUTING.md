@@ -564,3 +564,30 @@ chmod +x .husky/pre-commit
 We value quality contributions and clear communication. If this guide is missing something, a PR improving it is one of the most valuable contributions you can make.
 
 Happy coding! 🚀
+
+## Writing and Running Tests
+
+### Running Tests
+\`\`\`bash
+# Run all tests
+npm test
+
+# Run tests with coverage
+npm run test:coverage
+
+# Run specific test file
+npx vitest src/path/to/__tests__/file.test.ts
+\`\`\`
+
+### Writing Tests
+- Place tests in \`__tests__/\` directories next to source files
+- Use Vitest as the test framework
+- Follow the Arrange-Act-Assert pattern
+- Mock external dependencies (Stellar RPC, HTTP calls)
+- Aim for at least 80% coverage on new code
+
+### CI Test Gate
+All tests must pass before merging. The CI pipeline runs:
+- Unit tests with Vitest
+- Type checking with tsc
+- Linting with ESLint
