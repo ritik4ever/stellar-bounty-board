@@ -363,6 +363,7 @@ Please also review:
 
 * `README.md`
 * `CONTRIBUTING.md`
+* `docs/MAINTAINERS.md` (if you're interested in helping maintain the project)
 
 before submitting issues or pull requests.
 
@@ -581,6 +582,7 @@ Please also review:
 
 * `README.md`
 * `CONTRIBUTING.md`
+* `docs/MAINTAINERS.md` (if you're interested in helping maintain the project)
 
 before submitting issues or pull requests.
 

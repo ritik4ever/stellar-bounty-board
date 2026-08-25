@@ -172,6 +172,7 @@ stellar-bounty-board/
 │   └── ISSUE_TEMPLATE/     # GitHub issue templates
 │
 ├── CONTRIBUTING.md         # High-level contribution areas
+├── docs/MAINTAINERS.md     # Maintainer roles and onboarding process
 ├── ONBOARDING.md           # ← You are here
 ├── package.json            # Root workspace scripts
 └── README.md

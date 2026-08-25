@@ -254,6 +254,10 @@ For common issues, troubleshooting steps, wallet setup, testnet funding, transac
 
 * [FAQ Guide](./docs/FAQ.md)
 
+## Maintainers
+
+Interested in helping maintain the project? See [docs/MAINTAINERS.md](docs/MAINTAINERS.md) for the roles, expectations, and how to get involved.
+
 
 ## Contribution Hooks
 
