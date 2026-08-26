@@ -146,6 +146,8 @@ function App() {
     };
   }, []);
 
+  const [pendingActions, setPendingActions] = useState<Map<string, "reserve" | "submit">>(new Map());
+
   const [searchQuery, setSearchQuery] = useState(initialFilters.searchQuery);
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(searchQuery);
 
@@ -326,12 +328,38 @@ function App() {
       window.alert(contributorError);
       return;
     }
+
+    const trimmedContributor = contributor.trim();
+
+    setPendingActions((prev) => new Map(prev).set(bounty.id, "reserve"));
+
+    setBounties((prev) =>
+      prev.map((b) =>
+        b.id === bounty.id
+          ? { ...b, status: "reserved" as const, contributor: trimmedContributor }
+          : b
+      )
+    );
+
     try {
-      await reserveBounty(bounty.id, contributor.trim());
+      await reserveBounty(bounty.id, trimmedContributor);
       await refresh();
       toast.success("Bounty reserved successfully!");
     } catch (err) {
+      setBounties((prev) =>
+        prev.map((b) =>
+          b.id === bounty.id
+            ? { ...b, status: "open" as const, contributor: undefined }
+            : b
+        )
+      );
       toast.error(err instanceof Error ? err.message : "Failed to reserve bounty.");
+    } finally {
+      setPendingActions((prev) => {
+        const next = new Map(prev);
+        next.delete(bounty.id);
+        return next;
+      });
     }
   }
 
@@ -357,6 +385,22 @@ function App() {
     setSubmissionModalSubmitting(true);
     setSubmissionModalError(null);
     setSubmissionModalData(data);
+
+    setPendingActions((prev) => new Map(prev).set(submissionModalBounty.id, "submit"));
+
+    setBounties((prev) =>
+      prev.map((b) =>
+        b.id === submissionModalBounty.id
+          ? {
+              ...b,
+              status: "submitted" as const,
+              submissionUrl: data.prLink,
+              notes: data.notes || undefined,
+            }
+          : b
+      )
+    );
+
     try {
       await submitBounty(
         submissionModalBounty.id,
@@ -369,9 +413,21 @@ function App() {
       await refresh();
       toast.success("PR submitted successfully!");
     } catch (err) {
+      setBounties((prev) =>
+        prev.map((b) =>
+          b.id === submissionModalBounty.id
+            ? { ...b, status: "reserved" as const, submissionUrl: undefined, notes: undefined }
+            : b
+        )
+      );
       setSubmissionModalError(err instanceof Error ? err.message : "Submission failed.");
     } finally {
       setSubmissionModalSubmitting(false);
+      setPendingActions((prev) => {
+        const next = new Map(prev);
+        next.delete(submissionModalBounty.id);
+        return next;
+      });
     }
   }
 
@@ -801,6 +857,7 @@ function App() {
                         bounty={bounty}
                         onOpen={handleOpenBounty}
                         renderActionButton={renderActionButton}
+                        isPending={pendingActions.has(bounty.id)}
                       />
                     ))}
                   </div>

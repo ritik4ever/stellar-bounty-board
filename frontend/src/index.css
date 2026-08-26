@@ -838,6 +838,22 @@ select {
   outline-offset: 3px;
 }
 
+.bounty-card--pending {
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+.pending-indicator {
+  margin-left: 8px;
+  font-size: 14px;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
 .bounty-detail {
   max-width: 980px;
   margin: 0 auto;
