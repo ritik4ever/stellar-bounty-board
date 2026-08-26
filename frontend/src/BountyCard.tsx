@@ -80,6 +80,8 @@ export interface BountyCardProps {
       title: string;
     }
   ) => ReactNode;
+  /** Whether this bounty has a pending optimistic action. */
+  isPending?: boolean;
 }
 
 /** Truncate a Stellar public key to a short display form. */
@@ -115,14 +117,16 @@ const BountyCard = memo(function BountyCard({
   bounty,
   onOpen,
   renderActionButton,
+  isPending = false,
 }: BountyCardProps) {
   const openCard = () => onOpen(bounty.id);
 
   return (
     <article
-      className="bounty-card"
+      className={`bounty-card ${isPending ? "bounty-card--pending" : ""}`}
       tabIndex={0}
       aria-label={`Bounty: ${bounty.title}. Press Enter or Space to open details.`}
+      aria-busy={isPending}
       onClick={(event) => {
         if (isInteractiveTarget(event.target) && event.target !== event.currentTarget) return;
         openCard();
@@ -143,6 +147,7 @@ const BountyCard = memo(function BountyCard({
           >
             {statusCopy[bounty.status].label}
           </span>
+          {isPending && <span className="pending-indicator" title="Action in progress...">⏳</span>}
           <h3>{bounty.title}</h3>
         </div>
         <BountyAmount bounty={bounty} />
