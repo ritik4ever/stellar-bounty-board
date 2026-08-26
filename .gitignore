@@ -5,6 +5,8 @@ frontend/storybook-static/
 *.log
 .DS_Store
 backend/data/*.local.json
+backend/reports/mutation/
+backend/.stryker-tmp/
 contracts/target/
 contracts/.stellar/
 
