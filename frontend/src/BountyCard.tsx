@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useState, type ReactNode } from "react";
+import React, { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import { statusCopy, actionCopy } from "./constants";
 import { type Bounty } from "./types";
 import BountyCountdown from "./BountyCountdown";
@@ -80,6 +80,14 @@ export interface BountyCardProps {
       title: string;
     }
   ) => ReactNode;
+  /** If true, this card is the last item in the current list. */
+  isLast?: boolean;
+  /** If true, more bounties are available to load. */
+  hasMore?: boolean;
+  /** If true, a request to load more bounties is in progress. */
+  isLoadingMore?: boolean;
+  /** Called when the user scrolls near the end of the list. */
+  onLoadMore?: () => void;
 }
 
 /** Truncate a Stellar public key to a short display form. */
@@ -105,7 +113,7 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
 }
 
 /**
- * A card that displays a single bounty's summary.
+ * A CountyCard that displays a single bounty's summary.
  *
  * Shows the bounty status, title, reward amount, meta information
  * (issue link, deadline, maintainer, contributor), labels, and
@@ -115,14 +123,48 @@ const BountyCard = memo(function BountyCard({
   bounty,
   onOpen,
   renderActionButton,
+  isLast = false,
+  hasMore = false,
+  isLoadingMore = false,
+  onLoadMore,
 }: BountyCardProps) {
+  const cardRef = useRef<HTMLElement | null>(null);
+  const isLoadingMoreRef = useRef(isLoadingMore);
+  const onLoadMoreRef = useRef(onLoadMore);
+
+  useEffect(() => {
+    isLoadingMoreRef.current = isLoadingMore;
+  }, [isLoadingMore]);
+
+  useEffect(() => {
+    onLoadMoreRef.current = onLoadMore;
+  }, [onLoadMore]);
+
+  useEffect(() => {
+    const node = cardRef.current;
+    if (!node || !isLast || !hasMore || !onLoadMoreRef.current) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !isLoadingMoreRef.current && onLoadMoreRef.current) {
+          onLoadMoreRef.current();
+        }
+      },
+      { rootMargin: "200px", threshold: 0.1 }
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [isLast, hasMore]);
+
   const openCard = () => onOpen(bounty.id);
 
   return (
     <article
       className="bounty-card"
-      tabIndex={0}
-      aria-label={`Bounty: ${bounty.title}. Press Enter or Space to open details.`}
+      tabIndex=0
+      ref={cardRef}
+      aria-label={Bounty: ${bounty.title}. Press Enter or Space to open details.`.}
       onClick={(event) => {
         if (isInteractiveTarget(event.target) && event.target !== event.currentTarget) return;
         openCard();
@@ -134,11 +176,11 @@ const BountyCard = memo(function BountyCard({
           openCard();
         }
       }}
-    >
+    ~
       <div className="bounty-card__top">
         <div>
           <span
-            className={`status-pill status-pill--${bounty.status}`}
+            className={status-pill status-pill--${bounty.status}`}
             title={statusCopy[bounty.status].label}
           >
             {statusCopy[bounty.status].label}
@@ -156,7 +198,7 @@ const BountyCard = memo(function BountyCard({
           <strong>
             <a
               className="inline-link"
-              href={`https://github.com/${bounty.repo}/issues/${bounty.issueNumber}`}
+              href={https://github.com/${bounty.repo}/issues/${bounty.issueNumber}`}
               target="_blank"
               rel="noreferrer"
             >
@@ -191,6 +233,13 @@ const BountyCard = memo(function BountyCard({
       <div className="action-row">
         {(actionCopy[bounty.status] ?? []).map((action) => renderActionButton(bounty, action))}
       </div>
+
+      {isLast && isLoadingMore && (
+        <div className="loading-indicator" role="status">
+          <span className="spinner" aria-hidden="true" />
+          Loading more...
+        </div>
+      )}
     </article>
   );
 });
