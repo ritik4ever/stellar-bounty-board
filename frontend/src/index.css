@@ -1674,6 +1674,68 @@ select {
   }
 }
 
+/* ---- Evidence file summary ---- */
+
+.evidence-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  background: rgba(54, 63, 59, 0.04);
+  border: 1px solid rgba(54, 63, 59, 0.12);
+  border-radius: 12px;
+  margin-top: 8px;
+}
+
+.evidence-summary__info {
+  display: grid;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.evidence-summary__info strong {
+  color: var(--ink);
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.evidence-summary__meta {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.evidence-summary__remove {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-family: "IBM Plex Mono", monospace;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease,
+    border-color 140ms ease;
+  flex-shrink: 0;
+}
+
+.evidence-summary__remove:hover:not(:disabled) {
+  background: rgba(255, 82, 82, 0.08);
+  border-color: rgba(255, 82, 82, 0.3);
+  color: #ff5252;
+}
+
+.evidence-summary__remove:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
 /* ---- Disconnect confirmation modal ---- */
 
 .disconnect-modal {
