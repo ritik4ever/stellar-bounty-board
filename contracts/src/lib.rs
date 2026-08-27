@@ -4,8 +4,8 @@
 mod test;
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short,
-    token::Client as TokenClient, Address, Env, String, Vec,
+    contract, contractimpl, contracttype, symbol_short, token::Client as TokenClient, Address, Env,
+    String, Vec,
 };
 
 // ─── Contract Version ───────────────────────────────────────────────────
@@ -17,11 +17,55 @@ pub const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// This can be overridden by the contract admin via `set_min_bounty_amount`.
 pub const DEFAULT_MIN_BOUNTY_AMOUNT: i128 = 100;
 
+/// Maximum allowed bounty amount to prevent overflow in fee calculations.
+pub const MAX_BOUNTY_AMOUNT: i128 = 100_000_000_000; // 1M XLM in stroops
+
 /// Minimum allowed per-bounty dispute window override (1 minute in seconds).
 pub const MIN_DISPUTE_WINDOW_OVERRIDE: u64 = 60;
 
 /// Maximum allowed per-bounty dispute window override (30 days in seconds).
 pub const MAX_DISPUTE_WINDOW_OVERRIDE: u64 = 2_592_000;
+
+// ─── Error Types ────────────────────────────────────────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ContractError {
+    NotInitialized,
+    InvalidAmount,
+    AmountTooSmall,
+    DeadlineMustBeInTheFuture,
+    FeeRecipientNotSet,
+    TokenNotAllowed,
+    DisputeWindowOverrideTooSmall,
+    DisputeWindowOverrideTooLarge,
+    ContractIsPaused,
+    BountyNotOpen,
+    BountyMustBeReserved,
+    BountyMustBeSubmitted,
+    BountyAlreadyFinalized,
+    BountyNotExpiredYet,
+    BountyExpired,
+    BountyNotFound,
+    MaintainerMismatch,
+    ContributorMismatch,
+    MissingContributor,
+    CannotExtendFinalizedBounty,
+    DeadlineMustAdvance,
+    ArbiterNotSet,
+    NotArbiter,
+    DisputeWindowNotMet,
+    NotAdmin,
+    NoPendingArbiter,
+    TimelockNotElapsed,
+    SplitAmountMismatch,
+}
+
+fn panic_error(error: ContractError) -> ! {
+    panic!("{:?}", error);
+}
+
+// ─── Types ──────────────────────────────────────────────────────────────
 
 #[contracttype]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,7 +91,7 @@ pub struct Bounty {
     pub title: String,
     pub deadline: u64,
     pub status: BountyStatus,
-    pub protocol_fee_bps: u32, // stored per-bounty so the fee is locked in at creation time
+    pub protocol_fee_bps: u32,
     pub dispute_raised_at: u64,
     pub dispute_window_override: Option<u64>,
 }
@@ -70,12 +114,27 @@ pub struct FeeStats {
     pub bounty_count: u64,
 }
 
+// ─── Storage Keys ───────────────────────────────────────────────────────
+
 #[contracttype]
 enum DataKey {
     NextBountyId,
     Bounty(u64),
-
+    Admin,
+    FeeRecipient,
+    Arbiter,
+    DisputeWindow,
+    MinBountyAmount,
+    Paused,
+    FeeStats,
+    AllowlistConfig,
+    Config,
+    PendingResolution(u64),
+    PendingArbiter,
+    ArbiterRotationTimelock,
 }
+
+// ─── Event Structs ──────────────────────────────────────────────────────
 
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -86,7 +145,7 @@ pub struct BountyCreated {
     pub amount: i128,
     pub repo: String,
     pub issue_number: u32,
-    pub protocol_fee_bps: u32, // included in event for indexers
+    pub protocol_fee_bps: u32,
 }
 
 #[contracttype]
@@ -116,8 +175,8 @@ pub struct BountySubmitted {
 pub struct BountyReleased {
     pub bounty_id: u64,
     pub contributor: Address,
-    pub amount: i128,      // net payout after fee
-    pub fee_amount: i128, // how much went to fee recipient
+    pub amount: i128,
+    pub fee_amount: i128,
 }
 
 #[contracttype]
@@ -126,6 +185,48 @@ pub struct BountyRefunded {
     pub bounty_id: u64,
     pub maintainer: Address,
     pub amount: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BountyCanceled {
+    pub bounty_id: u64,
+    pub maintainer: Address,
+    pub amount: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BountyDeadlineExtended {
+    pub bounty_id: u64,
+    pub new_deadline: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BountyDisputed {
+    pub bounty_id: u64,
+    pub contributor: Address,
+    pub arbiter: Address,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BountyResolved {
+    pub bounty_id: u64,
+    pub arbiter: Address,
+    pub release: bool,
+}
+
+/// Emitted when a dispute is resolved with a partial split.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DisputeResolvedSplit {
+    pub bounty_id: u64,
+    pub arbiter: Address,
+    pub contributor_amount: i128,
+    pub maintainer_amount: i128,
+    pub fee_amount: i128,
 }
 
 #[contracttype]
@@ -156,6 +257,12 @@ pub struct DisputeResolutionScheduled {
     pub resolve_at: u64,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DisputeAppealed {
+    pub bounty_id: u64,
+}
+
 /// Emitted when the contract admin (arbiter) pauses the circuit-breaker.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -171,8 +278,22 @@ pub struct ContractUnpaused {
 }
 
 #[contracttype]
-
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ArbiterRotationProposed {
+    pub new_arbiter: Address,
+    pub unlock_time: u64,
 }
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ArbiterRotationConfirmed {
+    pub old_arbiter: Address,
+    pub new_arbiter: Address,
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Contract Implementation
+// ═════════════════════════════════════════════════════════════════════════
 
 #[contract]
 pub struct StellarBountyBoardContract;
@@ -182,21 +303,21 @@ impl StellarBountyBoardContract {
     // ─── Version ────────────────────────────────────────────────────────
     /// Returns the contract version as a semver string (e.g. "0.1.0").
     pub fn get_version(_env: Env) -> String {
-        // We use _env because String::from_str needs it, but in future
-        // Soroban SDK versions this may be optional for static strings.
         String::from_str(&_env, CONTRACT_VERSION)
     }
 
-    pub fn initialize(env: Env, fee_recipient: Address, arbiter: Address, dispute_window: u64) {
-    
-    pub fn initialize(env: Env, admin: Address, fee_recipient: Address, arbiter: Address, dispute_window: u64) {
+    pub fn initialize(
+        env: Env,
+        admin: Address,
+        fee_recipient: Address,
+        arbiter: Address,
+        dispute_window: u64,
+    ) {
         // Prevent re-initialization
         if env.storage().persistent().has(&DataKey::FeeRecipient) {
             panic!("already initialized");
         }
-        env.storage()
-            .persistent()
-            .set(&DataKey::Admin, &admin);
+        env.storage().persistent().set(&DataKey::Admin, &admin);
         env.storage()
             .persistent()
             .set(&DataKey::FeeRecipient, &fee_recipient);
@@ -218,7 +339,6 @@ impl StellarBountyBoardContract {
     }
 
     /// Returns the current minimum bounty amount required to create a bounty.
-    /// If the contract has not been initialized, this will panic.
     pub fn get_min_bounty_amount(env: Env) -> i128 {
         env.storage()
             .persistent()
@@ -227,7 +347,6 @@ impl StellarBountyBoardContract {
     }
 
     /// Allows the arbiter to update the minimum bounty amount.
-    /// Only callable by the configured arbiter address.
     pub fn set_min_bounty_amount(env: Env, new_min: i128) {
         let arbiter: Address = env
             .storage()
@@ -249,11 +368,6 @@ impl StellarBountyBoardContract {
     }
 
     // ─── Circuit Breaker ────────────────────────────────────────────────
-    /// Pauses the contract, halting new bounty creation (and reservation).
-    /// Only callable by the configured arbiter, which acts as the contract
-    /// admin (the same role used by `set_min_bounty_amount`).
-    /// Existing in-flight bounties can still be released, refunded, or
-    /// disputed while paused.
     pub fn pause(env: Env) {
         let admin: Address = env
             .storage()
@@ -270,8 +384,6 @@ impl StellarBountyBoardContract {
         );
     }
 
-    /// Unpauses the contract, resuming new bounty creation (and reservation).
-    /// Only callable by the configured arbiter (contract admin).
     pub fn unpause(env: Env) {
         let admin: Address = env
             .storage()
@@ -288,14 +400,14 @@ impl StellarBountyBoardContract {
         );
     }
 
-    /// Returns whether the contract is currently paused.
-    /// Defaults to `false` (unpaused) if never explicitly set.
     pub fn get_paused_state(env: Env) -> bool {
         env.storage()
             .persistent()
             .get(&DataKey::Paused)
             .unwrap_or(false)
     }
+
+    // ─── Bounty CRUD ────────────────────────────────────────────────────
 
     pub fn create_bounty(
         env: Env,
@@ -326,7 +438,6 @@ impl StellarBountyBoardContract {
         if deadline <= env.ledger().timestamp() {
             panic_error(ContractError::DeadlineMustBeInTheFuture);
         }
-        //fee cannot exceed 100% (10000 bps)
         if protocol_fee_bps > 10_000 {
             panic!("fee exceeds 100%");
         }
@@ -337,7 +448,6 @@ impl StellarBountyBoardContract {
             panic_error(ContractError::TokenNotAllowed);
         }
 
-        // Validate dispute window override if provided
         if let Some(override_value) = dispute_window_override {
             if override_value < MIN_DISPUTE_WINDOW_OVERRIDE {
                 panic_error(ContractError::DisputeWindowOverrideTooSmall);
@@ -500,12 +610,6 @@ impl StellarBountyBoardContract {
         let token_client = TokenClient::new(&env, &bounty.token);
         let contract_address = env.current_contract_address();
 
-        // ── Fee calculation ─────────────────────────────────────────────
-        // Fee is deducted FROM the payout, never added on top.
-        // fee_amount = floor(amount * protocol_fee_bps / 10_000)
-        // net_payout = amount - fee_amount
-        //
-        // Using i128 arithmetic to avoid overflow on large amounts.
         let fee_amount: i128 = if bounty.protocol_fee_bps == 0 {
             0
         } else {
@@ -514,10 +618,8 @@ impl StellarBountyBoardContract {
 
         let net_payout = bounty.amount - fee_amount;
 
-        // Transfer net payout to contributor
         token_client.transfer(&contract_address, &contributor, &net_payout);
 
-        // Transfer fee to recipient (only when fee is non-zero)
         if fee_amount > 0 {
             let fee_recipient: Address = env
                 .storage()
@@ -526,9 +628,7 @@ impl StellarBountyBoardContract {
                 .unwrap_or_else(|| panic_error(ContractError::FeeRecipientNotSet));
             token_client.transfer(&contract_address, &fee_recipient, &fee_amount);
         }
-        // ─────────────────────────────────────────────────────────────────
 
-        // Atomically update FeeStats
         accumulate_fee_stats(&env, fee_amount);
 
         bounty.status = BountyStatus::Released;
@@ -539,7 +639,7 @@ impl StellarBountyBoardContract {
             BountyReleased {
                 bounty_id,
                 contributor,
-                amount: net_payout, // net amount after fee
+                amount: net_payout,
                 fee_amount,
             },
         );
@@ -564,7 +664,6 @@ impl StellarBountyBoardContract {
 
         let token_client = TokenClient::new(&env, &bounty.token);
         let contract_address = env.current_contract_address();
-        // Refund returns the FULL original amount there is no fee on refunds
         token_client.transfer(&contract_address, &maintainer, &bounty.amount);
 
         bounty.status = BountyStatus::Refunded;
@@ -640,6 +739,8 @@ impl StellarBountyBoardContract {
         );
     }
 
+    // ─── Dispute ────────────────────────────────────────────────────────
+
     pub fn dispute_bounty(env: Env, bounty_id: u64, arbiter: Address) {
         let mut bounty = read_bounty(&env, bounty_id);
 
@@ -682,7 +783,34 @@ impl StellarBountyBoardContract {
         );
     }
 
-    pub fn resolve_dispute(env: Env, bounty_id: u64, release: bool) {
+    /// Resolve a dispute by splitting the escrowed funds between the
+    /// contributor and the maintainer.
+    ///
+    /// `contributor_amount` — gross amount allocated to the contributor
+    /// (before fee deduction).  
+    /// `maintainer_amount` — gross amount returned to the maintainer
+    /// (no fee on refund portion).
+    ///
+    /// The two amounts **must** sum to the bounty's total escrowed amount;
+    /// otherwise the call is rejected with `SplitAmountMismatch`.
+    ///
+    /// Fee is deducted proportionally from the contributor's share only:
+    /// ```text
+    /// contributor_fee = floor(contributor_amount * fee_bps / 10_000)
+    /// contributor_net  = contributor_amount - contributor_fee
+    /// maintainer_net   = maintainer_amount   // full, no fee
+    /// ```
+    ///
+    /// Existing full-release (100/0) and full-refund (0/100) behaviour is
+    /// preserved via the split amounts:
+    ///   - `resolve_dispute(id, amount, 0)`   → full release to contributor
+    ///   - `resolve_dispute(id, 0, amount)`   → full refund to maintainer
+    pub fn resolve_dispute(
+        env: Env,
+        bounty_id: u64,
+        contributor_amount: i128,
+        maintainer_amount: i128,
+    ) {
         let arbiter: Address = env
             .storage()
             .persistent()
@@ -698,37 +826,45 @@ impl StellarBountyBoardContract {
         }
 
         // Use per-bounty override if set, otherwise fall back to global default
-        let effective_dispute_window: u64 = bounty
-            .dispute_window_override
-            .unwrap_or_else(|| {
-                env.storage()
-                    .persistent()
-                    .get(&DataKey::DisputeWindow)
-                    .unwrap_or(0)
-            });
+        let effective_dispute_window: u64 = bounty.dispute_window_override.unwrap_or_else(|| {
+            env.storage()
+                .persistent()
+                .get(&DataKey::DisputeWindow)
+                .unwrap_or(0)
+        });
 
         if env.ledger().timestamp() < bounty.dispute_raised_at + effective_dispute_window {
             panic_error(ContractError::DisputeWindowNotMet);
         }
 
+        // ── Validate split amounts ──────────────────────────────────────
+        if contributor_amount < 0 || maintainer_amount < 0 {
+            panic_error(ContractError::InvalidAmount);
+        }
+        if contributor_amount + maintainer_amount != bounty.amount {
+            panic_error(ContractError::SplitAmountMismatch);
+        }
+
         let token_client = TokenClient::new(&env, &bounty.token);
         let contract_address = env.current_contract_address();
 
-        if release {
+        // ── Transfer to contributor (if any) ────────────────────────────
+        let mut fee_amount: i128 = 0;
+        if contributor_amount > 0 {
             let contributor = bounty
                 .contributor
                 .clone()
                 .unwrap_or_else(|| panic_error(ContractError::MissingContributor));
 
-            let fee_amount: i128 = if bounty.protocol_fee_bps == 0 {
+            // Fee is deducted only from the contributor's share
+            fee_amount = if bounty.protocol_fee_bps == 0 {
                 0
             } else {
-                (bounty.amount * bounty.protocol_fee_bps as i128) / 10_000
+                (contributor_amount * bounty.protocol_fee_bps as i128) / 10_000
             };
 
-            let net_payout = bounty.amount - fee_amount;
-
-            token_client.transfer(&contract_address, &contributor, &net_payout);
+            let contributor_net = contributor_amount - fee_amount;
+            token_client.transfer(&contract_address, &contributor, &contributor_net);
 
             if fee_amount > 0 {
                 let fee_recipient: Address = env
@@ -742,20 +878,38 @@ impl StellarBountyBoardContract {
             // Atomically update FeeStats for the dispute-release path
             accumulate_fee_stats(&env, fee_amount);
 
+            // Full release (no maintainer share) → Released
+            if maintainer_amount == 0 {
+                bounty.status = BountyStatus::Released;
+            }
+        }
+
+        // ── Transfer to maintainer (if any) ─────────────────────────────
+        if maintainer_amount > 0 {
+            token_client.transfer(&contract_address, &bounty.maintainer, &maintainer_amount);
+
+            // Full refund (no contributor share) → Refunded
+            if contributor_amount == 0 {
+                bounty.status = BountyStatus::Refunded;
+            }
+        }
+
+        // ── If both parties receive funds, mark as Released ─────────────
+        if contributor_amount > 0 && maintainer_amount > 0 {
             bounty.status = BountyStatus::Released;
-        } else {
-            token_client.transfer(&contract_address, &bounty.maintainer, &bounty.amount);
-            bounty.status = BountyStatus::Refunded;
         }
 
         write_bounty(&env, bounty_id, &bounty);
 
+        // Emit the split-resolution event (carries both payout amounts)
         env.events().publish(
             (symbol_short!("Bounty"), symbol_short!("Reslv")),
-            BountyResolved {
+            DisputeResolvedSplit {
                 bounty_id,
                 arbiter,
-                release,
+                contributor_amount,
+                maintainer_amount,
+                fee_amount,
             },
         );
     }
@@ -766,9 +920,9 @@ impl StellarBountyBoardContract {
         bounty
     }
 
-    // ---------- New Functions ----------
+    // ─── Appeal-based Dispute Resolution ────────────────────────────────
+
     pub fn init(env: Env, appeal_window: u64) {
-        // Only allow setting once
         if env.storage().persistent().has(&DataKey::Config) {
             panic!("config already set");
         }
@@ -776,15 +930,17 @@ impl StellarBountyBoardContract {
         env.storage().persistent().set(&DataKey::Config, &cfg);
     }
 
-    pub fn resolve_dispute(env: Env, bounty_id: u64, decision_u8: u8) {
-        // For simplicity, any caller can resolve; in production enforce arbiter auth.
+    pub fn schedule_resolution(env: Env, bounty_id: u64, decision_u8: u32) {
         let decision = match decision_u8 {
             0 => DisputeDecision::Release,
             1 => DisputeDecision::Refund,
             _ => panic!("invalid decision"),
         };
         let timestamp = env.ledger().timestamp();
-        let pending = PendingResolution { decision, timestamp };
+        let pending = PendingResolution {
+            decision: decision.clone(),
+            timestamp,
+        };
         env.storage()
             .persistent()
             .set(&DataKey::PendingResolution(bounty_id), &pending);
@@ -799,30 +955,34 @@ impl StellarBountyBoardContract {
     }
 
     pub fn finalize_resolution(env: Env, bounty_id: u64) {
-        // Load pending
         let pending_opt: Option<PendingResolution> = env
             .storage()
             .persistent()
             .get(&DataKey::PendingResolution(bounty_id));
         let pending = pending_opt.expect("no pending resolution");
-        // Load config
-        let cfg: Config = env.storage().persistent().get(&DataKey::Config).expect("config not set");
+        let cfg: Config = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Config)
+            .expect("config not set");
         let now = env.ledger().timestamp();
         if now < pending.timestamp + cfg.appeal_window {
             panic!("appeal window not elapsed");
         }
-        // Load bounty
+
         let mut bounty = read_bounty(&env, bounty_id);
-        // Resolve based on decision
         match pending.decision {
             DisputeDecision::Release => {
-                // transfer to contributor
                 let contributor = bounty
                     .contributor
                     .clone()
                     .unwrap_or_else(|| panic!("missing contributor"));
                 let token_client = TokenClient::new(&env, &bounty.token);
-                token_client.transfer(&env.current_contract_address(), &contributor, &bounty.amount);
+                token_client.transfer(
+                    &env.current_contract_address(),
+                    &contributor,
+                    &bounty.amount,
+                );
                 bounty.status = BountyStatus::Released;
                 write_bounty(&env, bounty_id, &bounty);
                 env.events().publish(
@@ -831,6 +991,7 @@ impl StellarBountyBoardContract {
                         bounty_id,
                         contributor,
                         amount: bounty.amount,
+                        fee_amount: 0,
                     },
                 );
             }
@@ -850,8 +1011,9 @@ impl StellarBountyBoardContract {
                 );
             }
         }
-        // Remove pending
-        env.storage().persistent().remove(&DataKey::PendingResolution(bounty_id));
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PendingResolution(bounty_id));
     }
 
     pub fn appeal(env: Env, bounty_id: u64) {
@@ -860,20 +1022,22 @@ impl StellarBountyBoardContract {
             .persistent()
             .get(&DataKey::PendingResolution(bounty_id));
         let pending = pending_opt.expect("no pending resolution");
-        let cfg: Config = env.storage().persistent().get(&DataKey::Config).expect("config not set");
+        let cfg: Config = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Config)
+            .expect("config not set");
         let now = env.ledger().timestamp();
         if now >= pending.timestamp + cfg.appeal_window {
             panic!("appeal window elapsed");
         }
-        // Verify caller is losing party
+
         let bounty = read_bounty(&env, bounty_id);
         match pending.decision {
             DisputeDecision::Release => {
-                // loser is maintainer
                 bounty.maintainer.require_auth();
             }
             DisputeDecision::Refund => {
-                // loser is contributor
                 if let Some(contrib) = bounty.contributor.clone() {
                     contrib.require_auth();
                 } else {
@@ -881,13 +1045,16 @@ impl StellarBountyBoardContract {
                 }
             }
         }
-        // Remove pending to block finalization until re-resolved
-        env.storage().persistent().remove(&DataKey::PendingResolution(bounty_id));
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PendingResolution(bounty_id));
         env.events().publish(
             (symbol_short!("Dispute"), symbol_short!("Appealed")),
             DisputeAppealed { bounty_id },
         );
     }
+
+    // ─── Query Functions ────────────────────────────────────────────────
 
     pub fn get_next_bounty_id(env: Env) -> u64 {
         env.storage()
@@ -907,7 +1074,6 @@ impl StellarBountyBoardContract {
             .get(&DataKey::NextBountyId)
             .unwrap_or(0);
 
-        // Return empty Vec immediately if start is out of bounds or invalid
         if start == 0 || start > next_id || enforced_limit == 0 {
             return result;
         }
@@ -915,9 +1081,7 @@ impl StellarBountyBoardContract {
         let mut id = start;
         let mut count = 0u32;
 
-        // Loop up to the limit or until we exceed the highest allocated bounty ID
         while count < enforced_limit && id <= next_id {
-            // Check if the bounty actually exists in storage before reading to prevent a panic
             if env.storage().persistent().has(&DataKey::Bounty(id)) {
                 let mut bounty = read_bounty(&env, id);
                 expire_if_needed(&env, &mut bounty);
@@ -930,16 +1094,13 @@ impl StellarBountyBoardContract {
         result
     }
 
-    /// Returns all bounties where the contributor field matches the given address,
-    /// using the same start/limit pagination as [`get_all_bounties`].
-    ///
-    /// Only bounties in `Reserved`, `Submitted`, `Released`, or `Disputed` state
-    /// are ever returned — `Open` bounties have no contributor and are always
-    /// excluded.  `Expired` and `Refunded` bounties that were previously reserved
-    /// by this contributor will also appear so callers can see their full history.
-    ///
-    /// The `limit` parameter is capped at 50 matching the rest of the API.
-    pub fn get_bounties_by_contributor(env: Env, contributor: Address, start: u64, limit: u32) -> Vec<Bounty> {
+    /// Returns all bounties where the contributor field matches the given address.
+    pub fn get_bounties_by_contributor(
+        env: Env,
+        contributor: Address,
+        start: u64,
+        limit: u32,
+    ) -> Vec<Bounty> {
         let enforced_limit = if limit > 50 { 50 } else { limit };
         let mut result = Vec::new(&env);
 
@@ -963,7 +1124,6 @@ impl StellarBountyBoardContract {
             if env.storage().persistent().has(&DataKey::Bounty(id)) {
                 let mut bounty = read_bounty(&env, id);
                 expire_if_needed(&env, &mut bounty);
-                // Include the bounty only if this contributor was assigned to it
                 if bounty.contributor.as_ref() == Some(&contributor) {
                     result.push_back(bounty);
                 }
@@ -974,10 +1134,6 @@ impl StellarBountyBoardContract {
         result
     }
 
-    /// Returns the cumulative fee statistics for the contract.
-    ///
-    /// Returns a [`FeeStats`] with `total_collected = 0` and `bounty_count = 0`
-    /// if no bounties have been released yet.
     pub fn get_fee_stats(env: Env) -> FeeStats {
         env.storage()
             .persistent()
@@ -987,28 +1143,7 @@ impl StellarBountyBoardContract {
                 bounty_count: 0,
             })
     }
-}
 
-fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
-    if fee_amount > 0 {
-        let mut stats: FeeStats = env
-            .storage()
-            .persistent()
-            .get(&DataKey::FeeStats)
-            .unwrap_or(FeeStats {
-                total_collected: 0,
-                bounty_count: 0,
-            });
-        stats.total_collected += fee_amount;
-        stats.bounty_count += 1;
-        env.storage()
-            .persistent()
-            .set(&DataKey::FeeStats, &stats);
-    }
-
-    /// Returns the effective dispute window for a bounty.
-    /// If the bounty has a per-bounty override, returns that value.
-    /// Otherwise returns the global DisputeWindow configured at initialization.
     pub fn get_effective_dispute_window(env: Env, bounty_id: u64) -> u64 {
         let bounty = read_bounty(&env, bounty_id);
         bounty.dispute_window_override.unwrap_or_else(|| {
@@ -1018,6 +1153,9 @@ fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
                 .unwrap_or(0)
         })
     }
+
+    // ─── Admin / Arbiter Management ─────────────────────────────────────
+
     pub fn set_arbiter(env: Env, new_arbiter: Address) {
         let admin: Address = env
             .storage()
@@ -1029,8 +1167,8 @@ fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
         env.storage()
             .persistent()
             .set(&DataKey::PendingArbiter, &new_arbiter);
-        
-        let timelock = env.ledger().timestamp() + 86400 * 2; // 2 days delay
+
+        let timelock = env.ledger().timestamp() + 86400 * 2;
         env.storage()
             .persistent()
             .set(&DataKey::ArbiterRotationTimelock, &timelock);
@@ -1068,15 +1206,15 @@ fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
             panic_error(ContractError::TimelockNotElapsed);
         }
 
-        let old_arbiter: Address = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Arbiter)
-            .unwrap();
+        let old_arbiter: Address = env.storage().persistent().get(&DataKey::Arbiter).unwrap();
 
-        env.storage().persistent().set(&DataKey::Arbiter, &pending_arbiter);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Arbiter, &pending_arbiter);
         env.storage().persistent().remove(&DataKey::PendingArbiter);
-        env.storage().persistent().remove(&DataKey::ArbiterRotationTimelock);
+        env.storage()
+            .persistent()
+            .remove(&DataKey::ArbiterRotationTimelock);
 
         env.events().publish(
             (symbol_short!("Arbiter"), symbol_short!("Confirmd")),
@@ -1087,7 +1225,8 @@ fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
         );
     }
 
-    /// Admin: set allowlist enabled state
+    // ─── Allowlist Management ───────────────────────────────────────────
+
     pub fn set_allowlist_enabled(env: Env, admin: Address, enabled: bool) {
         let stored_admin: Address = env
             .storage()
@@ -1100,10 +1239,11 @@ fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
         admin.require_auth();
         let mut config = get_allowlist_config(&env);
         config.enabled = enabled;
-        env.storage().instance().set(&DataKey::AllowlistConfig, &config);
+        env.storage()
+            .instance()
+            .set(&DataKey::AllowlistConfig, &config);
     }
 
-    /// Admin: add a token to the allowlist
     pub fn add_allowed_token(env: Env, admin: Address, token: Address) {
         let stored_admin: Address = env
             .storage()
@@ -1117,15 +1257,14 @@ fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
         let mut config = get_allowlist_config(&env);
         if !config.allowed_tokens.contains(&token) {
             config.allowed_tokens.push_back(token.clone());
-            env.storage().instance().set(&DataKey::AllowlistConfig, &config);
-            env.events().publish(
-                (symbol_short!("allowlist"), symbol_short!("add")),
-                token,
-            );
+            env.storage()
+                .instance()
+                .set(&DataKey::AllowlistConfig, &config);
+            env.events()
+                .publish((symbol_short!("allowlist"), symbol_short!("add")), token);
         }
     }
 
-    /// Admin: remove a token from the allowlist
     pub fn remove_allowed_token(env: Env, admin: Address, token: Address) {
         let stored_admin: Address = env
             .storage()
@@ -1137,19 +1276,19 @@ fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
         }
         admin.require_auth();
         let mut config = get_allowlist_config(&env);
-        
+
         if let Some(index) = config.allowed_tokens.first_index_of(&token) {
             config.allowed_tokens.remove(index);
-            env.storage().instance().set(&DataKey::AllowlistConfig, &config);
-            env.events().publish(
-                (symbol_short!("allowlist"), symbol_short!("remove")),
-                token,
-            );
+            env.storage()
+                .instance()
+                .set(&DataKey::AllowlistConfig, &config);
+            env.events()
+                .publish((symbol_short!("allowlist"), symbol_short!("remove")), token);
         }
     }
 }
 
-// ─── Helper Functions ────────────────────────────────────────────────────────
+// ─── Helper Functions ────────────────────────────────────────────────────
 
 fn read_bounty(env: &Env, bounty_id: u64) -> Bounty {
     env.storage()
@@ -1193,10 +1332,6 @@ fn is_token_allowed(env: &Env, token: Address) -> bool {
 }
 
 /// Atomically add `fee_amount` to the cumulative [`FeeStats`] in persistent storage.
-///
-/// Called after every payout (normal release and dispute-release). When `fee_amount`
-/// is zero the stats are still updated so that `bounty_count` always reflects the
-/// total number of released bounties, not just fee-paying ones.
 fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
     let mut stats: FeeStats = env
         .storage()
@@ -1211,5 +1346,4 @@ fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
     stats.bounty_count += 1;
 
     env.storage().persistent().set(&DataKey::FeeStats, &stats);
-
 }
