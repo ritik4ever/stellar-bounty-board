@@ -6,6 +6,17 @@ import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CONTRIBUTOR, MAINTAINER, OTHER_ACCOUNT, validCreateBody } from "./fixtures";
 
+// submitBounty verifies PRs against the live GitHub API; mock the check so
+// tests run hermetically without network access (see src/validation/prUrl.ts).
+vi.mock("../src/validation/prUrl", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/validation/prUrl")>();
+  return {
+    ...actual,
+    validateGithubPrUrlForRepo: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
 let storeFile: string;
 
 beforeEach(async () => {
@@ -149,7 +160,11 @@ describe("POST /api/bounties/:id/dispute", () => {
       .send({ contributor: "not-a-valid-address", reason: "Test reason." })
       .expect(400);
 
-    expect(res.body.error).toMatch(/public key|Must be valid/i);
+    expect(res.body.error).toBe("Validation failed");
+    const messages = res.body.details
+      .map((d: { message: string }) => d.message)
+      .join(" ");
+    expect(messages).toMatch(/public key|Must be valid/i);
   });
 
   it("returns 400 for unknown bounty id", async () => {

@@ -8,6 +8,17 @@ import request from "supertest";
 import { idempotencyMiddleware, __resetIdempotencyStoreForTests } from "../src/middleware/idempotency";
 import { CONTRIBUTOR, MAINTAINER, validCreateBody } from "./fixtures";
 
+// submitBounty verifies PRs against the live GitHub API; mock the check so
+// tests run hermetically without network access (see src/validation/prUrl.ts).
+vi.mock("../src/validation/prUrl", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/validation/prUrl")>();
+  return {
+    ...actual,
+    validateGithubPrUrlForRepo: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
 let storeFile: string;
 
 describe("idempotency middleware", () => {
