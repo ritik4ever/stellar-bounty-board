@@ -6,11 +6,11 @@ export interface NotificationRecipient {
   address: string;
 }
 
-type NotificationChannel = "EMAIL" | "WEBHOOK";
+type NotificationChannel = "EMAIL" | "WEBHOOK" | "DISCORD";
 
 function getChannel(): NotificationChannel | null {
   const ch = process.env.NOTIFICATION_CHANNEL?.trim().toUpperCase();
-  if (ch === "EMAIL" || ch === "WEBHOOK") return ch;
+  if (ch === "EMAIL" || ch === "WEBHOOK" || ch === "DISCORD") return ch;
   return null;
 }
 
@@ -65,6 +65,102 @@ function buildEmailBody(
         subject: `[Stellar Bounty Board] Notification: ${event}`,
         text: `A bounty event (${event}) occurred for bounty ${bountyId}.\n\nDetails:\n${JSON.stringify(payload, null, 2)}`,
       };
+  }
+}
+
+export interface DiscordPayload {
+  embeds: Array<{
+    title: string;
+    color: number;
+    fields: Array<{ name: string; value: string; inline: boolean }>;
+    footer?: { text: string };
+    timestamp?: string;
+  }>;
+}
+
+const EVENT_COLORS: Record<string, number> = {
+  bounty_created: 0x3bbf6f, // green — new bounty available
+  bounty_reserved: 0x5865f2, // blue — work in progress
+  bounty_submitted: 0x9b59b6, // purple — awaiting review
+  bounty_released: 0x2ecc71, // emerald — reward paid out
+  bounty_refunded: 0x95a5a6, // gray — cancelled/returned
+  bounty_disputed: 0xf39c12, // amber — needs attention
+  dispute_stuck_alert: 0xe74c3c, // red — SLA exceeded
+};
+
+const EVENT_LABELS: Record<string, string> = {
+  bounty_created: "New bounty",
+  bounty_reserved: "Bounty reserved",
+  bounty_submitted: "Solution submitted",
+  bounty_released: "Reward released",
+  bounty_refunded: "Bounty refunded",
+  bounty_disputed: "Dispute raised",
+  dispute_stuck_alert: "Stuck dispute alert",
+};
+
+/**
+ * Builds a Discord webhook embed payload for a bounty event.
+ * The returned body conforms to Discord's webhook embed schema.
+ */
+export function buildDiscordPayload(
+  bounty: Record<string, unknown>,
+  eventType: string,
+): DiscordPayload {
+  const title = String(bounty.title ?? "Untitled bounty");
+  const bountyId = String(bounty.bountyId ?? "");
+  const amount = String(bounty.amount ?? "");
+  const token = String(bounty.tokenSymbol ?? "");
+  const repo = String(bounty.repo ?? "N/A");
+  const status = String(bounty.status ?? "N/A");
+
+  const label = EVENT_LABELS[eventType] ?? eventType;
+  const repoLink = repo !== "N/A" ? `https://github.com/${repo}` : repo;
+
+  return {
+    embeds: [
+      {
+        title: `${label}: ${title}`,
+        color: EVENT_COLORS[eventType] ?? 0x7289da,
+        fields: [
+          { name: "Bounty ID", value: bountyId || "N/A", inline: true },
+          {
+            name: "Reward",
+            value: amount ? `${amount} ${token}`.trim() : "N/A",
+            inline: true,
+          },
+          { name: "Repository", value: repoLink, inline: false },
+          { name: "Status", value: status, inline: true },
+        ],
+        footer: { text: "Stellar Bounty Board" },
+        timestamp: new Date().toISOString(),
+      },
+    ],
+  };
+}
+
+async function dispatchDiscord(
+  recipients: NotificationRecipient[],
+  event: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  const webhookUrl = process.env.DISCORD_WEBHOOK_URL?.trim();
+
+  if (!webhookUrl) {
+    logger.warn({ event }, "DISCORD_WEBHOOK_URL not set; skipping Discord notification");
+    return;
+  }
+
+  const body = JSON.stringify(buildDiscordPayload(payload, event));
+
+  const response = await fetch(webhookUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+  });
+
+  if (!response.ok) {
+    const responseBody = await response.text();
+    throw new Error(`Discord responded ${response.status}: ${responseBody}`);
   }
 }
 
@@ -149,6 +245,8 @@ export async function sendNotification(
   try {
     if (channel === "EMAIL") {
       await dispatchEmail(recipients, event, payload);
+    } else if (channel === "DISCORD") {
+      await dispatchDiscord(recipients, event, payload);
     } else {
       await dispatchWebhook(recipients, event, payload);
     }
