@@ -439,6 +439,150 @@ textarea {
     color 140ms ease;
 }
 
+.filter-presets {
+  position: relative;
+}
+
+.filter-presets-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 999px;
+  padding: 8px 14px;
+  border: 1px solid rgba(54, 63, 59, 0.14);
+  background: rgba(255, 255, 255, 0.65);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease;
+}
+
+.filter-presets-toggle:hover {
+  border-color: rgba(54, 63, 59, 0.22);
+}
+
+.filter-presets-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--mint);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.filter-presets-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+.filter-presets-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 50;
+  min-width: 240px;
+  max-width: 300px;
+  border-radius: 14px;
+  border: 1px solid rgba(54, 63, 59, 0.14);
+  background: #fff;
+  box-shadow: 0 12px 32px rgba(31, 36, 33, 0.16);
+  padding: 8px;
+}
+
+.filter-presets-save {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.filter-presets-save:hover {
+  background: rgba(54, 63, 59, 0.06);
+}
+
+.filter-presets-empty {
+  margin: 10px 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.filter-presets-list {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.filter-preset-item {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 10px;
+}
+
+.filter-preset-item:hover {
+  background: rgba(54, 63, 59, 0.06);
+}
+
+.filter-preset-apply {
+  flex: 1;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filter-preset-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.filter-preset-action:hover {
+  background: rgba(54, 63, 59, 0.1);
+  color: var(--ink);
+}
+
+.filter-preset-action--delete:hover {
+  background: rgba(224, 49, 49, 0.12);
+  color: #e03131;
+}
+
 .filter-chip:hover {
   transform: translateY(-1px);
   border-color: rgba(54, 63, 59, 0.22);
