@@ -67,6 +67,7 @@ import { logger } from './logger';
 import { createAdminApiKeyAuthMiddleware } from './middleware/adminAuth';
 import { handleGitHubPrEvent } from './webhooks/githubPrHandler';
 import { draining } from './shutdown';
+import { createRepoOwnershipMiddleware, type GitHubOwnershipRequest } from './middleware/repoOwnership';
 
 
 const INCOMING_REQUEST_ID = /^[a-zA-Z0-9-]{1,128}$/;
@@ -559,7 +560,8 @@ app.post(
   maintainerLimiter,
   createBountyCreationSignatureMiddleware(),
   validateBody(createBountySchema),
-  async (req: Request, res: Response) => {
+  createRepoOwnershipMiddleware(),
+  async (req: GitHubOwnershipRequest, res: Response) => {
     const amountError = validateBountyAmount(req.body.amount);
 
     if (amountError) {
@@ -568,7 +570,13 @@ app.post(
     }
 
     try {
-      const bounty = await createBounty(req.body);
+      const bountyInput = {
+        ...req.body,
+        verifiedGitHubUsername: req.githubOwnership?.githubUsername,
+        verifiedGitHubUserId: req.githubOwnership?.githubUserId,
+        verifiedGitHubPermission: req.githubOwnership?.permission,
+      };
+      const bounty = await createBounty(bountyInput);
       res.status(201).json({ data: bounty });
     } catch (error) {
       sendError(res, req, error);

@@ -111,6 +111,18 @@ export const createBountySchema = z
       example: 604800,
       description: 'Optional reservation timeout in seconds (default: 7 days = 604800 seconds).',
     }),
+    verifiedGitHubUsername: z.string().optional().openapi({
+      example: 'octocat',
+      description: 'Verified GitHub username from ownership verification.',
+    }),
+    verifiedGitHubUserId: z.number().optional().openapi({
+      example: 12345678,
+      description: 'GitHub user ID from ownership verification.',
+    }),
+    verifiedGitHubPermission: z.string().optional().openapi({
+      example: 'admin',
+      description: 'GitHub permission level (admin, write, read).',
+    }),
   })
   .openapi('CreateBountyRequest');
 
@@ -318,6 +330,18 @@ export const bountyRecordSchema = z
     version: z.number().openapi({ example: 1 }),
     events: z.array(bountyEventSchema),
     reservationTimeoutSeconds: z.number().optional().openapi({ example: 604800 }),
+    verifiedGitHubUsername: z.string().optional().openapi({
+      example: 'octocat',
+      description: 'Verified GitHub username of the maintainer who created the bounty.',
+    }),
+    verifiedGitHubUserId: z.number().optional().openapi({
+      example: 12345678,
+      description: 'GitHub user ID of the maintainer.',
+    }),
+    verifiedGitHubPermission: z.string().optional().openapi({
+      example: 'admin',
+      description: 'GitHub permission level of the maintainer on the repo.',
+    }),
   })
   .openapi('BountyRecord');
 
