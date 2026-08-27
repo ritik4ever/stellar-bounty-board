@@ -52,6 +52,9 @@ export interface Bounty {
   releasedTxHash?: string;
   refundedAt?: number;
   refundedTxHash?: string;
+  disputedAt?: number;
+  disputeReason?: string;
+  evidenceUrl?: string;
   submissionUrl?: string;
   notes?: string;
   version: number;

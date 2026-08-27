@@ -1,7 +1,17 @@
 import React from "react";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const disputeBountyMock = vi.fn();
+
+vi.mock("./api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./api")>();
+  return {
+    ...actual,
+    disputeBounty: (...args: unknown[]) => disputeBountyMock(...args),
+  };
+});
 
 import BountyDetailPage from "./BountyDetailPage";
 import type { Bounty, BountyStatus } from "./types";
@@ -13,6 +23,7 @@ const statusCopy: Record<BountyStatus, { label: string; description: string }> =
   released: { label: "Released", description: "Funds released." },
   refunded: { label: "Refunded", description: "Funds refunded." },
   expired: { label: "Expired", description: "Past deadline." },
+  disputed: { label: "Disputed", description: "Dispute raised." },
 };
 
 const actionCopy: Record<BountyStatus, []> = {
@@ -22,6 +33,7 @@ const actionCopy: Record<BountyStatus, []> = {
   released: [],
   refunded: [],
   expired: [],
+  disputed: [],
 };
 
 const bounty: Bounty = {
@@ -80,6 +92,10 @@ function renderDetail(detailBounty: Bounty = bounty, extraBounties?: Bounty[]) {
     <BountyDetailPage {...detailProps(detailBounty, extraBounties)} />,
   );
 }
+
+beforeEach(() => {
+  disputeBountyMock.mockReset();
+});
 
 afterEach(() => {
   vi.useRealTimers();
@@ -214,6 +230,154 @@ describe("BountyDetailPage copy actions", () => {
       expect(moreLikeThis).not.toHaveTextContent("Copy button test bounty");
       // The current bounty title should only appear in the detail section, not in "More like this"
       expect(screen.getByText("Copy button test bounty")).toBeInTheDocument();
+    });
+  });
+
+  describe("Dispute raising UI form", () => {
+    const submittedBounty: Bounty = {
+      ...bounty,
+      status: "submitted",
+      submittedAt: 1_700_000_200,
+      version: 2,
+    };
+
+    const reservedBounty: Bounty = {
+      ...bounty,
+      status: "reserved",
+      reservedAt: 1_700_000_100,
+      version: 2,
+    };
+
+    it("shows Raise Dispute button for contributor or maintainer on a submitted bounty", () => {
+      render(
+        <BountyDetailPage
+          {...detailProps(submittedBounty)}
+          userAddress={submittedBounty.contributor}
+        />
+      );
+      expect(screen.getByRole("button", { name: /raise dispute/i })).toBeInTheDocument();
+    });
+
+    it("shows Raise Dispute button for maintainer on a reserved bounty", () => {
+      render(
+        <BountyDetailPage
+          {...detailProps(reservedBounty)}
+          userAddress={reservedBounty.maintainer}
+        />
+      );
+      expect(screen.getByRole("button", { name: /raise dispute/i })).toBeInTheDocument();
+    });
+
+    it("hides Raise Dispute button when user is neither contributor nor maintainer", () => {
+      render(
+        <BountyDetailPage
+          {...detailProps(submittedBounty)}
+          userAddress="GOTHERUSER111111111111111111111111111111111111111111111"
+        />
+      );
+      expect(screen.queryByRole("button", { name: /raise dispute/i })).not.toBeInTheDocument();
+    });
+
+    it("hides Raise Dispute button for non-disputable status like open or released", () => {
+      render(
+        <BountyDetailPage
+          {...detailProps(bounty)}
+          userAddress={bounty.maintainer}
+        />
+      );
+      expect(screen.queryByRole("button", { name: /raise dispute/i })).not.toBeInTheDocument();
+    });
+
+    it("blocks submission client-side when reason is empty", async () => {
+      render(
+        <BountyDetailPage
+          {...detailProps(submittedBounty)}
+          userAddress={submittedBounty.contributor}
+        />
+      );
+
+      await userEvent.click(screen.getByRole("button", { name: /raise dispute/i }));
+
+      const submitBtn = screen.getByRole("button", { name: /submit dispute/i });
+      await userEvent.click(submitBtn);
+
+      expect(screen.getByRole("alert")).toHaveTextContent("Reason is required to raise a dispute.");
+      expect(disputeBountyMock).not.toHaveBeenCalled();
+    });
+
+    it("opens form, submits valid reason + evidence link, and updates UI to disputed state", async () => {
+      const disputedBounty: Bounty = {
+        ...submittedBounty,
+        status: "disputed",
+        disputedAt: 1_700_000_300,
+        disputeReason: "Maintainer stopped responding to PR review comments.",
+        evidenceUrl: "https://github.com/owner/repo/pull/42",
+        events: [
+          ...submittedBounty.events,
+          {
+            type: "disputed",
+            timestamp: 1_700_000_300,
+            actor: submittedBounty.contributor,
+            details: {
+              reason: "Maintainer stopped responding to PR review comments.",
+              evidenceUrl: "https://github.com/owner/repo/pull/42",
+            },
+          },
+        ],
+      };
+
+      disputeBountyMock.mockResolvedValue(disputedBounty);
+
+      const onDisputeSuccess = vi.fn();
+
+      const { rerender } = render(
+        <BountyDetailPage
+          {...detailProps(submittedBounty)}
+          userAddress={submittedBounty.contributor}
+          onDisputeSuccess={onDisputeSuccess}
+        />
+      );
+
+      // Open the form
+      await userEvent.click(screen.getByRole("button", { name: /raise dispute/i }));
+
+      // Fill form
+      const reasonTextarea = screen.getByLabelText(/dispute reason/i);
+      const evidenceInput = screen.getByLabelText(/evidence link/i);
+
+      await userEvent.type(reasonTextarea, "Maintainer stopped responding to PR review comments.");
+      await userEvent.type(evidenceInput, "https://github.com/owner/repo/pull/42");
+
+      // Submit
+      await userEvent.click(screen.getByRole("button", { name: /submit dispute/i }));
+
+      await waitFor(() => {
+        expect(disputeBountyMock).toHaveBeenCalledWith(
+          submittedBounty.id,
+          submittedBounty.contributor,
+          "Maintainer stopped responding to PR review comments.",
+          "https://github.com/owner/repo/pull/42"
+        );
+      });
+
+      expect(onDisputeSuccess).toHaveBeenCalledWith(disputedBounty);
+
+      // Rerender with updated disputed bounty
+      rerender(
+        <BountyDetailPage
+          {...detailProps(disputedBounty)}
+          userAddress={submittedBounty.contributor}
+        />
+      );
+
+      // Verify disputed state reflected in UI
+      expect(screen.getAllByText("Disputed").length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/Maintainer stopped responding to PR review comments/i).length).toBeGreaterThan(0);
+      expect(screen.getByRole("link", { name: /review dispute evidence/i })).toHaveAttribute(
+        "href",
+        "https://github.com/owner/repo/pull/42"
+      );
+      expect(screen.getByText("Dispute raised")).toBeInTheDocument();
     });
   });
 });

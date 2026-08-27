@@ -2485,3 +2485,103 @@ select {
   .lo-table__cell { padding: 4px 0; display: flex; flex-direction: column; gap: 2px; }
   .lo-table__cell::before { content: attr(data-label); font-family: "IBM Plex Mono", monospace; text-transform: uppercase; font-size: 10px; color: var(--muted); letter-spacing: 0.06em; }
 }
+
+/* Dispute form and control styling */
+.dispute-control {
+  margin-top: 16px;
+}
+
+.dispute-button {
+  border-color: rgba(220, 38, 38, 0.3);
+  color: #dc2626;
+}
+
+.dispute-button:hover {
+  background: rgba(220, 38, 38, 0.08);
+  border-color: rgba(220, 38, 38, 0.5);
+}
+
+.dispute-form {
+  border-radius: 20px;
+  border: 1px solid rgba(220, 38, 38, 0.25);
+  background: rgba(220, 38, 38, 0.03);
+  padding: 20px;
+  display: grid;
+  gap: 14px;
+}
+
+.dispute-form__title {
+  margin: 0;
+  font-size: 1.1rem;
+  color: var(--ink);
+}
+
+.dispute-form__helper {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.dispute-textarea,
+.dispute-input {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  padding: 10px 14px;
+  font-family: inherit;
+  font-size: 0.92rem;
+  background: var(--surface);
+  color: var(--ink);
+  transition: border-color 140ms ease;
+}
+
+.dispute-textarea:focus,
+.dispute-input:focus {
+  outline: none;
+  border-color: #dc2626;
+}
+
+.dispute-form__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.dispute-submit-btn {
+  background: #dc2626 !important;
+  color: #ffffff !important;
+  border: none !important;
+}
+
+.dispute-submit-btn:hover {
+  background: #b91c1c !important;
+}
+
+.required-asterisk {
+  color: #dc2626;
+}
+
+.dispute-reason-helper {
+  border-left: 3px solid #dc2626;
+  padding-left: 12px;
+}
+
+.evidence-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  color: var(--mint);
+  font-weight: 600;
+}
+
+.bounty-timeline__details {
+  margin-top: 4px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
