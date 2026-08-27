@@ -1145,17 +1145,32 @@
   },
   {
     "id": "AUD-000089",
-
     "bountyId": "BNT-0090",
     "fromStatus": "open",
     "toStatus": "expired",
     "transition": "expire",
     "actor": "system",
-
     "metadata": {
       "reason": "deadline_passed",
       "deadlineAt": 1779815009
     }
-
+  },
+  {
+    "id": "AUD-000090",
+    "bountyId": "BNT-0002",
+    "fromStatus": "open",
+    "toStatus": "reserved",
+    "transition": "reserve",
+    "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "timestamp": 1787844327
+  },
+  {
+    "id": "AUD-000091",
+    "bountyId": "BNT-0003",
+    "fromStatus": "open",
+    "toStatus": "reserved",
+    "transition": "reserve",
+    "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "timestamp": 1787844361
   }
 ]
