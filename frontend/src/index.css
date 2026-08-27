@@ -1735,6 +1735,76 @@ select {
   }
 }
 
+/* ---- Wallet QR code modal ---- */
+
+.qr-modal {
+  border: none;
+  border-radius: 28px;
+  padding: 0;
+  background: var(--surface-strong);
+  box-shadow: 0 32px 100px rgba(60, 43, 17, 0.22);
+  max-width: 400px;
+  width: calc(100% - 32px);
+}
+
+.qr-modal::backdrop {
+  background: rgba(31, 36, 33, 0.48);
+  backdrop-filter: blur(4px);
+}
+
+.qr-modal__inner {
+  position: relative;
+  padding: 28px;
+  display: grid;
+  gap: 18px;
+}
+
+.qr-modal__header h2 {
+  margin: 6px 0 0;
+  font-size: 1.4rem;
+}
+
+.qr-modal__body {
+  display: grid;
+  gap: 14px;
+  justify-items: center;
+  text-align: center;
+}
+
+/* QR codes need a light background + dark modules to scan reliably, so keep
+   the code surface white even in dark mode. */
+.qr-modal__qr {
+  background: #fff;
+  border-radius: 16px;
+  padding: 14px;
+  line-height: 0;
+}
+
+.qr-modal__qr svg {
+  display: block;
+  width: 200px;
+  height: 200px;
+}
+
+.qr-modal__hint {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+  font-size: 0.9rem;
+}
+
+.qr-modal__address {
+  font-family: "IBM Plex Mono", monospace;
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+.qr-modal__error {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
 .primary-button--danger {
   background: #d32f2f;
   color: #fff;

@@ -10,15 +10,17 @@ export function useWallet() {
 
   const connect = useCallback(async () => {
     try {
-      const installed = await checkIsFreighterConnected();
-      if (!installed) {
-        window.alert('Freighter wallet is not installed. Please install it from https://freighter.app/');
+      const { isConnected: connected } = await checkIsFreighterConnected();
+      if (!connected) {
+        window.alert(
+          'Freighter wallet is not installed. Please install it from https://freighter.app/'
+        );
         return;
       }
 
-      const publicKey = await requestAccess();
-      if (publicKey) {
-        setAddress(publicKey);
+      const { address } = await requestAccess();
+      if (address) {
+        setAddress(address);
       }
     } catch (error) {
       console.error('Failed to connect to Freighter:', error);

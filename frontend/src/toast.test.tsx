@@ -18,6 +18,8 @@ vi.mock('./api', () => ({
   submitBounty: vi.fn(),
   releaseBounty: vi.fn(),
   refundBounty: vi.fn(),
+  releaseBountySigned: vi.fn().mockResolvedValue({}),
+  refundBountySigned: vi.fn().mockResolvedValue({}),
   listBounties: vi.fn().mockResolvedValue([]),
   listOpenIssues: vi.fn().mockResolvedValue([]),
   getBounty: vi.fn(),
@@ -50,6 +52,17 @@ beforeEach(() => {
   vi.mocked(api.listOpenIssues).mockResolvedValue([]);
   window.prompt = vi.fn();
   window.alert = vi.fn();
+  // Release/refund actions require a connected Freighter wallet on the right network.
+  window.freighter = {
+    isConnected: vi.fn().mockResolvedValue({ isConnected: true }),
+    getPublicKey: vi.fn().mockResolvedValue(baseBounty.maintainer),
+    signMessage: vi.fn().mockResolvedValue({ signature: 'test-signature' }),
+    getNetwork: vi.fn().mockResolvedValue({
+      network: 'TESTNET',
+      networkPassphrase: 'Test SDF Network ; September 2015',
+    }),
+    setNetwork: vi.fn().mockResolvedValue(undefined),
+  };
 });
 
 describe('Toast notifications for async bounty actions', () => {
