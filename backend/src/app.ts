@@ -813,6 +813,37 @@ app.get('/api/open-issues', async (req: Request, res: Response) => {
   }
 });
 
+app.get('/api/bounty-templates', (_req: Request, res: Response) => {
+  const templates = [
+    {
+      id: 'tpl-bugfix',
+      name: 'Bug Fix',
+      amount: 100,
+      tokenSymbol: 'XLM',
+      labels: ['bug', 'help wanted'],
+      deadlineDays: 14,
+    },
+    {
+      id: 'tpl-feature',
+      name: 'Feature',
+      amount: 250,
+      tokenSymbol: 'XLM',
+      labels: ['enhancement'],
+      deadlineDays: 30,
+    },
+    {
+      id: 'tpl-docs',
+      name: 'Documentation',
+      amount: 50,
+      tokenSymbol: 'XLM',
+      labels: ['documentation'],
+      deadlineDays: 7,
+    },
+  ];
+  res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=60');
+  res.json({ data: templates });
+});
+
 app.get('/api/bounties/:id/events', (req: Request, res: Response) => {
   try {
     const events = getBountyEvents(parseId(req.params.id));
