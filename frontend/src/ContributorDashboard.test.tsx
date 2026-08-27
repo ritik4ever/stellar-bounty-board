@@ -4,6 +4,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import ContributorDashboard from './ContributorDashboard';
 import type { Bounty } from './types';
+import * as freighterApi from '@stellar/freighter-api';
+
+vi.mock('@stellar/freighter-api', () => ({
+  isConnected: vi.fn(),
+  requestAccess: vi.fn(),
+}));
 
 const WALLET = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
 
@@ -45,6 +51,8 @@ const openBounties: Bounty[] = [
 beforeEach(() => {
   window.localStorage.clear();
   vi.restoreAllMocks();
+  vi.mocked(freighterApi.isConnected).mockResolvedValue({ isConnected: true });
+  vi.mocked(freighterApi.requestAccess).mockResolvedValue({ address: WALLET });
 });
 
 describe('ContributorDashboard', () => {
@@ -104,16 +112,16 @@ describe('ContributorDashboard', () => {
     expect(screen.getByText(/matches 1 label/i)).toBeInTheDocument();
   });
 
-  it('prompts to connect when the connect wallet button is clicked', async () => {
+  it('connects via Freighter when the connect wallet button is clicked', async () => {
     const user = userEvent.setup();
-    const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue(WALLET);
-    vi.spyOn(window, 'alert').mockImplementation(() => {});
 
     render(<ContributorDashboard bounties={openBounties} loading={false} />);
 
     await user.click(screen.getAllByRole('button', { name: /connect wallet/i })[0]!);
 
-    expect(promptSpy).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(freighterApi.requestAccess).toHaveBeenCalled();
+    });
     await waitFor(() => {
       expect(screen.getByText('High reward task')).toBeInTheDocument();
     });

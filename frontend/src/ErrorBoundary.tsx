@@ -1,5 +1,5 @@
-import React from "react";
-import { logError } from "./logger";
+import React from 'react';
+import { logError } from './logger';
 
 type Props = {
   children: React.ReactNode;
@@ -23,11 +23,10 @@ export default class ErrorBoundary extends React.Component<Props, State> {
 
   componentDidCatch(error: unknown) {
     try {
-      logError(this.props.componentName ?? "Unknown", error);
+      logError(this.props.componentName ?? 'Unknown', error);
     } catch (e) {
       // swallow logging errors
-      // eslint-disable-next-line no-console
-      console.error("ErrorBoundary logging failed", e);
+      console.error('ErrorBoundary logging failed', e);
     }
   }
 
@@ -55,6 +54,6 @@ export default class ErrorBoundary extends React.Component<Props, State> {
       );
     }
 
-    return this.props.children as any;
+    return this.props.children;
   }
 }
