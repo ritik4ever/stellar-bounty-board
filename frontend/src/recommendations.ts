@@ -106,6 +106,7 @@ const STATUS_WEIGHTS: Record<BountyStatus, number> = {
   released: 0,
   refunded: 0,
   expired: 0,
+  disputed: 0,
 };
 
 export function calculateRecommendationScore(
@@ -207,10 +208,7 @@ function buildRecommendation(bounty: Bounty, overlap: number): BountyRecommendat
 /**
  * Return the highest-value open bounties when the contributor has no history.
  */
-export function getFallbackRecommendations(
-  bounties: Bounty[],
-  limit = 3
-): BountyRecommendation[] {
+export function getFallbackRecommendations(bounties: Bounty[], limit = 3): BountyRecommendation[] {
   return bounties
     .filter((bounty) => bounty.status === 'open')
     .sort((a, b) => b.amount - a.amount)
@@ -259,7 +257,7 @@ export function generateRecommendations(
 export function findSimilarBounties(
   target: Bounty,
   allBounties: Bounty[],
-  limit = 3,
+  limit = 3
 ): BountyRecommendation[] {
   const profile: ContributorProfile = {
     completedLabels: target.labels.map((l) => l.name.toLowerCase()),
@@ -272,10 +270,23 @@ export function findSimilarBounties(
       .map((l) => l.name)
       .filter((name) =>
         [
-          'React', 'TypeScript', 'JavaScript', 'Rust', 'Python',
-          'Solidity', 'Stellar', 'Frontend', 'Backend', 'Testing',
-          'Docs', 'CSS', 'HTML', 'Node.js', 'API', 'Docker',
-        ].includes(name),
+          'React',
+          'TypeScript',
+          'JavaScript',
+          'Rust',
+          'Python',
+          'Solidity',
+          'Stellar',
+          'Frontend',
+          'Backend',
+          'Testing',
+          'Docs',
+          'CSS',
+          'HTML',
+          'Node.js',
+          'API',
+          'Docker',
+        ].includes(name)
       ),
   };
 

@@ -18,6 +18,53 @@ const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
 const READ_RETRY_ATTEMPTS = 3;
 const READ_RETRY_BASE_DELAY_MS = 500;
 
+/**
+ * Admin API key — the same `x-admin-api-key` mechanism the backend gates
+ * admin-only endpoints with (`createAdminApiKeyAuthMiddleware`).  The raw key
+ * is held in sessionStorage only, so it never survives a browser session.
+ */
+const ADMIN_KEY_HEADER = 'x-admin-api-key';
+const ADMIN_KEY_STORAGE = 'stellar-bounty-board-admin-key';
+
+/**
+ * Persist the admin API key for the current browser session.
+ */
+export function setAdminApiKey(key: string): void {
+  try {
+    sessionStorage.setItem(ADMIN_KEY_STORAGE, key);
+  } catch {
+    // Storage can be unavailable (private mode / disabled cookies) — the key
+    // simply won't persist across reloads.
+  }
+}
+
+/**
+ * Retrieve the admin API key stored for the current browser session, if any.
+ */
+export function getAdminApiKey(): string | null {
+  try {
+    return sessionStorage.getItem(ADMIN_KEY_STORAGE);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Forget the admin API key (sign-out).
+ */
+export function clearAdminApiKey(): void {
+  try {
+    sessionStorage.removeItem(ADMIN_KEY_STORAGE);
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+function adminHeaders(): Record<string, string> {
+  const key = getAdminApiKey();
+  return key ? { [ADMIN_KEY_HEADER]: key } : {};
+}
+
 type ApiBody<T> = T & { error?: string };
 
 type RequestOptions = RequestInit & {
@@ -466,6 +513,109 @@ export async function getGlobalMetrics(): Promise<GlobalMetrics> {
 }
 
 /**
+ * Verify an admin API key against the backend's admin-only audit-log
+ * endpoint (401 for an invalid key).  The key is only stored once verified.
+ */
+export async function verifyAdminKey(key: string): Promise<boolean> {
+  try {
+    const headers: Record<string, string> = { [ADMIN_KEY_HEADER]: key };
+    ensureRequestId(headers);
+    const response = await fetch(`${API_BASE}/audit-log?limit=1`, { headers });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * One record from the global admin-only audit log
+ * (`GET /api/audit-log`).
+ */
+export interface AuditLogEntry {
+  id: string;
+  bountyId: string;
+  fromStatus: string;
+  toStatus: string;
+  transition: string;
+  actor: string;
+  timestamp: number;
+  metadata?: Record<string, unknown>;
+}
+
+interface AuditLogPage {
+  data: AuditLogEntry[];
+  pagination: {
+    hasMore: boolean;
+    nextOffset: number | null;
+  };
+}
+
+const AUDIT_EXPORT_PAGE_SIZE = 200;
+/** Safety cap so a runaway audit store cannot stall the browser forever. */
+const AUDIT_EXPORT_MAX_RECORDS = 10_000;
+
+/**
+ * Fetch the full admin audit log (all pages) and return it as a downloadable
+ * JSON file.  Requires a verified admin key (`setAdminApiKey`).
+ */
+export async function exportAuditLog(): Promise<{ blob: Blob; filename: string }> {
+  const records: AuditLogEntry[] = [];
+  let offset = 0;
+
+  // Page through the admin audit-log endpoint until exhausted (or the safety
+  // cap is reached).
+  while (records.length < AUDIT_EXPORT_MAX_RECORDS) {
+    const page = await requestJson<AuditLogPage>(
+      `/audit-log?limit=${AUDIT_EXPORT_PAGE_SIZE}&offset=${offset}`,
+      {
+        headers: adminHeaders(),
+        retry: false,
+        retryLabel: 'Exporting audit log',
+      }
+    );
+
+    records.push(...page.data);
+
+    if (!page.pagination?.hasMore || page.data.length === 0) {
+      break;
+    }
+
+    offset = page.pagination.nextOffset ?? offset + page.data.length;
+  }
+
+  const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+  const blob = new Blob([JSON.stringify(records, null, 2)], {
+    type: 'application/json',
+  });
+
+  return { blob, filename: `audit-log-${timestamp}.json` };
+}
+
+/**
+ * Result of a manual archive run (`POST /api/admin/archive`).
+ */
+export interface AdminArchiveResult {
+  archivedCount: number;
+  archivedBountyIds: string[];
+  checkedAt: number;
+}
+
+/**
+ * Trigger an archive pass (same logic as the scheduled archive job).
+ * Requires a verified admin key (`setAdminApiKey`).
+ */
+export async function runAdminArchive(): Promise<AdminArchiveResult> {
+  const body = await requestJson<{ data: AdminArchiveResult }>('/admin/archive', {
+    method: 'POST',
+    headers: adminHeaders(),
+    retry: false,
+    retryLabel: 'Running archive',
+  });
+
+  return body.data;
+}
+
+/**
  * Map a backend bounty status string to the on-chain contract enum.
  * Keeps the frontend aligned with the Soroban ABI: if the contract adds or
  * reorders a variant, the generated enum will change and TypeScript will
@@ -487,5 +637,4 @@ export function getContractErrorLabel(error: ContractError): string {
  * Stellar test network configuration for Freighter.
  */
 export const STELLAR_NETWORK_PASSPHRASE =
-  import.meta.env.VITE_STELLAR_NETWORK_PASSPHRASE ??
-  'Test SDF Network ; September 2015';
+  import.meta.env.VITE_STELLAR_NETWORK_PASSPHRASE ?? 'Test SDF Network ; September 2015';

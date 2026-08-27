@@ -5,7 +5,7 @@ import {
   sendNotification,
   type NotificationRecipient,
 } from "./notificationService";
-import { logStructured } from "../logger";
+import { logger, logStructured } from "../logger";
 import { getCache, type CacheAdapter } from "./cache";
 import { bountiesCreatedTotal, bountiesReleasedTotal } from "../metrics";
 import { validateGithubPrUrlForRepo } from "../validation/prUrl";
@@ -796,7 +796,7 @@ export async function reserveBounty(
         contributor,
       },
     ).catch((err) =>
-      console.warn("[reserveBounty] Notification failed (non-blocking):", err),
+      logger.warn("[reserveBounty] Notification failed (non-blocking):", err),
     );
 
     return persisted;
@@ -878,7 +878,7 @@ export async function submitBounty(
         submissionUrl,
       },
     ).catch((err) =>
-      console.warn("[submitBounty] Notification failed (non-blocking):", err),
+      logger.warn("[submitBounty] Notification failed (non-blocking):", err),
     );
 
     return persisted;
@@ -1027,7 +1027,7 @@ export async function refundBounty(
           tokenSymbol: bounty.tokenSymbol,
         },
       ).catch((err) =>
-        console.warn("[refundBounty] Notification failed (non-blocking):", err),
+        logger.warn("[refundBounty] Notification failed (non-blocking):", err),
       );
     }
 
