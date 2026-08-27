@@ -11,6 +11,20 @@ import { bountiesCreatedTotal, bountiesReleasedTotal } from "../metrics";
 import { validateGithubPrUrlForRepo } from "../validation/prUrl";
 import { resolveTokenAddress } from "../utils";
 
+/**
+ * Signals that a write could not proceed because the resource is being
+ * mutated concurrently (e.g. a bounty was just reserved by another request
+ * or the store lock is held by a competing write).
+ *
+ * The API layer maps this to HTTP 409 Conflict so the client can refresh
+ * and retry instead of silently overwriting state.
+ */
+export class ConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConflictError";
+  }
+}
 
 /**
  * Represents the current state of a bounty.
@@ -652,11 +666,23 @@ export async function invalidateBountyCache(cache: CacheAdapter = getCache()): P
 async function withStoreLock<T>(fn: () => T | Promise<T>): Promise<T> {
   const storePath = getStorePath();
   const timeout = getLockTimeoutMs();
-  const release = await lockfile.lock(storePath, {
-    stale: 10000,
-    update: 5000,
-    retries: 0, // Fail fast - concurrent requests get immediate error
-  });
+  let release: () => Promise<void>;
+  try {
+    release = await lockfile.lock(storePath, {
+      stale: 10000,
+      update: 5000,
+      retries: 0, // Fail fast - concurrent requests get immediate error
+    });
+  } catch (error) {
+    // Another request/process is mid-write. Surface as a conflict so the
+    // caller gets a 409 and can retry instead of silently overwriting state.
+    if ((error as NodeJS.ErrnoException).code === "ELOCKED") {
+      throw new ConflictError(
+        "The bounty store is locked by another request. Please retry.",
+      );
+    }
+    throw error;
+  }
 
   try {
     return await fn();
@@ -750,12 +776,12 @@ export async function reserveBounty(
     const bounty = findBounty(records, id);
 
     if (bounty.status !== "open") {
-      throw new Error("Only open bounties can be reserved.");
+      throw new ConflictError("Only open bounties can be reserved.");
     }
 
     // Race condition prevention: check version if provided
     if (expectedVersion !== undefined && bounty.version !== expectedVersion) {
-      throw new Error(
+      throw new ConflictError(
         "Bounty was just reserved by someone else. Please refresh and try again.",
       );
     }
@@ -796,7 +822,11 @@ export async function reserveBounty(
         contributor,
       },
     ).catch((err) =>
-      console.warn("[reserveBounty] Notification failed (non-blocking):", err),
+      logStructured("warn", "notification_failed", {
+        operation: "reserveBounty",
+        bountyId: id,
+        message: err instanceof Error ? err.message : String(err),
+      }),
     );
 
     return persisted;
@@ -878,7 +908,11 @@ export async function submitBounty(
         submissionUrl,
       },
     ).catch((err) =>
-      console.warn("[submitBounty] Notification failed (non-blocking):", err),
+      logStructured("warn", "notification_failed", {
+        operation: "submitBounty",
+        bountyId: id,
+        message: err instanceof Error ? err.message : String(err),
+      }),
     );
 
     return persisted;
@@ -1027,7 +1061,11 @@ export async function refundBounty(
           tokenSymbol: bounty.tokenSymbol,
         },
       ).catch((err) =>
-        console.warn("[refundBounty] Notification failed (non-blocking):", err),
+        logStructured("warn", "notification_failed", {
+          operation: "refundBounty",
+          bountyId: id,
+          message: err instanceof Error ? err.message : String(err),
+        }),
       );
     }
 

@@ -48,6 +48,10 @@
             "type": "string",
             "example": "XLM"
           },
+          "tokenAddress": {
+            "type": "string",
+            "example": "CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA"
+          },
           "amount": {
             "type": "number",
             "example": 100
@@ -70,7 +74,8 @@
               "submitted",
               "released",
               "refunded",
-              "expired"
+              "expired",
+              "disputed"
             ],
             "example": "open"
           },
@@ -98,6 +103,11 @@
             "type": "string",
             "example": "0000000000000000000000000000000000000000000000000000000000000000"
           },
+          "protocolFeeCollected": {
+            "type": "number",
+            "description": "Protocol fee collected when this bounty was released (in token units).",
+            "example": 0
+          },
           "refundedAt": {
             "type": "number"
           },
@@ -120,6 +130,55 @@
           },
           "notes": {
             "type": "string"
+          },
+          "disputedAt": {
+            "type": "number",
+            "example": 1710010800
+          },
+          "disputeReason": {
+            "type": "string"
+          },
+          "version": {
+            "type": "number",
+            "example": 1
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "created",
+                    "reserved",
+                    "submitted",
+                    "released",
+                    "refunded",
+                    "expired",
+                    "disputed"
+                  ]
+                },
+                "timestamp": {
+                  "type": "number"
+                },
+                "actor": {
+                  "type": "string"
+                },
+                "details": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              },
+              "required": [
+                "type",
+                "timestamp"
+              ]
+            }
+          },
+          "reservationTimeoutSeconds": {
+            "type": "number",
+            "example": 604800
           }
         },
         "required": [
@@ -130,11 +189,14 @@
           "summary",
           "maintainer",
           "tokenSymbol",
+          "tokenAddress",
           "amount",
           "labels",
           "status",
           "createdAt",
-          "deadlineAt"
+          "deadlineAt",
+          "version",
+          "events"
         ]
       },
       "BountyAuditLogRecord": {
@@ -534,13 +596,16 @@
         "type": "object",
         "properties": {
           "service": {
-            "type": "string"
+            "type": "string",
+            "example": "stellar-bounty-board-backend"
           },
           "status": {
-            "type": "string"
+            "type": "string",
+            "example": "ok"
           },
           "timestamp": {
-            "type": "string"
+            "type": "string",
+            "example": "2026-03-24T19:00:00.000Z"
           }
         },
         "required": [
@@ -705,6 +770,91 @@
           "totalXlm",
           "bountiesCompleted"
         ]
+      },
+      "PublicConfig": {
+        "type": "object",
+        "properties": {
+          "feeBps": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000,
+            "description": "Protocol fee in basis points (250 = 2.5%). 0 means no protocol fee.",
+            "example": 250
+          },
+          "disputeWindowSeconds": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Seconds that must elapse after a dispute is raised before an arbiter can resolve it.",
+            "example": 86400
+          },
+          "minBountyAmount": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "Minimum allowed bounty amount in the payment token.",
+            "example": 1
+          },
+          "maxBountyAmount": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "Maximum allowed bounty amount in the payment token.",
+            "example": 10000
+          },
+          "supportedTokens": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Allowed token symbols mapped to their Soroban contract addresses.",
+            "example": {
+              "XLM": "CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA"
+            }
+          },
+          "defaultReservationTtlSeconds": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "description": "Default reservation TTL in seconds (7 days = 604800). After this window a reservation returns to open.",
+            "example": 604800
+          },
+          "network": {
+            "type": "string",
+            "description": "Stellar network the backend is connected to (mainnet, testnet, or futurenet).",
+            "example": "testnet"
+          }
+        },
+        "required": [
+          "feeBps",
+          "disputeWindowSeconds",
+          "minBountyAmount",
+          "maxBountyAmount",
+          "supportedTokens",
+          "defaultReservationTtlSeconds",
+          "network"
+        ]
+      },
+      "ResolveDisputeBountyRequest": {
+        "type": "object",
+        "properties": {
+          "arbiter": {
+            "type": "string",
+            "description": "Stellar public key of the arbiter resolving the dispute.",
+            "example": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+          },
+          "release": {
+            "type": "boolean",
+            "description": "Whether the arbiter resolves the dispute in favor of the contributor.",
+            "example": true
+          },
+          "transactionHash": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{64}$",
+            "description": "Optional transaction hash for the resolution payout.",
+            "example": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "required": [
+          "arbiter",
+          "release"
+        ]
       }
     },
     "parameters": {}
@@ -847,7 +997,7 @@
             "schema": {
               "type": "string",
               "description": "Filter bounties with deadline before this ISO 8601 date string.",
-              "example": "2026-07-29T20:46:10.721Z"
+              "example": "2030-01-01T00:00:00.000Z"
             },
             "required": false,
             "name": "deadlineBefore",
@@ -857,7 +1007,7 @@
             "schema": {
               "type": "string",
               "description": "Filter bounties with deadline after this ISO 8601 date string.",
-              "example": "2026-06-29T20:46:10.725Z"
+              "example": "2026-01-01T00:00:00.000Z"
             },
             "required": false,
             "name": "deadlineAfter",
@@ -1090,7 +1240,17 @@
             }
           },
           "400": {
-            "description": "Bounty not found, not open, or validation failed.",
+            "description": "Bounty not found, or validation failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Bounty is not open (already reserved by another contributor) or a concurrent reserve is in progress.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1402,6 +1562,66 @@
         }
       }
     },
+    "/api/bounties/:id/resolve-dispute": {
+      "post": {
+        "tags": [
+          "Bounties"
+        ],
+        "summary": "Resolve a disputed bounty",
+        "description": "Lets the configured arbiter resolve a `disputed` bounty. Releases payment to the contributor when `release` is true, otherwise refunds the escrow to the maintainer.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "example": "BNT-0001"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveDisputeBountyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Dispute resolved.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/BountyRecord"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bounty not found, not disputed, or validation failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/open-issues": {
       "get": {
         "tags": [
@@ -1498,6 +1718,45 @@
                   "required": [
                     "data"
                   ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/config": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Public runtime configuration",
+        "description": "Returns non-sensitive runtime values that the frontend and contract-interaction layer need to stay in sync with the backend without hardcoding anything.\n\n**Included:** fee bps, dispute window, min/max bounty amounts, supported token addresses, default reservation TTL, and network label.\n\n**Never included:** API keys, database connection strings, webhook secrets, maintainer public keys, or any other internal-only setting.\n\nResponse is cached with `Cache-Control: public, max-age=300` (5 min) since these values rarely change.",
+        "responses": {
+          "200": {
+            "description": "Public runtime configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/PublicConfig"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to build configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }

@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { app } from '../src/app';
 import {
   bountyRecordSchema,
@@ -13,6 +13,16 @@ import {
   bountyAuditLogListResponseSchema,
 } from '../src/validation/schemas';
 import { z } from 'zod';
+
+// submitBounty verifies PRs against the live GitHub API; mock the check so
+// tests run hermetically without network access (see src/validation/prUrl.ts).
+vi.mock('../src/validation/prUrl', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/validation/prUrl')>();
+  return {
+    ...actual,
+    validateGithubPrUrlForRepo: vi.fn().mockResolvedValue(undefined),
+  };
+});
 
 describe('OpenAPI contract — responses match zod schemas', () => {
   it('GET /api/health matches health schema', async () => {

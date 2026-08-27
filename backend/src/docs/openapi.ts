@@ -12,6 +12,7 @@ import {
   maintainerActionSchema,
   openIssueSchema,
   reserveBountySchema,
+  resolveDisputeBountySchema,
   submitBountySchema,
   updateNotesSchema,
 } from '../validation/schemas';
@@ -128,11 +129,11 @@ registry.registerPath({
       }),
       deadlineBefore: z.string().optional().openapi({
         description: "Filter bounties with deadline before this ISO 8601 date string.",
-        example: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        example: "2030-01-01T00:00:00.000Z",
       }),
       deadlineAfter: z.string().optional().openapi({
         description: "Filter bounties with deadline after this ISO 8601 date string.",
-        example: new Date().toISOString(),
+        example: "2026-01-01T00:00:00.000Z",
       }),
       page: z.number().int().min(1).optional().openapi({
         description: "Page number (starts at 1, default 1).",
@@ -210,7 +211,10 @@ registry.registerPath({
   },
   responses: {
     200: bountyDataResponse("Bounty successfully reserved."),
-    400: errorResponse("Bounty not found, not open, or validation failed."),
+    400: errorResponse("Bounty not found, or validation failed."),
+    409: errorResponse(
+      "Bounty is not open (already reserved by another contributor) or a concurrent reserve is in progress.",
+    ),
   },
 });
 
@@ -310,6 +314,25 @@ registry.registerPath({
   responses: {
     200: bountyDataResponse("Notes updated successfully."),
     400: errorResponse("Bounty not found, maintainer mismatch, or validation failed."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/bounties/:id/resolve-dispute",
+  tags: ["Bounties"],
+  summary: "Resolve a disputed bounty",
+  description:
+    "Lets the configured arbiter resolve a `disputed` bounty. " +
+    "Releases payment to the contributor when `release` is true, otherwise " +
+    "refunds the escrow to the maintainer.",
+  request: {
+    params: z.object({ id: z.string().openapi(bountyIdParam.schema) }),
+    body: jsonBody(resolveDisputeBountySchema),
+  },
+  responses: {
+    200: bountyDataResponse("Dispute resolved."),
+    400: errorResponse("Bounty not found, not disputed, or validation failed."),
   },
 });
 

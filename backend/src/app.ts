@@ -10,6 +10,7 @@ import { buildCorsOptions } from './middleware/corsOptions';
 import { runDeepHealthCheck } from './services/deepHealth';
 
 import {
+  ConflictError,
   createBounty,
   disputeBounty,
   extendDeadline,
@@ -228,7 +229,11 @@ function escapeCsv(value: unknown): string {
 
 function sendError(res: Response, req: Request, error: unknown, statusCode = 400): void {
   const message = error instanceof Error ? error.message : 'Unexpected error';
-  jsonError(res, req, statusCode, message);
+  // Concurrent-modification errors (e.g. a bounty that was just reserved by
+  // another request) surface as 409 Conflict so clients can refresh and retry
+  // rather than silently overwriting state.
+  const finalStatus = error instanceof ConflictError ? 409 : statusCode;
+  jsonError(res, req, finalStatus, message);
 }
 
 function validateBountyAmount(amount: number): string | null {

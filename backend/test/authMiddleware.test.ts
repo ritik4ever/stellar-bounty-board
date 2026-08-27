@@ -6,6 +6,17 @@ import { Keypair } from "@stellar/stellar-sdk";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// submitBounty verifies PRs against the live GitHub API; mock the check so
+// tests run hermetically without network access (see src/validation/prUrl.ts).
+vi.mock("../src/validation/prUrl", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/validation/prUrl")>();
+  return {
+    ...actual,
+    validateGithubPrUrlForRepo: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
 let storeFile: string;
 const signingKeypair = Keypair.random();
 const validMaintainerPublicKey = signingKeypair.publicKey();
