@@ -167,6 +167,13 @@ export interface BountyRecord {
   archived?: boolean;
   /** Unix timestamp in seconds of when the bounty was archived. */
   archivedAt?: number;
+  // GitHub ownership verification
+  /** Verified GitHub username of the maintainer who created the bounty. */
+  verifiedGitHubUsername?: string;
+  /** GitHub user ID of the maintainer. */
+  verifiedGitHubUserId?: number;
+  /** GitHub permission level of the maintainer on the repo (admin, write, read). */
+  verifiedGitHubPermission?: string;
 }
 
 /**
@@ -193,6 +200,12 @@ export interface CreateBountyInput {
   labels: string[];
   /** Optional custom timeout in seconds for reservation expiration. */
   reservationTimeoutSeconds?: number;
+  /** Verified GitHub username from ownership verification. */
+  verifiedGitHubUsername?: string;
+  /** GitHub user ID from ownership verification. */
+  verifiedGitHubUserId?: number;
+  /** GitHub permission level from ownership verification. */
+  verifiedGitHubPermission?: string;
 }
 
 interface CreateAuditLogInput {
@@ -708,6 +721,9 @@ export async function createBounty(
       version: 1,
       events: [{ type: "created", timestamp: createdAt }],
       reservationTimeoutSeconds: input.reservationTimeoutSeconds ?? 604800,
+      verifiedGitHubUsername: input.verifiedGitHubUsername,
+      verifiedGitHubUserId: input.verifiedGitHubUserId,
+      verifiedGitHubPermission: input.verifiedGitHubPermission,
     };
 
     writeStore([bounty, ...records]);
@@ -796,7 +812,7 @@ export async function reserveBounty(
         contributor,
       },
     ).catch((err) =>
-      console.warn("[reserveBounty] Notification failed (non-blocking):", err),
+      logStructured("warn", "[reserveBounty] Notification failed (non-blocking):", { error: err instanceof Error ? err.message : String(err) }),
     );
 
     return persisted;
@@ -878,7 +894,7 @@ export async function submitBounty(
         submissionUrl,
       },
     ).catch((err) =>
-      console.warn("[submitBounty] Notification failed (non-blocking):", err),
+      logStructured("warn", "[submitBounty] Notification failed (non-blocking):", { error: err instanceof Error ? err.message : String(err) }),
     );
 
     return persisted;
@@ -1027,7 +1043,7 @@ export async function refundBounty(
           tokenSymbol: bounty.tokenSymbol,
         },
       ).catch((err) =>
-        console.warn("[refundBounty] Notification failed (non-blocking):", err),
+        logStructured("warn", "[refundBounty] Notification failed (non-blocking):", { error: err instanceof Error ? err.message : String(err) }),
       );
     }
 
