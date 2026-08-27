@@ -12,6 +12,7 @@ import {
   maintainerActionSchema,
   openIssueSchema,
   reserveBountySchema,
+  resolveDisputeBountySchema,
   submitBountySchema,
   updateNotesSchema,
 } from '../validation/schemas';
@@ -290,6 +291,25 @@ registry.registerPath({
   responses: {
     200: bountyDataResponse("Bounty canceled."),
     400: errorResponse("Bounty not found, not open, maintainer mismatch, or validation failed."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/bounties/:id/resolve-dispute",
+  tags: ["Bounties"],
+  summary: "Resolve a disputed bounty",
+  description:
+    "Resolves a `disputed` bounty in favor of either the contributor (`release: true`) " +
+    "or the maintainer (`release: false`), transitioning it to `released` or `refunded` " +
+    "respectively. The `arbiter` address recorded on the bounty must call this endpoint.",
+  request: {
+    params: z.object({ id: z.string().openapi(bountyIdParam.schema) }),
+    body: jsonBody(resolveDisputeBountySchema),
+  },
+  responses: {
+    200: bountyDataResponse("Dispute resolved."),
+    400: errorResponse("Bounty not found, not disputed, arbiter mismatch, or validation failed."),
   },
 });
 

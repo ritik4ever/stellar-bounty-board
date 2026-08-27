@@ -27,6 +27,7 @@ const UNDOCUMENTED_ROUTES = new Set([
   // Aggregated cached stats alias — separate from /api/stats documented endpoint
   // (already documented; keeping entry in case a second alias is added)
   // Admin-only — protected by API key, not part of the public surface
+  'POST /api/admin/archive',
   'GET /api/global-metrics',
   // Per-maintainer metrics — undocumented internal endpoint
   'GET /api/maintainers/:maintainer/metrics',

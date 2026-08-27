@@ -1,5 +1,6 @@
 import type { CorsOptions } from "cors";
 import type { RequestHandler } from "express";
+import { logger } from "../logger";
 
 export type CorsMode = "production" | "development";
 
@@ -85,7 +86,7 @@ export function warnIfProductionCorsMisconfigured(): void {
 
   const raw = process.env.ALLOWED_ORIGINS?.trim();
   if (!raw) {
-    console.warn(
+    logger.warn(
       "[cors] NODE_ENV=production but ALLOWED_ORIGINS is unset; browser origins will be rejected.",
     );
   }

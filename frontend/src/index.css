@@ -2485,3 +2485,320 @@ select {
   .lo-table__cell { padding: 4px 0; display: flex; flex-direction: column; gap: 2px; }
   .lo-table__cell::before { content: attr(data-label); font-family: "IBM Plex Mono", monospace; text-transform: uppercase; font-size: 10px; color: var(--muted); letter-spacing: 0.06em; }
 }
+
+/* ── Admin dashboard ──────────────────────────────────────────────────── */
+.admin-nav-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-strong);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  cursor: pointer;
+  padding: 8px 10px;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.admin-nav-link:hover {
+  background: var(--mint-soft);
+  border-color: var(--mint);
+  color: var(--mint);
+}
+
+.admin-dashboard__header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 28px;
+}
+
+.admin-dashboard__title .meta-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.admin-dashboard__title h1 {
+  margin: 8px 0 4px;
+  font-size: clamp(1.6rem, 3vw, 2.2rem);
+}
+
+.admin-dashboard__title p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.admin-dashboard__header-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.admin-dashboard__header-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-section {
+  margin-bottom: 32px;
+}
+
+.admin-section h2 {
+  margin: 0 0 14px;
+  font-size: 1.15rem;
+}
+
+.admin-metrics {
+  margin-bottom: 0;
+}
+
+.admin-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 900px) {
+  .admin-actions-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.admin-action-card {
+  border-radius: 22px;
+  border: 1px solid rgba(54, 63, 59, 0.1);
+  background: rgba(255, 255, 255, 0.68);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 16px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.01);
+}
+
+[data-theme="dark"] .admin-action-card {
+  border-color: rgba(255, 255, 255, 0.06);
+  background: rgba(31, 36, 33, 0.6);
+}
+
+.admin-action-card h3 {
+  margin: 0 0 6px;
+  font-size: 1rem;
+}
+
+.admin-action-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.admin-action-card button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+}
+
+.admin-action-card button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.admin-gate {
+  max-width: 460px;
+  margin: 48px auto;
+  padding: 32px;
+  border-radius: 28px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+
+.admin-gate__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--amber-soft);
+  color: var(--amber);
+  margin-bottom: 16px;
+}
+
+.admin-gate h1 {
+  margin: 0 0 10px;
+  font-size: 1.5rem;
+}
+
+.admin-gate p {
+  margin: 0 0 20px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.admin-gate__form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+}
+
+.admin-gate__form label {
+  font-size: 0.82rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.admin-gate__form input {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface-strong);
+  color: var(--ink);
+}
+
+.admin-gate__form button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: var(--ink);
+  color: #fff9f0;
+  padding: 12px 18px;
+  cursor: pointer;
+}
+
+.admin-gate__form button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.admin-gate__error {
+  margin: 0 !important;
+  color: var(--rose) !important;
+  font-size: 0.88rem;
+}
+
+.admin-bulk__heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.admin-bulk__heading p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  max-width: 56ch;
+}
+
+.admin-bulk__buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.admin-bulk__buttons button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-bulk__buttons button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.admin-bulk__empty {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.admin-bulk__list {
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.admin-bulk__row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 110px 150px;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.admin-bulk__row:last-child {
+  border-bottom: none;
+}
+
+.admin-bulk__row:hover {
+  background: var(--mint-soft);
+}
+
+.admin-bulk__row--head {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  cursor: default;
+}
+
+.admin-bulk__row--head:hover {
+  background: transparent;
+}
+
+.admin-bulk__title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.admin-bulk__title strong {
+  font-size: 0.92rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-bulk__title small {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.admin-bulk__row em {
+  font-style: normal;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.75rem;
+  color: var(--mint);
+  margin-right: 8px;
+}
+
+@media (max-width: 640px) {
+  .admin-bulk__row {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px;
+  }
+  .admin-bulk__row > span:nth-of-type(2),
+  .admin-bulk__row > span:nth-of-type(3) {
+    grid-column: 2;
+  }
+}

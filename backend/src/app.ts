@@ -65,6 +65,7 @@ import { readLimiter, mutationLimiter } from './utils';
 import { maintainerLimiter } from './middleware/maintainerLimiter';
 import { logger } from './logger';
 import { createAdminApiKeyAuthMiddleware } from './middleware/adminAuth';
+import { archiveOldBounties } from './services/archiveScheduler';
 import { handleGitHubPrEvent } from './webhooks/githubPrHandler';
 import { draining } from './shutdown';
 
@@ -952,6 +953,30 @@ app.get(
       res.json(page);
     } catch (error) {
       sendError(res, req, error);
+    }
+  },
+);
+
+/**
+ * POST /api/admin/archive
+ *
+ * Admin-only endpoint that runs an archive pass on demand.  Reuses the exact
+ * logic of the scheduled archive job (`archiveOldBounties`), so a manual run
+ * and the daily job behave identically.  Requires a valid `x-admin-api-key`
+ * header whose value matches the bcrypt hash stored in `ADMIN_API_KEY_HASH`.
+ */
+app.post(
+  "/api/admin/archive",
+  createAdminApiKeyAuthMiddleware(),
+  async (_req: Request, res: Response) => {
+    try {
+      const result = archiveOldBounties();
+      // Keep the cached bounty list consistent with the mutation convention
+      // used by every other write path (#361).
+      await invalidateBountyCache();
+      res.json({ data: result });
+    } catch (error) {
+      sendError(res, _req, error, 500);
     }
   },
 );
