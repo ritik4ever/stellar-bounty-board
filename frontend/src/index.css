@@ -673,6 +673,13 @@ textarea:focus {
   color: var(--muted);
 }
 
+.board-filters__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+}
+
 .filter-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2483,5 +2490,163 @@ select {
   .lo-table thead { display: none; }
   .lo-table__row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 14px 16px; }
   .lo-table__cell { padding: 4px 0; display: flex; flex-direction: column; gap: 2px; }
-  .lo-table__cell::before { content: attr(data-label); font-family: "IBM Plex Mono", monospace; text-transform: uppercase; font-size: 10px; color: var(--muted); letter-spacing: 0.06em; }
+  .lo-table__cell::before { content: attr(data-label); font-family: \"IBM Plex Mono\", monospace; text-transform: uppercase; font-size: 10px; color: var(--muted); letter-spacing: 0.06em; }
+}
+
+/* ── Kanban Board ──────────────────────────────────────────── */
+
+.kanban-container {
+  margin-top: 8px;
+}
+
+.kanban-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16px;
+}
+
+.kanban-toolbar .secondary-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.kanban-board {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  min-height: 300px;
+}
+
+.kanban-column {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  transition: background-color 180ms ease, box-shadow 180ms ease;
+  min-height: 200px;
+}
+
+.kanban-column--drag-over {
+  background: var(--mint-soft);
+  box-shadow: 0 0 0 2px var(--mint);
+}
+
+.kanban-column--invalid {
+  opacity: 0.5;
+}
+
+.kanban-column-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px 10px;
+  border-top: 3px solid;
+  font-family: "IBM Plex Mono", monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.kanban-column-title {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.kanban-column-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  border-radius: 11px;
+  background: var(--line);
+  font-size: 11px;
+  padding: 0 6px;
+  color: var(--ink);
+}
+
+.kanban-column-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 6px 14px 14px;
+  flex: 1;
+}
+
+.kanban-card {
+  background: var(--surface-strong);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px 14px;
+  cursor: grab;
+  transition: box-shadow 180ms ease, transform 180ms ease;
+  user-select: none;
+}
+
+.kanban-card:hover {
+  box-shadow: var(--shadow);
+}
+
+.kanban-card:active {
+  cursor: grabbing;
+}
+
+.kanban-card--dragging {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  transform: rotate(2deg);
+  opacity: 0.9;
+}
+
+.kanban-card-title {
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: var(--ink);
+  margin-bottom: 8px;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.kanban-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.kanban-card-repo {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 140px;
+}
+
+.kanban-card-amount {
+  font-family: "IBM Plex Mono", monospace;
+  white-space: nowrap;
+}
+
+/* ── Kanban responsive ──────────────────────────────────────── */
+@media (max-width: 900px) {
+  .kanban-board {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .kanban-board {
+    grid-template-columns: 1fr;
+  }
 }

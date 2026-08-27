@@ -9,7 +9,9 @@ import React, {
 } from "react";
 import { useBeforeUnload } from "./useBeforeUnload";
 import {
+  Columns2,
   FolderGit2,
+  LayoutList,
   Moon,
   Rocket,
   Search,
@@ -53,6 +55,7 @@ import ContributorProfilePage from "./ContributorProfilePage";
 import ContributorDashboard from "./ContributorDashboard";
 import ErrorBoundary from "./ErrorBoundary";
 import SubmissionChecklistModal, { type SubmissionFormData } from "./SubmissionChecklistModal";
+import KanbanBoard from "./KanbanBoard";
 
 const DARK_MODE_KEY = "stellar-bounty-board-theme";
 
@@ -128,6 +131,7 @@ function App() {
   const [submitting, setSubmitting] = useState(false);
   const [showShortcutsOverlay, setShowShortcutsOverlay] = useState(false);
   const [isFormDirty, setIsFormDirty] = useState(false);
+  const [isKanban, setIsKanban] = useState(false);
 
   useBeforeUnload(isFormDirty);
 
@@ -779,9 +783,32 @@ function App() {
                 </button>
               ))}
             </div>
+            <div className="board-filters__actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setIsKanban((v) => !v)}
+                title={isKanban ? "Switch to list view" : "Switch to kanban board view"}
+              >
+                {isKanban ? <LayoutList size={16} /> : <Columns2 size={16} />}
+                <span>{isKanban ? "List" : "Kanban"}</span>
+              </button>
+            </div>
           </div>
 
-          {loading ? (
+          {isKanban ? (
+            <KanbanBoard
+              bounties={filteredBounties}
+              onOpen={handleOpenBounty}
+              onReserve={(bounty) => void handleReserve(bounty)}
+              onSubmit={(bounty) => void handleSubmit(bounty)}
+              onRelease={(bounty) => void handleRelease(bounty)}
+              onRefund={(bounty) => void handleRefund(bounty)}
+              onRefresh={refresh}
+              isKanban={isKanban}
+              onToggleView={() => setIsKanban((v) => !v)}
+            />
+          ) : loading ? (
             <div className="board-grid">
               {[1, 2, 3].map((i) => (
                 <SkeletonBountyCard key={i} />
