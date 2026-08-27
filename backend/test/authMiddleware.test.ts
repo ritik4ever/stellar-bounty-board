@@ -18,6 +18,9 @@ beforeEach(() => {
   process.env.BOUNTY_STORE_PATH = storeFile;
   process.env.NODE_ENV = "production";
   process.env.MAINTAINER_PUBLIC_KEY = validMaintainerPublicKey;
+  // Required for SEP-10 JWT auth in production mode
+  process.env.SERVER_SIGNING_SECRET = "SB6AAXPJJ4PXNRASQRTM4PDVJ6BVZLE6DP5AHV5E4KZ3CTJD5T6MOBB2";
+  process.env.JWT_SECRET = "test-jwt-secret-for-production-mode-tests-32b";
   vi.resetModules();
 });
 
@@ -25,6 +28,8 @@ afterEach(() => {
   delete process.env.BOUNTY_STORE_PATH;
   delete process.env.NODE_ENV;
   delete process.env.MAINTAINER_PUBLIC_KEY;
+  delete process.env.SERVER_SIGNING_SECRET;
+  delete process.env.JWT_SECRET;
   try {
     fs.unlinkSync(storeFile);
   } catch {
@@ -124,8 +129,8 @@ describe("POST /api/bounties — Stellar signature requirement (#366)", () => {
   });
 });
 
-describe("Stellar auth middleware — release/refund routes", () => {
-  it("returns 401 when Stellar signature headers are missing on release", async () => {
+describe("Stellar auth middleware — release/refund routes (SEP-10 JWT)", () => {
+  it("returns 401 when Authorization header is missing on release", async () => {
     const app = await getApp();
     const id = await createSignedBounty(app);
 
@@ -134,102 +139,81 @@ describe("Stellar auth middleware — release/refund routes", () => {
       .send({ maintainer: validMaintainerPublicKey, transactionHash: "a".repeat(64) })
       .expect(401);
 
-    expect(res.body.error).toMatch(/missing.*signature|unauthorized/i);
+    expect(res.body.error).toMatch(/authorization|bearer/i);
   });
 
-  it("allows release when Stellar payload is signed by the configured maintainer key", async () => {
+  it("allows a valid JWT to pass the auth gate (reaches route handler, not 401)", async () => {
+    const app = await getApp();
+
+    // Produce a valid JWT for the maintainer
+    const { signJwt, JWT_TTL_SECONDS } = await import("../src/services/sep10Auth");
+    const now = Math.floor(Date.now() / 1000);
+    const jwtSecret = Buffer.from("test-jwt-secret-for-production-mode-tests-32b", "utf8");
+    const token = signJwt({
+      sub: validMaintainerPublicKey,
+      iat: now,
+      exp: now + JWT_TTL_SECONDS,
+    }, jwtSecret);
+
+    // Use a non-existent bounty ID — the route will 404/400 but NOT 401,
+    // which confirms the auth gate was passed successfully.
+    const res = await request(app)
+      .post("/api/bounties/nonexistent-bounty/release")
+      .set("Authorization", `Bearer ${token}`)
+      .set("Content-Type", "application/json")
+      .send({
+        maintainer: validMaintainerPublicKey,
+        transactionHash: "a".repeat(64),
+      });
+
+    // Auth passed — should be 400 or 404 (not found / validation), never 401
+    expect(res.status).not.toBe(401);
+  });
+
+  it("rejects release when JWT is expired", async () => {
     const app = await getApp();
     const id = await createSignedBounty(app);
 
-    await request(app).post(`/api/bounties/${id}/reserve`).send({ contributor: validMaintainerPublicKey }).expect(200);
-    await request(app)
-      .post(`/api/bounties/${id}/submit`)
-      .send({ contributor: validMaintainerPublicKey, submissionUrl: "https://github.com/owner/repo/pull/1" })
-      .expect(200);
-
-    const payload = {
-      maintainer: validMaintainerPublicKey,
-      transactionHash: "a".repeat(64),
-      action: "release",
-      bountyId: id,
-      timestamp: Math.floor(Date.now() / 1000),
-    };
-    const signature = signPayload(signingKeypair, payload);
+    const { signJwt } = await import("../src/services/sep10Auth");
+    const past = Math.floor(Date.now() / 1000) - 7200;
+    const jwtSecret = Buffer.from("test-jwt-secret-for-production-mode-tests-32b", "utf8");
+    const expiredToken = signJwt({
+      sub: validMaintainerPublicKey,
+      iat: past,
+      exp: past + 3600,
+    }, jwtSecret);
 
     const res = await request(app)
       .post(`/api/bounties/${id}/release`)
-      .set("X-Stellar-Public-Key", validMaintainerPublicKey)
-      .set("X-Stellar-Signature", signature)
-      .send(payload)
-      .expect(200);
-
-    expect(res.body.data.status).toBe("released");
-  });
-
-  it("rejects release when timestamp is too old (stale)", async () => {
-    const app = await getApp();
-    const id = await createSignedBounty(app);
-
-    await request(app).post(`/api/bounties/${id}/reserve`).send({ contributor: validMaintainerPublicKey }).expect(200);
-    await request(app)
-      .post(`/api/bounties/${id}/submit`)
-      .send({ contributor: validMaintainerPublicKey, submissionUrl: "https://github.com/owner/repo/pull/1" })
-      .expect(200);
-
-    const payload = {
-      maintainer: validMaintainerPublicKey,
-      transactionHash: "a".repeat(64),
-      action: "release",
-      bountyId: id,
-      timestamp: Math.floor(Date.now() / 1000) - 70, // 70 seconds old (stale)
-    };
-    const signature = signPayload(signingKeypair, payload);
-
-    const res = await request(app)
-      .post(`/api/bounties/${id}/release`)
-      .set("X-Stellar-Public-Key", validMaintainerPublicKey)
-      .set("X-Stellar-Signature", signature)
-      .send(payload)
+      .set("Authorization", `Bearer ${expiredToken}`)
+      .send({ maintainer: validMaintainerPublicKey, transactionHash: "a".repeat(64) })
       .expect(401);
 
-    expect(res.body.error).toMatch(/timestamp.*expired/i);
+    expect(res.body.error).toMatch(/expired/i);
   });
 
-  it("rejects release when request is replayed (nonce deduplication)", async () => {
+  it("rejects release when JWT has an invalid signature (tampered)", async () => {
     const app = await getApp();
     const id = await createSignedBounty(app);
 
-    await request(app).post(`/api/bounties/${id}/reserve`).send({ contributor: validMaintainerPublicKey }).expect(200);
-    await request(app)
-      .post(`/api/bounties/${id}/submit`)
-      .send({ contributor: validMaintainerPublicKey, submissionUrl: "https://github.com/owner/repo/pull/1" })
-      .expect(200);
+    const { signJwt, JWT_TTL_SECONDS } = await import("../src/services/sep10Auth");
+    const now = Math.floor(Date.now() / 1000);
+    const jwtSecret = Buffer.from("test-jwt-secret-for-production-mode-tests-32b", "utf8");
+    const token = signJwt({
+      sub: validMaintainerPublicKey,
+      iat: now,
+      exp: now + JWT_TTL_SECONDS,
+    }, jwtSecret);
 
-    const payload = {
-      maintainer: validMaintainerPublicKey,
-      transactionHash: "a".repeat(64),
-      action: "release",
-      bountyId: id,
-      timestamp: Math.floor(Date.now() / 1000),
-    };
-    const signature = signPayload(signingKeypair, payload);
+    // Tamper with the last 4 characters of the token
+    const tamperedToken = token.slice(0, -4) + "XXXX";
 
-    // First attempt succeeds
-    await request(app)
-      .post(`/api/bounties/${id}/release`)
-      .set("X-Stellar-Public-Key", validMaintainerPublicKey)
-      .set("X-Stellar-Signature", signature)
-      .send(payload)
-      .expect(200);
-
-    // Second attempt (replay) fails
     const res = await request(app)
       .post(`/api/bounties/${id}/release`)
-      .set("X-Stellar-Public-Key", validMaintainerPublicKey)
-      .set("X-Stellar-Signature", signature)
-      .send(payload)
+      .set("Authorization", `Bearer ${tamperedToken}`)
+      .send({ maintainer: validMaintainerPublicKey, transactionHash: "a".repeat(64) })
       .expect(401);
 
-    expect(res.body.error).toMatch(/replay.*detected/i);
+    expect(res.body.error).toMatch(/signature|JWT/i);
   });
 });

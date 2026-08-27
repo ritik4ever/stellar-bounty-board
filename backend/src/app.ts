@@ -55,10 +55,9 @@ import {
   captureRawBody,
   createGitHubWebhookSignatureMiddleware,
 } from './webhooks/signatureVerification';
-import {
-  createBountyCreationSignatureMiddleware,
-  createStellarSignatureAuthMiddleware,
-} from './middleware/auth';
+import { createBountyCreationSignatureMiddleware } from './middleware/auth';
+import { requireSep10Auth } from './middleware/sep10Session';
+import { authRouter } from './routes/auth';
 import { idempotencyMiddleware } from './middleware/idempotency';
 import { requireJsonContentType } from './middleware/contentType';
 import { readLimiter, mutationLimiter } from './utils';
@@ -169,6 +168,9 @@ app.use(readLimiter);
 
 const swaggerDoc = generateOpenApiDocument();
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerDoc));
+
+// SEP-10 wallet authentication
+app.use('/api/auth', authRouter);
 
 function parseId(raw: string | string[] | undefined): string {
   return bountyIdSchema.parse(Array.isArray(raw) ? raw[0] : raw);
@@ -610,7 +612,7 @@ app.post(
   mutationLimiter,
   requireJsonContentType,
   idempotencyMiddleware,
-  createStellarSignatureAuthMiddleware(),
+  requireSep10Auth(),
   validateBody(maintainerActionSchema),
   async (req: Request, res: Response) => {
     try {
@@ -631,7 +633,7 @@ app.post(
   '/api/bounties/:id/refund',
   mutationLimiter,
   idempotencyMiddleware,
-  createStellarSignatureAuthMiddleware(),
+  requireSep10Auth(),
   validateBody(maintainerActionSchema),
   async (req: Request, res: Response) => {
     try {
@@ -652,7 +654,7 @@ app.post(
   '/api/bounties/:id/cancel',
   mutationLimiter,
   idempotencyMiddleware,
-  createStellarSignatureAuthMiddleware(),
+  requireSep10Auth(),
   async (req: Request, res: Response) => {
     const parsedBody = maintainerActionSchema.safeParse(req.body);
 
@@ -678,7 +680,7 @@ app.post(
 app.post(
   '/api/bounties/:id/dispute',
   mutationLimiter,
-  createStellarSignatureAuthMiddleware(),
+  requireSep10Auth(),
   validateBody(disputeBountySchema),
   async (req: Request, res: Response) => {
     try {
@@ -719,7 +721,7 @@ app.patch(
   '/api/bounties/:id/notes',
   mutationLimiter,
   requireJsonContentType,
-  createStellarSignatureAuthMiddleware(),
+  requireSep10Auth(),
   validateBody(updateNotesSchema),
   async (req: Request, res: Response) => {
     try {
@@ -740,7 +742,7 @@ app.post(
   '/api/bounties/:id/extend-deadline',
   mutationLimiter,
   idempotencyMiddleware,
-  createStellarSignatureAuthMiddleware(),
+  requireSep10Auth(),
   async (req: Request, res: Response) => {
     const parsedBody = extendDeadlineSchema.safeParse(req.body);
 
