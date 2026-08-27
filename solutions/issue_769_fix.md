@@ -1,0 +1,1 @@
+Solution proposal for [TEST] Add optimistic-locking conflict test for concurrent reserveBounty calls
