@@ -46,6 +46,22 @@ const bountyIdParam = {
   schema: { type: "string" as const, example: "BNT-0001" },
 };
 
+const maintainerAddressParam = {
+  name: "address",
+  in: "path" as const,
+  required: true,
+  description: 'Maintainer Stellar public key (e.g. "G...")',
+  schema: { type: "string" as const, example: "G..." },
+};
+
+const apiKeyIdParam = {
+  name: "keyId",
+  in: "path" as const,
+  required: true,
+  description: "API key ID returned when the key was generated.",
+  schema: { type: "string" as const, example: "key_..." },
+};
+
 const jsonBody = <T extends z.ZodTypeAny>(schema: T) => ({
   required: true,
   content: { "application/json": { schema } },
@@ -484,6 +500,58 @@ registry.registerPath({
   responses: {
     200: jsonResponse("Paginated list of audit logs", bountyAuditLogListResponseSchema),
     401: errorResponse("Invalid or missing x-admin-api-key header"),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/maintainers/{address}/api-keys",
+  tags: ["Maintainers"],
+  summary: "Generate a maintainer API key",
+  description:
+    "Creates a new API key scoped to the specified maintainer address. " +
+    "The plaintext API key is returned exactly once; only its hash is persisted. " +
+    "The key allows maintainer actions only on bounties owned by this address.",
+  request: {
+    params: z.object({ address: z.string().openapi(maintainerAddressParam.schema) }),
+    body: jsonBody(maintainerActionSchema),
+  },
+  responses: {
+    201: jsonResponse(
+      "API key generated. The plaintext key is only shown once.",
+      z.object({
+        data: z.object({
+          keyId: z.string().openapi({ example: "key_..." }),
+          apiKey: z.string().openapi({ example: "key_..." }),
+        }),
+      }),
+    ),
+    400: errorResponse("Maintainer address invalid or signature verification failed."),
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/api/maintainers/{address}/api-keys/{keyId}",
+  tags: ["Maintainers"],
+  summary: "Revoke a maintainer API key",
+  description:
+    "Revokes the specified API key for the maintainer. " +
+    "Revoked keys are rejected immediately on the next request.",
+  request: {
+    params: z.object({
+      address: z.string().openapi(maintainerAddressParam.schema),
+      keyId: z.string().openapi(apiKeyIdParam.schema),
+    }),
+    body: jsonBody(maintainerActionSchema),
+  },
+  responses: {
+    200: jsonResponse(
+      "API key revoked.",
+      z.object({ data: z.object({ revoked: z.boolean() }) }),
+    ),
+    400: errorResponse("Maintainer address invalid or key ID not found."),
+    404: errorResponse("Maintainer API key not found."),
   },
 });
 
