@@ -448,7 +448,7 @@ registry.registerPath({
   tags: ["Admin"],
   summary: "List all audit logs (admin-only)",
   description:
-    "Admin-only endpoint that returns a paginated view of all audit log records. Requires a valid x-admin-api-key header.",
+    "Admin-only endpoint that returns a paginated view of all audit log records. Requires a valid bearer admin session token.",
   request: {
     query: z.object({
       limit: z.number().int().min(1).max(200).optional().openapi({
@@ -483,7 +483,7 @@ registry.registerPath({
   },
   responses: {
     200: jsonResponse("Paginated list of audit logs", bountyAuditLogListResponseSchema),
-    401: errorResponse("Invalid or missing x-admin-api-key header"),
+    401: errorResponse("Invalid, expired, or missing bearer admin session token"),
   },
 });
 

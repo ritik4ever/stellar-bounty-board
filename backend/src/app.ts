@@ -64,7 +64,7 @@ import { requireJsonContentType } from './middleware/contentType';
 import { readLimiter, mutationLimiter } from './utils';
 import { maintainerLimiter } from './middleware/maintainerLimiter';
 import { logger } from './logger';
-import { createAdminApiKeyAuthMiddleware } from './middleware/adminAuth';
+import { createAdminApiKeyAuthMiddleware, createAdminSessionHandlers } from './middleware/adminAuth';
 import { handleGitHubPrEvent } from './webhooks/githubPrHandler';
 import { draining } from './shutdown';
 
@@ -919,12 +919,16 @@ app.get('/api/config', (_req: Request, res: Response) => {
   }
 });
 
+const adminSessionHandlers = createAdminSessionHandlers();
+app.post('/api/admin/session', adminSessionHandlers.issue);
+app.post('/api/admin/session/rotate', adminSessionHandlers.rotate);
+
 /**
  * GET /api/audit-log
  *
  * Admin-only endpoint that returns a paginated view of all audit log records
- * across every bounty.  Requires a valid `x-admin-api-key` header whose value
- * matches the bcrypt hash stored in `ADMIN_API_KEY_HASH`.
+ * across every bounty. Requires a valid bearer session token. Obtain one from
+ * POST /api/admin/session using the key stored in ADMIN_API_KEY_HASH.
  */
 app.get(
   "/api/audit-log",
