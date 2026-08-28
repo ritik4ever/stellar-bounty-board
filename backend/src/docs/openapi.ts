@@ -371,6 +371,87 @@ const leaderboardEntrySchema = z
 
 registry.register("LeaderboardEntry", leaderboardEntrySchema);
 
+// ---------------------------------------------------------------------------
+// Contributor Reputation
+// ---------------------------------------------------------------------------
+
+const reputationBreakdownSchema = z
+  .object({
+    completionScore: z.number().int().openapi({
+      example: 45,
+      description: "Points earned from completed (released) bounties. 0–60.",
+    }),
+    disputeScore: z.number().int().openapi({
+      example: 10,
+      description: "Points from dispute outcomes. -30 to +20.",
+    }),
+    responseTimeScore: z.number().int().openapi({
+      example: 20,
+      description: "Points from response-time performance. 0–20.",
+    }),
+  })
+  .openapi("ReputationBreakdown");
+
+registry.register("ReputationBreakdown", reputationBreakdownSchema);
+
+const contributorReputationSchema = z
+  .object({
+    address: z.string().openapi({
+      example: "GBBB...BBB",
+      description: "Stellar address of the contributor.",
+    }),
+    score: z.number().int().min(0).max(100).openapi({
+      example: 75,
+      description: "Aggregate reputation score, clamped to 0–100.",
+    }),
+    breakdown: reputationBreakdownSchema,
+    totalBounties: z.number().int().openapi({
+      example: 6,
+      description: "Total number of bounties the contributor has worked on.",
+    }),
+    completedBounties: z.number().int().openapi({
+      example: 4,
+      description: "Number of bounties successfully released.",
+    }),
+    disputeWins: z.number().int().openapi({
+      example: 1,
+      description: "Number of disputes resolved in the contributor's favour.",
+    }),
+    disputeLosses: z.number().int().openapi({
+      example: 0,
+      description: "Number of disputes resolved against the contributor.",
+    }),
+  })
+  .openapi("ContributorReputation");
+
+registry.register("ContributorReputation", contributorReputationSchema);
+
+registry.registerPath({
+  method: "get",
+  path: "/api/contributors/{address}/reputation",
+  tags: ["Contributors"],
+  summary: "Contributor reputation score",
+  description:
+    "Returns the reputation score for a contributor identified by their Stellar address. " +
+    "The score (0–100) is derived from completed bounties, dispute outcomes, and response times. " +
+    "A contributor with no history receives a neutral score of 50.",
+  request: {
+    params: z.object({
+      address: z.string().openapi({
+        example: "GBBB...BBB",
+        description: "Stellar public key of the contributor.",
+      }),
+    }),
+  },
+  responses: {
+    200: jsonResponse(
+      "Reputation score and breakdown.",
+      z.object({ data: contributorReputationSchema }),
+    ),
+    400: errorResponse("Invalid contributor address."),
+  },
+});
+
 registry.registerPath({
   method: "get",
   path: "/api/leaderboard",
