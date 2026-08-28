@@ -9,6 +9,31 @@ import { MAINTAINER, OTHER_ACCOUNT } from "./fixtures";
 let storeFile: string;
 let originalFetch: typeof globalThis.fetch;
 
+const mockPoolQuery = vi.fn();
+let mockPoolStats = {
+  totalCount: 5,
+  idleCount: 3,
+  waitingCount: 0,
+};
+
+vi.mock("pg", () => {
+  return {
+    Pool: vi.fn().mockImplementation(() => ({
+      query: (...args: any[]) => mockPoolQuery(...args),
+      get totalCount() {
+        return mockPoolStats.totalCount;
+      },
+      get idleCount() {
+        return mockPoolStats.idleCount;
+      },
+      get waitingCount() {
+        return mockPoolStats.waitingCount;
+      },
+      end: vi.fn().mockResolvedValue(undefined),
+    })),
+  };
+});
+
 beforeEach(() => {
   storeFile = path.join(os.tmpdir(), `bounty-deep-health-${randomUUID()}.json`);
   fs.writeFileSync(storeFile, "[]", "utf8");
@@ -16,17 +41,26 @@ beforeEach(() => {
   process.env.MAINTAINER_PUBLIC_KEY = MAINTAINER;
   process.env.ARBITER_ADDRESS = OTHER_ACCOUNT;
   process.env.SOROBAN_CONTRACT_ID = "CCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+  process.env.DATABASE_URL = "postgres://postgres:postgres@localhost:5432/stellar_test";
   originalFetch = globalThis.fetch;
+  mockPoolQuery.mockReset();
+  mockPoolQuery.mockResolvedValue({ rows: [{ "?column?": 1 }] });
+  mockPoolStats = {
+    totalCount: 5,
+    idleCount: 3,
+    waitingCount: 0,
+  };
   vi.resetModules();
 });
 
-afterEach(() => {
+afterEach(async () => {
   delete process.env.BOUNTY_STORE_PATH;
   delete process.env.MAINTAINER_PUBLIC_KEY;
   delete process.env.ARBITER_ADDRESS;
   delete process.env.SOROBAN_CONTRACT_ID;
   delete process.env.CONTRACT_ID;
   delete process.env.SOROBAN_RPC_URL;
+  delete process.env.DATABASE_URL;
   delete process.env.NODE_ENV;
   globalThis.fetch = originalFetch;
   try {
@@ -61,11 +95,19 @@ describe("GET /api/health/deep", () => {
     const res = await request(app).get("/api/health/deep").expect(200);
 
     expect(res.body.overall).toBe("up");
-    expect(res.body.components).toEqual({
-      store: "up",
-      soroban: "up",
-      contract: "up",
-      auth: "up",
+    expect(res.body.components.store).toBe("up");
+    expect(res.body.components.soroban).toBe("up");
+    expect(res.body.components.contract).toBe("up");
+    expect(res.body.components.auth).toBe("up");
+    expect(res.body.components.database).toEqual({
+      status: "up",
+      latencyMs: expect.any(Number),
+      pool: {
+        totalCount: 5,
+        idleCount: 3,
+        waitingCount: 0,
+        activeCount: 2,
+      },
     });
     expect(res.body.timestamp).toBeDefined();
   });
@@ -96,6 +138,7 @@ describe("GET /api/health/deep", () => {
   });
 
   it("returns 503 when soroban rpc is unreachable", async () => {
+    mockHealthyRpc();
     globalThis.fetch = vi.fn().mockRejectedValue(new Error("network error")) as typeof fetch;
     vi.resetModules();
 
@@ -115,6 +158,19 @@ describe("GET /api/health/deep", () => {
     const res = await request(app).get("/api/health/deep").expect(503);
 
     expect(res.body.components.store).toBe("down");
+  });
+
+  it("returns 503 when DATABASE_URL is not configured", async () => {
+    mockHealthyRpc();
+    delete process.env.DATABASE_URL;
+    vi.resetModules();
+
+    const app = await getApp();
+    const res = await request(app).get("/api/health/deep").expect(503);
+
+    expect(res.body.overall).toBe("down");
+    expect(res.body.components.database.status).toBe("down");
+    expect(res.body.components.database.error).toBe("DATABASE_URL is not configured");
   });
 
   it("is excluded from rate limiting", async () => {
@@ -147,6 +203,7 @@ describe("GET /api/health/deep — Soroban RPC chaos (#908)", () => {
     expect(res.body.components.store).toBe("up");
     expect(res.body.components.contract).toBe("up");
     expect(res.body.components.auth).toBe("up");
+    expect(res.body.components.database.status).toBe("up");
   });
 
   it("marks soroban degraded on a simulated RPC error response, while other checks stay independently healthy", async () => {
@@ -165,6 +222,7 @@ describe("GET /api/health/deep — Soroban RPC chaos (#908)", () => {
     expect(res.body.components.store).toBe("up");
     expect(res.body.components.contract).toBe("up");
     expect(res.body.components.auth).toBe("up");
+    expect(res.body.components.database.status).toBe("up");
   });
 
   it("fully recovers once the simulated RPC outage ends", async () => {
@@ -184,11 +242,94 @@ describe("GET /api/health/deep — Soroban RPC chaos (#908)", () => {
     const afterRecovery = await request(appRecovered).get("/api/health/deep").expect(200);
 
     expect(afterRecovery.body.overall).toBe("up");
-    expect(afterRecovery.body.components).toEqual({
-      store: "up",
-      soroban: "up",
-      contract: "up",
-      auth: "up",
-    });
+    expect(afterRecovery.body.components.store).toBe("up");
+    expect(afterRecovery.body.components.soroban).toBe("up");
+    expect(afterRecovery.body.components.contract).toBe("up");
+    expect(afterRecovery.body.components.auth).toBe("up");
+    expect(afterRecovery.body.components.database.status).toBe("up");
   });
 });
+
+describe("GET /api/health/deep — Postgres Database dependency check", () => {
+  it("marks database down on simulated connection/query failure, while other checks stay healthy", async () => {
+    mockHealthyRpc();
+    mockPoolQuery.mockRejectedValue(new Error("connection refused"));
+    vi.resetModules();
+
+    const app = await getApp();
+    const res = await request(app).get("/api/health/deep").expect(503);
+
+    expect(res.body.overall).toBe("down");
+    expect(res.body.components.database.status).toBe("down");
+    expect(res.body.components.database.error).toBe("connection refused");
+    expect(res.body.components.database.latencyMs).toBeTypeOf("number");
+    expect(res.body.components.database.pool).toEqual({
+      totalCount: 5,
+      idleCount: 3,
+      waitingCount: 0,
+      activeCount: 2,
+    });
+    expect(res.body.components.store).toBe("up");
+    expect(res.body.components.soroban).toBe("up");
+    expect(res.body.components.contract).toBe("up");
+    expect(res.body.components.auth).toBe("up");
+  });
+
+  it("marks database down on simulated query timeout, while other checks stay healthy", async () => {
+    mockHealthyRpc();
+    // Simulate query hanging past timeout
+    mockPoolQuery.mockImplementation(() => new Promise((resolve) => setTimeout(resolve, 10_000)));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.resetModules();
+
+    const app = await getApp();
+    const reqPromise = request(app).get("/api/health/deep");
+
+    await vi.advanceTimersByTimeAsync(5_100);
+
+    const res = await reqPromise;
+    expect(res.status).toBe(503);
+    expect(res.body.overall).toBe("down");
+    expect(res.body.components.database.status).toBe("down");
+    expect(res.body.components.database.error).toContain("timed out");
+    expect(res.body.components.store).toBe("up");
+    expect(res.body.components.soroban).toBe("up");
+    expect(res.body.components.contract).toBe("up");
+    expect(res.body.components.auth).toBe("up");
+
+    vi.useRealTimers();
+  });
+
+  it("fully recovers once simulated database outage ends", async () => {
+    mockHealthyRpc();
+    mockPoolQuery.mockRejectedValue(new Error("connection terminated"));
+    vi.resetModules();
+
+    const app = await getApp();
+    const duringOutage = await request(app).get("/api/health/deep").expect(503);
+    expect(duringOutage.body.components.database.status).toBe("down");
+    expect(duringOutage.body.overall).toBe("down");
+
+    // End simulated database outage
+    mockPoolQuery.mockResolvedValue({ rows: [{ "?column?": 1 }] });
+    vi.resetModules();
+
+    const appRecovered = await getApp();
+    const afterRecovery = await request(appRecovered).get("/api/health/deep").expect(200);
+
+    expect(afterRecovery.body.overall).toBe("up");
+    expect(afterRecovery.body.components.database.status).toBe("up");
+    expect(afterRecovery.body.components.database.latencyMs).toBeTypeOf("number");
+    expect(afterRecovery.body.components.database.pool).toEqual({
+      totalCount: 5,
+      idleCount: 3,
+      waitingCount: 0,
+      activeCount: 2,
+    });
+    expect(afterRecovery.body.components.store).toBe("up");
+    expect(afterRecovery.body.components.soroban).toBe("up");
+    expect(afterRecovery.body.components.contract).toBe("up");
+    expect(afterRecovery.body.components.auth).toBe("up");
+  });
+});
+

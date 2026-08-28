@@ -1,7 +1,22 @@
 import fs from "node:fs";
 import path from "node:path";
+import { Pool } from "pg";
 
 export type ComponentStatus = "up" | "down";
+
+export interface DatabasePoolStats {
+  totalCount: number;
+  idleCount: number;
+  waitingCount: number;
+  activeCount?: number;
+}
+
+export interface DatabaseHealthDetail {
+  status: ComponentStatus;
+  latencyMs?: number;
+  pool?: DatabasePoolStats;
+  error?: string;
+}
 
 export interface DeepHealthResult {
   overall: ComponentStatus;
@@ -10,12 +25,59 @@ export interface DeepHealthResult {
     soroban: ComponentStatus;
     contract: ComponentStatus;
     auth: ComponentStatus;
+    database: DatabaseHealthDetail;
   };
   timestamp: string;
 }
 
 const DEFAULT_SOROBAN_RPC_URL = "https://rpc-futurenet.stellar.org";
 const RPC_TIMEOUT_MS = 5_000;
+const DB_TIMEOUT_MS = 5_000;
+
+let dbPool: Pool | null = null;
+let currentDatabaseUrl: string | null = null;
+
+export function getDbPool(): Pool | null {
+  const url = process.env.DATABASE_URL?.trim() || "";
+  if (!url) {
+    if (dbPool) {
+      void dbPool.end().catch(() => {});
+      dbPool = null;
+      currentDatabaseUrl = null;
+    }
+    return null;
+  }
+
+  if (!dbPool || currentDatabaseUrl !== url) {
+    if (dbPool) {
+      void dbPool.end().catch(() => {});
+    }
+    dbPool = new Pool({
+      connectionString: url,
+      connectionTimeoutMillis: DB_TIMEOUT_MS,
+    });
+    currentDatabaseUrl = url;
+  }
+
+  return dbPool;
+}
+
+export function setDbPool(pool: Pool | null): void {
+  dbPool = pool;
+  currentDatabaseUrl = process.env.DATABASE_URL?.trim() || null;
+}
+
+export async function closeDbPool(): Promise<void> {
+  if (dbPool) {
+    try {
+      await dbPool.end();
+    } catch {
+      /* best-effort */
+    }
+    dbPool = null;
+    currentDatabaseUrl = null;
+  }
+}
 
 function resolveStorePath(): string {
   if (process.env.BOUNTY_STORE_PATH?.trim()) {
@@ -108,16 +170,111 @@ function checkAuth(): ComponentStatus {
   return maintainerKeys.length > 0 && arbiter.length > 0 ? "up" : "down";
 }
 
+export async function checkDatabase(): Promise<DatabaseHealthDetail> {
+  const url = process.env.DATABASE_URL?.trim();
+  if (!url) {
+    return {
+      status: "down",
+      error: "DATABASE_URL is not configured",
+    };
+  }
+
+  let pool: Pool | null = null;
+  try {
+    pool = getDbPool();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      status: "down",
+      error: message,
+    };
+  }
+
+  if (!pool) {
+    return {
+      status: "down",
+      error: "DATABASE_URL is not configured",
+    };
+  }
+
+  const startTime = Date.now();
+  let timer: NodeJS.Timeout | null = null;
+
+  try {
+    const queryPromise = pool.query("SELECT 1");
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error(`Database check timed out after ${DB_TIMEOUT_MS}ms`));
+      }, DB_TIMEOUT_MS);
+      if (typeof timer.unref === "function") {
+        timer.unref();
+      }
+    });
+
+    await Promise.race([queryPromise, timeoutPromise]);
+    if (timer) {
+      clearTimeout(timer);
+    }
+
+    const latencyMs = Math.max(0, Date.now() - startTime);
+    const totalCount = pool.totalCount ?? 0;
+    const idleCount = pool.idleCount ?? 0;
+    const waitingCount = pool.waitingCount ?? 0;
+    const activeCount = Math.max(0, totalCount - idleCount);
+
+    return {
+      status: "up",
+      latencyMs,
+      pool: {
+        totalCount,
+        idleCount,
+        waitingCount,
+        activeCount,
+      },
+    };
+  } catch (err) {
+    if (timer) {
+      clearTimeout(timer);
+    }
+    const latencyMs = Math.max(0, Date.now() - startTime);
+    const message = err instanceof Error ? err.message : String(err);
+    const totalCount = pool.totalCount ?? 0;
+    const idleCount = pool.idleCount ?? 0;
+    const waitingCount = pool.waitingCount ?? 0;
+    const activeCount = Math.max(0, totalCount - idleCount);
+
+    return {
+      status: "down",
+      latencyMs,
+      pool: {
+        totalCount,
+        idleCount,
+        waitingCount,
+        activeCount,
+      },
+      error: message,
+    };
+  }
+}
+
 export async function runDeepHealthCheck(): Promise<DeepHealthResult> {
-  const [store, soroban, contract, auth] = await Promise.all([
+  const [store, soroban, contract, auth, database] = await Promise.all([
     Promise.resolve(checkStore()),
     checkSorobanRpc(),
     Promise.resolve(checkContract()),
     Promise.resolve(checkAuth()),
+    checkDatabase(),
   ]);
 
-  const components = { store, soroban, contract, auth };
-  const overall = Object.values(components).every((status) => status === "up") ? "up" : "down";
+  const components = { store, soroban, contract, auth, database };
+  const overall: ComponentStatus =
+    store === "up" &&
+    soroban === "up" &&
+    contract === "up" &&
+    auth === "up" &&
+    database.status === "up"
+      ? "up"
+      : "down";
 
   return {
     overall,

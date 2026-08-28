@@ -393,6 +393,24 @@ export const healthResponseSchema = z
 
 export const componentStatusSchema = z.enum(['up', 'down']);
 
+export const databasePoolStatsSchema = z
+  .object({
+    totalCount: z.number().int().nonnegative(),
+    idleCount: z.number().int().nonnegative(),
+    waitingCount: z.number().int().nonnegative(),
+    activeCount: z.number().int().nonnegative().optional(),
+  })
+  .openapi('DatabasePoolStats');
+
+export const databaseHealthSchema = z
+  .object({
+    status: componentStatusSchema,
+    latencyMs: z.number().nonnegative().optional(),
+    pool: databasePoolStatsSchema.optional(),
+    error: z.string().optional(),
+  })
+  .openapi('DatabaseHealth');
+
 export const deepHealthResponseSchema = z
   .object({
     overall: componentStatusSchema,
@@ -401,6 +419,7 @@ export const deepHealthResponseSchema = z
       soroban: componentStatusSchema,
       contract: componentStatusSchema,
       auth: componentStatusSchema,
+      database: databaseHealthSchema,
     }),
     timestamp: z.string(),
   })
