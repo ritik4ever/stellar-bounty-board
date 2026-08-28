@@ -30,6 +30,8 @@ const UNDOCUMENTED_ROUTES = new Set([
   'GET /api/global-metrics',
   // Per-maintainer metrics — undocumented internal endpoint
   'GET /api/maintainers/:maintainer/metrics',
+  // Contributor badges — undocumented internal endpoint
+  'GET /api/contributors/:address/badges',
   // Bounty event history — undocumented internal endpoint
   'GET /api/bounties/:id/events',
   // Legacy paginated audit-log alias (/:id/audit-logs vs /:id/audit-log)
@@ -44,6 +46,8 @@ const UNDOCUMENTED_ROUTES = new Set([
   'POST /api/webhooks/github',
   // Bounty dispute — undocumented
   'POST /api/bounties/:id/dispute',
+  // Resolve dispute — undocumented
+  'POST /api/bounties/:id/resolve-dispute',
   // Extend deadline — undocumented
   'POST /api/bounties/:id/extend-deadline',
   // SEO helpers — not API routes

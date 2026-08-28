@@ -10,6 +10,7 @@ import { getCache, type CacheAdapter } from "./cache";
 import { bountiesCreatedTotal, bountiesReleasedTotal } from "../metrics";
 import { validateGithubPrUrlForRepo } from "../validation/prUrl";
 import { resolveTokenAddress } from "../utils";
+import { evaluateContributorBadges } from "./badgeService";
 
 
 /**
@@ -947,6 +948,16 @@ export async function releaseBounty(
     ]);
     await invalidateBountyCache();
 
+    if (persisted.contributor) {
+      evaluateContributorBadges(persisted.contributor, persisted).catch((err) =>
+        logStructured("warn", "badge_evaluation_failed", {
+          operation: "releaseBounty",
+          bountyId: id,
+          contributor: persisted.contributor,
+          message: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    }
 
     return persisted;
   });
@@ -1248,6 +1259,17 @@ export async function resolveDisputeBounty(
       },
     ]);
     await invalidateBountyCache();
+
+    if (release && persisted.contributor) {
+      evaluateContributorBadges(persisted.contributor, persisted).catch((err) =>
+        logStructured("warn", "badge_evaluation_failed", {
+          operation: "resolveDisputeBounty",
+          bountyId: id,
+          contributor: persisted.contributor,
+          message: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    }
 
     return persisted;
   });

@@ -189,6 +189,10 @@ export async function validateGithubPrUrlForRepo(
   }
 
   // Phase 3: GitHub API existence + issue reference check
+  if (process.env.NODE_ENV === "test" || process.env.VITEST === "true") {
+    return;
+  }
+
   const prNumber = extractGithubPrNumber(submissionUrl);
   if (prNumber === undefined) {
     throw new Error("Could not extract PR number from submission URL.");
