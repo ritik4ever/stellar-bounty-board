@@ -60,6 +60,35 @@ export const httpRequestDuration = getOrCreateHistogram(
   "Duration of HTTP requests in seconds",
 );
 
+function getOrCreateLabeledCounter(
+  name: string,
+  help: string,
+  labelNames: readonly string[],
+): Counter<string> {
+  const existing = register.getSingleMetric(name);
+  if (existing) {
+    return existing as Counter<string>;
+  }
+  return new Counter({
+    name,
+    help,
+    labelNames,
+    registers: [register],
+  });
+}
+
+export const notificationsRetriedTotal = getOrCreateLabeledCounter(
+  "notifications_retried_total",
+  "Total number of notification retry attempts before success",
+  ["channel", "event"],
+);
+
+export const notificationsFailedTotal = getOrCreateLabeledCounter(
+  "notifications_failed_total",
+  "Total number of notifications that exhausted all retries and entered the dead-letter queue",
+  ["channel", "event"],
+);
+
 export async function getMetrics(): Promise<string> {
   return register.metrics();
 }

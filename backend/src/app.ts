@@ -67,6 +67,15 @@ import { logger } from './logger';
 import { createAdminApiKeyAuthMiddleware } from './middleware/adminAuth';
 import { handleGitHubPrEvent } from './webhooks/githubPrHandler';
 import { draining } from './shutdown';
+import {
+  listDeadLetters,
+  getDeadLetter,
+  markReplayed,
+  markDiscarded,
+  updateReplayError,
+  getDeadLetterStats,
+} from './services/deadLetterStore';
+import { retryNotification } from './services/notificationService';
 
 
 const INCOMING_REQUEST_ID = /^[a-zA-Z0-9-]{1,128}$/;
@@ -950,6 +959,120 @@ app.get(
         toStatus 
       });
       res.json(page);
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  },
+);
+
+// ── Admin: Dead-Letter Queue Endpoints ─────────────────────────────────────
+
+app.get(
+  "/api/admin/dead-letter-stats",
+  createAdminApiKeyAuthMiddleware(),
+  (_req: Request, res: Response) => {
+    try {
+      const stats = getDeadLetterStats();
+      res.json({ data: stats });
+    } catch (error) {
+      sendError(res, _req, error, 500);
+    }
+  },
+);
+
+app.get(
+  "/api/admin/dead-letters",
+  createAdminApiKeyAuthMiddleware(),
+  (req: Request, res: Response) => {
+    try {
+      const limit = parsePaginationValue(req.query.limit, "limit", 50, 1, 200);
+      const offset = parsePaginationValue(req.query.offset, "offset", 0, 0);
+      const status = typeof req.query.status === "string" ? req.query.status : undefined;
+      const channel = typeof req.query.channel === "string" ? req.query.channel : undefined;
+      const event = typeof req.query.event === "string" ? req.query.event : undefined;
+
+      const page = listDeadLetters({ limit, offset, status: status as any, channel, event });
+      res.json(page);
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  },
+);
+
+app.get(
+  "/api/admin/dead-letters/:id",
+  createAdminApiKeyAuthMiddleware(),
+  (req: Request, res: Response) => {
+    try {
+      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const entry = getDeadLetter(id);
+      if (!entry) {
+        jsonError(res, req, 404, "Dead-letter entry not found.");
+        return;
+      }
+      res.json({ data: entry });
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  },
+);
+
+app.post(
+  "/api/admin/dead-letters/:id/replay",
+  createAdminApiKeyAuthMiddleware(),
+  async (req: Request, res: Response) => {
+    try {
+      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const entry = getDeadLetter(id);
+      if (!entry) {
+        jsonError(res, req, 404, "Dead-letter entry not found.");
+        return;
+      }
+
+      if (entry.status === "replayed") {
+        jsonError(res, req, 400, "This notification has already been replayed.");
+        return;
+      }
+
+      if (entry.status === "discarded") {
+        jsonError(res, req, 400, "This notification has been discarded.");
+        return;
+      }
+
+      const result = await retryNotification(
+        entry.channel,
+        entry.event,
+        entry.recipients,
+        entry.payload,
+      );
+
+      if (result.ok) {
+        markReplayed(entry.id);
+        res.json({ data: { id: entry.id, status: "replayed" } });
+      } else {
+        updateReplayError(entry.id, result.error);
+        jsonError(res, req, 502, `Replay failed: ${result.error}`);
+      }
+    } catch (error) {
+      sendError(res, req, error, 500);
+    }
+  },
+);
+
+app.delete(
+  "/api/admin/dead-letters/:id",
+  createAdminApiKeyAuthMiddleware(),
+  (req: Request, res: Response) => {
+    try {
+      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const entry = getDeadLetter(id);
+      if (!entry) {
+        jsonError(res, req, 404, "Dead-letter entry not found.");
+        return;
+      }
+
+      markDiscarded(entry.id);
+      res.json({ data: { id: entry.id, status: "discarded" } });
     } catch (error) {
       sendError(res, req, error);
     }
