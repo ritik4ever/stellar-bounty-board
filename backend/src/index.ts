@@ -26,7 +26,7 @@ server.headersTimeout = headersTimeout;
 let indexerWorker: Worker | null = null;
 
 function startIndexerWorker() {
-  const workerPath = path.join(__dirname, "..", "worker", "indexer.js");
+  const workerPath = path.join(__dirname, "..", "worker", "indexer.mjs");
   let backoff = 1000;
   let worker: Worker;
 
