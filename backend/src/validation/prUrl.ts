@@ -49,7 +49,7 @@ export function extractGithubPrRepo(submissionUrl: string): string | undefined {
 }
 
 /** Extract the PR number from a validated GitHub PR URL. */
-function extractGithubPrNumber(submissionUrl: string): number | undefined {
+export function extractGithubPrNumber(submissionUrl: string): number | undefined {
   const parsedUrl = new URL(submissionUrl);
   const parts = parsedUrl.pathname.split("/").filter(Boolean);
   // parts: [owner, repo, "pull", number]
@@ -62,7 +62,7 @@ function extractGithubPrNumber(submissionUrl: string): number | undefined {
  * Cached result of a GitHub PR API verification.
  * Stored as JSON in the cache to avoid repeated API calls.
  */
-interface PrVerificationResult {
+export interface PrVerificationResult {
   exists: boolean;
   /** Issue numbers referenced by the PR body (#N) or linked via the closing keyword. */
   closingIssueNumbers: number[];
@@ -76,7 +76,7 @@ interface PrVerificationResult {
  * @param repo   - Repository name (e.g. "stellar-bounty-board")
  * @param prNumber - Pull request number
  */
-async function fetchPrFromGitHub(
+export async function fetchPrFromGitHub(
   owner: string,
   repo: string,
   prNumber: number,
@@ -126,16 +126,19 @@ async function fetchPrFromGitHub(
       const body: string = typeof json.body === "string" ? json.body : "";
 
       // Extract issue numbers referenced by "closes #N", "fixes #N", "resolves #N", etc.
-      const closingKeywordPattern = /(?:closes?|fixes?|resolves?)\s+#(\d+)/gi;
+      const closingKeywordPattern = /(?:closes?|closed|fixes?|fixed|resolves?|resolved)\s+(?:[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+)?#(\d+)/gi;
       const plainRefPattern = /#(\d+)/g;
+      const issueUrlPattern = /\/issues\/(\d+)/g;
       const referenced = new Set<number>();
 
       let match: RegExpExecArray | null;
       while ((match = closingKeywordPattern.exec(body)) !== null) {
         referenced.add(parseInt(match[1], 10));
       }
-      // Also capture plain #N references in the body as a fallback
       while ((match = plainRefPattern.exec(body)) !== null) {
+        referenced.add(parseInt(match[1], 10));
+      }
+      while ((match = issueUrlPattern.exec(body)) !== null) {
         referenced.add(parseInt(match[1], 10));
       }
 
