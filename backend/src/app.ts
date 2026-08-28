@@ -925,10 +925,13 @@ app.get('/api/config', (_req: Request, res: Response) => {
  * Admin-only endpoint that returns a paginated view of all audit log records
  * across every bounty.  Requires a valid `x-admin-api-key` header whose value
  * matches the bcrypt hash stored in `ADMIN_API_KEY_HASH`.
+ *
+ * This endpoint requires the `admin-write` scope because it exposes sensitive
+ * operational data and is restricted to full admin keys only.
  */
 app.get(
   "/api/audit-log",
-  createAdminApiKeyAuthMiddleware(),
+  createAdminApiKeyAuthMiddleware("admin-write"),
   (req: Request, res: Response) => {
     try {
       const limit = parsePaginationValue(req.query.limit, "limit", 50, 1, 200);
