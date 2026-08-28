@@ -366,6 +366,27 @@ export async function disputeBounty(
   return body.data;
 }
 
+export interface BountyReportResult {
+  id: string;
+  bountyId: string;
+  reason: string;
+  reportedAt: number;
+}
+
+/**
+ * Report (flag) a bounty with a short reason. The backend persists the report
+ * and appends a `report` audit-log entry (issue #844).
+ */
+export async function reportBounty(id: string, reason: string): Promise<BountyReportResult> {
+  const body = await requestJson<{ data: BountyReportResult }>(`/bounties/${id}/report`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason }),
+  });
+
+  return body.data;
+}
+
 export async function resolveDisputeBounty(
   id: string,
   arbiter: string,
@@ -487,5 +508,4 @@ export function getContractErrorLabel(error: ContractError): string {
  * Stellar test network configuration for Freighter.
  */
 export const STELLAR_NETWORK_PASSPHRASE =
-  import.meta.env.VITE_STELLAR_NETWORK_PASSPHRASE ??
-  'Test SDF Network ; September 2015';
+  import.meta.env.VITE_STELLAR_NETWORK_PASSPHRASE ?? 'Test SDF Network ; September 2015';

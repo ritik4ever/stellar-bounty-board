@@ -55,7 +55,8 @@ export type BountyTransitionType =
   | "dispute"
   | "resolve_dispute"
   | "update_notes"
-  | "extend_deadline";
+  | "extend_deadline"
+  | "report";
 
 /**
  * Represents a historical event in the lifecycle of a bounty.
@@ -91,6 +92,20 @@ export interface BountyAuditLogRecord {
   timestamp: number;
   /** Additional structured metadata for the transition context. */
   metadata?: Record<string, AuditMetadataValue>;
+}
+
+/**
+ * A user-submitted report/flag against a bounty (issue #844).
+ */
+export interface BountyReportRecord {
+  /** Unique report identifier. */
+  id: string;
+  /** ID of the reported bounty. */
+  bountyId: string;
+  /** User-supplied reason for the report. */
+  reason: string;
+  /** Unix timestamp in seconds when the report was submitted. */
+  reportedAt: number;
 }
 
 /**
@@ -368,6 +383,84 @@ function cleanAuditMetadata(
   }
 
   return Object.fromEntries(entries) as Record<string, AuditMetadataValue>;
+}
+
+function getReportsStorePath(): string {
+  if (process.env.BOUNTY_REPORTS_STORE_PATH?.trim()) {
+    return path.resolve(process.env.BOUNTY_REPORTS_STORE_PATH.trim());
+  }
+
+  const base = getStorePath();
+  return base.endsWith(".json")
+    ? base.replace(/\.json$/i, ".reports.json")
+    : `${base}.reports.json`;
+}
+
+function ensureReportsStore(): void {
+  const storePath = getReportsStorePath();
+  fs.mkdirSync(path.dirname(storePath), { recursive: true });
+
+  if (!fs.existsSync(storePath)) {
+    fs.writeFileSync(storePath, JSON.stringify([], null, 2));
+    return;
+  }
+
+  const raw = fs.readFileSync(storePath, "utf8").trim();
+  if (!raw) {
+    fs.writeFileSync(storePath, JSON.stringify([], null, 2));
+  }
+}
+
+function readReportsStore(): BountyReportRecord[] {
+  ensureReportsStore();
+  return JSON.parse(
+    fs.readFileSync(getReportsStorePath(), "utf8"),
+  ) as BountyReportRecord[];
+}
+
+function writeReportsStore(records: BountyReportRecord[]): void {
+  fs.writeFileSync(getReportsStorePath(), JSON.stringify(records, null, 2));
+}
+
+function nextReportId(records: BountyReportRecord[]): string {
+  const highest = records.reduce((max, record) => {
+    const numeric = Number(record.id.replace("RPT-", ""));
+    return Number.isFinite(numeric) ? Math.max(max, numeric) : max;
+  }, 0);
+  return `RPT-${String(highest + 1).padStart(6, "0")}`;
+}
+
+/**
+ * Records a user report/flag against a bounty (issue #844). Persists the
+ * report to the reports store and appends a `report` audit-log entry so
+ * reports are observable through the existing audit endpoints. Throws
+ * "Bounty not found." for unknown bounty ids.
+ */
+export function reportBounty(bountyId: string, reason: string): BountyReportRecord {
+  const records = readStore();
+  const bounty = findBounty(records, bountyId);
+
+  const existing = readReportsStore();
+  const report: BountyReportRecord = {
+    id: nextReportId(existing),
+    bountyId,
+    reason: reason.trim(),
+    reportedAt: nowInSeconds(),
+  };
+  writeReportsStore([...existing, report]);
+
+  appendAuditLogs([
+    {
+      bountyId,
+      fromStatus: bounty.status,
+      toStatus: bounty.status,
+      transition: "report",
+      actor: "anonymous",
+      metadata: { reportId: report.id, reason: report.reason },
+    },
+  ]);
+
+  return report;
 }
 
 function appendAuditLogs(inputs: CreateAuditLogInput[]): void {

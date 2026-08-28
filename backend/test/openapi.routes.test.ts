@@ -46,6 +46,8 @@ const UNDOCUMENTED_ROUTES = new Set([
   'POST /api/bounties/:id/dispute',
   // Extend deadline — undocumented
   'POST /api/bounties/:id/extend-deadline',
+  // Report/flag a bounty — undocumented
+  'POST /api/bounties/:id/report',
   // SEO helpers — not API routes
   'GET /robots.txt',
   'GET /sitemap.xml',
