@@ -1,0 +1,20 @@
+# Each line is a file pattern followed by one or more owners
+# Order matters: the last matching pattern takes precedence
+#
+# Default owner for everything not covered below.
+* @ritik4ever
+
+# Smart-contract paths (Soroban)
+/contracts/ @ritik4ever
+
+# Backend API and services
+/backend/ @ritik4ever
+
+# Frontend application
+/frontend/ @ritik4ever
+
+# Infra and DevOps paths
+/.github/workflows/ @ritik4ever
+/docker-compose.yml @ritik4ever
+/nginx/ @ritik4ever
+/scripts/ @ritik4ever
