@@ -49,6 +49,12 @@ const UNDOCUMENTED_ROUTES = new Set([
   // SEO helpers — not API routes
   'GET /robots.txt',
   'GET /sitemap.xml',
+  // Admin dead-letter queue management — internal admin-only endpoints
+  'GET /api/admin/dead-letter',
+  'GET /api/admin/dead-letter/metrics',
+  'GET /api/admin/dead-letter/:id',
+  'POST /api/admin/dead-letter/:id/replay',
+  'POST /api/admin/dead-letter/purge',
 ]);
 
 // HTTP methods recognised by OpenAPI

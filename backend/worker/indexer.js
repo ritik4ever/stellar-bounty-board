@@ -66,6 +66,39 @@ function saveEvents(events) {
   }
 }
 
+// Capture a failed event into the dead-letter store via the main thread
+function deadLetterEvent(rawEvent, errorMessage) {
+  if (parentPort) {
+    parentPort.postMessage({
+      type: "deadLetterEvent",
+      rawEvent,
+      errorMessage,
+    });
+  } else {
+    // Standalone mode: append to a local dead-letter file
+    const dlFile = path.join(__dirname, "dead-letter.json");
+    let dlEvents = [];
+    if (fs.existsSync(dlFile)) {
+      try {
+        dlEvents = JSON.parse(fs.readFileSync(dlFile, "utf-8"));
+      } catch {
+        dlEvents = [];
+      }
+    }
+    dlEvents.push({
+      id: `DL-${String(dlEvents.length + 1).padStart(6, "0")}`,
+      rawEvent,
+      errorMessage,
+      createdAt: new Date().toISOString(),
+      replayCount: 0,
+      lastReplayedAt: null,
+      status: "pending",
+      replayHistory: [],
+    });
+    fs.writeFileSync(dlFile, JSON.stringify(dlEvents, null, 2));
+  }
+}
+
 // Load last indexed event (for polling)
 function loadLastEventId() {
   if (!fs.existsSync(INDEX_FILE)) return null;
@@ -76,6 +109,9 @@ function loadLastEventId() {
 // Poll Soroban contract events
 async function pollEvents() {
   let lastEventId = loadLastEventId();
+  let processedCount = 0;
+  let failedCount = 0;
+
   try {
     const res = await retryWithBackoff(() =>
       axios.get(`${SOROBAN_RPC_URL}/events`, {
@@ -87,18 +123,32 @@ async function pollEvents() {
     );
     const events = res.data.events || [];
     if (events.length) {
-      const normalized = events.map(normalizeEvent);
-      let allEvents = [];
-      if (!parentPort) {
-        if (fs.existsSync(INDEX_FILE)) {
-          allEvents = JSON.parse(fs.readFileSync(INDEX_FILE, "utf-8"));
+      const normalized = [];
+      for (const event of events) {
+        try {
+          normalized.push(normalizeEvent(event));
+          processedCount++;
+        } catch (err) {
+          failedCount++;
+          deadLetterEvent(event, err.message);
+          console.error(`[Indexer] Event dead-lettered: ${err.message}`);
         }
-        allEvents.push(...normalized);
-      } else {
-        allEvents = normalized;
       }
-      saveEvents(allEvents);
-      console.log(`[Indexer] Indexed ${events.length} new events.`);
+
+      if (normalized.length > 0) {
+        let allEvents = [];
+        if (!parentPort) {
+          if (fs.existsSync(INDEX_FILE)) {
+            allEvents = JSON.parse(fs.readFileSync(INDEX_FILE, "utf-8"));
+          }
+          allEvents.push(...normalized);
+        } else {
+          allEvents = normalized;
+        }
+        saveEvents(allEvents);
+      }
+
+      console.log(`[Indexer] Indexed ${processedCount} new events. Failed: ${failedCount}.`);
     } else {
       console.log("[Indexer] No new events.");
     }
