@@ -23,6 +23,21 @@ pub const MIN_DISPUTE_WINDOW_OVERRIDE: u64 = 60;
 /// Maximum allowed per-bounty dispute window override (30 days in seconds).
 pub const MAX_DISPUTE_WINDOW_OVERRIDE: u64 = 2_592_000;
 
+/// Default persistent storage TTL threshold (in ledgers).
+/// If a persistent entry's remaining TTL is below this threshold, it will be extended.
+/// 17,280 ledgers corresponds to ~1 day assuming ~5-second ledger close times.
+pub const BUMP_THRESHOLD: u32 = 17_280;
+
+/// Default persistent storage TTL extension target (in ledgers).
+/// Extends entry lifetime to 518,400 ledgers (~30 days assuming ~5-second ledger close times).
+///
+/// Rent-avoidance strategy:
+/// Persistent storage entries in Soroban incur storage rent fees per ledger. Extending TTL
+/// to ~30 days whenever remaining lifetime drops below ~1 day strikes an optimal balance between
+/// ensuring active entries (bounties, fee stats, admin settings) never expire or get archived,
+/// while avoiding unnecessary long-term rent payments for abandoned entries.
+pub const BUMP_AMOUNT: u32 = 518_400;
+
 #[contracttype]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BountyStatus {
@@ -71,10 +86,22 @@ pub struct FeeStats {
 }
 
 #[contracttype]
-enum DataKey {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DataKey {
+    Admin,
+    FeeRecipient,
+    Arbiter,
+    DisputeWindow,
+    MinBountyAmount,
+    Paused,
     NextBountyId,
     Bounty(u64),
-
+    FeeStats,
+    Config,
+    PendingResolution(u64),
+    PendingArbiter,
+    ArbiterRotationTimelock,
+    AllowlistConfig,
 }
 
 #[contracttype]
@@ -170,10 +197,6 @@ pub struct ContractUnpaused {
     pub admin: Address,
 }
 
-#[contracttype]
-
-}
-
 #[contract]
 pub struct StellarBountyBoardContract;
 
@@ -187,8 +210,6 @@ impl StellarBountyBoardContract {
         String::from_str(&_env, CONTRACT_VERSION)
     }
 
-    pub fn initialize(env: Env, fee_recipient: Address, arbiter: Address, dispute_window: u64) {
-    
     pub fn initialize(env: Env, admin: Address, fee_recipient: Address, arbiter: Address, dispute_window: u64) {
         // Prevent re-initialization
         if env.storage().persistent().has(&DataKey::FeeRecipient) {
@@ -199,15 +220,30 @@ impl StellarBountyBoardContract {
             .set(&DataKey::Admin, &admin);
         env.storage()
             .persistent()
+            .extend_ttl(&DataKey::Admin, BUMP_THRESHOLD, BUMP_AMOUNT);
+        env.storage()
+            .persistent()
             .set(&DataKey::FeeRecipient, &fee_recipient);
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::FeeRecipient, BUMP_THRESHOLD, BUMP_AMOUNT);
         env.storage().persistent().set(&DataKey::Arbiter, &arbiter);
         env.storage()
             .persistent()
+            .extend_ttl(&DataKey::Arbiter, BUMP_THRESHOLD, BUMP_AMOUNT);
+        env.storage()
+            .persistent()
             .set(&DataKey::DisputeWindow, &dispute_window);
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::DisputeWindow, BUMP_THRESHOLD, BUMP_AMOUNT);
         // Set default minimum bounty amount on initialization
         env.storage()
             .persistent()
             .set(&DataKey::MinBountyAmount, &DEFAULT_MIN_BOUNTY_AMOUNT);
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::MinBountyAmount, BUMP_THRESHOLD, BUMP_AMOUNT);
     }
 
     pub fn get_fee_recipient(env: Env) -> Address {
@@ -246,6 +282,9 @@ impl StellarBountyBoardContract {
         env.storage()
             .persistent()
             .set(&DataKey::MinBountyAmount, &new_min);
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::MinBountyAmount, BUMP_THRESHOLD, BUMP_AMOUNT);
     }
 
     // ─── Circuit Breaker ────────────────────────────────────────────────
@@ -263,6 +302,9 @@ impl StellarBountyBoardContract {
         admin.require_auth();
 
         env.storage().persistent().set(&DataKey::Paused, &true);
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::Paused, BUMP_THRESHOLD, BUMP_AMOUNT);
 
         env.events().publish(
             (symbol_short!("Bounty"), symbol_short!("Pause")),
@@ -281,6 +323,9 @@ impl StellarBountyBoardContract {
         admin.require_auth();
 
         env.storage().persistent().set(&DataKey::Paused, &false);
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::Paused, BUMP_THRESHOLD, BUMP_AMOUNT);
 
         env.events().publish(
             (symbol_short!("Bounty"), symbol_short!("Unpaus")),
@@ -378,7 +423,8 @@ impl StellarBountyBoardContract {
             .set(&DataKey::NextBountyId, &next_id);
         env.storage()
             .persistent()
-            .set(&DataKey::Bounty(next_id), &bounty);
+            .extend_ttl(&DataKey::NextBountyId, BUMP_THRESHOLD, BUMP_AMOUNT);
+        write_bounty(&env, next_id, &bounty);
 
         env.events().publish(
             (symbol_short!("Bounty"), symbol_short!("Create")),
@@ -766,6 +812,18 @@ impl StellarBountyBoardContract {
         bounty
     }
 
+    /// Allows external callers to extend the storage TTL of an active bounty.
+    /// This prevents long-lived bounties from expiring/archiving due to Soroban storage rent.
+    pub fn bump_bounty_ttl(env: Env, bounty_id: u64) {
+        let key = DataKey::Bounty(bounty_id);
+        if !env.storage().persistent().has(&key) {
+            panic_error(ContractError::BountyNotFound);
+        }
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    }
+
     // ---------- New Functions ----------
     pub fn init(env: Env, appeal_window: u64) {
         // Only allow setting once
@@ -774,6 +832,9 @@ impl StellarBountyBoardContract {
         }
         let cfg = Config { appeal_window };
         env.storage().persistent().set(&DataKey::Config, &cfg);
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::Config, BUMP_THRESHOLD, BUMP_AMOUNT);
     }
 
     pub fn resolve_dispute(env: Env, bounty_id: u64, decision_u8: u8) {
@@ -785,9 +846,13 @@ impl StellarBountyBoardContract {
         };
         let timestamp = env.ledger().timestamp();
         let pending = PendingResolution { decision, timestamp };
+        let pending_key = DataKey::PendingResolution(bounty_id);
         env.storage()
             .persistent()
-            .set(&DataKey::PendingResolution(bounty_id), &pending);
+            .set(&pending_key, &pending);
+        env.storage()
+            .persistent()
+            .extend_ttl(&pending_key, BUMP_THRESHOLD, BUMP_AMOUNT);
         env.events().publish(
             (symbol_short!("Dispute"), symbol_short!("Scheduled")),
             DisputeResolutionScheduled {
@@ -1029,11 +1094,17 @@ fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
         env.storage()
             .persistent()
             .set(&DataKey::PendingArbiter, &new_arbiter);
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::PendingArbiter, BUMP_THRESHOLD, BUMP_AMOUNT);
         
         let timelock = env.ledger().timestamp() + 86400 * 2; // 2 days delay
         env.storage()
             .persistent()
             .set(&DataKey::ArbiterRotationTimelock, &timelock);
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::ArbiterRotationTimelock, BUMP_THRESHOLD, BUMP_AMOUNT);
 
         env.events().publish(
             (symbol_short!("Arbiter"), symbol_short!("Proposed")),
@@ -1075,6 +1146,9 @@ fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
             .unwrap();
 
         env.storage().persistent().set(&DataKey::Arbiter, &pending_arbiter);
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::Arbiter, BUMP_THRESHOLD, BUMP_AMOUNT);
         env.storage().persistent().remove(&DataKey::PendingArbiter);
         env.storage().persistent().remove(&DataKey::ArbiterRotationTimelock);
 
@@ -1159,9 +1233,13 @@ fn read_bounty(env: &Env, bounty_id: u64) -> Bounty {
 }
 
 fn write_bounty(env: &Env, bounty_id: u64, bounty: &Bounty) {
+    let key = DataKey::Bounty(bounty_id);
     env.storage()
         .persistent()
-        .set(&DataKey::Bounty(bounty_id), bounty);
+        .set(&key, bounty);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }
 
 fn expire_if_needed(env: &Env, bounty: &mut Bounty) {
@@ -1210,6 +1288,9 @@ fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
     stats.total_collected += fee_amount;
     stats.bounty_count += 1;
 
-    env.storage().persistent().set(&DataKey::FeeStats, &stats);
-
+    let key = DataKey::FeeStats;
+    env.storage().persistent().set(&key, &stats);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }
