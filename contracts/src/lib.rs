@@ -74,7 +74,18 @@ pub struct FeeStats {
 enum DataKey {
     NextBountyId,
     Bounty(u64),
-
+    FeeRecipient,
+    Admin,
+    Arbiter,
+    DisputeWindow,
+    MinBountyAmount,
+    Paused,
+    Config,
+    PendingResolution(u64),
+    FeeStats,
+    PendingArbiter,
+    ArbiterRotationTimelock,
+    AllowlistConfig,
 }
 
 #[contracttype]
@@ -130,6 +141,15 @@ pub struct BountyRefunded {
 
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BountyToppedUp {
+    pub bounty_id: u64,
+    pub maintainer: Address,
+    pub additional_amount: i128,
+    pub new_total_amount: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Config {
     pub appeal_window: u64,
 }
@@ -170,10 +190,6 @@ pub struct ContractUnpaused {
     pub admin: Address,
 }
 
-#[contracttype]
-
-}
-
 #[contract]
 pub struct StellarBountyBoardContract;
 
@@ -187,8 +203,6 @@ impl StellarBountyBoardContract {
         String::from_str(&_env, CONTRACT_VERSION)
     }
 
-    pub fn initialize(env: Env, fee_recipient: Address, arbiter: Address, dispute_window: u64) {
-    
     pub fn initialize(env: Env, admin: Address, fee_recipient: Address, arbiter: Address, dispute_window: u64) {
         // Prevent re-initialization
         if env.storage().persistent().has(&DataKey::FeeRecipient) {
@@ -604,6 +618,38 @@ impl StellarBountyBoardContract {
                 bounty_id,
                 maintainer,
                 amount: bounty.amount,
+            },
+        );
+    }
+
+    pub fn top_up_bounty(env: Env, bounty_id: u64, additional_amount: i128) {
+        let mut bounty = read_bounty(&env, bounty_id);
+        expire_if_needed(&env, &mut bounty);
+
+        bounty.maintainer.require_auth();
+
+        if bounty.status != BountyStatus::Open {
+            panic_error(ContractError::BountyNotOpen);
+        }
+
+        if additional_amount <= 0 {
+            panic_error(ContractError::InvalidAmount);
+        }
+
+        let token_client = TokenClient::new(&env, &bounty.token);
+        let contract_address = env.current_contract_address();
+        token_client.transfer(&bounty.maintainer, &contract_address, &additional_amount);
+
+        bounty.amount += additional_amount;
+        write_bounty(&env, bounty_id, &bounty);
+
+        env.events().publish(
+            (symbol_short!("Bounty"), symbol_short!("TopUp")),
+            BountyToppedUp {
+                bounty_id,
+                maintainer: bounty.maintainer.clone(),
+                additional_amount,
+                new_total_amount: bounty.amount,
             },
         );
     }

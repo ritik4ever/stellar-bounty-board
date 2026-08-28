@@ -1518,3 +1518,89 @@ fn test_double_refund_after_cancel_bounty() {
     client.refund_bounty(&bounty_id, &maintainer);
 }
 
+// ─── Top-up bounty tests (#731) ───────────────────────────────────────────
+
+#[test]
+fn test_top_up_bounty_success() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1_000_000);
+
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32,
+        &None,
+    );
+
+    let initial_bounty = client.get_bounty(&bounty_id);
+    assert_eq!(initial_bounty.amount, 500);
+
+    client.top_up_bounty(&bounty_id, &300);
+
+    let updated_bounty = client.get_bounty(&bounty_id);
+    assert_eq!(updated_bounty.amount, 800);
+}
+
+#[test]
+#[should_panic]
+fn test_top_up_bounty_reserved_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _admin, maintainer, contributor, token_id, _fee_recipient, _arbiter) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1_000_000);
+
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32,
+        &None,
+    );
+
+    client.reserve_bounty(&bounty_id, &contributor);
+
+    // Should fail because bounty is in Reserved state
+    client.top_up_bounty(&bounty_id, &300);
+}
+
+#[test]
+#[should_panic]
+fn test_top_up_bounty_invalid_amount_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1_000_000);
+
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32,
+        &None,
+    );
+
+    // Should fail because additional_amount <= 0
+    client.top_up_bounty(&bounty_id, &0);
+}
+
