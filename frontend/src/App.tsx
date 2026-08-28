@@ -465,19 +465,23 @@ function App() {
         else if (action.action === "refund") void handleRefund(bounty);
       };
 
+      const isMutatingAction = action.action === "release" || action.action === "refund" || action.action === "dispute" as any;
+      const isDisabled = freighter.isConnected && !freighter.isOnCorrectNetwork && isMutatingAction;
+
       return (
         <button
           key={action.action}
           type="button"
           className={action.action === "refund" ? "ghost-button" : "secondary-button"}
-          title={action.title}
+          title={isDisabled ? "Switch network to use this action" : action.title}
           onClick={onClick}
+          disabled={isDisabled}
         >
           {action.label}
         </button>
       );
     },
-    [refresh]
+    [refresh, freighter.isConnected, freighter.isOnCorrectNetwork]
   );
 
   const repoRoute = useMemo(() => {
@@ -648,17 +652,38 @@ function App() {
       <header className="main-header">
         <div className="header-content">
           <div className="logo" onClick={() => navigate("/")}>
-            <Rocket className="logo-icon" />
+            <FolderGit2 size={24} />
             <h1>Stellar Bounty Board</h1>
           </div>
           <div className="header-actions">
-            <FreighterConnectButton freighter={freighter} compact />
-            <button className="theme-toggle" onClick={toggleDark}>
+            <button
+              type="button"
+              className="icon-button"
+              onClick={() => setShowShortcutsOverlay(true)}
+              title="Keyboard shortcuts (?)"
+              aria-label="Keyboard shortcuts"
+            >
+              <kbd>?</kbd>
+            </button>
+            <button
+              type="button"
+              className="icon-button"
+              onClick={toggleDark}
+              aria-label="Toggle dark mode"
+              title="Toggle dark mode"
+            >
               {dark ? <Sun size={20} /> : <Moon size={20} />}
             </button>
+            <FreighterConnectButton freighter={freighter} />
           </div>
         </div>
       </header>
+
+      {freighter.isConnected && freighter.publicKey && !freighter.isOnCorrectNetwork && (
+        <div className="network-warning-banner" style={{ background: '#e67e22', color: '#fff', padding: '12px', textAlign: 'center', fontWeight: 500 }}>
+          ⚠️ Network Mismatch: Your wallet is connected to the wrong network. Please switch your Freighter wallet to the correct network. <a href="https://docs.freighter.app/docs/guide/networkSettings" target="_blank" rel="noreferrer" style={{color:'white', textDecoration: 'underline'}}>Learn how</a>
+        </div>
+      )}
 
       <main className="main-content">
         <section className="dashboard-hero">
