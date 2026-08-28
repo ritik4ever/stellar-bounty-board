@@ -20,6 +20,12 @@ describe('OpenAPI contract — responses match zod schemas', () => {
     healthResponseSchema.strict().parse(res.body);
   });
 
+  it('GET /api/health/deep matches deep health schema', async () => {
+    const res = await request(app).get('/api/health/deep');
+    expect([200, 503]).toContain(res.status);
+    deepHealthResponseSchema.strict().parse(res.body);
+  });
+
   it('Create, reserve, submit, release flow responses conform', async () => {
     // Create
     const createBody = {

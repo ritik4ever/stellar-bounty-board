@@ -79,13 +79,23 @@ curl http://localhost:3001/api/health/deep
 #     "store": "up",
 #     "soroban": "up",
 #     "contract": "up",
-#     "auth": "up"
+#     "auth": "up",
+#     "database": {
+#       "status": "up",
+#       "latencyMs": 4,
+#       "pool": {
+#         "totalCount": 1,
+#         "idleCount": 1,
+#         "waitingCount": 0,
+#         "activeCount": 0
+#       }
+#     }
 #   },
 #   "timestamp": "2026-06-28T12:00:00.000Z"
 # }
 ```
 
-If any component is `"down"`, the endpoint returns HTTP 503. Set `MAINTAINER_PUBLIC_KEY`, `ARBITER_ADDRESS`, and `SOROBAN_CONTRACT_ID` in your environment, and ensure the Soroban RPC URL is reachable.
+If any component is `"down"`, the endpoint returns HTTP 503. Set `MAINTAINER_PUBLIC_KEY`, `ARBITER_ADDRESS`, `SOROBAN_CONTRACT_ID`, and `DATABASE_URL` in your environment, and ensure the Soroban RPC URL and Postgres database are reachable.
 
 ### Dispute lifecycle
 

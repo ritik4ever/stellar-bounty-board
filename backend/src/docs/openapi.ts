@@ -6,6 +6,8 @@ import {
   bountyAuditLogSchema,
   bountyRecordSchema,
   createBountySchema,
+  databaseHealthSchema,
+  databasePoolStatsSchema,
   errorResponseSchema,
   healthResponseSchema,
   deepHealthResponseSchema,
@@ -33,6 +35,8 @@ registry.register("UpdateNotesRequest", updateNotesSchema);
 registry.register("ErrorResponse", errorResponseSchema);
 registry.register("OpenIssue", openIssueSchema);
 registry.register("HealthResponse", healthResponseSchema);
+registry.register("DatabasePoolStats", databasePoolStatsSchema);
+registry.register("DatabaseHealth", databaseHealthSchema);
 registry.register("DeepHealthResponse", deepHealthResponseSchema);
 
 // ---------------------------------------------------------------------------
@@ -87,7 +91,7 @@ registry.registerPath({
   description:
     "Extended health check that verifies all external dependencies. " +
     "Checks JSON store read/write, Soroban RPC reachability, contract ID configuration, " +
-    "and auth configuration (MAINTAINER_PUBLIC_KEY and ARBITER_ADDRESS). " +
+    "auth configuration (MAINTAINER_PUBLIC_KEY and ARBITER_ADDRESS), and Postgres database connectivity. " +
     "Excluded from rate limiting. Returns HTTP 503 when any critical component is down.",
   responses: {
     200: jsonResponse("All critical components are healthy.", deepHealthResponseSchema),
@@ -128,11 +132,11 @@ registry.registerPath({
       }),
       deadlineBefore: z.string().optional().openapi({
         description: "Filter bounties with deadline before this ISO 8601 date string.",
-        example: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        example: "2026-07-29T20:46:10.721Z",
       }),
       deadlineAfter: z.string().optional().openapi({
         description: "Filter bounties with deadline after this ISO 8601 date string.",
-        example: new Date().toISOString(),
+        example: "2026-06-29T20:46:10.725Z",
       }),
       page: z.number().int().min(1).optional().openapi({
         description: "Page number (starts at 1, default 1).",
