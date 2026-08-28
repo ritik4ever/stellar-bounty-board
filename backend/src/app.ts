@@ -64,6 +64,7 @@ import { requireJsonContentType } from './middleware/contentType';
 import { readLimiter, mutationLimiter } from './utils';
 import { maintainerLimiter } from './middleware/maintainerLimiter';
 import { logger } from './logger';
+import { sentryRequestHandler, sentryErrorHandler } from './sentry';
 import { createAdminApiKeyAuthMiddleware } from './middleware/adminAuth';
 import { handleGitHubPrEvent } from './webhooks/githubPrHandler';
 import { draining } from './shutdown';
@@ -140,6 +141,9 @@ app.use(
   })
 );
 app.use(requestContextMiddleware);
+
+// Sentry request handler — after JSON parser so req.body is available
+app.use(sentryRequestHandler);
 
 const healthHandler = (_req: Request, res: Response) => {
   res.json({
@@ -956,6 +960,10 @@ app.get(
   },
 );
 
+// Sentry error handler — must come after all routes
+app.use(sentryErrorHandler);
+
+// Application-level error handler for known error types
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   if ((err as any).type === 'entity.too.large') {
     res.status(413).json({ error: 'Payload too large', maxBytes: 32768 });

@@ -1,4 +1,10 @@
 import "dotenv/config";
+import { initSentry } from "./sentry";
+
+// Initialize Sentry as early as possible — after env is loaded, before
+// anything else that could throw.
+initSentry();
+
 import path from "node:path";
 import { Worker } from "node:worker_threads";
 import { app } from "./app";
