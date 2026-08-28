@@ -167,6 +167,15 @@ export const disputeBountySchema = z
         example: 'The submitted solution was not reviewed within the agreed timeframe.',
         description: 'Reason for disputing the bounty (1–500 chars).',
       }),
+    evidence: z
+      .string()
+      .trim()
+      .max(1000, 'Evidence must be at most 1000 characters.')
+      .optional()
+      .openapi({
+        example: 'ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi',
+        description: 'Optional evidence link, URL, or IPFS CID supporting the dispute.',
+      }),
   })
   .openapi('DisputeBountyRequest');
 
@@ -382,6 +391,41 @@ export const bountyAuditLogListResponseSchema = z
     pageSize: z.number().int().min(1).max(100).openapi({ example: 20 }),
   })
   .openapi('BountyAuditLogListResponse');
+
+export const bountyDisputeRecordSchema = z
+  .object({
+    id: z.string().optional().openapi({ example: 'AUD-000001', description: 'Unique dispute or audit log ID.' }),
+    bountyId: z.string().openapi({ example: 'BNT-0001', description: 'Associated bounty ID.' }),
+    reason: z.string().openapi({ example: 'The submitted solution was not reviewed within the agreed timeframe.', description: 'Reason for the dispute.' }),
+    evidence: z.string().nullable().optional().openapi({ example: 'ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi', description: 'Evidence link, URL, or IPFS CID.' }),
+    evidenceLink: z.string().nullable().optional().openapi({ example: 'https://github.com/owner/repo/pull/1', description: 'HTTP link to evidence, if applicable.' }),
+    evidenceCid: z.string().nullable().optional().openapi({ example: 'bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi', description: 'IPFS CID of evidence, if applicable.' }),
+    timestamp: z.number().openapi({ example: 1710010800, description: 'Timestamp when dispute was raised (seconds).' }),
+    disputedAt: z.number().openapi({ example: 1710010800, description: 'Timestamp when dispute was raised (seconds).' }),
+    resolvedAt: z.number().nullable().optional().openapi({ example: 1710097200, description: 'Timestamp when dispute was resolved (null if pending).' }),
+    timestamps: z.object({
+      disputedAt: z.number(),
+      resolvedAt: z.number().nullable().optional(),
+    }).openapi({
+      description: 'Lifecycle timestamps for the dispute.',
+    }),
+    resolutionOutcome: z.string().nullable().optional().openapi({ example: 'released', description: 'Resolution outcome (released, refunded, or null if pending).' }),
+    resolution: z.string().nullable().optional().openapi({ example: 'released', description: 'Alias for resolutionOutcome.' }),
+    outcome: z.string().nullable().optional().openapi({ example: 'released', description: 'Alias for resolutionOutcome.' }),
+    status: z.string().openapi({ example: 'resolved', description: 'Status of dispute (disputed or resolved).' }),
+    actor: z.string().openapi({ example: STELLAR_EXAMPLE, description: 'Stellar address of the user who raised the dispute.' }),
+    raisedBy: z.string().openapi({ example: STELLAR_EXAMPLE, description: 'Stellar address of the user who raised the dispute.' }),
+    resolvedBy: z.string().nullable().optional().openapi({ example: STELLAR_EXAMPLE, description: 'Stellar address of the arbiter who resolved the dispute.' }),
+    arbiter: z.string().nullable().optional().openapi({ example: STELLAR_EXAMPLE, description: 'Alias for resolvedBy.' }),
+    transactionHash: z.string().nullable().optional().openapi({ example: '0'.repeat(64), description: 'Transaction hash of the resolution payment, if any.' }),
+  })
+  .openapi('BountyDisputeRecord');
+
+export const bountyDisputeListResponseSchema = z
+  .object({
+    data: z.array(bountyDisputeRecordSchema),
+  })
+  .openapi('BountyDisputeListResponse');
 
 export const healthResponseSchema = z
   .object({

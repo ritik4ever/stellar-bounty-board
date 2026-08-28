@@ -26,6 +26,7 @@ import {
   reserveBounty,
   submitBounty,
   getBountyEvents,
+  getBountyDisputes,
   getMaintainerMetrics,
   getGlobalMetrics,
   getGlobalMetricsCached,
@@ -685,7 +686,8 @@ app.post(
       const bounty = await disputeBounty(
         parseId(req.params.id),
         req.body.contributor,
-        req.body.reason
+        req.body.reason,
+        req.body.evidence
       );
 
       res.json({ data: bounty });
@@ -817,6 +819,24 @@ app.get('/api/bounties/:id/events', (req: Request, res: Response) => {
   try {
     const events = getBountyEvents(parseId(req.params.id));
     res.json({ data: events });
+  } catch (error) {
+    sendError(res, req, error);
+  }
+});
+
+app.get('/api/bounties/:id/disputes', (req: Request, res: Response) => {
+  try {
+    const id = parseId(req.params.id);
+    const bounties = listBounties();
+    const bountyExists = bounties.some((item) => item.id === id);
+
+    if (!bountyExists) {
+      jsonError(res, req, 404, 'Bounty not found.');
+      return;
+    }
+
+    const disputes = getBountyDisputes(id);
+    res.json({ data: disputes });
   } catch (error) {
     sendError(res, req, error);
   }

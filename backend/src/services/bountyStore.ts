@@ -1120,6 +1120,7 @@ export async function disputeBounty(
   id: string,
   contributor: string,
   reason: string,
+  evidence?: string,
 ): Promise<BountyRecord> {
   return withStoreLock(async () => {
     const records = listBounties();
@@ -1145,7 +1146,10 @@ export async function disputeBounty(
           type: "disputed",
           timestamp: now,
           actor: contributor,
-          details: { reason },
+          details: {
+            reason,
+            ...(evidence?.trim() ? { evidence: evidence.trim() } : {}),
+          },
         },
       ],
     };
@@ -1160,6 +1164,7 @@ export async function disputeBounty(
         actor: contributor,
         metadata: {
           reason,
+          ...(evidence?.trim() ? { evidence: evidence.trim() } : {}),
         },
       },
     ]);
@@ -1473,6 +1478,283 @@ export function getBountyEvents(bountyId: string): BountyEvent[] {
   const records = listBounties();
   const bounty = findBounty(records, bountyId);
   return bounty.events || [];
+}
+
+/**
+ * A recorded dispute history entry for a bounty, sourced from audit logs and contract events.
+ */
+export interface BountyDisputeRecord {
+  /** Unique audit record ID or dispute event ID. */
+  id?: string;
+  /** Bounty ID that this dispute pertains to. */
+  bountyId: string;
+  /** Reason provided when raising the dispute. */
+  reason: string;
+  /** Raw evidence link, CID, or text. */
+  evidence?: string | null;
+  /** URL link to the evidence, if applicable. */
+  evidenceLink?: string | null;
+  /** IPFS CID of the evidence, if applicable. */
+  evidenceCid?: string | null;
+  /** Unix timestamp in seconds when the dispute was created. */
+  timestamp: number;
+  /** Unix timestamp in seconds when the dispute was created. */
+  disputedAt: number;
+  /** Unix timestamp in seconds when the dispute was resolved (null if unresolved). */
+  resolvedAt?: number | null;
+  /** Dispute lifecycle timestamps. */
+  timestamps: {
+    disputedAt: number;
+    resolvedAt?: number | null;
+  };
+  /** Resolution outcome ('released', 'refunded', or null if still disputed). */
+  resolutionOutcome?: string | null;
+  /** Alias for resolutionOutcome. */
+  resolution?: string | null;
+  /** Alias for resolutionOutcome. */
+  outcome?: string | null;
+  /** Current status of the dispute ('disputed' or 'resolved'). */
+  status: string;
+  /** Stellar address of the actor who raised the dispute. */
+  actor: string;
+  /** Stellar address of the user who raised the dispute. */
+  raisedBy: string;
+  /** Stellar address of the arbiter who resolved the dispute (null if unresolved). */
+  resolvedBy?: string | null;
+  /** Alias for resolvedBy. */
+  arbiter?: string | null;
+  /** Transaction hash of the resolution payout, if resolved. */
+  transactionHash?: string | null;
+}
+
+/**
+ * Retrieves the dispute history and evidence for a bounty.
+ * Sourced from the audit log and contract events.
+ *
+ * @param {string} bountyId - The unique ID of the bounty.
+ * @returns {BountyDisputeRecord[]} An array of dispute entries in chronological order (empty if never disputed).
+ */
+export function getBountyDisputes(bountyId: string): BountyDisputeRecord[] {
+  const auditLogs = readAuditStore()
+    .filter((log) => log.bountyId === bountyId)
+    .sort((a, b) => a.timestamp - b.timestamp);
+
+  const records = listBounties();
+  const bounty = records.find((b) => b.id === bountyId);
+
+  const disputeLogs = auditLogs.filter((log) => log.transition === "dispute");
+  const resolveLogs = auditLogs.filter((log) => log.transition === "resolve_dispute");
+
+  if (disputeLogs.length > 0) {
+    return disputeLogs.map((disputeLog, index) => {
+      const nextDisputeLog = disputeLogs[index + 1];
+      const resolveLog = resolveLogs.find(
+        (r) =>
+          r.timestamp >= disputeLog.timestamp &&
+          (!nextDisputeLog || r.timestamp <= nextDisputeLog.timestamp),
+      );
+
+      const metadata = disputeLog.metadata || {};
+      const reason =
+        (typeof metadata.reason === "string" ? metadata.reason : undefined) ||
+        bounty?.disputeReason ||
+        "";
+
+      const rawEvidence =
+        (typeof metadata.evidence === "string" ? metadata.evidence : undefined) ||
+        (typeof metadata.evidenceLink === "string" ? metadata.evidenceLink : undefined) ||
+        (typeof metadata.evidenceCid === "string" ? metadata.evidenceCid : undefined) ||
+        (typeof metadata.cid === "string" ? metadata.cid : undefined) ||
+        null;
+
+      let evidenceLink: string | null = null;
+      let evidenceCid: string | null = null;
+      if (rawEvidence) {
+        if (rawEvidence.startsWith("http://") || rawEvidence.startsWith("https://")) {
+          evidenceLink = rawEvidence;
+        } else if (rawEvidence.startsWith("ipfs://")) {
+          evidenceLink = rawEvidence;
+          evidenceCid = rawEvidence.replace("ipfs://", "");
+        } else if (rawEvidence.startsWith("Qm") || rawEvidence.startsWith("bafy")) {
+          evidenceCid = rawEvidence;
+          evidenceLink = `ipfs://${rawEvidence}`;
+        } else {
+          evidenceLink = rawEvidence;
+        }
+      }
+
+      const disputedAt = disputeLog.timestamp;
+      const resolvedAt = resolveLog ? resolveLog.timestamp : null;
+
+      let resolutionOutcome: string | null = null;
+      if (resolveLog) {
+        if (typeof resolveLog.metadata?.resolution === "string") {
+          resolutionOutcome = resolveLog.metadata.resolution;
+        } else if (resolveLog.toStatus === "released" || resolveLog.toStatus === "refunded") {
+          resolutionOutcome = resolveLog.toStatus;
+        } else if (resolveLog.metadata?.release === true) {
+          resolutionOutcome = "released";
+        } else if (resolveLog.metadata?.release === false) {
+          resolutionOutcome = "refunded";
+        }
+      }
+
+      const arbiter = resolveLog ? resolveLog.actor : null;
+      const txHash =
+        (typeof resolveLog?.metadata?.transactionHash === "string"
+          ? resolveLog.metadata.transactionHash
+          : undefined) || null;
+
+      return {
+        id: disputeLog.id,
+        bountyId,
+        reason,
+        evidence: rawEvidence,
+        evidenceLink,
+        evidenceCid,
+        timestamp: disputedAt,
+        disputedAt,
+        resolvedAt,
+        timestamps: {
+          disputedAt,
+          resolvedAt,
+        },
+        resolutionOutcome,
+        resolution: resolutionOutcome,
+        outcome: resolutionOutcome,
+        status: resolutionOutcome ? "resolved" : "disputed",
+        actor: disputeLog.actor,
+        raisedBy: disputeLog.actor,
+        resolvedBy: arbiter,
+        arbiter,
+        transactionHash: txHash,
+      };
+    });
+  }
+
+  // Fallback: check bounty events if audit log is empty but events exist
+  if (bounty && bounty.events) {
+    const disputeEvents = bounty.events.filter((e) => e.type === "disputed");
+    if (disputeEvents.length > 0) {
+      return disputeEvents.map((evt, index) => {
+        const nextDisputeEvt = disputeEvents[index + 1];
+        const resolveEvt = bounty.events.find(
+          (e) =>
+            (e.type === "released" || e.type === "refunded") &&
+            e.timestamp >= evt.timestamp &&
+            (!nextDisputeEvt || e.timestamp <= nextDisputeEvt.timestamp),
+        );
+
+        const details = evt.details || {};
+        const reason =
+          (typeof details.reason === "string" ? details.reason : undefined) ||
+          bounty.disputeReason ||
+          "";
+
+        const rawEvidence =
+          (typeof details.evidence === "string" ? details.evidence : undefined) ||
+          (typeof details.evidenceLink === "string" ? details.evidenceLink : undefined) ||
+          (typeof details.evidenceCid === "string" ? details.evidenceCid : undefined) ||
+          null;
+
+        let evidenceLink: string | null = null;
+        let evidenceCid: string | null = null;
+        if (rawEvidence) {
+          if (rawEvidence.startsWith("http://") || rawEvidence.startsWith("https://")) {
+            evidenceLink = rawEvidence;
+          } else if (rawEvidence.startsWith("ipfs://")) {
+            evidenceLink = rawEvidence;
+            evidenceCid = rawEvidence.replace("ipfs://", "");
+          } else if (rawEvidence.startsWith("Qm") || rawEvidence.startsWith("bafy")) {
+            evidenceCid = rawEvidence;
+            evidenceLink = `ipfs://${rawEvidence}`;
+          } else {
+            evidenceLink = rawEvidence;
+          }
+        }
+
+        const disputedAt = evt.timestamp;
+        const resolvedAt = resolveEvt ? resolveEvt.timestamp : null;
+
+        let resolutionOutcome: string | null = null;
+        if (resolveEvt) {
+          if (typeof resolveEvt.details?.resolution === "string") {
+            resolutionOutcome = resolveEvt.details.resolution;
+          } else {
+            resolutionOutcome = resolveEvt.type === "released" ? "released" : "refunded";
+          }
+        }
+
+        const arbiter = resolveEvt ? resolveEvt.actor || null : null;
+        const txHash =
+          (typeof resolveEvt?.details?.transactionHash === "string"
+            ? (resolveEvt.details.transactionHash as string)
+            : undefined) || null;
+
+        return {
+          id: `EVT-${disputedAt}`,
+          bountyId,
+          reason,
+          evidence: rawEvidence,
+          evidenceLink,
+          evidenceCid,
+          timestamp: disputedAt,
+          disputedAt,
+          resolvedAt,
+          timestamps: {
+            disputedAt,
+            resolvedAt,
+          },
+          resolutionOutcome,
+          resolution: resolutionOutcome,
+          outcome: resolutionOutcome,
+          status: resolutionOutcome ? "resolved" : "disputed",
+          actor: evt.actor || bounty.contributor || "",
+          raisedBy: evt.actor || bounty.contributor || "",
+          resolvedBy: arbiter,
+          arbiter,
+          transactionHash: txHash,
+        };
+      });
+    }
+
+    if (bounty.status === "disputed" || (bounty.disputedAt && bounty.disputedAt > 0)) {
+      const disputedAt = bounty.disputedAt || bounty.createdAt;
+      const isResolved = bounty.status === "released" || bounty.status === "refunded";
+      const resolutionOutcome = isResolved ? bounty.status : null;
+      const resolvedAt = isResolved ? (bounty.releasedAt || bounty.refundedAt || null) : null;
+      const txHash = isResolved ? (bounty.releasedTxHash || bounty.refundedTxHash || null) : null;
+
+      return [
+        {
+          id: `DISP-${disputedAt}`,
+          bountyId,
+          reason: bounty.disputeReason || "",
+          evidence: null,
+          evidenceLink: null,
+          evidenceCid: null,
+          timestamp: disputedAt,
+          disputedAt,
+          resolvedAt,
+          timestamps: {
+            disputedAt,
+            resolvedAt,
+          },
+          resolutionOutcome,
+          resolution: resolutionOutcome,
+          outcome: resolutionOutcome,
+          status: resolutionOutcome ? "resolved" : "disputed",
+          actor: bounty.contributor || "",
+          raisedBy: bounty.contributor || "",
+          resolvedBy: null,
+          arbiter: null,
+          transactionHash: txHash,
+        },
+      ];
+    }
+  }
+
+  return [];
 }
 
 /**
