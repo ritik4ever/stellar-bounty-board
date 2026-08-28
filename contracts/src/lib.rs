@@ -516,8 +516,10 @@ impl StellarBountyBoardContract {
 
         // ── Fee calculation ─────────────────────────────────────────────
         // Fee is deducted FROM the payout, never added on top.
-        // fee_amount = floor(amount * protocol_fee_bps / 10_000)
-        // net_payout = amount - fee_amount
+        // Rounding Rule: Integer division `(bounty.amount * bounty.protocol_fee_bps) / 10_000`
+        // truncates fractional stroops down towards zero (floor division for positive amounts).
+        // The net payout is defined as `amount - fee_amount`, ensuring that `fee_amount + net_payout`
+        // always sums back exactly to the original escrowed `amount` with no dust lost or created.
         //
         // Using i128 arithmetic to avoid overflow on large amounts.
         let fee_amount: i128 = if bounty.protocol_fee_bps == 0 {
