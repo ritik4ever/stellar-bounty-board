@@ -34,6 +34,15 @@ type SignedMaintainerActionPayload<Action extends 'release' | 'refund'> = {
   timestamp: number;
 };
 
+type SignedArbiterResolutionPayload = {
+  arbiter: string;
+  transactionHash?: string;
+  action: 'release' | 'refund' | 'split';
+  bountyId: string;
+  timestamp: number;
+  rationale: string;
+};
+
 async function parseResponse<T>(response: Response): Promise<T> {
   const body = (await response.json().catch(() => ({}))) as ApiBody<T>;
 
@@ -376,6 +385,29 @@ export async function resolveDisputeBounty(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ arbiter, release, transactionHash }),
+  });
+
+  return body.data;
+}
+
+/**
+ * Signed arbiter resolution action - requires a Freighter signature.
+ * The caller must sign the exact payload sent in the request body.
+ */
+export async function resolveDisputeBountySigned(
+  id: string,
+  payload: SignedArbiterResolutionPayload,
+  signature: string,
+  publicKey: string
+): Promise<Bounty> {
+  const body = await requestJson<{ data: Bounty }>(`/bounties/${id}/resolve-dispute`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-stellar-signature': signature,
+      'x-stellar-public-key': publicKey,
+    },
+    body: JSON.stringify(payload),
   });
 
   return body.data;
