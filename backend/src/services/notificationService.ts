@@ -60,6 +60,12 @@ function buildEmailBody(
         subject: `[Stellar Bounty Board] ACTION REQUIRED: Stuck disputed bounty ${bountyId}`,
         text: `The following bounty has been in "disputed" status for ${String(payload.hoursDisputed ?? "?")} hours, exceeding the resolution SLA.\n\nBounty: ${bountyId}\nTitle: ${title}\nRepository: ${String(payload.repo ?? "N/A")}\nContributor: ${String(payload.contributor ?? "N/A")}\nMaintainer: ${String(payload.maintainer ?? "N/A")}\nDisputed at: ${String(payload.disputedAt ?? "N/A")}\n\nPlease review and resolve this dispute promptly.`,
       };
+    case "badge_earned":
+    case "contributor_badge_earned":
+      return {
+        subject: `[Stellar Bounty Board] Congratulations! You earned the "${String(payload.badgeName ?? payload.badgeId ?? "Achievement")}" badge`,
+        text: `Congratulations! You have earned the "${String(payload.badgeName ?? payload.badgeId)}" badge on Stellar Bounty Board.\n\nDescription: ${String(payload.badgeDescription ?? "")}\nAwarded at: ${new Date(Number(payload.awardedAt || Date.now() / 1000) * 1000).toISOString()}\n\nKeep up the great work!`,
+      };
     default:
       return {
         subject: `[Stellar Bounty Board] Notification: ${event}`,

@@ -34,6 +34,7 @@ import {
 } from './services/bountyStore';
 
 import { listOpenIssues } from './services/openIssues';
+import { getContributorBadges } from './services/badgeService';
 
 import {
   bountyIdSchema,
@@ -862,6 +863,22 @@ app.get('/api/maintainers/:maintainer/metrics', (req: Request, res: Response) =>
 
     const metrics = getMaintainerMetrics(maintainer);
     res.json({ data: metrics });
+  } catch (error) {
+    sendError(res, req, error);
+  }
+});
+
+app.get('/api/contributors/:address/badges', (req: Request, res: Response) => {
+  try {
+    const { address } = req.params;
+
+    if (!address || typeof address !== 'string' || !isValidStellarAddress(address)) {
+      jsonError(res, req, 400, 'Valid contributor address is required.');
+      return;
+    }
+
+    const badges = getContributorBadges(address);
+    res.json({ data: badges });
   } catch (error) {
     sendError(res, req, error);
   }
