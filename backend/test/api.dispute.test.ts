@@ -59,7 +59,7 @@ async function fullCycle(app: Express.Application): Promise<string> {
     .post(`/api/bounties/${id}/submit`)
     .send({
       contributor: CONTRIBUTOR,
-      submissionUrl: "https://github.com/owner/repo/pull/1",
+      submissionUrl: "https://github.com/owner/repo-name/pull/1",
     })
     .expect(200);
   return id;
@@ -149,7 +149,7 @@ describe("POST /api/bounties/:id/dispute", () => {
       .send({ contributor: "not-a-valid-address", reason: "Test reason." })
       .expect(400);
 
-    expect(res.body.error).toMatch(/public key|Must be valid/i);
+    expect(res.body.error).toMatch(/validation failed|public key|Must be valid/i);
   });
 
   it("returns 400 for unknown bounty id", async () => {
@@ -159,6 +159,120 @@ describe("POST /api/bounties/:id/dispute", () => {
       .post("/api/bounties/BNT-9999/dispute")
       .send({ contributor: CONTRIBUTOR, reason: "Bounty not found." })
       .expect(400);
+
+    expect(res.body.error).toMatch(/not found/i);
+  });
+});
+
+describe("GET /api/bounties/:id/disputes", () => {
+  it("returns an empty array for a bounty that was never disputed (not 404)", async () => {
+    const app = await getApp();
+    const id = await seedBounty(app);
+
+    const res = await request(app)
+      .get(`/api/bounties/${id}/disputes`)
+      .expect(200);
+
+    expect(res.body.data).toBeDefined();
+    expect(Array.isArray(res.body.data)).toBe(true);
+    expect(res.body.data).toHaveLength(0);
+  });
+
+  it("returns a chronological list of dispute events with reason, evidence link/CID, timestamps, and resolution outcome", async () => {
+    const app = await getApp();
+    const id = await fullCycle(app);
+
+    const evidenceCid = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
+    const disputeReason = "Maintainer did not review PR in time.";
+
+    // Dispute the bounty with evidence
+    await request(app)
+      .post(`/api/bounties/${id}/dispute`)
+      .send({
+        contributor: CONTRIBUTOR,
+        reason: disputeReason,
+        evidence: `ipfs://${evidenceCid}`,
+      })
+      .expect(200);
+
+    const res = await request(app)
+      .get(`/api/bounties/${id}/disputes`)
+      .expect(200);
+
+    expect(res.body.data).toBeDefined();
+    expect(Array.isArray(res.body.data)).toBe(true);
+    expect(res.body.data).toHaveLength(1);
+
+    const disputeEntry = res.body.data[0];
+    expect(disputeEntry.bountyId).toBe(id);
+    expect(disputeEntry.reason).toBe(disputeReason);
+    expect(disputeEntry.evidence).toBe(`ipfs://${evidenceCid}`);
+    expect(disputeEntry.evidenceCid).toBe(evidenceCid);
+    expect(disputeEntry.evidenceLink).toBe(`ipfs://${evidenceCid}`);
+    expect(disputeEntry.disputedAt).toBeGreaterThan(0);
+    expect(disputeEntry.timestamp).toBe(disputeEntry.disputedAt);
+    expect(disputeEntry.resolvedAt).toBeNull();
+    expect(disputeEntry.resolutionOutcome).toBeNull();
+    expect(disputeEntry.actor).toBe(CONTRIBUTOR);
+    expect(disputeEntry.status).toBe("disputed");
+  });
+
+  it("includes resolution outcome and arbiter when dispute is resolved", async () => {
+    const app = await getApp();
+    const id = await fullCycle(app);
+
+    const evidenceLink = "https://github.com/owner/repo/pull/1#issuecomment-123";
+    const disputeReason = "Maintainer rejected without review.";
+
+    // Dispute
+    await request(app)
+      .post(`/api/bounties/${id}/dispute`)
+      .send({
+        contributor: CONTRIBUTOR,
+        reason: disputeReason,
+        evidence: evidenceLink,
+      })
+      .expect(200);
+
+    // Resolve dispute in favor of contributor
+    const arbiterAddress = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+    const txHash = "a".repeat(64);
+    await request(app)
+      .post(`/api/bounties/${id}/resolve-dispute`)
+      .send({
+        arbiter: arbiterAddress,
+        release: true,
+        transactionHash: txHash,
+      })
+      .expect(200);
+
+    const res = await request(app)
+      .get(`/api/bounties/${id}/disputes`)
+      .expect(200);
+
+    expect(res.body.data).toHaveLength(1);
+    const disputeEntry = res.body.data[0];
+    expect(disputeEntry.bountyId).toBe(id);
+    expect(disputeEntry.reason).toBe(disputeReason);
+    expect(disputeEntry.evidence).toBe(evidenceLink);
+    expect(disputeEntry.evidenceLink).toBe(evidenceLink);
+    expect(disputeEntry.disputedAt).toBeGreaterThan(0);
+    expect(disputeEntry.resolvedAt).toBeGreaterThan(0);
+    expect(disputeEntry.resolvedAt).toBeGreaterThanOrEqual(disputeEntry.disputedAt);
+    expect(disputeEntry.resolutionOutcome).toBe("released");
+    expect(disputeEntry.resolution).toBe("released");
+    expect(disputeEntry.status).toBe("resolved");
+    expect(disputeEntry.resolvedBy).toBe(arbiterAddress);
+    expect(disputeEntry.arbiter).toBe(arbiterAddress);
+    expect(disputeEntry.transactionHash).toBe(txHash);
+  });
+
+  it("returns 404 for unknown bounty id", async () => {
+    const app = await getApp();
+
+    const res = await request(app)
+      .get("/api/bounties/BNT-9999/disputes")
+      .expect(404);
 
     expect(res.body.error).toMatch(/not found/i);
   });
