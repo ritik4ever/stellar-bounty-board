@@ -1518,3 +1518,41 @@ fn test_double_refund_after_cancel_bounty() {
     client.refund_bounty(&bounty_id, &maintainer);
 }
 
+// ─── Storage TTL / Bump Management tests (#755) ──────────────────────────
+
+#[test]
+fn test_bump_bounty_ttl_success() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, _, token_id, _, _) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1_000_000);
+
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32,
+    );
+
+    // Refreshing existing bounty TTL should succeed without panicking
+    client.bump_bounty_ttl(&bounty_id);
+
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.amount, 500);
+}
+
+#[test]
+#[should_panic(expected = "BountyNotFound")]
+fn test_bump_bounty_ttl_non_existent_panics() {
+    let env = Env::default();
+    let (client, _, _, _, _, _, _) = setup_test(&env);
+
+    client.bump_bounty_ttl(&9999);
+}
+
