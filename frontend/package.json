@@ -7,10 +7,11 @@
     "build": "tsc -b && vite build",
     "build:analyze": "tsc -b && vite build --mode analyze",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "lint": "eslint \"src/**/*.{ts,tsx}\"",
-    "lint:fix": "eslint \"src/**/*.{ts,tsx}\" --fix",
+    "lint": "eslint \"src/**/*.tsx,tsx\"",
+    "lint:fix": "eslint \"src/**/*.tsx,tsx\" --fix",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "audit": "audit-ci"
   },
   "dependencies": {
     "lucide-react": "^1.11.0",
@@ -32,11 +33,18 @@
     "@typescript-eslint/parser": "^6.21.0",
     "@vitejs/plugin-react": "^4.3.4",
     "@vitest/coverage-v8": "^2.1.9",
+    "audit-ci": "^7.1.0",
     "eslint": "^8.57.0",
     "eslint-import-resolver-typescript": "^3.10.1",
     "eslint-plugin-import": "^2.32.0",
     "jest-axe": "^8.0.0",
     "jsdom": "^29.1.1",
-    "rollup-plugin-visualizer": "^5.12.0"
+    "rollplug-visualizer": "^5.12.0"
+  },
+  "audit-ci": {
+    "high": true,
+    "production": true,
+    "allowlist": [],
+    "_comment": "Add allowed advisory IDs to the allowlist array. Each entry must be documented in the project security documentation."
   }
 }
