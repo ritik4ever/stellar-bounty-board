@@ -9,7 +9,7 @@
  *  - Error state for disconnection / wrong network
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 declare global {
   interface Window {
@@ -30,18 +30,16 @@ declare global {
 }
 
 export const STELLAR_NETWORK_PASSPHRASE =
-  import.meta.env.VITE_STELLAR_NETWORK_PASSPHRASE ??
-  "Test SDF Network ; September 2015";
+  import.meta.env.VITE_STELLAR_NETWORK_PASSPHRASE ?? 'Test SDF Network ; September 2015';
 
-export const STELLAR_NETWORK =
-  import.meta.env.VITE_STELLAR_NETWORK ?? "TESTNET";
+export const STELLAR_NETWORK = import.meta.env.VITE_STELLAR_NETWORK ?? 'TESTNET';
 
 export type FreighterErrorCode =
-  | "NO_FREIGHTER"
-  | "NOT_CONNECTED"
-  | "WRONG_NETWORK"
-  | "USER_REJECTED"
-  | "SIGNING_FAILED";
+  | 'NO_FREIGHTER'
+  | 'NOT_CONNECTED'
+  | 'WRONG_NETWORK'
+  | 'USER_REJECTED'
+  | 'SIGNING_FAILED';
 
 export interface FreighterError {
   code: FreighterErrorCode;
@@ -59,25 +57,33 @@ export interface FreighterState {
 export interface FreighterActions {
   connect: () => Promise<void>;
   disconnect: () => void;
-  signPayload: (payload: Record<string, unknown>) => Promise<{ signature: string; publicKey: string }>;
+  signPayload: (
+    payload: Record<string, unknown>
+  ) => Promise<{ signature: string; publicKey: string }>;
 }
 
 function freighterError(code: FreighterErrorCode, message: string): FreighterError {
   return { code, message };
 }
 
-function isFreighterInstalled(): boolean {
-  return typeof window !== "undefined" && !!window.freighter;
+export function isFreighterInstalled(): boolean {
+  return typeof window !== 'undefined' && !!window.freighter;
 }
 
 async function ensureConnected(): Promise<string> {
   if (!isFreighterInstalled()) {
-    throw freighterError("NO_FREIGHTER", "Freighter wallet is not installed. Please install the Freighter browser extension.");
+    throw freighterError(
+      'NO_FREIGHTER',
+      'Freighter wallet is not installed. Please install the Freighter browser extension.'
+    );
   }
 
   const { isConnected } = await window.freighter!.isConnected();
   if (!isConnected) {
-    throw freighterError("NOT_CONNECTED", "Freighter wallet is not connected. Please unlock Freighter and allow this site.");
+    throw freighterError(
+      'NOT_CONNECTED',
+      'Freighter wallet is not connected. Please unlock Freighter and allow this site.'
+    );
   }
 
   const publicKey = await window.freighter!.getPublicKey();
@@ -110,7 +116,7 @@ export function useFreighter(): FreighterState & FreighterActions {
     async function init() {
       if (!isFreighterInstalled()) {
         if (mountedRef.current) {
-          setError(freighterError("NO_FREIGHTER", "Freighter wallet is not installed."));
+          setError(freighterError('NO_FREIGHTER', 'Freighter wallet is not installed.'));
         }
         return;
       }
@@ -133,7 +139,7 @@ export function useFreighter(): FreighterState & FreighterActions {
             if (!correct) {
               setError(
                 freighterError(
-                  "WRONG_NETWORK",
+                  'WRONG_NETWORK',
                   `Wrong network. Please switch to ${STELLAR_NETWORK} in Freighter.`
                 )
               );
@@ -144,7 +150,7 @@ export function useFreighter(): FreighterState & FreighterActions {
         }
       } catch (err) {
         if (mountedRef.current) {
-          console.warn("[useFreighter] Initialisation error:", err);
+          console.warn('[useFreighter] Initialisation error:', err);
         }
       }
     }
@@ -162,7 +168,10 @@ export function useFreighter(): FreighterState & FreighterActions {
 
     try {
       if (!isFreighterInstalled()) {
-        throw freighterError("NO_FREIGHTER", "Freighter wallet is not installed. Please install the Freighter browser extension.");
+        throw freighterError(
+          'NO_FREIGHTER',
+          'Freighter wallet is not installed. Please install the Freighter browser extension.'
+        );
       }
 
       // Request access – this will prompt the user if needed
@@ -178,7 +187,7 @@ export function useFreighter(): FreighterState & FreighterActions {
         if (!correct) {
           setError(
             freighterError(
-              "WRONG_NETWORK",
+              'WRONG_NETWORK',
               `Wrong network. Please switch to ${STELLAR_NETWORK} in Freighter.`
             )
           );
@@ -208,16 +217,16 @@ export function useFreighter(): FreighterState & FreighterActions {
   const signPayload = useCallback(
     async (payload: Record<string, unknown>) => {
       if (!isFreighterInstalled()) {
-        throw freighterError("NO_FREIGHTER", "Freighter wallet is not installed.");
+        throw freighterError('NO_FREIGHTER', 'Freighter wallet is not installed.');
       }
 
       if (!isConnected || !publicKey) {
-        throw freighterError("NOT_CONNECTED", "Freighter wallet is not connected.");
+        throw freighterError('NOT_CONNECTED', 'Freighter wallet is not connected.');
       }
 
       if (!isOnCorrectNetwork) {
         throw freighterError(
-          "WRONG_NETWORK",
+          'WRONG_NETWORK',
           `Wrong network. Please switch to ${STELLAR_NETWORK} in Freighter.`
         );
       }
@@ -233,10 +242,17 @@ export function useFreighter(): FreighterState & FreighterActions {
 
         return { signature, publicKey };
       } catch (err: any) {
-        if (err?.code === 4 || err?.message?.includes("reject") || err?.message?.includes("cancel")) {
-          throw freighterError("USER_REJECTED", "Signing was rejected in Freighter.");
+        if (
+          err?.code === 4 ||
+          err?.message?.includes('reject') ||
+          err?.message?.includes('cancel')
+        ) {
+          throw freighterError('USER_REJECTED', 'Signing was rejected in Freighter.');
         }
-        throw freighterError("SIGNING_FAILED", err?.message ?? "Failed to sign payload with Freighter.");
+        throw freighterError(
+          'SIGNING_FAILED',
+          err?.message ?? 'Failed to sign payload with Freighter.'
+        );
       }
     },
     [isConnected, publicKey, isOnCorrectNetwork]
