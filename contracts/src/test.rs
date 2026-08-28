@@ -1518,3 +1518,202 @@ fn test_double_refund_after_cancel_bounty() {
     client.refund_bounty(&bounty_id, &maintainer);
 }
 
+// ─── Top-up bounty tests (#731) ───────────────────────────────────────────
+
+#[test]
+fn test_top_up_bounty_success() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1_000_000);
+
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32,
+        &None,
+    );
+
+    let initial_bounty = client.get_bounty(&bounty_id);
+    assert_eq!(initial_bounty.amount, 500);
+
+    client.top_up_bounty(&bounty_id, &300);
+
+    let updated_bounty = client.get_bounty(&bounty_id);
+    assert_eq!(updated_bounty.amount, 800);
+}
+
+#[test]
+#[should_panic]
+fn test_top_up_bounty_reserved_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _admin, maintainer, contributor, token_id, _fee_recipient, _arbiter) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1_000_000);
+
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32,
+        &None,
+    );
+
+    client.reserve_bounty(&bounty_id, &contributor);
+
+    // Should fail because bounty is in Reserved state
+    client.top_up_bounty(&bounty_id, &300);
+}
+
+#[test]
+#[should_panic]
+fn test_top_up_bounty_invalid_amount_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1_000_000);
+
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32,
+        &None,
+    );
+
+    // Should fail because additional_amount <= 0
+    client.top_up_bounty(&bounty_id, &0);
+}
+
+// ─── Fee calculation rounding on odd bps values test (#745) ───────────────
+
+#[test]
+fn test_fee_calculation_rounding_odd_bps_values() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _admin, maintainer, contributor, token_id, fee_recipient, _arbiter) = setup_test(&env);
+    let token = TokenClient::new(&env, &token_id);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+
+    // Test cases containing odd fee_bps values and non-round bounty amounts
+    let test_cases: &[(i128, u32)] = &[
+        (333, 33),            // 333 * 33 = 10989 => fee = 1, payout = 332
+        (9999, 9999),         // 9999 * 9999 = 99980001 => fee = 9998, payout = 1
+        (101, 137),           // 101 * 137 = 13837 => fee = 1, payout = 100
+        (12_345_678, 777),    // 12345678 * 777 = 9592591806 => fee = 959259, payout = 11386419
+        (100, 1),             // 100 * 1 = 100 => fee = 0, payout = 100
+        (50_001, 5001),       // 50001 * 5001 = 250055001 => fee = 25005, payout = 25000
+    ];
+
+    let mut issue_counter = 100u32;
+
+    for &(amount, fee_bps) in test_cases {
+        token_admin.mint(&maintainer, &amount);
+
+        let initial_fee_recipient_bal = token.balance(&fee_recipient);
+        let initial_contributor_bal = token.balance(&contributor);
+
+        issue_counter += 1;
+        let bounty_id = client.create_bounty(
+            &maintainer,
+            &token_id,
+            &amount,
+            &String::from_str(&env, "repo"),
+            &issue_counter,
+            &String::from_str(&env, "title"),
+            &(env.ledger().timestamp() + 1000),
+            &fee_bps,
+            &None,
+        );
+
+        client.reserve_bounty(&bounty_id, &contributor);
+        client.submit_bounty(&bounty_id, &contributor);
+        client.release_bounty(&bounty_id, &maintainer);
+
+        let expected_fee = (amount * fee_bps as i128) / 10_000;
+        let expected_payout = amount - expected_fee;
+
+        // 1. Fee plus payout must sum exactly back to original escrowed amount
+        assert_eq!(
+            expected_fee + expected_payout,
+            amount,
+            "Fee + payout must equal original bounty amount for bps={fee_bps}, amount={amount}"
+        );
+
+        // 2. Assert token balances match fee recipient and contributor transfers exactly
+        let new_fee_recipient_bal = token.balance(&fee_recipient);
+        let new_contributor_bal = token.balance(&contributor);
+
+        let actual_fee_received = new_fee_recipient_bal - initial_fee_recipient_bal;
+        let actual_payout_received = new_contributor_bal - initial_contributor_bal;
+
+        assert_eq!(actual_fee_received, expected_fee, "Fee recipient received wrong amount");
+        assert_eq!(actual_payout_received, expected_payout, "Contributor received wrong payout");
+        assert_eq!(
+            actual_fee_received + actual_payout_received,
+            amount,
+            "Total transferred tokens must equal original escrowed amount"
+        );
+    }
+}
+
+#[test]
+fn test_fee_calculation_odd_bps_large_amounts_no_overflow() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _admin, maintainer, contributor, token_id, fee_recipient, _arbiter) = setup_test(&env);
+    let token = TokenClient::new(&env, &token_id);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+
+    // Test very large non-round amount to verify no arithmetic overflow with i128
+    let large_amount: i128 = 100_000_000_000_000_000_000_000; // 10^23 stroops
+    let fee_bps: u32 = 9999; // 99.99%
+
+    token_admin.mint(&maintainer, &large_amount);
+
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &large_amount,
+        &String::from_str(&env, "repo"),
+        &999u32,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &fee_bps,
+        &None,
+    );
+
+    client.reserve_bounty(&bounty_id, &contributor);
+    client.submit_bounty(&bounty_id, &contributor);
+    client.release_bounty(&bounty_id, &maintainer);
+
+    let expected_fee = (large_amount * fee_bps as i128) / 10_000;
+    let expected_payout = large_amount - expected_fee;
+
+    assert_eq!(expected_fee + expected_payout, large_amount);
+    assert_eq!(token.balance(&fee_recipient), expected_fee);
+    assert_eq!(token.balance(&contributor), expected_payout);
+}
+
+
