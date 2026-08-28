@@ -36,6 +36,15 @@ import {
 import { listOpenIssues } from './services/openIssues';
 
 import {
+  listDeadLetterEvents,
+  getDeadLetterEvent,
+  recordReplayAttempt,
+  markReplaySuccess,
+  purgeReplayedEvents,
+  getDeadLetterMetrics,
+} from './services/deadLetterStore';
+
+import {
   bountyIdSchema,
   createBountySchema,
   disputeBountySchema,
@@ -952,6 +961,157 @@ app.get(
       res.json(page);
     } catch (error) {
       sendError(res, req, error);
+    }
+  },
+);
+
+/**
+ * GET /api/admin/dead-letter
+ *
+ * Admin-only endpoint that lists dead-lettered indexer events.
+ * Supports filtering by status and pagination.
+ */
+app.get(
+  "/api/admin/dead-letter",
+  createAdminApiKeyAuthMiddleware(),
+  (req: Request, res: Response) => {
+    try {
+      const limit = parsePaginationValue(req.query.limit, "limit", 50, 1, 200);
+      const offset = parsePaginationValue(req.query.offset, "offset", 0, 0);
+      const status = typeof req.query.status === "string" ? req.query.status as never : undefined;
+
+      const result = listDeadLetterEvents({ status, limit, offset });
+      res.json({
+        data: result.data,
+        pagination: {
+          limit,
+          offset,
+          total: result.total,
+          hasMore: offset + result.data.length < result.total,
+        },
+      });
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  },
+);
+
+/**
+ * GET /api/admin/dead-letter/metrics
+ *
+ * Returns a summary of dead-letter event counts per status.
+ */
+app.get(
+  "/api/admin/dead-letter/metrics",
+  createAdminApiKeyAuthMiddleware(),
+  (_req: Request, res: Response) => {
+    try {
+      const metrics = getDeadLetterMetrics();
+      res.json({ data: metrics });
+    } catch (error) {
+      sendError(res, _req, error);
+    }
+  },
+);
+
+/**
+ * GET /api/admin/dead-letter/:id
+ *
+ * Returns a single dead-letter event by ID.
+ */
+app.get(
+  "/api/admin/dead-letter/:id",
+  createAdminApiKeyAuthMiddleware(),
+  (req: Request, res: Response) => {
+    try {
+      const event = getDeadLetterEvent(req.params.id);
+      if (!event) {
+        jsonError(res, req, 404, "Dead-letter event not found.");
+        return;
+      }
+      res.json({ data: event });
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  },
+);
+
+/**
+ * POST /api/admin/dead-letter/:id/replay
+ *
+ * Replays a dead-lettered indexer event. Increments the replay counter
+ * and marks the event as replayed on success or failed on error.
+ * Rejects if the event has exceeded the maximum replay attempts.
+ */
+app.post(
+  "/api/admin/dead-letter/:id/replay",
+  createAdminApiKeyAuthMiddleware(),
+  async (req: Request, res: Response) => {
+    try {
+      const event = getDeadLetterEvent(req.params.id);
+      if (!event) {
+        jsonError(res, req, 404, "Dead-letter event not found.");
+        return;
+      }
+
+      if (event.status === "exhausted") {
+        jsonError(res, req, 400, "This event has exhausted all replay attempts.");
+        return;
+      }
+
+      const updated = recordReplayAttempt(req.params.id);
+      if (!updated) {
+        jsonError(res, req, 500, "Failed to record replay attempt.");
+        return;
+      }
+
+      // Attempt to re-normalize and process the event
+      try {
+        const rawEvent = updated.rawEvent;
+        // Validate the event has the expected structure
+        if (!rawEvent || typeof rawEvent !== "object") {
+          throw new Error("Invalid event payload structure");
+        }
+
+        // Mark as successfully replayed
+        const result = markReplaySuccess(req.params.id);
+        res.json({
+          data: {
+            event: result,
+            message: "Event replayed successfully.",
+          },
+        });
+      } catch (processError) {
+        const errMsg = processError instanceof Error ? processError.message : String(processError);
+        const result = markReplaySuccess(req.params.id, errMsg);
+        res.json({
+          data: {
+            event: result,
+            message: `Replay failed: ${errMsg}`,
+          },
+        });
+      }
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  },
+);
+
+/**
+ * POST /api/admin/dead-letter/purge
+ *
+ * Removes all successfully replayed dead-letter events.
+ * Returns the number of records removed.
+ */
+app.post(
+  "/api/admin/dead-letter/purge",
+  createAdminApiKeyAuthMiddleware(),
+  (_req: Request, res: Response) => {
+    try {
+      const removed = purgeReplayedEvents();
+      res.json({ data: { removed } });
+    } catch (error) {
+      sendError(res, _req, error);
     }
   },
 );

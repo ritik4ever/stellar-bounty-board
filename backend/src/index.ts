@@ -10,6 +10,10 @@ import {
   startDisputeAlertJob,
   stopDisputeAlertJob,
 } from "./services/disputeAlertJob";
+import {
+  deadLetterEvent as persistDeadLetterEvent,
+} from "./services/deadLetterStore";
+import { deadLetterEventsTotal } from "./metrics";
 
 const port = Number(process.env.PORT ?? 3001);
 const keepAliveTimeout = Number(process.env.KEEP_ALIVE_TIMEOUT ?? 65000);
@@ -41,6 +45,17 @@ function startIndexerWorker() {
           await invalidateBountyCache();
         } catch (err) {
           logStructured("warn", "indexer_cache_invalidation_failed", {
+            message: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      if (msg && msg.type === "deadLetterEvent") {
+        try {
+          persistDeadLetterEvent(msg.rawEvent, msg.errorMessage);
+          deadLetterEventsTotal.inc();
+        } catch (err) {
+          logStructured("error", "dead_letter_persist_failed", {
             message: err instanceof Error ? err.message : String(err),
           });
         }

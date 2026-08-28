@@ -55,6 +55,11 @@ export const bountiesDisputedTotal = getOrCreateCounter(
   "Total number of bounties disputed",
 );
 
+export const deadLetterEventsTotal = getOrCreateCounter(
+  "dead_letter_events_total",
+  "Total number of indexer events dead-lettered due to processing failures",
+);
+
 export const httpRequestDuration = getOrCreateHistogram(
   "http_request_duration_seconds",
   "Duration of HTTP requests in seconds",
