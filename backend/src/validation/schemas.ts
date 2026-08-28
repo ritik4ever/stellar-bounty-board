@@ -170,6 +170,20 @@ export const disputeBountySchema = z
   })
   .openapi('DisputeBountyRequest');
 
+export const reportBountySchema = z
+  .object({
+    reason: z
+      .string()
+      .trim()
+      .min(1, 'Reason is required.')
+      .max(500, 'Reason must be at most 500 characters.')
+      .openapi({
+        example: 'This bounty asks contributors to do unpaid work or looks like a scam.',
+        description: 'Reason for reporting the bounty (1–500 chars).',
+      }),
+  })
+  .openapi('ReportBountyRequest');
+
 export const resolveDisputeBountySchema = z
   .object({
     arbiter: stellarAccountSchema.openapi({

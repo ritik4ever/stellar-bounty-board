@@ -31,6 +31,7 @@ import {
   getGlobalMetricsCached,
   getLeaderboard,
   aggregatedMetrics,
+  reportBounty,
 } from './services/bountyStore';
 
 import { listOpenIssues } from './services/openIssues';
@@ -40,6 +41,7 @@ import {
   createBountySchema,
   disputeBountySchema,
   extendDeadlineSchema,
+  reportBountySchema,
   resolveDisputeBountySchema,
   maintainerActionSchema,
   reserveBountySchema,
@@ -689,6 +691,21 @@ app.post(
       );
 
       res.json({ data: bounty });
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  }
+);
+
+app.post(
+  '/api/bounties/:id/report',
+  mutationLimiter,
+  requireJsonContentType,
+  validateBody(reportBountySchema),
+  async (req: Request, res: Response) => {
+    try {
+      const report = reportBounty(parseId(req.params.id), req.body.reason);
+      res.status(201).json({ data: report });
     } catch (error) {
       sendError(res, req, error);
     }
