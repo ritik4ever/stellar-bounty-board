@@ -1,5 +1,7 @@
 import crypto from "node:crypto";
 import { logger } from "../logger";
+import { addToDeadLetter } from "./deadLetterStore";
+import { notificationsRetriedTotal, notificationsFailedTotal } from "../metrics";
 
 export interface NotificationRecipient {
   role: string;
@@ -138,6 +140,51 @@ async function dispatchWebhook(
   }
 }
 
+// ── Retry configuration ────────────────────────────────────────────────────
+
+/** Maximum number of dispatch attempts (1 initial + retries). */
+const MAX_ATTEMPTS = (() => {
+  const raw = parseInt(process.env.NOTIFICATION_MAX_ATTEMPTS ?? "3", 10);
+  return Number.isFinite(raw) && raw >= 1 ? raw : 3;
+})();
+
+/** Base delay in milliseconds for exponential backoff. */
+const BASE_DELAY_MS = (() => {
+  const raw = parseInt(process.env.NOTIFICATION_RETRY_BASE_DELAY_MS ?? "1000", 10);
+  return Number.isFinite(raw) && raw >= 100 ? raw : 1000;
+})();
+
+/** Jitter range as a fraction of the computed delay (0–1). */
+const JITTER_FACTOR = 0.3;
+
+/** Compute delay for attempt N (0-indexed) with exponential backoff + jitter. */
+function computeBackoffDelay(attempt: number): number {
+  const exponential = BASE_DELAY_MS * 2 ** attempt;
+  const jitter = exponential * JITTER_FACTOR * Math.random();
+  return Math.round(exponential + jitter);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Dispatch a single notification through the configured channel.
+ * This is the raw send that may throw on transient failures.
+ */
+async function dispatchSingle(
+  channel: NotificationChannel,
+  recipients: NotificationRecipient[],
+  event: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  if (channel === "EMAIL") {
+    await dispatchEmail(recipients, event, payload);
+  } else {
+    await dispatchWebhook(recipients, event, payload);
+  }
+}
+
 export async function sendNotification(
   recipients: NotificationRecipient[],
   event: string,
@@ -146,13 +193,76 @@ export async function sendNotification(
   const channel = getChannel();
   if (!channel) return;
 
-  try {
-    if (channel === "EMAIL") {
-      await dispatchEmail(recipients, event, payload);
-    } else {
-      await dispatchWebhook(recipients, event, payload);
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    try {
+      await dispatchSingle(channel, recipients, event, payload);
+      // Success — emit retry metric if this was not the first attempt.
+      if (attempt > 0) {
+        notificationsRetriedTotal.inc({ channel, event }, attempt);
+        logger.info(
+          { event, channel, attempt: attempt + 1 },
+          "Notification delivered after retry",
+        );
+      }
+      return;
+    } catch (err) {
+      lastError = err;
+      logger.warn(
+        { event, channel, attempt: attempt + 1, maxAttempts: MAX_ATTEMPTS, err },
+        "Notification dispatch attempt failed",
+      );
+
+      // Backoff before next attempt (skip on final attempt).
+      if (attempt < MAX_ATTEMPTS - 1) {
+        const delay = computeBackoffDelay(attempt);
+        await sleep(delay);
+      }
     }
+  }
+
+  // All retries exhausted — send to dead-letter queue.
+  const errorMessage = lastError instanceof Error ? lastError.message : String(lastError);
+
+  notificationsFailedTotal.inc({ channel, event });
+
+  logger.error(
+    { event, channel, attemptCount: MAX_ATTEMPTS, errorMessage },
+    "Notification failed after all retries; dead-lettering",
+  );
+
+  addToDeadLetter({
+    channel,
+    event,
+    payload,
+    recipients,
+    lastError: errorMessage,
+    attemptCount: MAX_ATTEMPTS,
+    createdAt: Date.now(),
+    lastAttemptAt: Date.now(),
+    status: "pending",
+  });
+}
+
+/**
+ * Re-attempt a single dead-lettered notification.
+ * Used by the admin replay endpoint.
+ *
+ * @returns `{ ok: true }` on success or `{ ok: false, error }` on failure.
+ */
+export async function retryNotification(
+  channel: string,
+  event: string,
+  recipients: NotificationRecipient[],
+  payload: Record<string, unknown>,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const normalizedChannel = channel.toUpperCase() as NotificationChannel;
+  try {
+    await dispatchSingle(normalizedChannel, recipients, event, payload);
+    return { ok: true };
   } catch (err) {
-    logger.error({ event, err }, "Notification dispatch failed");
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: errorMessage };
   }
 }
