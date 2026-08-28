@@ -39,6 +39,11 @@ jobs:
       - name: Install backend dependencies
         run: npm ci --prefix backend
 
+      # Audit backend dependencies, allowing currently accepted advisories:
+      # GHSA-xxxx: document justification here
+      - name: Audit backend dependencies
+        run: npm --prefix backend audit --production --audit-level=high --ignore=GHSA-xxxx
+
       - name: TypeScript type-check backend
         run: npm --prefix backend run typecheck
 
@@ -90,6 +95,11 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci --prefix frontend
+
+      # Audit frontend dependencies, allowing currently accepted advisories:
+      # GHSA-xxxx: document justification here
+      - name: Audit frontend dependencies
+        run: npm --prefix frontend audit --production --audit-level=high --ignore=GHSA-xxxx
 
       - name: TypeScript type-check frontend
         run: npm --prefix frontend run typecheck
