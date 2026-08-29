@@ -154,6 +154,30 @@ describe("BountyDetailPage copy actions", () => {
     expect(print).toHaveBeenCalledOnce();
   });
 
+  it("renders social share links with prefilled bounty details", () => {
+    renderDetail();
+
+    const twitterLink = screen.getByRole("link", { name: /share bounty on x/i });
+    const linkedInLink = screen.getByRole("link", { name: /share bounty on linkedin/i });
+
+    expect(twitterLink).toHaveAttribute("target", "_blank");
+    expect(twitterLink).toHaveAttribute("rel", "noopener noreferrer");
+    expect(twitterLink.getAttribute("href")).toContain("https://twitter.com/intent/tweet?");
+    expect(twitterLink.getAttribute("href")).toContain(
+      encodeURIComponent("Copy button test bounty — 150 XLM bounty"),
+    );
+    expect(twitterLink.getAttribute("href")).toContain(
+      encodeURIComponent("http://localhost:3000/bounties/BNTY-42"),
+    );
+
+    expect(linkedInLink).toHaveAttribute("target", "_blank");
+    expect(linkedInLink).toHaveAttribute("rel", "noopener noreferrer");
+    expect(linkedInLink).toHaveAttribute(
+      "href",
+      "https://www.linkedin.com/sharing/share-offsite/?url=http%3A%2F%2Flocalhost%3A3000%2Fbounties%2FBNTY-42",
+    );
+  });
+
   it("announces status changes for assistive technology", () => {
     const { rerender } = renderDetail();
     const reservedBounty: Bounty = {
