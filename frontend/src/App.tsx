@@ -27,6 +27,7 @@ import {
   submitBounty,
 } from "./api";
 import { useFreighter } from "./hooks/useFreighter";
+import { buildBountyActionTransaction, submitSignedTransaction, ContractCallError } from "./stellarTx";
 import FreighterConnectButton from "./components/FreighterConnectButton";
 import {
   statusCopy,
@@ -375,6 +376,41 @@ function App() {
     }
   }
 
+  // Builds the unsigned Soroban transaction, gets it signed by the connected
+  // wallet, and submits it to Soroban RPC. Returns the on-chain transaction
+  // hash, or null if the user cancelled/the submission failed (a toast is
+  // already shown in that case).
+  async function signAndSubmitMaintainerAction(
+    contractFunction: "release_bounty" | "refund_bounty",
+    bounty: Bounty,
+    cancelledMessage: string,
+    failureLabel: string
+  ): Promise<string | null> {
+    try {
+      const unsignedXdr = await buildBountyActionTransaction(
+        contractFunction,
+        bounty.id,
+        freighter.publicKey!,
+        freighter.publicKey!
+      );
+      const signedXdr = await freighter.signTransaction(unsignedXdr);
+      return await submitSignedTransaction(signedXdr);
+    } catch (err) {
+      if (err instanceof ContractCallError) {
+        toast.error(err.message);
+      } else {
+        const code = (err as { code?: string })?.code;
+        if (code === "USER_REJECTED") {
+          toast.error(cancelledMessage);
+        } else {
+          const message = (err as { message?: string })?.message ?? failureLabel;
+          toast.error(message);
+        }
+      }
+      return null;
+    }
+  }
+
   async function handleRelease(bounty: Bounty) {
     // Require Freighter connection for maintainer actions
     if (!freighter.isConnected || !freighter.publicKey) {
@@ -386,11 +422,18 @@ function App() {
       return;
     }
 
-    const transactionHash = window.prompt("Transaction hash (64 hex chars, optional)") ?? undefined;
+    const transactionHash = await signAndSubmitMaintainerAction(
+      "release_bounty",
+      bounty,
+      "Release cancelled — the signature request was rejected.",
+      "Failed to submit the release transaction."
+    );
+    if (!transactionHash) return;
+
     const timestamp = Math.floor(Date.now() / 1000);
     const payload = {
       maintainer: freighter.publicKey,
-      ...(transactionHash ? { transactionHash } : {}),
+      transactionHash,
       action: "release" as const,
       bountyId: bounty.id,
       timestamp,
@@ -426,11 +469,18 @@ function App() {
       return;
     }
 
-    const transactionHash = window.prompt("Transaction hash (64 hex chars, optional)") ?? undefined;
+    const transactionHash = await signAndSubmitMaintainerAction(
+      "refund_bounty",
+      bounty,
+      "Refund cancelled — the signature request was rejected.",
+      "Failed to submit the refund transaction."
+    );
+    if (!transactionHash) return;
+
     const timestamp = Math.floor(Date.now() / 1000);
     const payload = {
       maintainer: freighter.publicKey,
-      ...(transactionHash ? { transactionHash } : {}),
+      transactionHash,
       action: "refund" as const,
       bountyId: bounty.id,
       timestamp,
