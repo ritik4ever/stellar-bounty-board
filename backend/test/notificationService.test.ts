@@ -34,6 +34,7 @@ describe("sendNotification — EMAIL channel", () => {
     process.env.NOTIFICATION_CHANNEL = "EMAIL";
     process.env.SENDGRID_API_KEY = "SG.test-key";
     process.env.SENDGRID_FROM_EMAIL = "noreply@test.io";
+    process.env.NOTIFICATION_PREFERENCES_PATH = `${process.cwd()}/.tmp-notification-preferences-${crypto.randomUUID()}.json`;
     vi.resetModules();
   });
 
@@ -42,6 +43,7 @@ describe("sendNotification — EMAIL channel", () => {
     delete process.env.NOTIFICATION_CHANNEL;
     delete process.env.SENDGRID_API_KEY;
     delete process.env.SENDGRID_FROM_EMAIL;
+    delete process.env.NOTIFICATION_PREFERENCES_PATH;
   });
 
   it("calls SendGrid API once per recipient", async () => {
@@ -149,6 +151,7 @@ describe("sendNotification — WEBHOOK channel", () => {
     process.env.NOTIFICATION_CHANNEL = "WEBHOOK";
     process.env.NOTIFICATION_WEBHOOK_URL = WEBHOOK_URL;
     process.env.NOTIFICATION_WEBHOOK_SECRET = WEBHOOK_SECRET;
+    process.env.NOTIFICATION_PREFERENCES_PATH = `${process.cwd()}/.tmp-notification-preferences-${crypto.randomUUID()}.json`;
     vi.resetModules();
   });
 
@@ -242,6 +245,7 @@ describe("sendNotification — no channel", () => {
     fetchMock.mockClear();
     vi.stubGlobal("fetch", fetchMock);
     delete process.env.NOTIFICATION_CHANNEL;
+    process.env.NOTIFICATION_PREFERENCES_PATH = `${process.cwd()}/.tmp-notification-preferences-${crypto.randomUUID()}.json`;
     vi.resetModules();
   });
 
@@ -265,5 +269,63 @@ describe("sendNotification — no channel", () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     delete process.env.NOTIFICATION_CHANNEL;
+  });
+});
+
+describe("notification preferences", () => {
+  const fetchMock = vi.fn<typeof fetch>();
+
+  beforeEach(() => {
+    fetchMock.mockClear();
+    vi.stubGlobal("fetch", fetchMock);
+    process.env.NOTIFICATION_CHANNEL = "EMAIL";
+    process.env.SENDGRID_API_KEY = "SG.test-key";
+    process.env.SENDGRID_FROM_EMAIL = "noreply@test.io";
+    process.env.NOTIFICATION_PREFERENCES_PATH = `${process.cwd()}/.tmp-notification-preferences-${crypto.randomUUID()}.json`;
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.NOTIFICATION_CHANNEL;
+    delete process.env.SENDGRID_API_KEY;
+    delete process.env.SENDGRID_FROM_EMAIL;
+    delete process.env.NOTIFICATION_PREFERENCES_PATH;
+  });
+
+  it("defaults new users to essential opt-in and marketing opt-out", async () => {
+    const { getNotificationPreferences } = await import("../src/services/notificationPreferences");
+
+    const prefs = getNotificationPreferences("maintainer@example.com");
+
+    expect(prefs.EMAIL.essential).toBe(true);
+    expect(prefs.EMAIL.marketing).toBe(false);
+    expect(prefs.EMAIL.bounty_created).toBe(true);
+    expect(prefs.WEBHOOK.bounty_created).toBe(true);
+    expect(prefs.WEBHOOK.marketing).toBe(false);
+  });
+
+  it("skips dispatch for channels and events a user opted out of", async () => {
+    fetchMock.mockResolvedValue(okResponse());
+    const { setNotificationPreferences } = await import("../src/services/notificationPreferences");
+    const { sendNotification } = await import("../src/services/notificationService");
+
+    setNotificationPreferences("maintainer@example.com", {
+      EMAIL: { bounty_created: false },
+      WEBHOOK: { bounty_created: true },
+    });
+
+    await sendNotification([{ role: "maintainer", address: "maintainer@example.com" }], "bounty_created", PAYLOAD);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    setNotificationPreferences("contributor@example.com", {
+      EMAIL: { bounty_created: true },
+      WEBHOOK: { bounty_created: false },
+    });
+
+    await sendNotification([{ role: "contributor", address: "contributor@example.com" }], "bounty_created", PAYLOAD);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

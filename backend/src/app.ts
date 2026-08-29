@@ -67,6 +67,7 @@ import { logger } from './logger';
 import { createAdminApiKeyAuthMiddleware } from './middleware/adminAuth';
 import { handleGitHubPrEvent } from './webhooks/githubPrHandler';
 import { draining } from './shutdown';
+import usersRouter from './routes/users';
 
 
 const INCOMING_REQUEST_ID = /^[a-zA-Z0-9-]{1,128}$/;
@@ -802,6 +803,8 @@ app.post(
     });
   }
 );
+
+app.use('/api/users', usersRouter);
 
 app.get('/api/open-issues', async (req: Request, res: Response) => {
   try {
