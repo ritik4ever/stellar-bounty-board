@@ -1,0 +1,861 @@
+﻿cargo :    Compiling stellar-bounty-board v0.1.0 
+(C:\Users\USA\Documents\Osuocha\stellar-bounty-board\contracts)
+At line:1 char:70
++ ... nts\Osuocha\stellar-bounty-board\contracts" ; cargo test 2>&1 | Out-F ...
++                                                   ~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (   Compiling st...oard\contracts) 
+   :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+warning: unused import: `alloc::string::ToString`
+ --> src\test.rs:6:5
+  |
+6 | use alloc::string::ToString;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: use of deprecated method `soroban_sdk::Env::register_contract`: use 
+`register`
+  --> src\test.rs:17:27
+   |
+17 |     let contract_id = env.register_contract(None, 
+StellarBountyBoardContract);
+   |                           ^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated method `soroban_sdk::Env::register_contract`: use 
+`register`
+  --> src\test.rs:50:27
+   |
+50 |     let contract_id = env.register_contract(None, 
+StellarBountyBoardContract);
+   |                           ^^^^^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+   --> src\test.rs:163:9
+    |
+163 |     let (client, _, _, _, _, _) = setup_test(&env);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^   ---------------- this expression has 
+type `(StellarBountyBoardContractClient<'_>, ..., ..., ..., ..., ..., ...)`
+    |         |
+    |         expected a tuple with 7 elements, found one with 6 elements
+    |
+    = note: expected tuple `(StellarBountyBoardContractClient<'_>, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address)`
+               found tuple `(_, _, _, _, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\USA\Docume
+nts\Osuocha\stellar-bounty-board\contracts\target\debug\deps\stellar_bounty_boa
+rd-3bb0e7aabc136387.long-type-7873831057302374163.txt'
+    = note: consider using `--verbose` to print the full type name to the 
+console
+
+error[E0308]: mismatched types
+   --> src\test.rs:174:9
+    |
+174 |     let (client, _, _, _, _, arbiter) = setup_test(&env);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   ---------------- this expression 
+has type `(StellarBountyBoardContractClient<'_>, ..., ..., ..., ..., ..., ...)`
+    |         |
+    |         expected a tuple with 7 elements, found one with 6 elements
+    |
+    = note: expected tuple `(StellarBountyBoardContractClient<'_>, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address)`
+               found tuple `(_, _, _, _, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\USA\Docume
+nts\Osuocha\stellar-bounty-board\contracts\target\debug\deps\stellar_bounty_boa
+rd-3bb0e7aabc136387.long-type-722959050728401793.txt'
+    = note: consider using `--verbose` to print the full type name to the 
+console
+
+error[E0308]: mismatched types
+   --> src\test.rs:189:9
+    |
+189 |     let (client, _, _, _, _, arbiter) = setup_test(&env);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   ---------------- this expression 
+has type `(StellarBountyBoardContractClient<'_>, ..., ..., ..., ..., ..., ...)`
+    |         |
+    |         expected a tuple with 7 elements, found one with 6 elements
+    |
+    = note: expected tuple `(StellarBountyBoardContractClient<'_>, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address)`
+               found tuple `(_, _, _, _, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\USA\Docume
+nts\Osuocha\stellar-bounty-board\contracts\target\debug\deps\stellar_bounty_boa
+rd-3bb0e7aabc136387.long-type-722959050728401793.txt'
+    = note: consider using `--verbose` to print the full type name to the 
+console
+
+error[E0308]: mismatched types
+   --> src\test.rs:199:9
+    |
+199 |     let (client, _, _, _, _, arbiter) = setup_test(&env);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   ---------------- this expression 
+has type `(StellarBountyBoardContractClient<'_>, ..., ..., ..., ..., ..., ...)`
+    |         |
+    |         expected a tuple with 7 elements, found one with 6 elements
+    |
+    = note: expected tuple `(StellarBountyBoardContractClient<'_>, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address)`
+               found tuple `(_, _, _, _, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\USA\Docume
+nts\Osuocha\stellar-bounty-board\contracts\target\debug\deps\stellar_bounty_boa
+rd-3bb0e7aabc136387.long-type-722959050728401793.txt'
+    = note: consider using `--verbose` to print the full type name to the 
+console
+
+error[E0308]: mismatched types
+   --> src\test.rs:209:9
+    |
+209 |     let (client, maintainer, _, token_id, _, _) = setup_test(&env);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   ---------------- this 
+expression has type `(StellarBountyBoardContractClient<'_>, ..., ..., ..., 
+..., ..., ...)`
+    |         |
+    |         expected a tuple with 7 elements, found one with 6 elements
+    |
+    = note: expected tuple `(StellarBountyBoardContractClient<'_>, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address)`
+               found tuple `(_, _, _, _, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\USA\Docume
+nts\Osuocha\stellar-bounty-board\contracts\target\debug\deps\stellar_bounty_boa
+rd-3bb0e7aabc136387.long-type-722959050728401793.txt'
+    = note: consider using `--verbose` to print the full type name to the 
+console
+
+error[E0308]: mismatched types
+   --> src\test.rs:232:9
+    |
+232 |     let (client, maintainer, _, token_id, _, _) = setup_test(&env);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   ---------------- this 
+expression has type `(StellarBountyBoardContractClient<'_>, ..., ..., ..., 
+..., ..., ...)`
+    |         |
+    |         expected a tuple with 7 elements, found one with 6 elements
+    |
+    = note: expected tuple `(StellarBountyBoardContractClient<'_>, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address)`
+               found tuple `(_, _, _, _, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\USA\Docume
+nts\Osuocha\stellar-bounty-board\contracts\target\debug\deps\stellar_bounty_boa
+rd-3bb0e7aabc136387.long-type-722959050728401793.txt'
+    = note: consider using `--verbose` to print the full type name to the 
+console
+
+error[E0308]: mismatched types
+   --> src\test.rs:258:9
+    |
+258 |     let (client, maintainer, _, token_id, _, _) = setup_test(&env);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   ---------------- this 
+expression has type `(StellarBountyBoardContractClient<'_>, ..., ..., ..., 
+..., ..., ...)`
+    |         |
+    |         expected a tuple with 7 elements, found one with 6 elements
+    |
+    = note: expected tuple `(StellarBountyBoardContractClient<'_>, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address)`
+               found tuple `(_, _, _, _, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\USA\Docume
+nts\Osuocha\stellar-bounty-board\contracts\target\debug\deps\stellar_bounty_boa
+rd-3bb0e7aabc136387.long-type-722959050728401793.txt'
+    = note: consider using `--verbose` to print the full type name to the 
+console
+
+error[E0308]: mismatched types
+   --> src\test.rs:285:9
+    |
+285 |     let (client, maintainer, _, token_id, _, arbiter) = setup_test(&env);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   ---------------- 
+this expression has type `(StellarBountyBoardContractClient<'_>, ..., ..., 
+..., ..., ..., ...)`
+    |         |
+    |         expected a tuple with 7 elements, found one with 6 elements
+    |
+    = note: expected tuple `(StellarBountyBoardContractClient<'_>, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address)`
+               found tuple `(_, _, _, _, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\USA\Docume
+nts\Osuocha\stellar-bounty-board\contracts\target\debug\deps\stellar_bounty_boa
+rd-3bb0e7aabc136387.long-type-722959050728401793.txt'
+    = note: consider using `--verbose` to print the full type name to the 
+console
+
+error[E0308]: mismatched types
+   --> src\test.rs:311:9
+    |
+311 |     let (client, maintainer, _, token_id, _, arbiter) = setup_test(&env);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   ---------------- 
+this expression has type `(StellarBountyBoardContractClient<'_>, ..., ..., 
+..., ..., ..., ...)`
+    |         |
+    |         expected a tuple with 7 elements, found one with 6 elements
+    |
+    = note: expected tuple `(StellarBountyBoardContractClient<'_>, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address)`
+               found tuple `(_, _, _, _, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\USA\Docume
+nts\Osuocha\stellar-bounty-board\contracts\target\debug\deps\stellar_bounty_boa
+rd-3bb0e7aabc136387.long-type-722959050728401793.txt'
+    = note: consider using `--verbose` to print the full type name to the 
+console
+
+error[E0308]: mismatched types
+   --> src\test.rs:462:9
+    |
+462 |     let (client, maintainer, contributor, token_id, _, _) = 
+setup_test(&env);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   
+---------------- this expression has type 
+`(StellarBountyBoardContractClient<'_>, ..., ..., ..., ..., ..., ...)`
+    |         |
+    |         expected a tuple with 7 elements, found one with 6 elements
+    |
+    = note: expected tuple `(StellarBountyBoardContractClient<'_>, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address)`
+               found tuple `(_, _, _, _, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\USA\Docume
+nts\Osuocha\stellar-bounty-board\contracts\target\debug\deps\stellar_bounty_boa
+rd-3bb0e7aabc136387.long-type-722959050728401793.txt'
+    = note: consider using `--verbose` to print the full type name to the 
+console
+
+error[E0599]: no method named `all` found for struct 
+`soroban_sdk::events::Events` in the current scope
+   --> src\test.rs:545:31
+    |
+545 |     let events = env.events().all().filter_by_contract(&client.address);
+    |                               ^^^ method not found in 
+`soroban_sdk::events::Events`
+    |
+   ::: C:\Users\USA\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\soroba
+n-sdk-27.0.2\src\testutils.rs:543:8
+    |
+543 |     fn all(&self) -> ContractEvents;
+    |        --- the method is available for `soroban_sdk::events::Events` here
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `Events` which provides `all` is implemented but not in scope; 
+perhaps you want to import it
+    |
+  3 + use soroban_sdk::testutils::Events;
+    |
+
+error[E0308]: mismatched types
+   --> src\test.rs:557:9
+    |
+557 |     let (client, maintainer, _contributor, token_id, _, _) = 
+setup_test(&env);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   
+---------------- this expression has type 
+`(StellarBountyBoardContractClient<'_>, ..., ..., ..., ..., ..., ...)`
+    |         |
+    |         expected a tuple with 7 elements, found one with 6 elements
+    |
+    = note: expected tuple `(StellarBountyBoardContractClient<'_>, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address)`
+               found tuple `(_, _, _, _, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\USA\Docume
+nts\Osuocha\stellar-bounty-board\contracts\target\debug\deps\stellar_bounty_boa
+rd-3bb0e7aabc136387.long-type-722959050728401793.txt'
+    = note: consider using `--verbose` to print the full type name to the 
+console
+
+error[E0308]: mismatched types
+   --> src\test.rs:584:9
+    |
+584 |     let (client, maintainer, contributor, token_id, _, _) = 
+setup_test(&env);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   
+---------------- this expression has type 
+`(StellarBountyBoardContractClient<'_>, ..., ..., ..., ..., ..., ...)`
+    |         |
+    |         expected a tuple with 7 elements, found one with 6 elements
+    |
+    = note: expected tuple `(StellarBountyBoardContractClient<'_>, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address)`
+               found tuple `(_, _, _, _, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\USA\Docume
+nts\Osuocha\stellar-bounty-board\contracts\target\debug\deps\stellar_bounty_boa
+rd-3bb0e7aabc136387.long-type-722959050728401793.txt'
+    = note: consider using `--verbose` to print the full type name to the 
+console
+
+error[E0308]: mismatched types
+   --> src\test.rs:835:9
+    |
+835 |     let (client, maintainer, contributor, token_id, _, _) = 
+setup_test(&env);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   
+---------------- this expression has type 
+`(StellarBountyBoardContractClient<'_>, ..., ..., ..., ..., ..., ...)`
+    |         |
+    |         expected a tuple with 7 elements, found one with 6 elements
+    |
+    = note: expected tuple `(StellarBountyBoardContractClient<'_>, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address)`
+               found tuple `(_, _, _, _, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\USA\Docume
+nts\Osuocha\stellar-bounty-board\contracts\target\debug\deps\stellar_bounty_boa
+rd-3bb0e7aabc136387.long-type-722959050728401793.txt'
+    = note: consider using `--verbose` to print the full type name to the 
+console
+
+error[E0308]: mismatched types
+   --> src\test.rs:861:9
+    |
+861 |     let (client, maintainer, contributor, token_id, _, _) = 
+setup_test(&env);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   
+---------------- this expression has type 
+`(StellarBountyBoardContractClient<'_>, ..., ..., ..., ..., ..., ...)`
+    |         |
+    |         expected a tuple with 7 elements, found one with 6 elements
+    |
+    = note: expected tuple `(StellarBountyBoardContractClient<'_>, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address)`
+               found tuple `(_, _, _, _, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\USA\Docume
+nts\Osuocha\stellar-bounty-board\contracts\target\debug\deps\stellar_bounty_boa
+rd-3bb0e7aabc136387.long-type-722959050728401793.txt'
+    = note: consider using `--verbose` to print the full type name to the 
+console
+
+error[E0308]: mismatched types
+   --> src\test.rs:886:9
+    |
+886 |     let (client, maintainer, _contributor, token_id, _, _) = 
+setup_test(&env);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   
+---------------- this expression has type 
+`(StellarBountyBoardContractClient<'_>, ..., ..., ..., ..., ..., ...)`
+    |         |
+    |         expected a tuple with 7 elements, found one with 6 elements
+    |
+    = note: expected tuple `(StellarBountyBoardContractClient<'_>, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address)`
+               found tuple `(_, _, _, _, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\USA\Docume
+nts\Osuocha\stellar-bounty-board\contracts\target\debug\deps\stellar_bounty_boa
+rd-3bb0e7aabc136387.long-type-722959050728401793.txt'
+    = note: consider using `--verbose` to print the full type name to the 
+console
+
+error[E0308]: mismatched types
+   --> src\test.rs:915:9
+    |
+915 |     let (client, maintainer, contributor, token_id, _, _) = 
+setup_test(&env);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   
+---------------- this expression has type 
+`(StellarBountyBoardContractClient<'_>, ..., ..., ..., ..., ..., ...)`
+    |         |
+    |         expected a tuple with 7 elements, found one with 6 elements
+    |
+    = note: expected tuple `(StellarBountyBoardContractClient<'_>, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address)`
+               found tuple `(_, _, _, _, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\USA\Docume
+nts\Osuocha\stellar-bounty-board\contracts\target\debug\deps\stellar_bounty_boa
+rd-3bb0e7aabc136387.long-type-722959050728401793.txt'
+    = note: consider using `--verbose` to print the full type name to the 
+console
+
+error[E0308]: mismatched types
+   --> src\test.rs:947:9
+    |
+947 |     let (client, maintainer, contributor1, token_id, _, _) = 
+setup_test(&env);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   
+---------------- this expression has type 
+`(StellarBountyBoardContractClient<'_>, ..., ..., ..., ..., ..., ...)`
+    |         |
+    |         expected a tuple with 7 elements, found one with 6 elements
+    |
+    = note: expected tuple `(StellarBountyBoardContractClient<'_>, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address)`
+               found tuple `(_, _, _, _, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\USA\Docume
+nts\Osuocha\stellar-bounty-board\contracts\target\debug\deps\stellar_bounty_boa
+rd-3bb0e7aabc136387.long-type-722959050728401793.txt'
+    = note: consider using `--verbose` to print the full type name to the 
+console
+
+error[E0308]: mismatched types
+   --> src\test.rs:989:9
+    |
+989 |     let (client, maintainer, contributor, token_id, _, _) = 
+setup_test(&env);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   
+---------------- this expression has type 
+`(StellarBountyBoardContractClient<'_>, ..., ..., ..., ..., ..., ...)`
+    |         |
+    |         expected a tuple with 7 elements, found one with 6 elements
+    |
+    = note: expected tuple `(StellarBountyBoardContractClient<'_>, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address)`
+               found tuple `(_, _, _, _, _, _)`
+    = note: the full name for the type has been written to 'C:\Users\USA\Docume
+nts\Osuocha\stellar-bounty-board\contracts\target\debug\deps\stellar_bounty_boa
+rd-3bb0e7aabc136387.long-type-722959050728401793.txt'
+    = note: consider using `--verbose` to print the full type name to the 
+console
+
+error[E0308]: mismatched types
+    --> src\test.rs:1085:9
+     |
+1085 |     let (client, maintainer, contributor, token_id, _, _) = 
+setup_test(&env);
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   
+---------------- this expression has type 
+`(StellarBountyBoardContractClient<'_>, ..., ..., ..., ..., ..., ...)`
+     |         |
+     |         expected a tuple with 7 elements, found one with 6 elements
+     |
+     = note: expected tuple `(StellarBountyBoardContractClient<'_>, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address)`
+                found tuple `(_, _, _, _, _, _)`
+     = note: the full name for the type has been written to 'C:\Users\USA\Docum
+ents\Osuocha\stellar-bounty-board\contracts\target\debug\deps\stellar_bounty_bo
+ard-3bb0e7aabc136387.long-type-722959050728401793.txt'
+     = note: consider using `--verbose` to print the full type name to the 
+console
+
+error[E0308]: mismatched types
+    --> src\test.rs:1139:9
+     |
+1139 |     let (client, _, _, _, _, _) = setup_test(&env);
+     |         ^^^^^^^^^^^^^^^^^^^^^^^   ---------------- this expression has 
+type `(StellarBountyBoardContractClient<'_>, ..., ..., ..., ..., ..., ...)`
+     |         |
+     |         expected a tuple with 7 elements, found one with 6 elements
+     |
+     = note: expected tuple `(StellarBountyBoardContractClient<'_>, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address)`
+                found tuple `(_, _, _, _, _, _)`
+     = note: the full name for the type has been written to 'C:\Users\USA\Docum
+ents\Osuocha\stellar-bounty-board\contracts\target\debug\deps\stellar_bounty_bo
+ard-3bb0e7aabc136387.long-type-7873831057302374163.txt'
+     = note: consider using `--verbose` to print the full type name to the 
+console
+
+error[E0308]: mismatched types
+    --> src\test.rs:1265:9
+     |
+1265 |     let (client, maintainer, _contributor, token_id, _, _) = 
+setup_test(&env);
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   
+---------------- this expression has type 
+`(StellarBountyBoardContractClient<'_>, ..., ..., ..., ..., ..., ...)`
+     |         |
+     |         expected a tuple with 7 elements, found one with 6 elements
+     |
+     = note: expected tuple `(StellarBountyBoardContractClient<'_>, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address)`
+                found tuple `(_, _, _, _, _, _)`
+     = note: the full name for the type has been written to 'C:\Users\USA\Docum
+ents\Osuocha\stellar-bounty-board\contracts\target\debug\deps\stellar_bounty_bo
+ard-3bb0e7aabc136387.long-type-722959050728401793.txt'
+     = note: consider using `--verbose` to print the full type name to the 
+console
+
+error[E0308]: mismatched types
+    --> src\test.rs:1292:9
+     |
+1292 |     let (client, maintainer, _contributor, token_id, _, _) = 
+setup_test(&env);
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   
+---------------- this expression has type 
+`(StellarBountyBoardContractClient<'_>, ..., ..., ..., ..., ..., ...)`
+     |         |
+     |         expected a tuple with 7 elements, found one with 6 elements
+     |
+     = note: expected tuple `(StellarBountyBoardContractClient<'_>, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address)`
+                found tuple `(_, _, _, _, _, _)`
+     = note: the full name for the type has been written to 'C:\Users\USA\Docum
+ents\Osuocha\stellar-bounty-board\contracts\target\debug\deps\stellar_bounty_bo
+ard-3bb0e7aabc136387.long-type-722959050728401793.txt'
+     = note: consider using `--verbose` to print the full type name to the 
+console
+
+error[E0308]: mismatched types
+    --> src\test.rs:1319:9
+     |
+1319 |     let (client, maintainer, _contributor, token_id, _, _) = 
+setup_test(&env);
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   
+---------------- this expression has type 
+`(StellarBountyBoardContractClient<'_>, ..., ..., ..., ..., ..., ...)`
+     |         |
+     |         expected a tuple with 7 elements, found one with 6 elements
+     |
+     = note: expected tuple `(StellarBountyBoardContractClient<'_>, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address)`
+                found tuple `(_, _, _, _, _, _)`
+     = note: the full name for the type has been written to 'C:\Users\USA\Docum
+ents\Osuocha\stellar-bounty-board\contracts\target\debug\deps\stellar_bounty_bo
+ard-3bb0e7aabc136387.long-type-722959050728401793.txt'
+     = note: consider using `--verbose` to print the full type name to the 
+console
+
+error[E0308]: mismatched types
+    --> src\test.rs:1342:9
+     |
+1342 |     let (client, maintainer, _contributor, token_id, _, _) = 
+setup_test(&env);
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   
+---------------- this expression has type 
+`(StellarBountyBoardContractClient<'_>, ..., ..., ..., ..., ..., ...)`
+     |         |
+     |         expected a tuple with 7 elements, found one with 6 elements
+     |
+     = note: expected tuple `(StellarBountyBoardContractClient<'_>, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address)`
+                found tuple `(_, _, _, _, _, _)`
+     = note: the full name for the type has been written to 'C:\Users\USA\Docum
+ents\Osuocha\stellar-bounty-board\contracts\target\debug\deps\stellar_bounty_bo
+ard-3bb0e7aabc136387.long-type-722959050728401793.txt'
+     = note: consider using `--verbose` to print the full type name to the 
+console
+
+error[E0308]: mismatched types
+    --> src\test.rs:1398:9
+     |
+1398 |     let (client, _, contributor, _, _, _) = setup_test(&env);
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   ---------------- this 
+expression has type `(StellarBountyBoardContractClient<'_>, ..., ..., ..., 
+..., ..., ...)`
+     |         |
+     |         expected a tuple with 7 elements, found one with 6 elements
+     |
+     = note: expected tuple `(StellarBountyBoardContractClient<'_>, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address)`
+                found tuple `(_, _, _, _, _, _)`
+     = note: the full name for the type has been written to 'C:\Users\USA\Docum
+ents\Osuocha\stellar-bounty-board\contracts\target\debug\deps\stellar_bounty_bo
+ard-3bb0e7aabc136387.long-type-7873831057302374163.txt'
+     = note: consider using `--verbose` to print the full type name to the 
+console
+
+error[E0308]: mismatched types
+    --> src\test.rs:1410:9
+     |
+1410 |     let (client, maintainer, contributor, token_id, _, _) = 
+setup_test(&env);
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   
+---------------- this expression has type 
+`(StellarBountyBoardContractClient<'_>, ..., ..., ..., ..., ..., ...)`
+     |         |
+     |         expected a tuple with 7 elements, found one with 6 elements
+     |
+     = note: expected tuple `(StellarBountyBoardContractClient<'_>, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address)`
+                found tuple `(_, _, _, _, _, _)`
+     = note: the full name for the type has been written to 'C:\Users\USA\Docum
+ents\Osuocha\stellar-bounty-board\contracts\target\debug\deps\stellar_bounty_bo
+ard-3bb0e7aabc136387.long-type-722959050728401793.txt'
+     = note: consider using `--verbose` to print the full type name to the 
+console
+
+error[E0308]: mismatched types
+    --> src\test.rs:1436:9
+     |
+1436 |     let (client, maintainer, contributor, token_id, _, _) = 
+setup_test(&env);
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   
+---------------- this expression has type 
+`(StellarBountyBoardContractClient<'_>, ..., ..., ..., ..., ..., ...)`
+     |         |
+     |         expected a tuple with 7 elements, found one with 6 elements
+     |
+     = note: expected tuple `(StellarBountyBoardContractClient<'_>, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address)`
+                found tuple `(_, _, _, _, _, _)`
+     = note: the full name for the type has been written to 'C:\Users\USA\Docum
+ents\Osuocha\stellar-bounty-board\contracts\target\debug\deps\stellar_bounty_bo
+ard-3bb0e7aabc136387.long-type-722959050728401793.txt'
+     = note: consider using `--verbose` to print the full type name to the 
+console
+
+error[E0308]: mismatched types
+    --> src\test.rs:1465:9
+     |
+1465 |     let (client, maintainer, contributor, token_id, _, _) = 
+setup_test(&env);
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   
+---------------- this expression has type 
+`(StellarBountyBoardContractClient<'_>, ..., ..., ..., ..., ..., ...)`
+     |         |
+     |         expected a tuple with 7 elements, found one with 6 elements
+     |
+     = note: expected tuple `(StellarBountyBoardContractClient<'_>, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address)`
+                found tuple `(_, _, _, _, _, _)`
+     = note: the full name for the type has been written to 'C:\Users\USA\Docum
+ents\Osuocha\stellar-bounty-board\contracts\target\debug\deps\stellar_bounty_bo
+ard-3bb0e7aabc136387.long-type-722959050728401793.txt'
+     = note: consider using `--verbose` to print the full type name to the 
+console
+
+error[E0308]: mismatched types
+    --> src\test.rs:1530:9
+     |
+1530 |     let (client, maintainer, _, token_id, _, _) = setup_test(&env);
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   ---------------- this 
+expression has type `(StellarBountyBoardContractClient<'_>, ..., ..., ..., 
+..., ..., ...)`
+     |         |
+     |         expected a tuple with 7 elements, found one with 6 elements
+     |
+     = note: expected tuple `(StellarBountyBoardContractClient<'_>, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address, 
+soroban_sdk::Address, soroban_sdk::Address, soroban_sdk::Address)`
+                found tuple `(_, _, _, _, _, _)`
+     = note: the full name for the type has been written to 'C:\Users\USA\Docum
+ents\Osuocha\stellar-bounty-board\contracts\target\debug\deps\stellar_bounty_bo
+ard-3bb0e7aabc136387.long-type-722959050728401793.txt'
+     = note: consider using `--verbose` to print the full type name to the 
+console
+
+error[E0599]: no method named `all` found for struct 
+`soroban_sdk::events::Events` in the current scope
+    --> src\test.rs:1624:38
+     |
+1624 |     let events_before = env.events().all().len();
+     |                                      ^^^ method not found in 
+`soroban_sdk::events::Events`
+     |
+    ::: C:\Users\USA\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\sorob
+an-sdk-27.0.2\src\testutils.rs:543:8
+     |
+ 543 |     fn all(&self) -> ContractEvents;
+     |        --- the method is available for `soroban_sdk::events::Events` 
+here
+     |
+     = help: items from traits can only be used if the trait is in scope
+help: trait `Events` which provides `all` is implemented but not in scope; 
+perhaps you want to import it
+     |
+   3 + use soroban_sdk::testutils::Events;
+     |
+
+error[E0599]: no method named `all` found for struct 
+`soroban_sdk::events::Events` in the current scope
+    --> src\test.rs:1648:37
+     |
+1648 |     let events_after = env.events().all().len();
+     |                                     ^^^ method not found in 
+`soroban_sdk::events::Events`
+     |
+    ::: C:\Users\USA\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\sorob
+an-sdk-27.0.2\src\testutils.rs:543:8
+     |
+ 543 |     fn all(&self) -> ContractEvents;
+     |        --- the method is available for `soroban_sdk::events::Events` 
+here
+     |
+     = help: items from traits can only be used if the trait is in scope
+help: trait `Events` which provides `all` is implemented but not in scope; 
+perhaps you want to import it
+     |
+   3 + use soroban_sdk::testutils::Events;
+     |
+
+warning: use of deprecated method `soroban_sdk::events::Events::publish`: use 
+the #[contractevent] macro on a contract event type
+   --> src\lib.rs:372:22
+    |
+372 |         env.events().publish(
+    |                      ^^^^^^^
+
+warning: use of deprecated method `soroban_sdk::events::Events::publish`: use 
+the #[contractevent] macro on a contract event type
+   --> src\lib.rs:390:22
+    |
+390 |         env.events().publish(
+    |                      ^^^^^^^
+
+warning: use of deprecated method `soroban_sdk::events::Events::publish`: use 
+the #[contractevent] macro on a contract event type
+   --> src\lib.rs:488:22
+    |
+488 |         env.events().publish(
+    |                      ^^^^^^^
+
+warning: use of deprecated method `soroban_sdk::events::Events::publish`: use 
+the #[contractevent] macro on a contract event type
+   --> src\lib.rs:522:22
+    |
+522 |         env.events().publish(
+    |                      ^^^^^^^
+
+warning: use of deprecated method `soroban_sdk::events::Events::publish`: use 
+the #[contractevent] macro on a contract event type
+   --> src\lib.rs:558:22
+    |
+558 |         env.events().publish(
+    |                      ^^^^^^^
+
+warning: use of deprecated method `soroban_sdk::events::Events::publish`: use 
+the #[contractevent] macro on a contract event type
+   --> src\lib.rs:583:22
+    |
+583 |         env.events().publish(
+    |                      ^^^^^^^
+
+warning: use of deprecated method `soroban_sdk::events::Events::publish`: use 
+the #[contractevent] macro on a contract event type
+   --> src\lib.rs:642:22
+    |
+642 |         env.events().publish(
+    |                      ^^^^^^^
+
+warning: use of deprecated method `soroban_sdk::events::Events::publish`: use 
+the #[contractevent] macro on a contract event type
+   --> src\lib.rs:678:22
+    |
+678 |         env.events().publish(
+    |                      ^^^^^^^
+
+warning: use of deprecated method `soroban_sdk::events::Events::publish`: use 
+the #[contractevent] macro on a contract event type
+   --> src\lib.rs:706:22
+    |
+706 |         env.events().publish(
+    |                      ^^^^^^^
+
+warning: use of deprecated method `soroban_sdk::events::Events::publish`: use 
+the #[contractevent] macro on a contract event type
+   --> src\lib.rs:739:22
+    |
+739 |         env.events().publish(
+    |                      ^^^^^^^
+
+warning: use of deprecated method `soroban_sdk::events::Events::publish`: use 
+the #[contractevent] macro on a contract event type
+   --> src\lib.rs:780:22
+    |
+780 |         env.events().publish(
+    |                      ^^^^^^^
+
+warning: use of deprecated method `soroban_sdk::events::Events::publish`: use 
+the #[contractevent] macro on a contract event type
+   --> src\lib.rs:858:22
+    |
+858 |         env.events().publish(
+    |                      ^^^^^^^
+
+warning: use of deprecated method `soroban_sdk::events::Events::publish`: use 
+the #[contractevent] macro on a contract event type
+   --> src\lib.rs:919:22
+    |
+919 |         env.events().publish(
+    |                      ^^^^^^^
+
+warning: use of deprecated method `soroban_sdk::events::Events::publish`: use 
+the #[contractevent] macro on a contract event type
+   --> src\lib.rs:972:30
+    |
+972 |                 env.events().publish(
+    |                              ^^^^^^^
+
+warning: use of deprecated method `soroban_sdk::events::Events::publish`: use 
+the #[contractevent] macro on a contract event type
+   --> src\lib.rs:988:30
+    |
+988 |                 env.events().publish(
+    |                              ^^^^^^^
+
+warning: use of deprecated method `soroban_sdk::events::Events::publish`: use 
+the #[contractevent] macro on a contract event type
+    --> src\lib.rs:1031:22
+     |
+1031 |         env.events().publish(
+     |                      ^^^^^^^
+
+warning: use of deprecated method `soroban_sdk::events::Events::publish`: use 
+the #[contractevent] macro on a contract event type
+    --> src\lib.rs:1166:22
+     |
+1166 |         env.events().publish(
+     |                      ^^^^^^^
+
+warning: use of deprecated method `soroban_sdk::events::Events::publish`: use 
+the #[contractevent] macro on a contract event type
+    --> src\lib.rs:1209:22
+     |
+1209 |         env.events().publish(
+     |                      ^^^^^^^
+
+warning: use of deprecated method `soroban_sdk::events::Events::publish`: use 
+the #[contractevent] macro on a contract event type
+    --> src\lib.rs:1249:26
+     |
+1249 |             env.events().publish(
+     |                          ^^^^^^^
+
+warning: use of deprecated method `soroban_sdk::events::Events::publish`: use 
+the #[contractevent] macro on a contract event type
+    --> src\lib.rs:1272:26
+     |
+1272 |             env.events().publish(
+     |                          ^^^^^^^
+
+warning: unused variable: `admin`
+    --> src\test.rs:1045:18
+     |
+1045 |     let (client, admin, _, _, _, _, old_arbiter) = setup_test(&env);
+     |                  ^^^^^ help: if this is intentional, prefix it with an 
+underscore: `_admin`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by 
+default
+
+warning: unused variable: `old_arbiter`
+    --> src\test.rs:1045:37
+     |
+1045 |     let (client, admin, _, _, _, _, old_arbiter) = setup_test(&env);
+     |                                     ^^^^^^^^^^^ help: if this is 
+intentional, prefix it with an underscore: `_old_arbiter`
+
+warning: unused variable: `admin`
+    --> src\test.rs:1068:18
+     |
+1068 |     let (client, admin, _, _, _, _, _) = setup_test(&env);
+     |                  ^^^^^ help: if this is intentional, prefix it with an 
+underscore: `_admin`
+
+Some errors have detailed explanations: E0308, E0599.
+For more information about an error, try `rustc --explain E0308`.
+warning: `stellar-bounty-board` (lib test) generated 26 warnings
+error: could not compile `stellar-bounty-board` (lib test) due to 32 previous 
+errors; 26 warnings emitted
