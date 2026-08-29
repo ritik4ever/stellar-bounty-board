@@ -149,7 +149,10 @@ describe("POST /api/bounties/:id/dispute", () => {
       .send({ contributor: "not-a-valid-address", reason: "Test reason." })
       .expect(400);
 
-    expect(res.body.error).toMatch(/public key|Must be valid/i);
+    expect(res.body.error).toBe("Validation failed");
+    expect(res.body.details).toBeDefined();
+    const contributorError = res.body.details.find((d: any) => d.path.includes('contributor'));
+    expect(contributorError?.message).toMatch(/public key|valid/i);
   });
 
   it("returns 400 for unknown bounty id", async () => {

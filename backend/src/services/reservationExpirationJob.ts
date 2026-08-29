@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { logger } from '../logger';
+import { writeJsonFile } from '../store';
 import type { BountyRecord } from './bountyStore';
 
 export interface ExpirationResult {
@@ -50,8 +51,7 @@ function readBounties(): BountyRecord[] {
 
 function writeBounties(records: BountyRecord[]): void {
   const storePath = getStorePath();
-  fs.mkdirSync(path.dirname(storePath), { recursive: true });
-  fs.writeFileSync(storePath, JSON.stringify(records, null, 2));
+  writeJsonFile(storePath, records);
 }
 
 function expireReservation(

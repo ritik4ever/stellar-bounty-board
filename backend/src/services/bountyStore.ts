@@ -10,6 +10,7 @@ import { getCache, type CacheAdapter } from "./cache";
 import { bountiesCreatedTotal, bountiesReleasedTotal } from "../metrics";
 import { validateGithubPrUrlForRepo } from "../validation/prUrl";
 import { resolveTokenAddress } from "../utils";
+import { sanitizeJsonSecrets } from "../store";
 
 
 /**
@@ -295,32 +296,38 @@ function nowInSeconds(): number {
 
 function ensureStore(): void {
   const storePath = getStorePath();
-  fs.mkdirSync(path.dirname(storePath), { recursive: true });
+  fs.mkdirSync(path.dirname(storePath), { recursive: true, mode: 0o700 });
+  try { fs.chmodSync(path.dirname(storePath), 0o700); } catch {}
   ensureAuditStore();
 
   if (!fs.existsSync(storePath)) {
-    fs.writeFileSync(storePath, JSON.stringify(sampleBounties, null, 2));
+    fs.writeFileSync(storePath, JSON.stringify(sanitizeJsonSecrets(sampleBounties), null, 2));
+    try { fs.chmodSync(storePath, 0o600); } catch {}
     return;
   }
 
   const raw = fs.readFileSync(storePath, "utf8").trim();
   if (!raw) {
-    fs.writeFileSync(storePath, JSON.stringify(sampleBounties, null, 2));
+    fs.writeFileSync(storePath, JSON.stringify(sanitizeJsonSecrets(sampleBounties), null, 2));
+    try { fs.chmodSync(storePath, 0o600); } catch {}
   }
 }
 
 function ensureAuditStore(): void {
   const storePath = getAuditStorePath();
-  fs.mkdirSync(path.dirname(storePath), { recursive: true });
+  fs.mkdirSync(path.dirname(storePath), { recursive: true, mode: 0o700 });
+  try { fs.chmodSync(path.dirname(storePath), 0o700); } catch {}
 
   if (!fs.existsSync(storePath)) {
     fs.writeFileSync(storePath, JSON.stringify([], null, 2));
+    try { fs.chmodSync(storePath, 0o600); } catch {}
     return;
   }
 
   const raw = fs.readFileSync(storePath, "utf8").trim();
   if (!raw) {
     fs.writeFileSync(storePath, JSON.stringify([], null, 2));
+    try { fs.chmodSync(storePath, 0o600); } catch {}
   }
 }
 
@@ -331,7 +338,11 @@ function readStore(): BountyRecord[] {
 }
 
 function writeStore(records: BountyRecord[]): void {
-  fs.writeFileSync(getStorePath(), JSON.stringify(records, null, 2));
+  const storePath = getStorePath();
+  fs.mkdirSync(path.dirname(storePath), { recursive: true, mode: 0o700 });
+  const sanitized = sanitizeJsonSecrets(records);
+  fs.writeFileSync(storePath, JSON.stringify(sanitized, null, 2));
+  try { fs.chmodSync(storePath, 0o600); } catch {}
 }
 
 function readAuditStore(): BountyAuditLogRecord[] {
@@ -342,7 +353,11 @@ function readAuditStore(): BountyAuditLogRecord[] {
 }
 
 function writeAuditStore(records: BountyAuditLogRecord[]): void {
-  fs.writeFileSync(getAuditStorePath(), JSON.stringify(records, null, 2));
+  const storePath = getAuditStorePath();
+  fs.mkdirSync(path.dirname(storePath), { recursive: true, mode: 0o700 });
+  const sanitized = sanitizeJsonSecrets(records);
+  fs.writeFileSync(storePath, JSON.stringify(sanitized, null, 2));
+  try { fs.chmodSync(storePath, 0o600); } catch {}
 }
 
 function nextAuditId(records: BountyAuditLogRecord[]): string {

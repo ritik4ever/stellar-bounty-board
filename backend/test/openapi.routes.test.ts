@@ -44,8 +44,12 @@ const UNDOCUMENTED_ROUTES = new Set([
   'POST /api/webhooks/github',
   // Bounty dispute — undocumented
   'POST /api/bounties/:id/dispute',
+  // Resolve dispute — undocumented
+  'POST /api/bounties/:id/resolve-dispute',
   // Extend deadline — undocumented
   'POST /api/bounties/:id/extend-deadline',
+  // Public config endpoint — undocumented
+  'GET /api/config',
   // SEO helpers — not API routes
   'GET /robots.txt',
   'GET /sitemap.xml',

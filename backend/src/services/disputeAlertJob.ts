@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { logStructured } from "../logger";
+import { writeJsonFile } from "../store";
 import { sendNotification } from "./notificationService";
 import type { BountyRecord } from "./bountyStore";
 
@@ -99,8 +100,7 @@ function readBounties(): BountyRecord[] {
 
 function writeBounties(records: BountyRecord[]): void {
   const storePath = getStorePath();
-  fs.mkdirSync(path.dirname(storePath), { recursive: true });
-  fs.writeFileSync(storePath, JSON.stringify(records, null, 2));
+  writeJsonFile(storePath, records);
 }
 
 // ─── Core logic ───────────────────────────────────────────────────────────────

@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['test/**/*.test.ts'],
+    setupFiles: ['./vitest.setup.ts'],
     pool: 'forks',
     maxConcurrency: 1,
     testTimeout: 15_000,

@@ -1,6 +1,8 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
+process.umask(0o077);
+
 const STORE_PATH = path.resolve(__dirname, "../backend/data/bounties.json");
 const AUDIT_PATH = path.resolve(
   __dirname,

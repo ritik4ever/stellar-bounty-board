@@ -1,6 +1,8 @@
 import "dotenv/config";
 import path from "node:path";
 import { Worker } from "node:worker_threads";
+
+process.umask(0o077);
 import { app } from "./app";
 import { logStructured } from "./logger";
 import { invalidateBountyCache } from "./services/bountyStore";
