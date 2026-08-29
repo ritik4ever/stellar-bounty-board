@@ -11,6 +11,8 @@ import {
   deepHealthResponseSchema,
   maintainerActionSchema,
   openIssueSchema,
+  attachDisputeEvidenceSchema,
+  disputeEvidenceItemSchema,
   reserveBountySchema,
   submitBountySchema,
   updateNotesSchema,
@@ -30,6 +32,8 @@ registry.register("ReserveBountyRequest", reserveBountySchema);
 registry.register("SubmitBountyRequest", submitBountySchema);
 registry.register("MaintainerActionRequest", maintainerActionSchema);
 registry.register("UpdateNotesRequest", updateNotesSchema);
+registry.register("AttachDisputeEvidenceRequest", attachDisputeEvidenceSchema);
+registry.register("DisputeEvidenceItem", disputeEvidenceItemSchema);
 registry.register("ErrorResponse", errorResponseSchema);
 registry.register("OpenIssue", openIssueSchema);
 registry.register("HealthResponse", healthResponseSchema);
@@ -484,6 +488,32 @@ registry.registerPath({
   responses: {
     200: jsonResponse("Paginated list of audit logs", bountyAuditLogListResponseSchema),
     401: errorResponse("Invalid or missing x-admin-api-key header"),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/bounties/{id}/disputes/evidence",
+  tags: ["Disputes"],
+  summary: "Attach dispute evidence",
+  description:
+    "Upload a direct evidence file (up to 5MB) or provide an external IPFS/URL reference link. " +
+    "Requires caller to be either the bounty contributor or maintainer.",
+  parameters: [bountyIdParam],
+  request: jsonBody(attachDisputeEvidenceSchema),
+  responses: {
+    201: jsonResponse(
+      "Dispute evidence attached successfully.",
+      z.object({
+        data: z.object({
+          evidence: disputeEvidenceItemSchema,
+          bounty: bountyRecordSchema,
+        }),
+      })
+    ),
+    400: errorResponse("Invalid caller, invalid link, file size exceeds limit, or disallowed content type."),
+    403: errorResponse("Caller is neither maintainer nor contributor."),
+    404: errorResponse("Bounty not found."),
   },
 });
 
