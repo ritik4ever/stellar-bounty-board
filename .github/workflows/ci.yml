@@ -6,6 +6,21 @@ on:
       - main
 
 jobs:
+  conflict-markers:
+    name: Reject merge conflict markers
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for merge conflict markers
+        run: |
+          if git grep -n -E '^(<<<<<<<|=======|>>>>>>>)'; then
+            echo "Merge conflict markers were found. Remove them before merging."
+            exit 1
+          fi
+
   backend:
     name: Backend lint, type-check, test and coverage
     runs-on: ubuntu-latest
