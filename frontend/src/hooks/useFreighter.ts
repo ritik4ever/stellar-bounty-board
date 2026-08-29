@@ -20,6 +20,10 @@ declare global {
         message: string,
         opts?: { networkPassphrase?: string }
       ) => Promise<{ signature: string }>;
+      signTransaction: (
+        xdr: string,
+        opts?: { network?: string; networkPassphrase?: string; accountToSign?: string }
+      ) => Promise<{ signedTxXdr: string }>;
       getNetwork: () => Promise<{
         network: string;
         networkPassphrase: string;
@@ -60,6 +64,7 @@ export interface FreighterActions {
   connect: () => Promise<void>;
   disconnect: () => void;
   signPayload: (payload: Record<string, unknown>) => Promise<{ signature: string; publicKey: string }>;
+  signTransaction: (xdr: string) => Promise<string>;
 }
 
 function freighterError(code: FreighterErrorCode, message: string): FreighterError {
@@ -242,6 +247,46 @@ export function useFreighter(): FreighterState & FreighterActions {
     [isConnected, publicKey, isOnCorrectNetwork]
   );
 
+  const signTransaction = useCallback(
+    async (xdr: string): Promise<string> => {
+      if (!isFreighterInstalled()) {
+        throw freighterError("NO_FREIGHTER", "Freighter wallet is not installed.");
+      }
+
+      if (!isConnected || !publicKey) {
+        throw freighterError("NOT_CONNECTED", "Freighter wallet is not connected.");
+      }
+
+      if (!isOnCorrectNetwork) {
+        throw freighterError(
+          "WRONG_NETWORK",
+          `Wrong network. Please switch to ${STELLAR_NETWORK} in Freighter.`
+        );
+      }
+
+      try {
+        const { signedTxXdr } = await window.freighter!.signTransaction(xdr, {
+          network: STELLAR_NETWORK,
+          networkPassphrase: STELLAR_NETWORK_PASSPHRASE,
+          accountToSign: publicKey,
+        });
+
+        return signedTxXdr;
+      } catch (err: any) {
+        if (
+          err?.code === 4 ||
+          err?.message?.includes("reject") ||
+          err?.message?.includes("cancel") ||
+          err?.message?.includes("Declined")
+        ) {
+          throw freighterError("USER_REJECTED", "Transaction signing was cancelled in Freighter.");
+        }
+        throw freighterError("SIGNING_FAILED", err?.message ?? "Failed to sign the transaction with Freighter.");
+      }
+    },
+    [isConnected, publicKey, isOnCorrectNetwork]
+  );
+
   return {
     isConnected,
     publicKey,
@@ -251,5 +296,6 @@ export function useFreighter(): FreighterState & FreighterActions {
     connect,
     disconnect,
     signPayload,
+    signTransaction,
   };
 }
