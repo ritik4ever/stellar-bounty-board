@@ -41,6 +41,18 @@ export type BountyStatus =
  */
 export type AuditMetadataValue = string | number | boolean | null;
 
+export interface DisputeEvidenceItem {
+  id: string;
+  url: string;
+  uploadedBy: string;
+  uploadedAt: number;
+  fileName?: string;
+  contentType?: string;
+  fileSize?: number;
+  type: "file" | "url" | "ipfs";
+  description?: string;
+}
+
 /**
  * Types of state transitions that can be recorded in the audit log.
  */
@@ -55,14 +67,15 @@ export type BountyTransitionType =
   | "dispute"
   | "resolve_dispute"
   | "update_notes"
-  | "extend_deadline";
+  | "extend_deadline"
+  | "attach_evidence";
 
 /**
  * Represents a historical event in the lifecycle of a bounty.
  */
 export interface BountyEvent {
   /** The type of event (usually matches the resulting status or "created"). */
-  type: BountyStatus | "created" | "notes_updated" | "deadline_extended" | "archived";
+  type: BountyStatus | "created" | "notes_updated" | "deadline_extended" | "archived" | "evidence_attached";
   /** Unix timestamp in seconds when the event occurred. */
   timestamp: number;
   /** Stellar public key of the actor who triggered the event. */
@@ -151,6 +164,8 @@ export interface BountyRecord {
   disputedAt?: number;
   /** Reason provided by the contributor for disputing the bounty. */
   disputeReason?: string;
+  /** Evidence attachments linked to disputes. */
+  disputeEvidence?: DisputeEvidenceItem[];
   /** Unix timestamp in seconds of the last admin alert sent for this stuck dispute. */
   lastDisputeAlertAt?: number;
   // Race condition prevention
@@ -1670,4 +1685,101 @@ export function getLeaderboard(limit = 10): LeaderboardEntry[] {
         b.totalXlm - a.totalXlm || b.bountiesCompleted - a.bountiesCompleted,
     )
     .slice(0, limit);
+}
+
+export interface AttachEvidenceInput {
+  caller: string;
+  url: string;
+  fileName?: string;
+  contentType?: string;
+  fileSize?: number;
+  type?: "file" | "url" | "ipfs";
+  description?: string;
+}
+
+/**
+ * Attaches dispute evidence to a bounty record.
+ * Requires caller to be either the bounty's contributor or maintainer.
+ */
+export async function attachDisputeEvidence(
+  id: string,
+  input: AttachEvidenceInput
+): Promise<{ evidence: DisputeEvidenceItem; bounty: BountyRecord }> {
+  return withStoreLock(async () => {
+    const records = listBounties();
+    const bounty = findBounty(records, id);
+
+    const caller = input.caller;
+    const isMaintainer = caller === bounty.maintainer;
+    const isContributor = Boolean(bounty.contributor && caller === bounty.contributor);
+
+    if (!isMaintainer && !isContributor) {
+      throw new Error("Only the bounty contributor or maintainer can attach dispute evidence.");
+    }
+
+    const now = nowInSeconds();
+    const randomHex = Math.random().toString(36).substring(2, 10);
+    const evidenceId = `ev_${randomHex}`;
+
+    let linkType: "file" | "url" | "ipfs" = input.type || "url";
+    if (!input.type) {
+      if (input.url.startsWith("ipfs://")) {
+        linkType = "ipfs";
+      } else if (input.url.includes("/uploads/") || input.url.includes("s3.amazonaws.com")) {
+        linkType = "file";
+      }
+    }
+
+    const newEvidence: DisputeEvidenceItem = {
+      id: evidenceId,
+      url: input.url,
+      uploadedBy: caller,
+      uploadedAt: now,
+      fileName: input.fileName,
+      contentType: input.contentType,
+      fileSize: input.fileSize,
+      type: linkType,
+      description: input.description,
+    };
+
+    const existingEvidence = bounty.disputeEvidence || [];
+    const updated: BountyRecord = {
+      ...bounty,
+      disputeEvidence: [...existingEvidence, newEvidence],
+      version: bounty.version + 1,
+      events: [
+        ...bounty.events,
+        {
+          type: "evidence_attached" as any,
+          timestamp: now,
+          actor: caller,
+          details: {
+            evidenceId,
+            url: input.url,
+            type: linkType,
+            uploadedBy: caller,
+          },
+        },
+      ],
+    };
+
+    const persisted = persistUpdated(records, updated);
+    appendAuditLogs([
+      {
+        bountyId: id,
+        fromStatus: bounty.status,
+        toStatus: bounty.status,
+        transition: "attach_evidence",
+        actor: caller,
+        metadata: {
+          evidenceId,
+          url: input.url,
+          type: linkType,
+        },
+      },
+    ]);
+    await invalidateBountyCache();
+
+    return { evidence: newEvidence, bounty: persisted };
+  });
 }

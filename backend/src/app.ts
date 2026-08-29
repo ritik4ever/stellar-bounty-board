@@ -8,6 +8,7 @@ import { generateOpenApiDocument } from './docs/openapi';
 import { getMetrics, httpRequestDuration } from './metrics';
 import { buildCorsOptions } from './middleware/corsOptions';
 import { runDeepHealthCheck } from './services/deepHealth';
+import { disputeEvidenceRouter } from './routes/disputeEvidence';
 
 import {
   createBounty,
@@ -166,6 +167,7 @@ app.get('/worker/health', (_req: Request, res: Response) => {
 });
 
 app.use(readLimiter);
+app.use(disputeEvidenceRouter);
 
 const swaggerDoc = generateOpenApiDocument();
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerDoc));

@@ -153,6 +153,38 @@ export const submitBountySchema = z
   })
   .openapi('SubmitBountyRequest');
 
+export const disputeEvidenceItemSchema = z
+  .object({
+    id: z.string().openapi({ example: 'ev_a1b2c3d4' }),
+    url: z.string().openapi({ example: 'https://storage.stellar-bounty-board.org/disputes/BNT-0001/evidence.pdf' }),
+    uploadedBy: stellarAccountSchema.openapi({ description: 'Stellar public key of the party who attached evidence.' }),
+    uploadedAt: z.number().openapi({ example: 1710010800 }),
+    fileName: z.string().optional().openapi({ example: 'evidence.pdf' }),
+    contentType: z.string().optional().openapi({ example: 'application/pdf' }),
+    fileSize: z.number().optional().openapi({ example: 1048576 }),
+    type: z.enum(['file', 'url', 'ipfs']).openapi({ example: 'file' }),
+    description: z.string().optional().openapi({ example: 'Proof of pull request completion.' }),
+  })
+  .openapi('DisputeEvidenceItem');
+
+export const attachDisputeEvidenceSchema = z
+  .object({
+    caller: stellarAccountSchema.openapi({
+      description: 'Stellar public key of the caller (must be maintainer or contributor).',
+    }),
+    url: z.string().trim().optional().openapi({
+      example: 'https://example.com/proof.png',
+      description: 'External URL or IPFS link (e.g. ipfs://Qm...) if not uploading a direct file.',
+    }),
+    ipfsUrl: z.string().trim().optional(),
+    link: z.string().trim().optional(),
+    fileName: z.string().optional(),
+    contentType: z.string().optional(),
+    fileData: z.string().optional(),
+    description: z.string().optional(),
+  })
+  .openapi('AttachDisputeEvidenceRequest');
+
 export const disputeBountySchema = z
   .object({
     contributor: stellarAccountSchema.openapi({
@@ -315,6 +347,7 @@ export const bountyRecordSchema = z
     notes: z.string().optional(),
     disputedAt: z.number().optional().openapi({ example: 1710010800 }),
     disputeReason: z.string().optional(),
+    disputeEvidence: z.array(disputeEvidenceItemSchema).optional(),
     version: z.number().openapi({ example: 1 }),
     events: z.array(bountyEventSchema),
     reservationTimeoutSeconds: z.number().optional().openapi({ example: 604800 }),
