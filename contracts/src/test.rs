@@ -374,6 +374,51 @@ fn test_create_bounty() {
 }
 
 #[test]
+fn test_bounty_count() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    // No bounties created yet.
+    assert_eq!(client.bounty_count(), 0);
+
+    let repo = String::from_str(&env, "ritik4ever/stellar-bounty-board");
+    let title = String::from_str(&env, "Fix bug");
+    let deadline = env.ledger().timestamp() + 1000;
+
+    client.create_bounty(
+        &maintainer,
+        &token_id,
+        &100i128,
+        &repo,
+        &1u32,
+        &title,
+        &deadline,
+        &0u32,
+        &None,
+    );
+    assert_eq!(client.bounty_count(), 1);
+    assert_eq!(client.bounty_count(), client.get_next_bounty_id());
+
+    client.create_bounty(
+        &maintainer,
+        &token_id,
+        &100i128,
+        &repo,
+        &2u32,
+        &title,
+        &deadline,
+        &0u32,
+        &None,
+    );
+    assert_eq!(client.bounty_count(), 2);
+    assert_eq!(client.bounty_count(), client.get_next_bounty_id());
+}
+
+#[test]
 #[should_panic(expected = "InvalidAmount")]
 fn test_create_bounty_negative_amount() {
     let env = Env::default();

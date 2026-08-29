@@ -74,6 +74,9 @@ pub struct FeeStats {
 enum DataKey {
     NextBountyId,
     Bounty(u64),
+    /// Dedicated running total of bounties ever created, incremented once
+    /// per successful `create_bounty` call. Backs `bounty_count`.
+    TotalBountyCount,
 
 }
 
@@ -379,6 +382,15 @@ impl StellarBountyBoardContract {
         env.storage()
             .persistent()
             .set(&DataKey::Bounty(next_id), &bounty);
+
+        let total_count: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::TotalBountyCount)
+            .unwrap_or(0);
+        env.storage()
+            .persistent()
+            .set(&DataKey::TotalBountyCount, &(total_count + 1));
 
         env.events().publish(
             (symbol_short!("Bounty"), symbol_short!("Create")),
@@ -889,10 +901,37 @@ impl StellarBountyBoardContract {
         );
     }
 
+    /// Returns the ID of the most recently created bounty (0 if none exist
+    /// yet). Despite the name, this is **not** guaranteed to equal the ID
+    /// that will be assigned to the *next* bounty in all possible future
+    /// ID-assignment schemes — callers that want the total number of
+    /// bounties ever created should use [`Self::bounty_count`] instead,
+    /// which is backed by its own dedicated counter and makes that intent
+    /// explicit rather than relying on this function's ID-tracking
+    /// implementation detail.
     pub fn get_next_bounty_id(env: Env) -> u64 {
         env.storage()
             .persistent()
             .get(&DataKey::NextBountyId)
+            .unwrap_or(0)
+    }
+
+    /// Returns the total number of bounties ever created via
+    /// `create_bounty`, i.e. a plain running count.
+    ///
+    /// This is semantically distinct from [`Self::get_next_bounty_id`]:
+    /// `get_next_bounty_id` tracks the last-assigned bounty ID (an
+    /// implementation detail of how IDs are allocated), while
+    /// `bounty_count` is backed by its own dedicated counter that is
+    /// incremented exactly once per successful `create_bounty` call and
+    /// exists purely to answer "how many bounties have been created?".
+    ///
+    /// Returns 0 before any bounty has been created, and increases by
+    /// exactly one after each successful `create_bounty` call.
+    pub fn bounty_count(env: Env) -> u64 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::TotalBountyCount)
             .unwrap_or(0)
     }
 
