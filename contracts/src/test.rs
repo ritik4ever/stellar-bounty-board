@@ -45,6 +45,93 @@ fn test_initialize_twice_returns_already_initialized() {
 
 #[test]
 fn test_contract_version_constant() {
+
+        #[test]
+        fn test_create_bounty_repo_title_at_limit_succeeds() {
+            let env = Env::default();
+            env.mock_all_auths();
+            let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) = setup_test(&env);
+            let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+            token_admin.mint(&maintainer, &1000);
+
+            let rust_repo: alloc::string::String = core::iter::repeat('r').take(MAX_REPO_LEN as usize).collect();
+            let rust_title: alloc::string::String = core::iter::repeat('t').take(MAX_TITLE_LEN as usize).collect();
+
+            let repo = String::from_str(&env, &rust_repo);
+            let title = String::from_str(&env, &rust_title);
+            let deadline = env.ledger().timestamp() + 1000;
+
+            let bounty_id = client.create_bounty(
+                &maintainer,
+                &token_id,
+                &500,
+                &repo,
+                &1,
+                &title,
+                &deadline,
+                &0u32,
+                &None,
+            );
+
+            assert_eq!(bounty_id, 1);
+        }
+
+        #[test]
+        #[should_panic(expected = "StringTooLong")]
+        fn test_create_bounty_repo_over_limit_fails() {
+            let env = Env::default();
+            env.mock_all_auths();
+            let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) = setup_test(&env);
+            let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+            token_admin.mint(&maintainer, &1000);
+
+            // repo is one char longer than allowed
+            let rust_repo: alloc::string::String = core::iter::repeat('r').take((MAX_REPO_LEN as usize) + 1).collect();
+            let title: alloc::string::String = core::iter::repeat('t').take(10).collect();
+
+            let repo = String::from_str(&env, &rust_repo);
+            let title = String::from_str(&env, &title);
+            let deadline = env.ledger().timestamp() + 1000;
+
+            client.create_bounty(
+                &maintainer,
+                &token_id,
+                &500,
+                &repo,
+                &1,
+                &title,
+                &deadline,
+                &0u32,
+                &None,
+            );
+        }
+
+        #[test]
+        fn test_create_bounty_empty_repo_title_succeeds() {
+            let env = Env::default();
+            env.mock_all_auths();
+            let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) = setup_test(&env);
+            let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+            token_admin.mint(&maintainer, &1000);
+
+            let repo = String::from_str(&env, "");
+            let title = String::from_str(&env, "");
+            let deadline = env.ledger().timestamp() + 1000;
+
+            let bounty_id = client.create_bounty(
+                &maintainer,
+                &token_id,
+                &500,
+                &repo,
+                &1,
+                &title,
+                &deadline,
+                &0u32,
+                &None,
+            );
+
+            assert_eq!(bounty_id, 1);
+        }
     // Direct assertion on the compile-time constant
     assert_eq!(CONTRACT_VERSION, env!("CARGO_PKG_VERSION"));
     assert!(!CONTRACT_VERSION.is_empty());
