@@ -34,6 +34,7 @@ import {
 } from './services/bountyStore';
 
 import { listOpenIssues } from './services/openIssues';
+import { issueSep10Jwt, refreshJwt } from './services/authService';
 
 import {
   bountyIdSchema,
@@ -59,6 +60,7 @@ import {
   createBountyCreationSignatureMiddleware,
   createStellarSignatureAuthMiddleware,
 } from './middleware/auth';
+import { createJwtAuthMiddleware } from './middleware/jwtAuth';
 import { idempotencyMiddleware } from './middleware/idempotency';
 import { requireJsonContentType } from './middleware/contentType';
 import { readLimiter, mutationLimiter } from './utils';
@@ -918,6 +920,56 @@ app.get('/api/config', (_req: Request, res: Response) => {
     sendError(res, _req, error, 500);
   }
 });
+
+app.post(
+  '/api/auth/login',
+  mutationLimiter,
+  requireJsonContentType,
+  (req: Request, res: Response) => {
+    try {
+      const { publicKey } = req.body;
+
+      if (!publicKey || typeof publicKey !== 'string') {
+        res.status(400).json({ error: 'Missing or invalid publicKey field.' });
+        return;
+      }
+
+      if (!/^G[A-Z2-7]{55}$/.test(publicKey)) {
+        res.status(400).json({ error: 'Invalid Stellar public key format.' });
+        return;
+      }
+
+      // In production, verify SEP-10 signature here before issuing JWT
+      // For now, we issue JWT after basic validation
+      const token = issueSep10Jwt(publicKey);
+      res.json({ token, expiresIn: '1h' });
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  }
+);
+
+app.post(
+  '/api/auth/refresh',
+  mutationLimiter,
+  requireJsonContentType,
+  createJwtAuthMiddleware(),
+  (req: Request, res: Response) => {
+    try {
+      const publicKey = req.user?.sub;
+
+      if (!publicKey) {
+        res.status(401).json({ error: 'Invalid authentication context.' });
+        return;
+      }
+
+      const newToken = refreshJwt(publicKey);
+      res.json({ token: newToken, expiresIn: '1h' });
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  }
+);
 
 /**
  * GET /api/audit-log
