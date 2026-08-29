@@ -22,6 +22,39 @@ async function fetchLeaderboard(): Promise<any[]> {
   return body.data ?? [];
 }
 
+type Reputation = {
+  score: number;
+};
+
+type Badge = {
+  id: string;
+  name: string;
+  imageUrl?: string;
+  description?: string;
+};
+
+async function fetchReputation(address: string): Promise<Reputation | null> {
+  try {
+    const res = await fetch(`/api/reputation?contributor=${encodeURIComponent(address)}`);
+    if (!res.ok) return null;
+    const body = await res.json();
+    return body.data ?? null;
+  } catch (err) {
+    return null;
+  }
+}
+
+async function fetchBadges(address: string): Promise<Badge[]> {
+  try {
+    const res = await fetch(`/api/badges?contributor=${encodeURIComponent(address)}`);
+    if (!res.ok) return [];
+    const body = await res.json();
+    return body.data ?? [];
+  } catch (err) {
+    return [];
+  }
+}
+
 export default function ContributorProfilePage({
   address,
   onBack,
@@ -32,10 +65,26 @@ export default function ContributorProfilePage({
   const [bounties, setBounties] = useState<Bounty[]>([]);
   const [allBounties, setAllBounties] = useState<Bounty[]>([]);
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
+  const [reputation, setReputation] = useState<Reputation | null>(null);
+  const [badges, setBadges] = useState<Badge[]>([]);
+  const [loadingReputation, setLoadingReputation] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
+    setLoadingReputation(true);
+
+    Promise.all([
+      fetchReputation(address),
+      fetchBadges(address)
+    ]).then(([repData, badgesData]) => {
+      if (active) {
+        setReputation(repData);
+        setBadges(badgesData);
+        setLoadingReputation(false);
+      }
+    });
+
     void fetchContributorBounties(address)
       .then((data) => {
         if (active) setBounties(data);
@@ -104,6 +153,41 @@ export default function ContributorProfilePage({
       </header>
 
       {error && <div className="error">{error}</div>}
+
+      <section className="reputation-section" style={{ marginBottom: '20px' }}>
+        <h3>Reputation & Badges</h3>
+        {loadingReputation ? (
+          <div className="skeleton" style={{ height: '60px', background: '#f0f0f0', borderRadius: '4px', display: 'flex', alignItems: 'center', padding: '0 10px', color: '#888' }}>
+            Loading reputation...
+          </div>
+        ) : (!reputation && badges.length === 0) ? (
+          <p>No reputation data yet. Complete bounties to earn reputation!</p>
+        ) : (
+          <div className="reputation-content" style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+            {reputation && (
+              <div className="reputation-score">
+                <span className="meta-label">Reputation Score: </span>
+                <strong>{reputation.score}</strong>
+              </div>
+            )}
+            
+            {badges.length > 0 && (
+              <div className="badge-gallery" style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                {badges.map((b) => (
+                  <div key={b.id} className="badge" title={b.description} style={{ border: '1px solid #e1e4e8', borderRadius: '6px', padding: '8px', display: 'flex', flexDirection: 'column', alignItems: 'center', width: '80px' }}>
+                    {b.imageUrl ? (
+                      <img src={b.imageUrl} alt={b.name} style={{ width: '40px', height: '40px', objectFit: 'contain' }} />
+                    ) : (
+                      <div style={{ width: '40px', height: '40px', background: '#e1e4e8', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px' }}>🏆</div>
+                    )}
+                    <span style={{ fontSize: '12px', textAlign: 'center', marginTop: '5px', wordBreak: 'break-word' }}>{b.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
 
       <ContributorDashboard bounties={allBounties} loading={allBounties.length === 0 && !error} />
 
