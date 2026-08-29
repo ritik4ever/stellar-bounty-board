@@ -16,11 +16,13 @@ beforeEach(async () => {
   storeFile = path.join(os.tmpdir(), `bounty-api-${randomUUID()}.json`);
   fs.writeFileSync(storeFile, "[]", "utf8");
   process.env.BOUNTY_STORE_PATH = storeFile;
+  process.env.NOTIFICATION_PREFERENCES_PATH = path.join(os.tmpdir(), `notification-preferences-${randomUUID()}.json`);
   vi.resetModules();
 });
 
 afterEach(() => {
   delete process.env.BOUNTY_STORE_PATH;
+  delete process.env.NOTIFICATION_PREFERENCES_PATH;
   try {
     fs.unlinkSync(storeFile);
   } catch {
@@ -45,6 +47,30 @@ describe("API — health and listing", () => {
     const res = await request(app).get("/api/health").expect(200);
     expect(res.body.status).toBe("ok");
     expect(res.body.service).toContain("bounty-board");
+  });
+
+  it("GET and PUT /api/users/:address/notification-preferences work", async () => {
+    const app = await getApp();
+    const address = "GAFQ647SLVQP5J3EIJGY4XARG4SPK2RMRNYPV7YYEIEUPGBMP6467B6E";
+
+    const getRes = await request(app).get(`/api/users/${address}/notification-preferences`).expect(200);
+    expect(getRes.body.data.EMAIL.marketing).toBe(false);
+    expect(getRes.body.data.EMAIL.essential).toBe(true);
+
+    const putRes = await request(app)
+      .put(`/api/users/${address}/notification-preferences`)
+      .send({
+        EMAIL: { bounty_created: false, marketing: true },
+        WEBHOOK: { bounty_created: false },
+      })
+      .expect(200);
+
+    expect(putRes.body.data.EMAIL.bounty_created).toBe(false);
+    expect(putRes.body.data.WEBHOOK.bounty_created).toBe(false);
+
+    const updated = await request(app).get(`/api/users/${address}/notification-preferences`).expect(200);
+    expect(updated.body.data.EMAIL.bounty_created).toBe(false);
+    expect(updated.body.data.WEBHOOK.bounty_created).toBe(false);
   });
 
   it("GET /api/bounties returns data array", async () => {

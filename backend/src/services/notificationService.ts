@@ -1,12 +1,14 @@
 import crypto from "node:crypto";
 import { logger } from "../logger";
+import {
+  getChannelPreference,
+  type NotificationChannel,
+} from "./notificationPreferences";
 
 export interface NotificationRecipient {
   role: string;
   address: string;
 }
-
-type NotificationChannel = "EMAIL" | "WEBHOOK";
 
 function getChannel(): NotificationChannel | null {
   const ch = process.env.NOTIFICATION_CHANNEL?.trim().toUpperCase();
@@ -146,11 +148,24 @@ export async function sendNotification(
   const channel = getChannel();
   if (!channel) return;
 
+  const filteredRecipients = recipients.filter((recipient) => {
+    const channelPreference = getChannelPreference(recipient.address, channel, event);
+    if (!channelPreference) {
+      logger.info({ event, recipient: recipient.address, channel }, "Skipping notification for opted-out recipient");
+      return false;
+    }
+    return true;
+  });
+
+  if (filteredRecipients.length === 0) {
+    return;
+  }
+
   try {
     if (channel === "EMAIL") {
-      await dispatchEmail(recipients, event, payload);
+      await dispatchEmail(filteredRecipients, event, payload);
     } else {
-      await dispatchWebhook(recipients, event, payload);
+      await dispatchWebhook(filteredRecipients, event, payload);
     }
   } catch (err) {
     logger.error({ event, err }, "Notification dispatch failed");
