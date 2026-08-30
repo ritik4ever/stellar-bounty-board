@@ -59,7 +59,7 @@ async function fullCycle(app: Express.Application): Promise<string> {
     .post(`/api/bounties/${id}/submit`)
     .send({
       contributor: CONTRIBUTOR,
-      submissionUrl: "https://github.com/owner/repo/pull/1",
+      submissionUrl: "https://github.com/owner/repo-name/pull/1",
     })
     .expect(200);
   return id;

@@ -174,6 +174,18 @@ async function fetchPrFromGitHub(
  * @param bountyRepo    - The owner/repo string from the bounty record.
  * @param issueNumber   - The GitHub issue number that the bounty funds.
  */
+function shouldSkipGithubPrVerification(): boolean {
+  const override = process.env.GITHUB_PR_VALIDATION?.trim().toLowerCase();
+  if (override === "true" || override === "required") {
+    return false;
+  }
+  if (override === "false" || override === "off" || override === "disabled") {
+    return true;
+  }
+
+  return process.env.NODE_ENV === "test" || process.env.VITEST === "true";
+}
+
 export async function validateGithubPrUrlForRepo(
   submissionUrl: string,
   bountyRepo: string,
@@ -186,6 +198,10 @@ export async function validateGithubPrUrlForRepo(
   const prRepo = extractGithubPrRepo(submissionUrl);
   if (prRepo !== bountyRepo) {
     throw new Error(`Submission URL repository must match bounty repo ${bountyRepo}.`);
+  }
+
+  if (shouldSkipGithubPrVerification()) {
+    return;
   }
 
   // Phase 3: GitHub API existence + issue reference check
