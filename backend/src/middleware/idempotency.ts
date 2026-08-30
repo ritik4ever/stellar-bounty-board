@@ -1,6 +1,8 @@
 import type { NextFunction, Request, Response } from 'express';
+import { logger } from '../logger';
 
-const IDEMPOTENCY_TTL_MS = 10 * 60 * 1000;
+const TTL_SECONDS = Number(process.env.IDEMPOTENCY_TTL_SECONDS) || 600;
+const IDEMPOTENCY_TTL_MS = TTL_SECONDS * 1000;
 const CLEANUP_INTERVAL_MS = 60_000;
 
 interface IdempotencyEntry {
@@ -11,16 +13,29 @@ interface IdempotencyEntry {
 
 const store = new Map<string, IdempotencyEntry>();
 
-const cleanupTimer = setInterval(() => {
+const cleanupTimer = process.env.NODE_ENV !== 'test' ? setInterval(() => {
   const cutoff = Date.now() - IDEMPOTENCY_TTL_MS;
+  let purgedCount = 0;
   for (const [key, entry] of store) {
     if (entry.createdAt < cutoff) {
       store.delete(key);
+      purgedCount++;
     }
   }
-}, CLEANUP_INTERVAL_MS);
+  if (purgedCount > 0) {
+    logger.info({ purgedCount }, 'Cleaned up expired idempotency keys');
+  }
+}, CLEANUP_INTERVAL_MS) : null;
 
-cleanupTimer.unref();
+if (cleanupTimer) {
+  cleanupTimer.unref();
+}
+
+export function stopCleanup(): void {
+  if (cleanupTimer) {
+    clearInterval(cleanupTimer);
+  }
+}
 
 export function idempotencyMiddleware(req: Request, res: Response, next: NextFunction): void {
   const rawKey = req.headers['idempotency-key'];
