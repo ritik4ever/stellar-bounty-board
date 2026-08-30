@@ -6,11 +6,11 @@
   "scripts": {
     "install:all": "npm --prefix backend install && npm --prefix frontend install",
     "prepare": "node -e \"if (process.env.CI) process.exit(0); try { require('child_process').execFileSync('npx', ['husky', 'install'], { stdio: 'inherit' }); } catch { process.exit(0); }\"",
-    "dev:backend": "npm --prefix backend run dev",
-    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:backend": "node init && npm --prefix backend run dev",
+    "dev:frontend": "node init && npm --prefix frontend run dev",
     "gen:openapi": "npm --prefix backend run gen:openapi",
     "gen:bindings": "bash scripts/gen-bindings.sh",
-    "build": "npm --prefix backend run build && npm --prefix frontend run build",
+    "build": "node init && npm --prefix backend run build && npm --prefix frontend run build",
     "typecheck": "npm --prefix backend run typecheck && npm --prefix frontend run typecheck",
     "lint": "npm --prefix backend run lint && npm --prefix frontend run lint",
     "lint:fix": "npm --prefix backend run lint:fix && npm --prefix frontend run lint:fix",
@@ -23,7 +23,9 @@
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^8.5.0",
     "cors": "^2.8.6",
+    "dotenv": "^8.2.0",
     "express-rate-limit": "^8.4.1",
+    "node-fetch": "^3.3.2",
     "swagger-ui-express": "^5.0.1",
     "yaml": "^2.8.3",
     "zod": "^4.3.6"
