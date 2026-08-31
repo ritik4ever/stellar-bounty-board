@@ -165,6 +165,16 @@ app.get('/worker/health', (_req: Request, res: Response) => {
   });
 });
 
+app.get('/api/metrics', async (_req: Request, res: Response) => {
+  try {
+    res.set('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+    const metrics = await getMetrics();
+    res.send(metrics);
+  } catch {
+    res.status(500).send('Error generating metrics');
+  }
+});
+
 app.use(readLimiter);
 
 const swaggerDoc = generateOpenApiDocument();
@@ -805,11 +815,11 @@ app.post(
 
 app.get('/api/open-issues', async (req: Request, res: Response) => {
   try {
-    const data = await listOpenIssues();
+    const issues = await listOpenIssues();
     res.set('Cache-Control', 'max-age=600');
-    res.json({ data });
+    res.json({ data: issues });
   } catch (error) {
-    sendError(res, req, error, 502);
+    sendError(res, _req, error);
   }
 });
 
