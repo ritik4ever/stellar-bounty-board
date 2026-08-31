@@ -25,7 +25,7 @@ export default function ContributorDashboard({
   bounties: bountiesProp,
   loading: loadingProp,
 }: ContributorDashboardProps) {
-  const { address, isConnected, connect, disconnect } = useWallet();
+  const { address, isConnected, networkMismatch, expectedNetwork, connect, disconnect } = useWallet();
   const [showDisconnectModal, setShowDisconnectModal] = useState(false);
   const [fetchedBounties, setFetchedBounties] = useState<Bounty[]>([]);
   const [fetchLoading, setFetchLoading] = useState(bountiesProp === undefined);
@@ -112,7 +112,13 @@ export default function ContributorDashboard({
         </div>
       </header>
 
-      {isConnected && (
+      {isConnected && networkMismatch && (
+        <div className="network-warning-banner" style={{ background: '#e67e22', color: '#fff', padding: '12px', textAlign: 'center', fontWeight: 500, marginBottom: '24px', borderRadius: '8px' }}>
+          ⚠️ Network Mismatch: Your wallet is connected to the wrong network. Please switch to {expectedNetwork} in Freighter. <a href="https://docs.freighter.app/docs/guide/networkSettings" target="_blank" rel="noreferrer" style={{color:'white', textDecoration: 'underline'}}>Learn how</a>
+        </div>
+      )}
+
+      {isConnected && !networkMismatch && (
         <section className="metrics contributor-dashboard__metrics" aria-label="Contributor metrics">
           <div>
             <span className="meta-label">Released earnings</span>
