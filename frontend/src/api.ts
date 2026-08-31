@@ -5,6 +5,8 @@ import type {
   GlobalMetrics,
   MaintainerMetrics,
   OpenIssue,
+  DisputeEvent,
+  type DisputeEvent as DisputeEventType,
 } from './types';
 import {
   BountyStatus as ContractBountyStatus,
@@ -243,6 +245,26 @@ export async function getBounty(id: string, signal?: AbortSignal): Promise<Bount
   });
 
   return body.data;
+}
+
+export async function getBountyEvents(id: string, signal?: AbortSignal): Promise<BountyEvent[]> {
+  const body = await requestJson<{ data: BountyEvent[] }>(`/bounties/${id}/events`, {
+    retry: true,
+    signal,
+  });
+
+  return body.data;
+}
+
+export function getDisputeEvents(events: BountyEvent[]): DisputeEvent[] {
+  return events
+    .filter((event) => event.type === 'disputed' || event.type === 'resolved')
+    .map((event) => ({
+      type: event.type as 'disputed' | 'resolved',
+      timestamp: event.timestamp,
+      actor: event.actor,
+      description: event.details?.reason as string | undefined,
+    }));
 }
 
 export async function createBounty(payload: CreateBountyPayload): Promise<Bounty> {
