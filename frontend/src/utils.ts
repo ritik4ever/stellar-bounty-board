@@ -235,16 +235,28 @@ async function fetchXlmUsdRate(): Promise<number> {
   }
 }
 
+/**
+ * The USD value of an XLM amount, as a number.
+ *
+ * `xlmToUsd` formats for display and so cannot be converted onward into another
+ * currency. Callers that need to do arithmetic on the value use this instead.
+ * Throws when the rate is unavailable, so the caller decides how to degrade.
+ */
+export async function xlmToUsdValue(amount: number): Promise<number> {
+  const rate = await fetchXlmUsdRate();
+  return amount * rate;
+}
+
 export async function xlmToUsd(amount: number): Promise<string> {
   try {
-    const rate = await fetchXlmUsdRate();
+    const usdValue = await xlmToUsdValue(amount);
 
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
-    }).format(amount * rate);
+    }).format(usdValue);
   } catch {
     return 'USD unavailable';
   }

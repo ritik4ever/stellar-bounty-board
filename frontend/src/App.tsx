@@ -53,6 +53,7 @@ import ContributorProfilePage from "./ContributorProfilePage";
 import ContributorDashboard from "./ContributorDashboard";
 import ErrorBoundary from "./ErrorBoundary";
 import SubmissionChecklistModal, { type SubmissionFormData } from "./SubmissionChecklistModal";
+import CurrencySelector from "./CurrencySelector";
 
 const DARK_MODE_KEY = "stellar-bounty-board-theme";
 
@@ -652,6 +653,7 @@ function App() {
             <h1>Stellar Bounty Board</h1>
           </div>
           <div className="header-actions">
+            <CurrencySelector />
             <FreighterConnectButton freighter={freighter} compact />
             <button className="theme-toggle" onClick={toggleDark}>
               {dark ? <Sun size={20} /> : <Moon size={20} />}
