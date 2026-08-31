@@ -127,6 +127,47 @@ export function verifyGitHubWebhookSignature(input: {
   });
 }
 
+/** Dedup window for webhook delivery IDs (10 minutes). */
+export const WEBHOOK_DEDUP_TTL_MS = 10 * 60 * 1_000;
+
+const deliveryStore = new Map<string, number>();
+
+/**
+ * Checks (and records) the X-Hub-Delivery header to prevent replay attacks.
+ * Returns `true` if the delivery has already been processed within the
+ * dedup window, `false` if this is the first time seeing it.
+ */
+export function isReplayedDelivery(deliveryId: string | undefined): boolean {
+  if (!deliveryId) return false;
+
+  const now = Date.now();
+  const processedAt = deliveryStore.get(deliveryId);
+
+  if (processedAt !== undefined) {
+    if (now - processedAt < WEBHOOK_DEDUP_TTL_MS) {
+      return true; // replayed within the window
+    }
+    // Window expired — allow re-processing (stale entry cleaned below)
+    deliveryStore.delete(deliveryId);
+  }
+
+  // Prune expired entries periodically (every ~1% of TTL)
+  if (deliveryStore.size % 100 === 0) {
+    const cutoff = now - WEBHOOK_DEDUP_TTL_MS;
+    for (const [key, ts] of deliveryStore) {
+      if (ts < cutoff) deliveryStore.delete(key);
+    }
+  }
+
+  deliveryStore.set(deliveryId, now);
+  return false;
+}
+
+/** Resets the delivery-ID store (for tests only). */
+export function __resetDeliveryStoreForTests(): void {
+  deliveryStore.clear();
+}
+
 /**
  * Verifies a GitHub webhook signature using algorithm negotiation.
  *
