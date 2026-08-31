@@ -26,8 +26,9 @@ import {
   reserveBounty,
   submitBounty,
 } from "./api";
-import { useFreighter } from "./hooks/useFreighter";
+import { useFreighter, STELLAR_NETWORK } from "./hooks/useFreighter";
 import FreighterConnectButton from "./components/FreighterConnectButton";
+import NetworkMismatchBanner from "./components/NetworkMismatchBanner";
 import {
   statusCopy,
   actionCopy,
@@ -457,8 +458,15 @@ function App() {
 
   const renderActionButton = useCallback(
     (bounty: Bounty, action: { action: BountyAction; label: string; title: string }) => {
+      const isMutatingAction = action.action === "release" || action.action === "refund";
+      const isDisabled = isMutatingAction && !freighter.isOnCorrectNetwork;
+
       const onClick = (event: React.MouseEvent<HTMLButtonElement>) => {
         event.stopPropagation();
+        if (isDisabled) {
+          toast.error("Please switch to the correct Stellar network in Freighter before performing this action.");
+          return;
+        }
         if (action.action === "reserve") void handleReserve(bounty);
         else if (action.action === "submit") void handleSubmit(bounty);
         else if (action.action === "release") void handleRelease(bounty);
@@ -470,14 +478,15 @@ function App() {
           key={action.action}
           type="button"
           className={action.action === "refund" ? "ghost-button" : "secondary-button"}
-          title={action.title}
+          title={isDisabled ? `Switch to ${STELLAR_NETWORK} in Freighter first` : action.title}
           onClick={onClick}
+          disabled={isDisabled}
         >
           {action.label}
         </button>
       );
     },
-    [refresh]
+    [refresh, freighter.isOnCorrectNetwork, freighter.isConnected]
   );
 
   const repoRoute = useMemo(() => {
@@ -659,6 +668,8 @@ function App() {
           </div>
         </div>
       </header>
+
+      <NetworkMismatchBanner freighter={freighter} />
 
       <main className="main-content">
         <section className="dashboard-hero">
