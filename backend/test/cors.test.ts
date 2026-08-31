@@ -146,6 +146,45 @@ describe("CORS development defaults (#256)", () => {
   });
 });
 
+describe("CORS credentials + wildcard misconfiguration regression (#906)", () => {
+  it("never combines a literal wildcard origin with credentials, even in permissive dev mode", async () => {
+    process.env.NODE_ENV = "development";
+    delete process.env.CORS_ORIGINS;
+    delete process.env.ALLOWED_ORIGINS;
+    const app = createTestApp();
+
+    const res = await request(app)
+      .get("/api/health")
+      .set("Origin", "http://anything.example.com")
+      .expect(200);
+
+    // buildCorsOptions() always sets credentials: true. Browsers reject a
+    // credentialed response served with a literal "*" origin, so the origin
+    // must always be the specific reflected request origin, never the raw
+    // wildcard string, no matter how permissive the allowlist is.
+    expect(res.headers["access-control-allow-credentials"]).toBe("true");
+    expect(res.headers["access-control-allow-origin"]).not.toBe("*");
+    expect(res.headers["access-control-allow-origin"]).toBe("http://anything.example.com");
+  });
+
+  it("demonstrates the misconfiguration this guards against: a literal wildcard origin combined with credentials", async () => {
+    // Intentionally NOT using buildCorsOptions() here. This shows what a
+    // regression would look like if `origin` were ever hardcoded back to the
+    // literal string "*" instead of the dynamic per-request callback —
+    // exactly the pattern the previous test proves buildCorsOptions() avoids.
+    const misconfiguredApp = express();
+    misconfiguredApp.use(cors({ origin: "*", credentials: true }));
+    misconfiguredApp.get("/api/health", (_req, res) => res.json({ status: "ok" }));
+
+    const res = await request(misconfiguredApp)
+      .get("/api/health")
+      .set("Origin", "http://anything.example.com")
+      .expect(200);
+
+    expect(res.headers["access-control-allow-origin"]).toBe("*");
+  });
+});
+
 describe("resolveCorsConfig unit helpers", () => {
   it("parseOriginAllowlist splits comma-separated values", async () => {
     const { parseOriginAllowlist } = await import("../src/middleware/corsOptions");

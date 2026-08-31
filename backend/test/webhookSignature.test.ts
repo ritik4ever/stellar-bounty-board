@@ -2,8 +2,10 @@ import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   githubWebhookSignatureProfile,
+  githubWebhookSignatureSha1Profile,
   signWebhookPayload,
   verifyGitHubWebhookSignature,
+  verifyGitHubWebhookSignatureWithNegotiation,
 } from '../src/webhooks/signatureVerification';
 
 const secret = 'github-webhook-secret';
@@ -212,5 +214,134 @@ describe('Bounty search with ?q= (#85)', () => {
     expect(
       results.every((bounty: SearchResultBounty) => bounty.title.toLowerCase().includes('xyzzy'))
     ).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #800 — Algorithm negotiation tests
+// ---------------------------------------------------------------------------
+
+describe('verifyGitHubWebhookSignatureWithNegotiation', () => {
+  const mockLogger = { warn: vi.fn() };
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    // Mock the logger used inside signatureVerification
+    vi.doMock('../src/logger', () => ({ logger: mockLogger }));
+  });
+
+  function makeSha256Sig(payload: Buffer): string {
+    return signWebhookPayload({
+      payload,
+      secret,
+      algorithm: githubWebhookSignatureProfile.algorithm,
+      prefix: githubWebhookSignatureProfile.prefix,
+    });
+  }
+
+  function makeSha1Sig(payload: Buffer): string {
+    return signWebhookPayload({
+      payload,
+      secret,
+      algorithm: githubWebhookSignatureSha1Profile.algorithm,
+      prefix: githubWebhookSignatureSha1Profile.prefix,
+    });
+  }
+
+  it('accepts a valid X-Hub-Signature-256 (SHA-256 preferred path)', () => {
+    const payload = createPayloadBuffer({ action: 'opened' });
+    const sig256 = makeSha256Sig(payload);
+
+    expect(() =>
+      verifyGitHubWebhookSignatureWithNegotiation({
+        payload,
+        secret,
+        headers: { 'x-hub-signature-256': sig256 },
+      })
+    ).not.toThrow();
+  });
+
+  it('accepts a valid X-Hub-Signature (SHA-1 fallback path) and does NOT throw', () => {
+    const payload = createPayloadBuffer({ action: 'opened' });
+    const sig1 = makeSha1Sig(payload);
+
+    expect(() =>
+      verifyGitHubWebhookSignatureWithNegotiation({
+        payload,
+        secret,
+        headers: { 'x-hub-signature': sig1 },
+      })
+    ).not.toThrow();
+  });
+
+  it('prefers SHA-256 over SHA-1 when both headers are present', () => {
+    const payload = createPayloadBuffer({ action: 'opened' });
+    const sig256 = makeSha256Sig(payload);
+    // Deliberately provide a bad SHA-1 sig — it should be ignored
+    const badSig1 = 'sha1=deadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
+
+    expect(() =>
+      verifyGitHubWebhookSignatureWithNegotiation({
+        payload,
+        secret,
+        headers: {
+          'x-hub-signature-256': sig256,
+          'x-hub-signature': badSig1,
+        },
+      })
+    ).not.toThrow();
+  });
+
+  it('rejects an invalid SHA-256 signature even when SHA-1 is also present', () => {
+    const payload = createPayloadBuffer({ action: 'opened' });
+    const badSig256 = 'sha256=deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
+    const sig1 = makeSha1Sig(payload);
+
+    expect(() =>
+      verifyGitHubWebhookSignatureWithNegotiation({
+        payload,
+        secret,
+        headers: {
+          'x-hub-signature-256': badSig256,
+          'x-hub-signature': sig1,
+        },
+      })
+    ).toThrow(/Invalid GitHub webhook signature/i);
+  });
+
+  it('rejects an invalid SHA-1 signature on the fallback path', () => {
+    const payload = createPayloadBuffer({ action: 'opened' });
+
+    expect(() =>
+      verifyGitHubWebhookSignatureWithNegotiation({
+        payload,
+        secret,
+        headers: { 'x-hub-signature': 'sha1=deadbeefdeadbeefdeadbeefdeadbeefdeadbeef' },
+      })
+    ).toThrow(/Invalid GitHub webhook signature/i);
+  });
+
+  it('throws 401 when neither signature header is present', () => {
+    const payload = createPayloadBuffer({ action: 'opened' });
+
+    expect(() =>
+      verifyGitHubWebhookSignatureWithNegotiation({
+        payload,
+        secret,
+        headers: {},
+      })
+    ).toThrow(/Missing GitHub webhook signature/i);
+  });
+
+  it('throws 401 when only unrelated headers are present', () => {
+    const payload = createPayloadBuffer({ action: 'opened' });
+
+    expect(() =>
+      verifyGitHubWebhookSignatureWithNegotiation({
+        payload,
+        secret,
+        headers: { 'x-github-event': 'push', 'content-type': 'application/json' },
+      })
+    ).toThrow(/Missing GitHub webhook signature/i);
   });
 });
