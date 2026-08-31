@@ -12,6 +12,7 @@ import {
   maintainerActionSchema,
   openIssueSchema,
   reserveBountySchema,
+  resolveDisputeBountySchema,
   submitBountySchema,
   updateNotesSchema,
 } from '../validation/schemas';
@@ -63,6 +64,36 @@ const errorResponse = (description: string) => ({
 
 const bountyDataResponse = (description: string) =>
   jsonResponse(description, z.object({ data: bountyRecordSchema }));
+
+const paginatedBountiesSchema = z.object({
+  data: z.array(bountyRecordSchema),
+  total: z.number().int(),
+  page: z.number().int(),
+  pageSize: z.number().int(),
+  hasMore: z.boolean(),
+});
+
+const bountyTemplateSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  amount: z.number(),
+  labels: z.array(z.string()),
+  deadlineDays: z.number().int(),
+  tokenSymbol: z.string(),
+});
+
+const recurringScheduleSchema = z.object({
+  id: z.string().uuid(),
+  cadence: z.enum(["daily", "weekly", "monthly"]),
+  templateId: z.string(),
+  targetRepo: z.string(),
+  bounty: z.record(z.unknown()),
+  active: z.boolean(),
+  createdAt: z.number().int(),
+  nextRunAt: z.number().int(),
+  lastRunAt: z.number().int().optional(),
+  createdBountyIds: z.array(z.string()),
+});
 
 // ---------------------------------------------------------------------------
 // Route definitions
@@ -128,11 +159,11 @@ registry.registerPath({
       }),
       deadlineBefore: z.string().optional().openapi({
         description: "Filter bounties with deadline before this ISO 8601 date string.",
-        example: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        example: "2026-12-31T23:59:59.000Z",
       }),
       deadlineAfter: z.string().optional().openapi({
         description: "Filter bounties with deadline after this ISO 8601 date string.",
-        example: new Date().toISOString(),
+        example: "2026-01-01T00:00:00.000Z",
       }),
       page: z.number().int().min(1).optional().openapi({
         description: "Page number (starts at 1, default 1).",
@@ -145,6 +176,88 @@ registry.registerPath({
   responses: {
     200: jsonResponse("Array of all bounty records.", z.object({ data: z.array(bountyRecordSchema) })),
     400: errorResponse("Invalid query parameters (e.g., invalid date string, maintainer address, sort field, or order)."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/bounties/search",
+  tags: ["Bounties"],
+  summary: "Search bounties",
+  description: "Free-text search across title, repository, and description, ranked in that order.",
+  request: { query: z.object({
+    q: z.string(),
+    page: z.coerce.number().int().min(1).optional(),
+    pageSize: z.coerce.number().int().min(1).max(100).optional(),
+  }) },
+  responses: {
+    200: jsonResponse("Ranked, paginated search results.", paginatedBountiesSchema),
+    400: errorResponse("Invalid pagination parameters."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/bounty-templates",
+  tags: ["Bounties"],
+  summary: "List bounty templates",
+  responses: { 200: jsonResponse("Available bounty presets.", z.object({ data: z.array(bountyTemplateSchema) })) },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/bounties/import",
+  tags: ["Admin"],
+  summary: "Import bounties from CSV",
+  description: "Admin-only CSV import. Validation failures are reported per data row.",
+  request: { body: { required: true, content: { "text/csv": { schema: z.string() } } } },
+  responses: {
+    201: jsonResponse("Import summary.", z.object({
+      data: z.array(z.object({ row: z.number().int(), id: z.string().optional(), errors: z.array(z.string()).optional() })),
+      created: z.number().int(), failed: z.number().int(), total: z.number().int(),
+    })),
+    401: errorResponse("Admin authentication required."),
+    415: errorResponse("A CSV content type is required."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/recurring-bounty-schedules",
+  tags: ["Admin"],
+  summary: "List recurring bounty schedules",
+  responses: {
+    200: jsonResponse("Recurring schedules.", z.object({ data: z.array(recurringScheduleSchema) })),
+    401: errorResponse("Admin authentication required."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/recurring-bounty-schedules",
+  tags: ["Admin"],
+  summary: "Create a recurring bounty schedule",
+  request: { body: jsonBody(z.object({
+    cadence: z.enum(["daily", "weekly", "monthly"]), templateId: z.string(), targetRepo: z.string(),
+    bounty: z.record(z.unknown()), startAt: z.number().int().positive().optional(),
+  })) },
+  responses: {
+    201: jsonResponse("Schedule created.", z.object({ data: recurringScheduleSchema })),
+    400: errorResponse("Invalid schedule."),
+    401: errorResponse("Admin authentication required."),
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/api/recurring-bounty-schedules/{id}",
+  tags: ["Admin"],
+  summary: "Cancel a recurring bounty schedule",
+  request: { params: z.object({ id: z.string().uuid() }) },
+  responses: {
+    200: jsonResponse("Schedule cancelled.", z.object({ data: recurringScheduleSchema })),
+    401: errorResponse("Admin authentication required."),
+    404: errorResponse("Schedule not found."),
   },
 });
 
@@ -249,6 +362,21 @@ registry.registerPath({
   responses: {
     200: bountyDataResponse("Payment released."),
     400: errorResponse("Bounty not found, not submitted, maintainer mismatch, or validation failed."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/bounties/{id}/resolve-dispute",
+  tags: ["Bounties"],
+  summary: "Resolve a bounty dispute",
+  request: {
+    params: z.object({ id: z.string().openapi(bountyIdParam.schema) }),
+    body: jsonBody(resolveDisputeBountySchema),
+  },
+  responses: {
+    200: bountyDataResponse("Dispute resolved."),
+    400: errorResponse("Bounty is not disputed or the resolution is invalid."),
   },
 });
 
