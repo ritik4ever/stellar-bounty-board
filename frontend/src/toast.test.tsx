@@ -18,7 +18,7 @@ vi.mock('./api', () => ({
   submitBounty: vi.fn(),
   releaseBounty: vi.fn(),
   refundBounty: vi.fn(),
-  listBounties: vi.fn().mockResolvedValue([]),
+  listBounties: vi.fn().mockResolvedValue({ data: [], total: 0, page: 1, pageSize: 20, hasMore: false }),
   listOpenIssues: vi.fn().mockResolvedValue([]),
   getBounty: vi.fn(),
   exportReleasedPayoutsCsv: vi.fn(),
@@ -56,7 +56,7 @@ describe('Toast notifications for async bounty actions', () => {
   it('shows success toast when bounty is reserved', async () => {
     const bounty = { ...baseBounty, status: 'open' as const };
 
-    vi.mocked(api.listBounties).mockResolvedValue([bounty]);
+    vi.mocked(api.listBounties).mockResolvedValue({ data: [bounty], total: 1, page: 1, pageSize: 20, hasMore: false });
 
     vi.mocked(window.prompt).mockReturnValue(
       'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF'
@@ -79,7 +79,7 @@ describe('Toast notifications for async bounty actions', () => {
   });
 
   it('shows error toast when reserve fails', async () => {
-    vi.mocked(api.listBounties).mockResolvedValue([{ ...baseBounty, status: 'open' as const }]);
+    vi.mocked(api.listBounties).mockResolvedValue({ data: [{ ...baseBounty, status: 'open' as const }], total: 1, page: 1, pageSize: 20, hasMore: false });
 
     vi.mocked(window.prompt).mockReturnValue(
       'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF'
@@ -103,7 +103,7 @@ describe('Toast notifications for async bounty actions', () => {
       contributor: 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGKCEL9LGAQLHFLQ2GN7SY',
     };
 
-    vi.mocked(api.listBounties).mockResolvedValue([bounty]);
+    vi.mocked(api.listBounties).mockResolvedValue({ data: [bounty], total: 1, page: 1, pageSize: 20, hasMore: false });
 
     vi.mocked(window.prompt).mockReturnValueOnce(baseBounty.maintainer).mockReturnValueOnce('');
 
@@ -130,7 +130,7 @@ describe('Toast notifications for async bounty actions', () => {
       contributor: 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGKCEL9LGAQLHFLQ2GN7SY',
     };
 
-    vi.mocked(api.listBounties).mockResolvedValue([bounty]);
+    vi.mocked(api.listBounties).mockResolvedValue({ data: [bounty], total: 1, page: 1, pageSize: 20, hasMore: false });
 
     vi.mocked(window.prompt).mockReturnValueOnce(baseBounty.maintainer).mockReturnValueOnce('');
 
