@@ -167,6 +167,16 @@ export const disputeBountySchema = z
         example: 'The submitted solution was not reviewed within the agreed timeframe.',
         description: 'Reason for disputing the bounty (1–500 chars).',
       }),
+    evidenceUrl: z
+      .string()
+      .trim()
+      .url('Must be a valid URL')
+      .optional()
+      .or(z.literal(''))
+      .openapi({
+        example: 'https://github.com/owner/repo/pull/1',
+        description: 'Optional evidence URL (e.g. link to PR or proof).',
+      }),
   })
   .openapi('DisputeBountyRequest');
 

@@ -355,12 +355,13 @@ export async function releaseBounty(
 export async function disputeBounty(
   id: string,
   contributor: string,
-  reason: string
+  reason: string,
+  evidenceUrl?: string
 ): Promise<Bounty> {
   const body = await requestJson<{ data: Bounty }>(`/bounties/${id}/dispute`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contributor, reason }),
+    body: JSON.stringify({ contributor, reason, evidenceUrl }),
   });
 
   return body.data;

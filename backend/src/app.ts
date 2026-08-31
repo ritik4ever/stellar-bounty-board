@@ -826,7 +826,8 @@ app.post(
       const bounty = await disputeBounty(
         parseId(req.params.id),
         req.body.contributor,
-        req.body.reason
+        req.body.reason,
+        req.body.evidenceUrl
       );
 
       res.json({ data: bounty });

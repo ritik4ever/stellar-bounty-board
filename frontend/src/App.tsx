@@ -593,6 +593,11 @@ function App() {
             renderActionButton={renderActionButton}
             formatTimestamp={formatTimestamp}
             bounties={bounties}
+            userAddress={freighter.publicKey}
+            onDisputeSuccess={(updated) => {
+              setDetailBounty(updated);
+              void refresh();
+            }}
           />
         </Suspense>
       </ErrorBoundary>

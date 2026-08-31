@@ -151,6 +151,8 @@ export interface BountyRecord {
   disputedAt?: number;
   /** Reason provided by the contributor for disputing the bounty. */
   disputeReason?: string;
+  /** Optional evidence URL provided when disputing. */
+  evidenceUrl?: string;
   /** Unix timestamp in seconds of the last admin alert sent for this stuck dispute. */
   lastDisputeAlertAt?: number;
   // Race condition prevention
@@ -1120,15 +1122,16 @@ export async function disputeBounty(
   id: string,
   contributor: string,
   reason: string,
+  evidenceUrl?: string,
 ): Promise<BountyRecord> {
   return withStoreLock(async () => {
     const records = listBounties();
     const bounty = findBounty(records, id);
 
-    if (bounty.status !== "submitted") {
+    if (bounty.status !== "submitted" && bounty.status !== "reserved") {
       throw new Error("Only submitted bounties can be disputed.");
     }
-    if (bounty.contributor !== contributor) {
+    if (bounty.contributor !== contributor && bounty.maintainer !== contributor) {
       throw new Error("Only the contributor who submitted this bounty can dispute it.");
     }
 
@@ -1138,6 +1141,7 @@ export async function disputeBounty(
       status: "disputed",
       disputedAt: now,
       disputeReason: reason,
+      evidenceUrl: evidenceUrl || bounty.evidenceUrl,
       version: bounty.version + 1,
       events: [
         ...bounty.events,
@@ -1145,7 +1149,7 @@ export async function disputeBounty(
           type: "disputed",
           timestamp: now,
           actor: contributor,
-          details: { reason },
+          details: { reason, ...(evidenceUrl ? { evidenceUrl } : {}) },
         },
       ],
     };

@@ -1,11 +1,11 @@
 import { ReactNode, useState, useCallback, useEffect, useRef, useMemo } from "react";
-import { ArrowUpRight, Check, Clock, Copy, Share2, Printer, Star } from "lucide-react";
+import { AlertCircle, ArrowUpRight, Check, Clock, Copy, Share2, Printer, Star } from "lucide-react";
 import { Bounty, BountyEvent, BountyStatus } from "./types";
 import BountyCountdown from "./BountyCountdown";
 import UsdAmount from "./UsdAmount";
 import { updateSocialMetaTags } from "./metaTags";
 import CopyIcon from "./CopyIcons";
-import { extendDeadline } from "./api";
+import { disputeBounty, extendDeadline } from "./api";
 import { findSimilarBounties, type BountyRecommendation } from "./recommendations";
 
 
@@ -28,6 +28,8 @@ type Props = {
   ) => ReactNode;
   formatTimestamp: (value?: number) => string;
   bounties?: Bounty[];
+  userAddress?: string;
+  onDisputeSuccess?: (updated: Bounty) => void;
 };
 
 function useBountyStatusAnnouncement(
@@ -103,6 +105,27 @@ function BountyTimeline({ events, formatTimestamp }: { events: BountyEvent[]; fo
               {event.actor && (
                 <span className="bounty-timeline__actor">by {event.actor}</span>
               )}
+              {event.details && typeof event.details === "object" && (
+                <div className="bounty-timeline__details">
+                  {Boolean((event.details as any).reason) && (
+                    <p className="bounty-timeline__detail-reason">
+                      <strong>Reason:</strong> {String((event.details as any).reason)}
+                    </p>
+                  )}
+                  {Boolean((event.details as any).evidenceUrl) && (
+                    <p className="bounty-timeline__detail-evidence">
+                      <a
+                        href={String((event.details as any).evidenceUrl)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-link"
+                      >
+                        Evidence link <ArrowUpRight size={14} />
+                      </a>
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           </li>
         ))}
@@ -122,6 +145,8 @@ export default function BountyDetailPage({
   renderActionButton,
   formatTimestamp,
   bounties,
+  userAddress,
+  onDisputeSuccess,
 }: Props) {
 
   const statusAnnouncement = useBountyStatusAnnouncement(bounty, statusCopy);
@@ -311,6 +336,12 @@ export default function BountyDetailPage({
                   <strong>{formatTimestamp(bounty.refundedAt)}</strong>
                 </div>
               )}
+              {bounty.disputedAt && (
+                <div>
+                  <span className="meta-label">Disputed</span>
+                  <strong>{formatTimestamp(bounty.disputedAt)}</strong>
+                </div>
+              )}
               {bounty.releasedTxHash && (
                 <div>
                   <span className="meta-label">Release tx</span>
@@ -352,6 +383,23 @@ export default function BountyDetailPage({
               </a>
             )}
 
+            {bounty.evidenceUrl && (
+              <a
+                className="submission-link evidence-link"
+                href={bounty.evidenceUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Review dispute evidence <ArrowUpRight size={16} />
+              </a>
+            )}
+
+            {bounty.disputeReason && (
+              <p className="status-helper dispute-reason-helper">
+                <strong>Dispute Reason:</strong> {bounty.disputeReason}
+              </p>
+            )}
+
             {bounty.notes && (
               <p className="status-helper">
                 <strong>Notes:</strong> {bounty.notes}
@@ -368,6 +416,12 @@ export default function BountyDetailPage({
                 renderActionButton(bounty, action),
               )}
             </div>
+
+            <DisputeBountyControl
+              bounty={bounty}
+              userAddress={userAddress}
+              onDisputeSuccess={onDisputeSuccess}
+            />
 
             {!["released", "refunded"].includes(bounty.status) && (
               <ExtendDeadlineControl bounty={bounty} formatTimestamp={formatTimestamp} />
@@ -537,3 +591,165 @@ function toDatetimeLocal(epochMs: number): string {
     `T${pad(d.getHours())}:${pad(d.getMinutes())}`
   );
 }
+
+/**
+ * Control for eligible parties (contributor or maintainer) to raise a dispute
+ * on a Reserved or Submitted bounty.
+ */
+export function DisputeBountyControl({
+  bounty,
+  userAddress,
+  onDisputeSuccess,
+}: {
+  bounty: Bounty;
+  userAddress?: string;
+  onDisputeSuccess?: (updated: Bounty) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [evidenceUrl, setEvidenceUrl] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  // Eligible status: only Reserved or Submitted bounties can be disputed
+  const isEligibleStatus = bounty.status === "reserved" || bounty.status === "submitted";
+
+  // Eligible party check: if userAddress is passed, verify user is contributor or maintainer.
+  const isEligibleUser = useMemo(() => {
+    if (!userAddress) return true; // Default allow in component tests / unbound views
+    const norm = userAddress.trim().toLowerCase();
+    const isContributor = Boolean(bounty.contributor && bounty.contributor.trim().toLowerCase() === norm);
+    const isMaintainer = Boolean(bounty.maintainer && bounty.maintainer.trim().toLowerCase() === norm);
+    return isContributor || isMaintainer;
+  }, [bounty, userAddress]);
+
+  if (!isEligibleStatus || !isEligibleUser) {
+    return null;
+  }
+
+  const defaultActor = (userAddress && userAddress.trim()) || bounty.contributor || bounty.maintainer || "";
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setSuccess(null);
+
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) {
+      setError("Reason is required to raise a dispute.");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const updated = await disputeBounty(
+        bounty.id,
+        defaultActor,
+        trimmedReason,
+        evidenceUrl.trim() || undefined
+      );
+      setSuccess("Dispute raised successfully.");
+      setIsOpen(false);
+      setReason("");
+      setEvidenceUrl("");
+      if (onDisputeSuccess) {
+        onDisputeSuccess(updated);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to raise dispute.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="dispute-control">
+      {!isOpen ? (
+        <button
+          type="button"
+          className="secondary-button dispute-button"
+          onClick={() => {
+            setIsOpen(true);
+            setError(null);
+          }}
+        >
+          Raise Dispute
+        </button>
+      ) : (
+        <form className="dispute-form" onSubmit={handleSubmit} data-testid="dispute-form">
+          <h4 className="dispute-form__title">Raise a Dispute</h4>
+          <p className="dispute-form__helper">
+            Provide details explaining why this bounty is being disputed.
+          </p>
+
+          <div className="form-group">
+            <label htmlFor="dispute-reason-input" className="meta-label">
+              Dispute Reason <span className="required-asterisk">*</span>
+            </label>
+            <textarea
+              id="dispute-reason-input"
+              name="reason"
+              className="dispute-textarea"
+              rows={3}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Explain the reason for disputing this bounty..."
+              disabled={submitting}
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="dispute-evidence-input" className="meta-label">
+              Evidence Link (optional)
+            </label>
+            <input
+              id="dispute-evidence-input"
+              name="evidenceUrl"
+              type="url"
+              className="dispute-input"
+              value={evidenceUrl}
+              onChange={(e) => setEvidenceUrl(e.target.value)}
+              placeholder="https://github.com/owner/repo/pull/1"
+              disabled={submitting}
+            />
+          </div>
+
+          {error && (
+            <small className="field-error" role="alert">
+              {error}
+            </small>
+          )}
+
+          <div className="dispute-form__actions">
+            <button
+              type="submit"
+              className="secondary-button dispute-submit-btn"
+              disabled={submitting}
+            >
+              {submitting ? "Submitting..." : "Submit Dispute"}
+            </button>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => {
+                setIsOpen(false);
+                setError(null);
+              }}
+              disabled={submitting}
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+
+      {success && (
+        <small className="field-hint" role="status">
+          {success}
+        </small>
+      )}
+    </div>
+  );
+}
+
