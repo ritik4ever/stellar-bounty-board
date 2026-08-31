@@ -10,6 +10,10 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
+      // Use injectManifest so we can provide a custom SW with push-event handlers
+      strategies: "injectManifest",
+      srcDir: "public",
+      filename: "sw.js",
       workbox: {
         globPatterns: ["**/*.{js,css,html,ico,png,svg}"],
         runtimeCaching: [
@@ -33,6 +37,32 @@ export default defineConfig({
         theme_color: "#1e8f6f",
         background_color: "#f6efe3",
         display: "standalone",
+        start_url: "/",
+        id: "/",
+        icons: [
+          {
+            src: "/icons/icon-192.png",
+            sizes: "192x192",
+            type: "image/png",
+          },
+          {
+            src: "/icons/icon-512.png",
+            sizes: "512x512",
+            type: "image/png",
+          },
+          {
+            src: "/icons/icon-192.png",
+            sizes: "192x192",
+            type: "image/png",
+            purpose: "maskable",
+          },
+          {
+            src: "/icons/icon-512.png",
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "maskable",
+          },
+        ],
       },
     }),
   ],

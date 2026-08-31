@@ -486,6 +486,32 @@ export function getContractErrorLabel(error: ContractError): string {
 /**
  * Stellar test network configuration for Freighter.
  */
+/**
+ * Register a push subscription with the backend.
+ */
+export async function registerPushSubscription(
+  subscription: { endpoint: string; keys: { p256dh: string; auth: string } }
+): Promise<void> {
+  await requestJson('/notification-preferences/push', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(subscription),
+  });
+}
+
+/**
+ * Unregister a push subscription from the backend.
+ */
+export async function unregisterPushSubscription(
+  endpoint: string
+): Promise<void> {
+  await requestJson('/notification-preferences/push', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ endpoint }),
+  });
+}
+
 export const STELLAR_NETWORK_PASSPHRASE =
   import.meta.env.VITE_STELLAR_NETWORK_PASSPHRASE ??
   'Test SDF Network ; September 2015';

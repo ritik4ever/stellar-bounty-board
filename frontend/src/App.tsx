@@ -53,6 +53,7 @@ import ContributorProfilePage from "./ContributorProfilePage";
 import ContributorDashboard from "./ContributorDashboard";
 import ErrorBoundary from "./ErrorBoundary";
 import SubmissionChecklistModal, { type SubmissionFormData } from "./SubmissionChecklistModal";
+import PushNotificationSettings from "./components/PushNotificationSettings";
 
 const DARK_MODE_KEY = "stellar-bounty-board-theme";
 
@@ -653,6 +654,7 @@ function App() {
           </div>
           <div className="header-actions">
             <FreighterConnectButton freighter={freighter} compact />
+            <PushNotificationSettings />
             <button className="theme-toggle" onClick={toggleDark}>
               {dark ? <Sun size={20} /> : <Moon size={20} />}
             </button>
