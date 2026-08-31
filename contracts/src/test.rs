@@ -28,6 +28,22 @@ fn test_get_version_matches_cargo_toml() {
 }
 
 #[test]
+#[should_panic(expected = "AlreadyInitialized")]
+fn test_initialize_twice_returns_already_initialized() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarBountyBoardContract);
+    let client = StellarBountyBoardContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let fee_recipient = Address::generate(&env);
+    let arbiter = Address::generate(&env);
+
+    client.initialize(&admin, &fee_recipient, &arbiter, &600);
+    // Second call should fail with typed AlreadyInitialized error
+    client.initialize(&admin, &fee_recipient, &arbiter, &600);
+}
+
+#[test]
 fn test_contract_version_constant() {
     // Direct assertion on the compile-time constant
     assert_eq!(CONTRACT_VERSION, env!("CARGO_PKG_VERSION"));
