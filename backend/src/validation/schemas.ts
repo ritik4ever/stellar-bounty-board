@@ -244,6 +244,96 @@ export const extendDeadlineSchema = z
   .openapi('ExtendDeadlineRequest');
 
 // ---------------------------------------------------------------------------
+// PATCH /api/bounties/:id — maintainer-editable fields
+// ---------------------------------------------------------------------------
+
+/**
+ * Schema for PATCH /api/bounties/:id.
+ * Only whitelisted fields are accepted; immutable fields (amount, status,
+ * contributor, tokenSymbol, maintainer, repo, issueNumber) are explicitly
+ * excluded via superRefine so callers get a clear validation error.
+ */
+export const patchBountySchema = z
+  .object({
+    maintainer: stellarAccountSchema.openapi({
+      description: 'Must match the maintainer address on the bounty.',
+    }),
+    title: z
+      .string()
+      .trim()
+      .min(5, 'Title must be at least 5 characters.')
+      .max(120, 'Title must be at most 120 characters.')
+      .optional()
+      .openapi({
+        example: 'Fix login redirect bug (updated)',
+        description: 'New title for the bounty (5–120 chars).',
+      }),
+    description: z
+      .string()
+      .trim()
+      .min(20, 'Description must be at least 20 characters.')
+      .max(280, 'Description must be at most 280 characters.')
+      .optional()
+      .openapi({
+        example: 'Updated description with more details about the work needed.',
+        description: 'New description/summary for the bounty (20–280 chars).',
+      }),
+    labels: z
+      .array(z.string().trim().min(1).max(30))
+      .max(6, 'At most 6 labels are allowed.')
+      .optional()
+      .openapi({
+        example: ['bug', 'good first issue'],
+        description: 'Replacement labels for the bounty (up to 6).',
+      }),
+    deadline: z
+      .number()
+      .int('Deadline must be an integer Unix timestamp (seconds).')
+      .positive('Deadline must be a positive Unix timestamp (seconds).')
+      .optional()
+      .openapi({
+        example: 1920000000,
+        description: 'New deadline as a Unix timestamp (seconds). Must be in the future.',
+      }),
+  })
+  // Use passthrough so unknown keys survive into superRefine for explicit rejection.
+  .passthrough()
+  .superRefine((data, ctx) => {
+    // Reject any immutable fields with a clear error.
+    const immutableFields = ['amount', 'status', 'contributor', 'tokenSymbol', 'repo', 'issueNumber'] as const;
+    for (const field of immutableFields) {
+      if (field in (data as Record<string, unknown>)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [field],
+          message: `Field "${field}" is immutable and cannot be patched.`,
+        });
+      }
+    }
+    // Require at least one patchable field (besides maintainer).
+    const patchableFields = ['title', 'description', 'labels', 'deadline'] as const;
+    const hasAny = patchableFields.some((f) => data[f] !== undefined);
+    if (!hasAny) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'At least one of title, description, labels, or deadline must be provided.',
+      });
+    }
+  })
+  // Strip unknown keys from the final output after validation (strip any non-immutable unknowns).
+  .transform((data) => {
+    const { maintainer, title, description, labels, deadline } = data as {
+      maintainer: string;
+      title?: string;
+      description?: string;
+      labels?: string[];
+      deadline?: number;
+    };
+    return { maintainer, title, description, labels, deadline };
+  })
+  .openapi('PatchBountyRequest');
+
+// ---------------------------------------------------------------------------
 // Shared response schemas
 // ---------------------------------------------------------------------------
 
@@ -348,7 +438,7 @@ export const bountyAuditLogSchema = z
       .enum(['open', 'reserved', 'submitted', 'released', 'refunded', 'expired'])
       .openapi({ example: 'reserved' }),
     transition: z
-      .enum(['reserve', 'submit', 'release', 'refund', 'cancel', 'expire', 'dispute', 'update_notes'])
+      .enum(['reserve', 'submit', 'release', 'refund', 'cancel', 'expire', 'dispute', 'update_notes', 'patch_fields'])
       .openapi({ example: 'reserve' }),
     actor: z.string().openapi({ example: STELLAR_EXAMPLE }),
     timestamp: z

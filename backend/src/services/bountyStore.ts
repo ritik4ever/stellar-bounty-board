@@ -55,7 +55,8 @@ export type BountyTransitionType =
   | "dispute"
   | "resolve_dispute"
   | "update_notes"
-  | "extend_deadline";
+  | "extend_deadline"
+  | "patch_fields";
 
 /**
  * Represents a historical event in the lifecycle of a bounty.
@@ -1286,6 +1287,113 @@ export async function updateBountyNotes(
         transition: "update_notes",
         actor: maintainer,
         metadata: { notes },
+      },
+    ]);
+    await invalidateBountyCache();
+
+    return persisted;
+  });
+}
+
+/**
+ * Patch allowed fields on a bounty. Only the bounty's maintainer may call this.
+ * Editable fields: title, summary (description), labels, deadlineAt.
+ * Immutable fields (amount, status, contributor, maintainer) are never accepted.
+ * Records a `patch_fields` audit-log entry with a diff of changed fields.
+ */
+export interface PatchBountyInput {
+  /** New title for the bounty (optional). */
+  title?: string;
+  /** New summary/description for the bounty (optional). */
+  description?: string;
+  /** Replacement labels array (optional). */
+  labels?: string[];
+  /** New deadline as a Unix timestamp in seconds (optional). */
+  deadline?: number;
+  /** Stellar address of the maintainer making the change. */
+  maintainer: string;
+}
+
+export async function patchBountyFields(
+  id: string,
+  input: PatchBountyInput,
+): Promise<BountyRecord> {
+  return withStoreLock(async () => {
+    const records = listBounties();
+    const bounty = findBounty(records, id);
+
+    if (bounty.maintainer !== input.maintainer) {
+      throw new Error("Maintainer address does not match this bounty.");
+    }
+
+    const now = nowInSeconds();
+
+    // Build diff metadata for audit log
+    const diff: Record<string, AuditMetadataValue> = {};
+
+    let updated: BountyRecord = { ...bounty };
+
+    if (input.title !== undefined && input.title !== bounty.title) {
+      diff["title_from"] = bounty.title;
+      diff["title_to"] = input.title;
+      updated = { ...updated, title: input.title };
+    }
+
+    if (input.description !== undefined && input.description !== bounty.summary) {
+      diff["summary_from"] = bounty.summary;
+      diff["summary_to"] = input.description;
+      updated = { ...updated, summary: input.description };
+    }
+
+    if (input.labels !== undefined) {
+      const oldLabels = bounty.labels.join(",");
+      const newLabels = input.labels.join(",");
+      if (oldLabels !== newLabels) {
+        diff["labels_from"] = oldLabels;
+        diff["labels_to"] = newLabels;
+        updated = { ...updated, labels: input.labels };
+      }
+    }
+
+    if (input.deadline !== undefined) {
+      if (input.deadline <= now) {
+        throw new Error("New deadline must be in the future.");
+      }
+      if (input.deadline !== bounty.deadlineAt) {
+        diff["deadlineAt_from"] = bounty.deadlineAt;
+        diff["deadlineAt_to"] = input.deadline;
+        updated = { ...updated, deadlineAt: input.deadline };
+      }
+    }
+
+    // If nothing changed, return the bounty as-is without writing
+    if (Object.keys(diff).length === 0) {
+      return bounty;
+    }
+
+    updated = {
+      ...updated,
+      version: bounty.version + 1,
+      events: [
+        ...bounty.events,
+        {
+          type: "notes_updated" as const,
+          timestamp: now,
+          actor: input.maintainer,
+          details: { changedFields: Object.keys(diff).filter((k) => k.endsWith("_to")).map((k) => k.replace("_to", "")) },
+        },
+      ],
+    };
+
+    const persisted = persistUpdated(records, updated);
+    appendAuditLogs([
+      {
+        bountyId: id,
+        fromStatus: bounty.status,
+        toStatus: bounty.status,
+        transition: "patch_fields",
+        actor: input.maintainer,
+        metadata: diff,
       },
     ]);
     await invalidateBountyCache();

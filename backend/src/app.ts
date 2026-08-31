@@ -16,6 +16,7 @@ import {
   extendDeadline,
   resolveDisputeBounty,
   updateBountyNotes,
+  patchBountyFields,
   listBountyAuditLogs,
   listAllAuditLogs,
   listBounties,
@@ -41,6 +42,7 @@ import {
   createBountySchema,
   disputeBountySchema,
   extendDeadlineSchema,
+  patchBountySchema,
   resolveDisputeBountySchema,
   maintainerActionSchema,
   reserveBountySchema,
@@ -869,6 +871,42 @@ app.patch(
         req.body.maintainer,
         req.body.notes
       );
+
+      res.json({ data: bounty });
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  }
+);
+
+/**
+ * PATCH /api/bounties/:id
+ *
+ * Allows a bounty's maintainer to update the whitelisted mutable fields:
+ *   - title
+ *   - description (stored as summary)
+ *   - labels
+ *   - deadline (Unix timestamp, seconds)
+ *
+ * Immutable fields (amount, status, contributor, tokenSymbol, repo, issueNumber)
+ * are rejected at the Zod schema level with a clear validation error.
+ * Emits a `patch_fields` audit-log entry with a diff of changed fields.
+ */
+app.patch(
+  '/api/bounties/:id',
+  mutationLimiter,
+  requireJsonContentType,
+  createStellarSignatureAuthMiddleware(),
+  validateBody(patchBountySchema),
+  async (req: Request, res: Response) => {
+    try {
+      const bounty = await patchBountyFields(parseId(req.params.id), {
+        maintainer: req.body.maintainer,
+        title: req.body.title,
+        description: req.body.description,
+        labels: req.body.labels,
+        deadline: req.body.deadline,
+      });
 
       res.json({ data: bounty });
     } catch (error) {
