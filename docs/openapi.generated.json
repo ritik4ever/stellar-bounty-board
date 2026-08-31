@@ -2050,6 +2050,57 @@
         }
       }
     },
+    "/api/contributors/{address}/reputation": {
+      "get": {
+        "tags": [
+          "Contributors"
+        ],
+        "summary": "Contributor reputation score",
+        "description": "Returns the reputation score for a contributor identified by their Stellar address. The score (0–100) is derived from completed bounties, dispute outcomes, and response times. A contributor with no history receives a neutral score of 50.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Stellar public key of the contributor.",
+              "example": "GBBB...BBB"
+            },
+            "required": true,
+            "name": "address",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reputation score and breakdown.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ContributorReputation"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid contributor address.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/leaderboard": {
       "get": {
         "tags": ["Leaderboard"],
@@ -2096,6 +2147,45 @@
                     }
                   },
                   "required": ["data"]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to build configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/config": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Public runtime configuration",
+        "description": "Returns non-sensitive runtime values that the frontend and contract-interaction layer need to stay in sync with the backend without hardcoding anything.\n\n**Included:** fee bps, dispute window, min/max bounty amounts, supported token addresses, default reservation TTL, and network label.\n\n**Never included:** API keys, database connection strings, webhook secrets, maintainer public keys, or any other internal-only setting.\n\nResponse is cached with `Cache-Control: public, max-age=300` (5 min) since these values rarely change.",
+        "responses": {
+          "200": {
+            "description": "Public runtime configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/PublicConfig"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ]
                 }
               }
             }
