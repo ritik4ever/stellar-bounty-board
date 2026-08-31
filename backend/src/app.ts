@@ -115,10 +115,13 @@ export const app = express();
 
 app.use(cors(buildCorsOptions()));
 
+export const DEFAULT_BODY_LIMIT = '16kb';
+export const NOTES_BODY_LIMIT = '100kb';
+
 app.use(
   express.json({
     verify: captureRawBody,
-    limit: '32kb',
+    limit: DEFAULT_BODY_LIMIT,
   })
 );
 
@@ -719,6 +722,7 @@ app.patch(
   '/api/bounties/:id/notes',
   mutationLimiter,
   requireJsonContentType,
+  express.json({ verify: captureRawBody, limit: NOTES_BODY_LIMIT }),
   createStellarSignatureAuthMiddleware(),
   validateBody(updateNotesSchema),
   async (req: Request, res: Response) => {
@@ -958,7 +962,9 @@ app.get(
 
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   if ((err as any).type === 'entity.too.large') {
-    res.status(413).json({ error: 'Payload too large', maxBytes: 32768 });
+    const isNotesRoute = req.path.endsWith('/notes');
+    const limit = isNotesRoute ? NOTES_BODY_LIMIT : DEFAULT_BODY_LIMIT;
+    res.status(413).json({ error: 'Payload too large', limit });
     return;
   }
   if (err instanceof SyntaxError && (err as any).type === 'entity.parse.failed' && (err as any).body) {
