@@ -19,6 +19,7 @@ vi.mock('./api', () => ({
   releaseBounty: vi.fn(),
   refundBounty: vi.fn(),
   listBounties: vi.fn().mockResolvedValue([]),
+  listBountyTemplates: vi.fn().mockResolvedValue([]),
   listOpenIssues: vi.fn().mockResolvedValue([]),
   getBounty: vi.fn(),
   exportReleasedPayoutsCsv: vi.fn(),

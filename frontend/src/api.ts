@@ -1,6 +1,7 @@
 import type {
   Bounty,
   BountyEvent,
+  BountyTemplate,
   CreateBountyPayload,
   GlobalMetrics,
   MaintainerMetrics,
@@ -413,6 +414,16 @@ export async function extendDeadline(
   return body.data;
 }
 
+export async function listBountyTemplates(signal?: AbortSignal): Promise<BountyTemplate[]> {
+  const body = await requestJson<{ data: BountyTemplate[] }>('/bounty-templates', {
+    retry: true,
+    retryLabel: 'Loading bounty templates',
+    signal,
+  });
+
+  return body.data;
+}
+
 export async function listOpenIssues(signal?: AbortSignal): Promise<OpenIssue[]> {
   const body = await requestJson<{ data: OpenIssue[] }>('/open-issues', {
     retry: true,
@@ -487,5 +498,4 @@ export function getContractErrorLabel(error: ContractError): string {
  * Stellar test network configuration for Freighter.
  */
 export const STELLAR_NETWORK_PASSPHRASE =
-  import.meta.env.VITE_STELLAR_NETWORK_PASSPHRASE ??
-  'Test SDF Network ; September 2015';
+  import.meta.env.VITE_STELLAR_NETWORK_PASSPHRASE ?? 'Test SDF Network ; September 2015';
