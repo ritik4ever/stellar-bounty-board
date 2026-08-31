@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { axe } from "jest-axe";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -135,5 +135,55 @@ describe("bounty card keyboard navigation", () => {
     const { container } = await renderBoard();
 
     expect(await axe(container)).toHaveNoViolations();
+  });
+});
+
+describe("global keyboard shortcuts", () => {
+  it("focuses the search input when / is pressed outside a text field", async () => {
+    await renderBoard();
+
+    // Press / from a non-input element (the board is already focused)
+    fireEvent.keyDown(window, { key: "/" });
+
+    const searchInput = screen.getByPlaceholderText(
+      "Search by repo, title, or label...",
+    );
+    expect(searchInput).toHaveFocus();
+  });
+
+  it("does not fire the / shortcut when focus is inside an input", async () => {
+    await renderBoard();
+
+    const searchInput = screen.getByPlaceholderText(
+      "Search by repo, title, or label...",
+    );
+
+    // Focus the search input first
+    searchInput.focus();
+    expect(searchInput).toHaveFocus();
+
+    // / should not be swallowed — it should type a "/" character
+    fireEvent.keyDown(searchInput, { key: "/" });
+
+    // The search input should still be focused (not stolen by the global handler)
+    expect(searchInput).toHaveFocus();
+  });
+
+  it("toggles the shortcuts help overlay when ? is pressed", async () => {
+    await renderBoard();
+
+    // Press ? to open the shortcuts overlay
+    fireEvent.keyDown(window, { key: "?" });
+
+    expect(
+      screen.getByText("Keyboard shortcuts"),
+    ).toBeInTheDocument();
+
+    // Press ? again to close it
+    fireEvent.keyDown(window, { key: "?" });
+
+    expect(
+      screen.queryByText("Keyboard shortcuts"),
+    ).not.toBeInTheDocument();
   });
 });
