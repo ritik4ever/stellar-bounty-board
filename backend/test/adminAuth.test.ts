@@ -5,7 +5,11 @@ import bcrypt from "bcryptjs";
 import express from "express";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createAdminApiKeyAuthMiddleware } from "../src/middleware/adminAuth";
+import {
+  AdminSessionStore,
+  createAdminApiKeyAuthMiddleware,
+  createAdminSessionHandlers,
+} from "../src/middleware/adminAuth";
 
 // Low cost factor keeps the many timing-test iterations fast. Production
 // uses cost 12 (see scripts/hash-admin-key.js) — the comparison mechanism
@@ -32,19 +36,27 @@ const TIMING_WARMUP_ITERATIONS = 5;
 let app: express.Express;
 let originalNodeEnv: string | undefined;
 let originalAdminHash: string | undefined;
+let originalSessionTtl: string | undefined;
+let sessionStore: AdminSessionStore;
 
 beforeAll(async () => {
   originalNodeEnv = process.env.NODE_ENV;
   originalAdminHash = process.env.ADMIN_API_KEY_HASH;
+  originalSessionTtl = process.env.ADMIN_SESSION_TTL_SECONDS;
 
   // The middleware short-circuits (skips auth) when NODE_ENV === "test", so
   // it must run under a non-test NODE_ENV to exercise the bcrypt.compare
   // path this suite verifies.
   process.env.NODE_ENV = "production";
   process.env.ADMIN_API_KEY_HASH = await bcrypt.hash(ADMIN_KEY, TEST_SALT_ROUNDS);
+  process.env.ADMIN_SESSION_TTL_SECONDS = "900";
 
   app = express();
-  app.get("/admin/protected", createAdminApiKeyAuthMiddleware(), (_req, res) => {
+  sessionStore = new AdminSessionStore();
+  const sessionHandlers = createAdminSessionHandlers(sessionStore);
+  app.post("/admin/session", sessionHandlers.issue);
+  app.post("/admin/session/rotate", sessionHandlers.rotate);
+  app.get("/admin/protected", createAdminApiKeyAuthMiddleware(sessionStore), (_req, res) => {
     res.status(200).json({ ok: true });
   });
 });
@@ -55,24 +67,53 @@ afterAll(() => {
 
   if (originalAdminHash === undefined) delete process.env.ADMIN_API_KEY_HASH;
   else process.env.ADMIN_API_KEY_HASH = originalAdminHash;
+  if (originalSessionTtl === undefined) delete process.env.ADMIN_SESSION_TTL_SECONDS;
+  else process.env.ADMIN_SESSION_TTL_SECONDS = originalSessionTtl;
 });
 
 describe("admin auth middleware — functional behavior", () => {
-  it("allows the request when the correct admin key is supplied", async () => {
-    await request(app).get("/admin/protected").set("x-admin-api-key", ADMIN_KEY).expect(200);
+  it("allows protected requests with a session bootstrapped by the admin key", async () => {
+    const session = await request(app)
+      .post("/admin/session")
+      .set("x-admin-api-key", ADMIN_KEY)
+      .expect(201);
+
+    await request(app)
+      .get("/admin/protected")
+      .set("Authorization", `Bearer ${session.body.token}`)
+      .expect(200);
   });
 
-  it("rejects the request when the admin key is wrong", async () => {
+  it("rejects a raw admin key on protected requests", async () => {
     const res = await request(app)
       .get("/admin/protected")
-      .set("x-admin-api-key", COMPLETELY_WRONG_KEY)
+      .set("x-admin-api-key", ADMIN_KEY)
       .expect(401);
-    expect(res.body.error).toMatch(/invalid admin api key/i);
+    expect(res.body.error).toMatch(/session token/i);
   });
 
-  it("rejects the request when the x-admin-api-key header is missing", async () => {
-    const res = await request(app).get("/admin/protected").expect(401);
-    expect(res.body.error).toMatch(/missing/i);
+  it("rotates a session and rejects reuse of the previous token", async () => {
+    const initial = await request(app).post("/admin/session").set("x-admin-api-key", ADMIN_KEY).expect(201);
+    const rotated = await request(app)
+      .post("/admin/session/rotate")
+      .set("Authorization", `Bearer ${initial.body.token}`)
+      .expect(201);
+
+    await request(app)
+      .get("/admin/protected")
+      .set("Authorization", `Bearer ${initial.body.token}`)
+      .expect(401);
+    await request(app)
+      .get("/admin/protected")
+      .set("Authorization", `Bearer ${rotated.body.token}`)
+      .expect(200);
+  });
+
+  it("expires sessions according to the configured TTL", async () => {
+    const issuedAt = Date.now();
+    process.env.ADMIN_SESSION_TTL_SECONDS = "1";
+    const token = sessionStore.issue(issuedAt);
+    expect(sessionStore.validate(token, issuedAt + 1001)).toBe("expired");
   });
 });
 
@@ -95,7 +136,7 @@ describe("admin auth middleware — constant-time comparison guard", () => {
 describe("admin auth middleware — statistical timing leak check", () => {
   async function timeRequest(key: string): Promise<number> {
     const start = performance.now();
-    await request(app).get("/admin/protected").set("x-admin-api-key", key);
+    await request(app).post("/admin/session").set("x-admin-api-key", key);
     return performance.now() - start;
   }
 
