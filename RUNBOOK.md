@@ -53,13 +53,18 @@ This runbook provides step-by-step procedures for common operational tasks in pr
 
 3. **Reset the bounty store**
    ```bash
+   # Ensure the runtime user owns the directory and file permissions remain owner-only.
+   mkdir -p data
+   chmod 700 data
+
    # Option 1: Delete the files (will be recreated with sample data on restart)
-   rm data/bounties.json
-   rm data/bounties.audit.json
+   rm -f data/bounties.json data/bounties.audit.json
 
    # Option 2: Replace with empty array
+   umask 077
    echo "[]" > data/bounties.json
    echo "[]" > data/bounties.audit.json
+   chmod 600 data/bounties.json data/bounties.audit.json
    ```
 
 4. **Restart the backend service**

@@ -18,6 +18,20 @@
 
 ### Frontend Deployment: Vercel
 
+### Data permissions for JSON-backed deployments
+
+When the backend is running in a deployment that still writes the JSON store on disk, ensure the data directory and files are owner-only:
+
+```bash
+mkdir -p ./data
+chmod 700 ./data
+umask 077
+touch ./data/bounties.json ./data/bounties.audit.json
+chmod 600 ./data/bounties.json ./data/bounties.audit.json
+```
+
+This keeps the files non-world-readable and prevents accidentally exposing JSON state to other local users or shared hosting groups.
+
 ---
 
 ## Railway One-Click Deployment <a name="railway"></a>

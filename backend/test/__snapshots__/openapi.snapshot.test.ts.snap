@@ -1050,6 +1050,7 @@ Maintainers may \`cancel\` an \`open\` bounty before reservation, or \`refund\` 
             "required": false,
             "schema": {
               "description": "Filter bounties with deadline before this ISO 8601 date string.",
+              "example": "2026-09-28T14:44:29.981Z",
               "example": "2026-12-31T23:59:59.000Z",
               "type": "string",
             },
@@ -1060,6 +1061,7 @@ Maintainers may \`cancel\` an \`open\` bounty before reservation, or \`refund\` 
             "required": false,
             "schema": {
               "description": "Filter bounties with deadline after this ISO 8601 date string.",
+              "example": "2026-08-29T14:44:29.982Z",
               "example": "2026-01-01T00:00:00.000Z",
               "type": "string",
             },

@@ -11,6 +11,23 @@
 import fs from "fs";
 import path from "path";
 
+const JSON_SECRET_SUFFIXES = [
+  "apikey",
+  "accesstoken",
+  "refreshtoken",
+  "sessiontoken",
+  "token",
+  "secret",
+  "password",
+  "authorization",
+  "cookie",
+  "privatekey",
+  "secretkey",
+  "seed",
+  "jwt",
+  "webhooksecret",
+] as const;
+
 // ---------------------------------------------------------------------------
 // Path resolution
 // ---------------------------------------------------------------------------
@@ -26,6 +43,76 @@ export function resolveBackupPath(storePath: string): string {
   return `${storePath}.bak`;
 }
 
+function isSensitiveJsonKey(key: string): boolean {
+  const normalized = key.toLowerCase();
+  const exactMatches = new Set([
+    "apikey",
+    "api_key",
+    "token",
+    "secret",
+    "password",
+    "authorization",
+    "cookie",
+    "privatekey",
+    "secretkey",
+    "seed",
+    "jwt",
+    "sessiontoken",
+    "accesstoken",
+    "refreshtoken",
+    "webhooksecret",
+  ]);
+
+  if (exactMatches.has(normalized)) {
+    return true;
+  }
+
+  return JSON_SECRET_SUFFIXES.some((suffix) => normalized.endsWith(suffix));
+}
+
+export function sanitizeJsonSecrets<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeJsonSecrets(item)) as T;
+  }
+
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>).filter(
+      ([key]) => !isSensitiveJsonKey(key)
+    );
+
+    const sanitized = Object.fromEntries(
+      entries.map(([key, nestedValue]) => [key, sanitizeJsonSecrets(nestedValue)])
+    ) as T;
+
+    return sanitized;
+  }
+
+  return value;
+}
+
+function ensureJsonStoreDirectory(filePath: string): void {
+  const dir = path.dirname(filePath);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+
+  try {
+    fs.chmodSync(dir, 0o700);
+  } catch {
+    // Best effort: we only need to ensure the running user can read/write it.
+  }
+}
+
+export function writeJsonFile(filePath: string, value: unknown): void {
+  ensureJsonStoreDirectory(filePath);
+  const sanitized = sanitizeJsonSecrets(value);
+  fs.writeFileSync(filePath, JSON.stringify(sanitized, null, 2), "utf8");
+
+  try {
+    fs.chmodSync(filePath, 0o600);
+  } catch {
+    // Best effort: some filesystems may not support chmod semantics
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -35,10 +122,18 @@ export function resolveBackupPath(storePath: string): string {
  * Silently swallows errors so a missing / unreadable main file never
  * prevents the backup step from completing.
  */
-function backupIfExists(src: string, dest: string): void {
+function backupIfExists(src: string, dest: string, initialValue?: unknown): void {
   try {
-    if (fs.existsSync(src) && fs.statSync(src).size > 0) {
+    if (!fs.existsSync(src)) {
+      if (initialValue !== undefined) {
+        writeJsonFile(dest, initialValue);
+      }
+      return;
+    }
+
+    if (fs.statSync(src).size > 0) {
       fs.copyFileSync(src, dest);
+      fs.chmodSync(dest, 0o600);
     }
   } catch {
     // Non-fatal – we proceed with the write regardless.
@@ -89,7 +184,7 @@ export function loadBounties<T = unknown>(storePath?: string): T[] {
     );
     // Restore the main file from the backup so future reads succeed.
     try {
-      fs.writeFileSync(store, JSON.stringify(bak, null, 2), "utf8");
+      writeJsonFile(store, bak);
     } catch (writeErr) {
       console.warn(
         `[store] WARNING: Could not restore main store from backup: ${writeErr}`
@@ -119,8 +214,8 @@ export function saveBounties<T = unknown>(
   fs.mkdirSync(path.dirname(store), { recursive: true });
 
   // 1. Back up the current state before touching the main file.
-  backupIfExists(store, backup);
+  backupIfExists(store, backup, bounties);
 
   // 2. Write the new state.
-  fs.writeFileSync(store, JSON.stringify(bounties, null, 2), "utf8");
+  writeJsonFile(store, bounties);
 }

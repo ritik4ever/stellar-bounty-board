@@ -1145,17 +1145,147 @@
   },
   {
     "id": "AUD-000089",
-
     "bountyId": "BNT-0090",
     "fromStatus": "open",
     "toStatus": "expired",
     "transition": "expire",
     "actor": "system",
-
     "metadata": {
       "reason": "deadline_passed",
       "deadlineAt": 1779815009
     }
-
+  },
+  {
+    "id": "AUD-000090",
+    "bountyId": "BNT-0002",
+    "fromStatus": "open",
+    "toStatus": "reserved",
+    "transition": "reserve",
+    "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "timestamp": 1788013739
+  },
+  {
+    "id": "AUD-000091",
+    "bountyId": "BNT-0003",
+    "fromStatus": "open",
+    "toStatus": "reserved",
+    "transition": "reserve",
+    "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "timestamp": 1788014199
+  },
+  {
+    "id": "AUD-000092",
+    "bountyId": "BNT-0003",
+    "fromStatus": "reserved",
+    "toStatus": "submitted",
+    "transition": "submit",
+    "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "timestamp": 1788014199,
+    "metadata": {
+      "submissionUrl": "https://github.com/owner/repo/pull/1",
+      "hasNotes": false
+    }
+  },
+  {
+    "id": "AUD-000093",
+    "bountyId": "BNT-0003",
+    "fromStatus": "submitted",
+    "toStatus": "released",
+    "transition": "release",
+    "actor": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    "timestamp": 1788014199
+  },
+  {
+    "id": "AUD-000094",
+    "bountyId": "BNT-0006",
+    "fromStatus": "open",
+    "toStatus": "reserved",
+    "transition": "reserve",
+    "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "timestamp": 1788014377
+  },
+  {
+    "id": "AUD-000095",
+    "bountyId": "BNT-0006",
+    "fromStatus": "reserved",
+    "toStatus": "submitted",
+    "transition": "submit",
+    "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "timestamp": 1788014377,
+    "metadata": {
+      "submissionUrl": "https://github.com/owner/repo/pull/1",
+      "hasNotes": false
+    }
+  },
+  {
+    "id": "AUD-000096",
+    "bountyId": "BNT-0006",
+    "fromStatus": "submitted",
+    "toStatus": "released",
+    "transition": "release",
+    "actor": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    "timestamp": 1788014377
+  },
+  {
+    "id": "AUD-000097",
+    "bountyId": "BNT-0008",
+    "fromStatus": "open",
+    "toStatus": "reserved",
+    "transition": "reserve",
+    "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "timestamp": 1788014462
+  },
+  {
+    "id": "AUD-000098",
+    "bountyId": "BNT-0008",
+    "fromStatus": "reserved",
+    "toStatus": "submitted",
+    "transition": "submit",
+    "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "timestamp": 1788014462,
+    "metadata": {
+      "submissionUrl": "https://github.com/owner/repo/pull/1",
+      "hasNotes": false
+    }
+  },
+  {
+    "id": "AUD-000099",
+    "bountyId": "BNT-0008",
+    "fromStatus": "submitted",
+    "toStatus": "released",
+    "transition": "release",
+    "actor": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    "timestamp": 1788014462
+  },
+  {
+    "id": "AUD-000100",
+    "bountyId": "BNT-0010",
+    "fromStatus": "open",
+    "toStatus": "reserved",
+    "transition": "reserve",
+    "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "timestamp": 1788014739
+  },
+  {
+    "id": "AUD-000101",
+    "bountyId": "BNT-0010",
+    "fromStatus": "reserved",
+    "toStatus": "submitted",
+    "transition": "submit",
+    "actor": "GBE6AZEUPV75O3Z7OFW4RIMU7DF453AVK5HCXB3PV2I7BBTYEPCOYWSF",
+    "timestamp": 1788014739,
+    "metadata": {
+      "submissionUrl": "https://github.com/owner/repo/pull/1",
+      "hasNotes": false
+    }
+  },
+  {
+    "id": "AUD-000102",
+    "bountyId": "BNT-0010",
+    "fromStatus": "submitted",
+    "toStatus": "released",
+    "transition": "release",
+    "actor": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    "timestamp": 1788014739
   }
 ]

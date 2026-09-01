@@ -2,6 +2,7 @@ import { Request, Response, NextFunction, RequestHandler } from "express";
 import fs from "fs";
 import path from "path";
 import lockfile from "proper-lockfile";
+import { sanitizeJsonSecrets } from "../store";
 
 const LIMIT = Number(process.env.MAINTAINER_BOUNTY_RATE_LIMIT ?? 10);
 const WINDOW_MS = Number(process.env.MAINTAINER_BOUNTY_RATE_WINDOW_MS ?? 3600_000);
@@ -23,10 +24,12 @@ function getStorePath(): string {
 function ensureStore(storePath: string) {
   const dir = path.dirname(storePath);
   if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
+  try { fs.chmodSync(dir, 0o700); } catch {}
   if (!fs.existsSync(storePath)) {
-    fs.writeFileSync(storePath, JSON.stringify({}));
+    fs.writeFileSync(storePath, JSON.stringify(sanitizeJsonSecrets({})));
+    try { fs.chmodSync(storePath, 0o600); } catch {}
   }
 }
 
@@ -87,7 +90,9 @@ export const maintainerLimiter: RequestHandler = async (req: Request, res: Respo
 
     record.timestamps.push(now);
     store[maintainer] = record;
-    fs.writeFileSync(storePath, JSON.stringify(store, null, 2));
+    const sanitized = sanitizeJsonSecrets(store);
+    fs.writeFileSync(storePath, JSON.stringify(sanitized, null, 2));
+    try { fs.chmodSync(storePath, 0o600); } catch {}
     
     await release();
     next();

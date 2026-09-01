@@ -14,7 +14,7 @@ import {
   resolveBackupPath,
   resolveStorePath,
   saveBounties,
-} from "./store";
+} from "../src/store";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -79,6 +79,39 @@ describe("saveBounties", () => {
     saveBounties(SAMPLE, store);
     const written = JSON.parse(fs.readFileSync(store, "utf8"));
     expect(written).toEqual(SAMPLE);
+  });
+
+  it("restricts JSON store files to owner-only permissions on POSIX systems", () => {
+    if (process.platform === "win32") {
+      return;
+    }
+
+    saveBounties(SAMPLE, store);
+
+    const mode = fs.statSync(store).mode & 0o777;
+    expect(mode & 0o077).toBe(0);
+    expect(mode & 0o200).toBe(0o200);
+  });
+
+  it("removes secret-like fields before persisting JSON", () => {
+    const payload = [
+      {
+        id: "1",
+        title: "Fix bug",
+        status: "open",
+        apiKey: "ghp_supersecret",
+        token: "abc123",
+        nested: { password: "hunter2", safe: "value" },
+      },
+    ];
+
+    saveBounties(payload as any, store);
+
+    const written = JSON.parse(fs.readFileSync(store, "utf8"));
+    expect(written[0]).not.toHaveProperty("apiKey");
+    expect(written[0]).not.toHaveProperty("token");
+    expect(written[0].nested).not.toHaveProperty("password");
+    expect(written[0].nested).toHaveProperty("safe", "value");
   });
 
   it("creates a backup of the previous file before each write", () => {

@@ -115,6 +115,32 @@ under a specific name, handle, or organisation, please include that preference i
 
 ---
 
+## Interim data-at-rest protection for the JSON store
+
+The project still uses a file-backed JSON store during the pre-Postgres phase. That means the data directory and JSON artifacts are treated as sensitive runtime state and are protected with owner-only permissions at rest.
+
+### Current mitigation
+
+- Every JSON store write is restricted to the current user with `0600` permissions on the file and `0700` on the containing directory.
+- The backend enforces a strict `umask 077` at process startup so newly created JSON files default to owner-only access.
+- Secret-bearing fields are sanitized before persistence, so keys such as `apiKey`, `token`, `secret`, `password`, `authorization`, and `privateKey` are never written as plaintext to the JSON store.
+- Backup and audit artifacts follow the same owner-only pattern and are not world-readable.
+
+### Interim risk
+
+The JSON file model is still a weaker persistence mechanism than Postgres. If a host is compromised or the file system is backed up or copied without preserving ownership/ACLs, an attacker could still recover the local JSON state. This is an accepted interim risk while the project is transitioning to the database-backed storage model.
+
+### Planned migration
+
+The target path is a Postgres-backed persistence layer with append-only audit records and transactional integrity. The migration plan is:
+
+1. Complete the database schema and migration scripts for bounty and audit tables.
+2. Add a controlled dual-write or one-time import path from the JSON store into Postgres.
+3. Cut over the runtime to the Postgres adapter behind configuration flags.
+4. Remove the file-backed store from the default deployment path once the migration is validated in staging and production.
+
+The migration is planned for the next production database milestone, with the expected rollout window in the same release train after the current stabilization period. Until the database migration is fully implemented and cut over, the owner-only permissions and secret sanitization above remain the operational defense in depth.
+
 ## Logging best practices
 
 The backend logger (`backend/src/logger.ts`, pino) redacts secrets two ways so
