@@ -160,7 +160,7 @@ macro_rules! invalid_transition_test {
 #[test]
 fn test_get_min_bounty_amount_default() {
     let env = Env::default();
-    let (client, _, _, _, _, _) = setup_test(&env);
+    let (client, _admin, _maintainer, _contributor, _token_id, _fee_recipient, _arbiter) = setup_test(&env);
 
     let min = client.get_min_bounty_amount();
     assert_eq!(min, DEFAULT_MIN_BOUNTY_AMOUNT);
@@ -171,7 +171,7 @@ fn test_set_min_bounty_amount_success() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _, _, _, _, arbiter) = setup_test(&env);
+    let (client, _admin, _maintainer, _contributor, _token_id, _fee_recipient, arbiter) = setup_test(&env);
 
     let new_min = 1000i128;
     client.set_min_bounty_amount(&new_min);
@@ -186,7 +186,7 @@ fn test_set_min_bounty_amount_zero_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _, _, _, _, arbiter) = setup_test(&env);
+    let (client, _admin, _maintainer, _contributor, _token_id, _fee_recipient, _arbiter) = setup_test(&env);
     client.set_min_bounty_amount(&0);
 }
 
@@ -196,7 +196,7 @@ fn test_set_min_bounty_amount_above_max_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _, _, _, _, arbiter) = setup_test(&env);
+    let (client, _admin, _maintainer, _contributor, _token_id, _fee_recipient, _arbiter) = setup_test(&env);
     client.set_min_bounty_amount(&(MAX_BOUNTY_AMOUNT + 1));
 }
 
@@ -206,7 +206,7 @@ fn test_create_bounty_below_minimum_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, _, token_id, _, _) = setup_test(&env);
+    let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
 
@@ -229,7 +229,7 @@ fn test_create_bounty_at_minimum_succeeds() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, _, token_id, _, _) = setup_test(&env);
+    let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
 
@@ -255,7 +255,7 @@ fn test_create_bounty_above_minimum_succeeds() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, _, token_id, _, _) = setup_test(&env);
+    let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
 
@@ -282,7 +282,7 @@ fn test_create_bounty_after_raising_minimum_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, _, token_id, _, arbiter) = setup_test(&env);
+    let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
 
@@ -308,7 +308,7 @@ fn test_create_bounty_after_raising_minimum_succeeds() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, _, token_id, _, arbiter) = setup_test(&env);
+    let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &10_000);
 
@@ -459,7 +459,7 @@ fn test_refund_reserved_before_deadline_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, contributor, token_id, _, _) = setup_test(&env);
+    let (client, _admin, maintainer, contributor, token_id, _fee_recipient, _arbiter) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
 
@@ -1359,13 +1359,45 @@ fn test_create_bounty_override_above_max_fails() {
 #[test]
 #[should_panic(expected = "DisputeWindowNotMet")]
 fn test_resolve_dispute_custom_window_not_met_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, contributor, token_id, _, _) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    let deadline = env.ledger().timestamp() + 1000;
+    let custom_window = 3600u64;
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &deadline,
+        &0u32,
+        &Some(custom_window),
+    );
+
+    client.reserve_bounty(&bounty_id, &contributor);
+    client.submit_bounty(&bounty_id, &contributor);
+    client.dispute_bounty(&bounty_id, &client.address());
+
+    // Advance time but less than the custom window
+    env.ledger().set_timestamp(env.ledger().timestamp() + 1800);
+
+    // This should panic because the dispute window (3600s) hasn't elapsed yet
+    client.resolve_dispute(&bounty_id, &true);
+}
+
 // ─── get_bounties_by_contributor tests (Issue #750) ────────────────────────
 
 /// No bounties at all — should return an empty vec without panic.
 #[test]
 fn test_get_bounties_by_contributor_empty() {
     let env = Env::default();
-    let (client, _, contributor, _, _, _) = setup_test(&env);
+    let (client, _admin, _maintainer, contributor, _token_id, _fee_recipient, _arbiter) = setup_test(&env);
 
     let result = client.get_bounties_by_contributor(&contributor, &1u64, &10u32);
     assert_eq!(result.len(), 0);
@@ -1377,7 +1409,7 @@ fn test_get_bounties_by_contributor_no_match() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, contributor, token_id, _, _) = setup_test(&env);
+    let (client, _admin, maintainer, contributor, token_id, _fee_recipient, _arbiter) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
 
@@ -1403,7 +1435,7 @@ fn test_get_bounties_by_contributor_single_reserved() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, contributor, token_id, _, _) = setup_test(&env);
+    let (client, _admin, maintainer, contributor, token_id, _fee_recipient, _arbiter) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
 
@@ -1432,7 +1464,7 @@ fn test_get_bounties_by_contributor_multiple_bounties() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, maintainer, contributor, token_id, _, _) = setup_test(&env);
+    let (client, _admin, maintainer, contributor, token_id, _fee_recipient, _arbiter) = setup_test(&env);
     let other_contributor = Address::generate(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &5_000);
@@ -1486,7 +1518,30 @@ fn test_get_bounties_by_contributor_includes_released() {
     let env = Env::default();
     env.mock_all_auths();
 
+    let (client, _admin, maintainer, contributor, token_id, _fee_recipient, _arbiter) = setup_test(&env);
+    let token = TokenClient::new(&env, &token_id);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
 
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32,
+        &None,
+    );
+
+    client.reserve_bounty(&bounty_id, &contributor);
+    client.submit_bounty(&bounty_id, &contributor);
+    client.release_bounty(&bounty_id, &maintainer);
+
+    let result = client.get_bounties_by_contributor(&contributor, &1u64, &50u32);
+    assert_eq!(result.len(), 1, "released bounty should appear in contributor history");
+    assert_eq!(result.get(0).unwrap().status, BountyStatus::Released);
 }
 
 // ─── Double-refund after cancel_bounty test (#747) ────────────────────────
@@ -1516,5 +1571,111 @@ fn test_double_refund_after_cancel_bounty() {
 
     // Attempting to refund a canceled (already refunded) bounty should panic
     client.refund_bounty(&bounty_id, &maintainer);
+}
+
+// ─── get_arbiter and get_dispute_window Tests (#758) ──────────────────────
+
+#[test]
+fn test_get_arbiter_returns_initialized_value() {
+    let env = Env::default();
+    let (client, _admin, _, _, _, _fee_recipient, arbiter) = setup_test(&env);
+
+    let result = client.get_arbiter();
+    assert_eq!(result, arbiter, "get_arbiter() should return the arbiter address set during initialize()");
+}
+
+#[test]
+fn test_get_arbiter_matches_initialize_parameter() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, StellarBountyBoardContract);
+    let client = StellarBountyBoardContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let fee_recipient = Address::generate(&env);
+    let arbiter = Address::generate(&env);
+    let dispute_window = 900u64;
+
+    client.initialize(&admin, &fee_recipient, &arbiter, &dispute_window);
+
+    let retrieved_arbiter = client.get_arbiter();
+    assert_eq!(retrieved_arbiter, arbiter, "get_arbiter() should exactly match the arbiter passed to initialize()");
+}
+
+#[test]
+#[should_panic(expected = "not initialized")]
+fn test_get_arbiter_panics_when_not_initialized() {
+    let env = Env::default();
+
+    let contract_id = env.register_contract(None, StellarBountyBoardContract);
+    let client = StellarBountyBoardContractClient::new(&env, &contract_id);
+
+    // Do not call initialize — arbiter storage should be empty
+    client.get_arbiter();
+}
+
+#[test]
+fn test_get_dispute_window_returns_initialized_value() {
+    let env = Env::default();
+    let (client, _, _, _, _, _, _) = setup_test(&env);
+
+    let result = client.get_dispute_window();
+    assert_eq!(result, 600u64, "get_dispute_window() should return the dispute window set during initialize()");
+}
+
+#[test]
+fn test_get_dispute_window_matches_initialize_parameter() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, StellarBountyBoardContract);
+    let client = StellarBountyBoardContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let fee_recipient = Address::generate(&env);
+    let arbiter = Address::generate(&env);
+    let dispute_window = 1800u64;
+
+    client.initialize(&admin, &fee_recipient, &arbiter, &dispute_window);
+
+    let retrieved_window = client.get_dispute_window();
+    assert_eq!(retrieved_window, dispute_window, "get_dispute_window() should exactly match the dispute_window passed to initialize()");
+}
+
+#[test]
+#[should_panic(expected = "not initialized")]
+fn test_get_dispute_window_panics_when_not_initialized() {
+    let env = Env::default();
+
+    let contract_id = env.register_contract(None, StellarBountyBoardContract);
+    let client = StellarBountyBoardContractClient::new(&env, &contract_id);
+
+    // Do not call initialize — dispute window storage should be empty
+    client.get_dispute_window();
+}
+
+#[test]
+fn test_get_arbiter_and_dispute_window_no_auth_required() {
+    let env = Env::default();
+    
+    let contract_id = env.register_contract(None, StellarBountyBoardContract);
+    let client = StellarBountyBoardContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let fee_recipient = Address::generate(&env);
+    let arbiter = Address::generate(&env);
+    let dispute_window = 600u64;
+
+    // Initialize with explicit auth
+    env.mock_all_auths();
+    client.initialize(&admin, &fee_recipient, &arbiter, &dispute_window);
+    
+    // These should succeed despite no auth being provided
+    let retrieved_arbiter = client.get_arbiter();
+    assert_eq!(retrieved_arbiter, arbiter);
+
+    let retrieved_window = client.get_dispute_window();
+    assert_eq!(retrieved_window, dispute_window);
 }
 
