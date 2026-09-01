@@ -1,8 +1,8 @@
-import React, { memo, useEffect, useState, type ReactNode } from "react";
+import React, { memo, type ReactNode } from "react";
 import { statusCopy, actionCopy } from "./constants";
 import { type Bounty } from "./types";
 import BountyCountdown from "./BountyCountdown";
-import { xlmToUsd } from "./utils";
+import CurrencyAmount from "./CurrencyAmount";
 
 /** Props for the BountyAmount sub-component. */
 interface BountyAmountProps {
@@ -14,49 +14,12 @@ interface BountyAmountProps {
  * equivalent for USDC and XLM amounts.
  */
 const BountyAmount = memo(function BountyAmount({ bounty }: BountyAmountProps) {
-  const [usdAmount, setUsdAmount] = useState<string | null>(null);
-
-  useEffect(() => {
-    let active = true;
-
-    if (bounty.tokenSymbol.toUpperCase() === "USDC") {
-      const formatted = new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency: "USD",
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }).format(bounty.amount);
-      setUsdAmount(formatted);
-      return () => {
-        active = false;
-      };
-    }
-
-    if (bounty.tokenSymbol.toUpperCase() !== "XLM") {
-      setUsdAmount(null);
-      return () => {
-        active = false;
-      };
-    }
-
-    setUsdAmount(null);
-    void xlmToUsd(bounty.amount).then((value) => {
-      if (active) {
-        setUsdAmount(value);
-      }
-    });
-
-    return () => {
-      active = false;
-    };
-  }, [bounty.amount, bounty.tokenSymbol]);
-
   return (
     <div className="amount-chip">
       <strong>
         {bounty.amount} {bounty.tokenSymbol}
       </strong>
-      {usdAmount && <span>{usdAmount}</span>}
+      <CurrencyAmount amount={bounty.amount} tokenSymbol={bounty.tokenSymbol} bare />
     </div>
   );
 });

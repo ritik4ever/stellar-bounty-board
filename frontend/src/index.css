@@ -1245,6 +1245,19 @@ select {
   font-weight: 400;
 }
 
+/* Overrides the full-width form `select` so the control sits inline in the
+   header next to the theme toggle. */
+.currency-selector {
+  width: auto;
+  padding: 7px 11px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-family: inherit;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  cursor: pointer;
+}
+
 .status-pill {
   text-transform: capitalize;
   background: rgba(54, 63, 59, 0.08);

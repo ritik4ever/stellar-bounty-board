@@ -2,7 +2,7 @@ import { ReactNode, useState, useCallback, useEffect, useRef, useMemo } from "re
 import { ArrowUpRight, Check, Clock, Copy, Share2, Printer, Star } from "lucide-react";
 import { Bounty, BountyEvent, BountyStatus } from "./types";
 import BountyCountdown from "./BountyCountdown";
-import UsdAmount from "./UsdAmount";
+import CurrencyAmount from "./CurrencyAmount";
 import { updateSocialMetaTags } from "./metaTags";
 import CopyIcon from "./CopyIcons";
 import { extendDeadline } from "./api";
@@ -234,7 +234,7 @@ export default function BountyDetailPage({
               <div className="amount-chip">
                 {bounty.amount} {bounty.tokenSymbol}
                 {(bounty.tokenSymbol === "XLM" || bounty.tokenSymbol === "USDC") && (
-                  <UsdAmount amount={bounty.amount} tokenSymbol={bounty.tokenSymbol} />
+                  <CurrencyAmount amount={bounty.amount} tokenSymbol={bounty.tokenSymbol} />
                 )}
               </div>
             </div>
