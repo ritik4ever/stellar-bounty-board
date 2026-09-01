@@ -12,6 +12,10 @@ import {
   startDisputeAlertJob,
   stopDisputeAlertJob,
 } from "./services/disputeAlertJob";
+import {
+  startRecurringBountyScheduler,
+  stopRecurringBountyScheduler,
+} from "./services/recurringBountySchedules";
 
 const port = Number(process.env.PORT ?? 3001);
 const keepAliveTimeout = Number(process.env.KEEP_ALIVE_TIMEOUT ?? 65000);
@@ -75,6 +79,7 @@ if (process.env.NODE_ENV !== "test") {
   startIndexerWorker();
   startExpirationJob();
   startDisputeAlertJob();
+  startRecurringBountyScheduler();
 }
 
 async function shutdown(signal: string): Promise<void> {
@@ -86,6 +91,7 @@ async function shutdown(signal: string): Promise<void> {
   // Stop background jobs before draining connections
   stopExpirationJob();
   stopDisputeAlertJob();
+  stopRecurringBountyScheduler();
 
   // Stop the indexer worker
   if (indexerWorker) {
