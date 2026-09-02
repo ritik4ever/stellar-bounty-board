@@ -106,6 +106,7 @@ const STATUS_WEIGHTS: Record<BountyStatus, number> = {
   released: 0,
   refunded: 0,
   expired: 0,
+  disputed: 0,
 };
 
 export function calculateRecommendationScore(

@@ -48,7 +48,7 @@ export default function DisconnectConfirmModal({ onConfirm, onClose }: Props) {
     if (e.key !== "Tab") return;
 
     const buttons = [cancelRef.current, confirmRef.current, closeBtnRef.current].filter(
-      (el): el is HTMLElement => Boolean(el),
+      (el): el is HTMLButtonElement => Boolean(el),
     );
 
     if (buttons.length === 0) {

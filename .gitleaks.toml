@@ -4,10 +4,12 @@ title = "Stellar Bounty Board gitleaks config"
 # doesn't fail on expected fixtures and docs. Keep this minimal — if you
 # intentionally commit a real secret, the action should fail.
 
-[[allowlist]]
-description = "Env example placeholders"
-regex = '''your_github_webhook_secret_here|example|EXAMPLE|dummy'''
-
-[[allowlist]]
-description = "Test fixtures and docs (non-secret examples)"
-paths = ["test/**", "docs/**", "**/*.md", "backend/worker/**"]
+[allowlist]
+description = "Global allow list for tests, docs, and placeholders"
+regexes = ['''your_github_webhook_secret_here|example|EXAMPLE|dummy''']
+paths = [
+  '''test/.*''', 
+  '''docs/.*''', 
+  '''.*\.md''', 
+  '''backend/worker/.*'''
+]

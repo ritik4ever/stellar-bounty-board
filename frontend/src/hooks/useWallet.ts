@@ -16,9 +16,11 @@ export function useWallet() {
         return;
       }
 
-      const publicKey = await requestAccess();
-      if (publicKey) {
-        setAddress(publicKey);
+      const response = await requestAccess();
+      if (response && typeof response === 'object' && 'address' in response && typeof response.address === 'string') {
+        setAddress(response.address);
+      } else if (typeof response === 'string') {
+        setAddress(response);
       }
     } catch (error) {
       console.error('Failed to connect to Freighter:', error);
