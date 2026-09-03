@@ -5,6 +5,7 @@ import swaggerUi from 'swagger-ui-express';
 import pinoHttp from 'pino-http';
 import { z } from 'zod';
 
+import { logger } from './logger';
 import { generateOpenApiDocument } from './docs/openapi';
 import { getMetrics, httpRequestDuration } from './metrics';
 import { buildCorsOptions } from './middleware/corsOptions';
@@ -1017,7 +1018,9 @@ app.get('/api/open-issues', async (req: Request, res: Response) => {
     res.set('Cache-Control', 'max-age=600');
     res.json({ data });
   } catch (error) {
-    sendError(res, req, error, 502);
+    const isGitHubError = error instanceof Error && error.message.includes('GitHub API');
+    logger.error(error, `Failed to fetch open issues: ${isGitHubError ? 'Upstream GitHub API error' : 'Internal error'}`);
+    sendError(res, req, error, isGitHubError ? 502 : 500);
   }
 });
 
