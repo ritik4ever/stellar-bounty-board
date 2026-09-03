@@ -110,7 +110,8 @@ export interface BountyRecord {
   /** Stellar address of the maintainer who created the bounty. */
   maintainer: string;
   /** Stellar address of the contributor who reserved/submitted the bounty. */
-  contributor?: string;
+  contributor?: string;  contributor?: string;
+  maintainer?: string;
   /** Payment token symbol (e.g., XLM, USDC). */
   tokenSymbol: string;
   /** Resolved payment token contract address. */
