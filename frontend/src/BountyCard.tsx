@@ -88,6 +88,15 @@ export interface BountyCardProps {
   isLoadingMore?: boolean;
   /** Called when the user scrolls near the end of the list. */
   onLoadMore?: () => void;
+  /**
+   * Optional multi-select control (#829). When provided, a checkbox is
+   * rendered on the card so the maintainer can select several bounties and
+   * run a bulk release/refund from the toolbar.
+   */
+  selection?: {
+    selected: boolean;
+    onToggle: () => void;
+  };
 }
 
 /** Truncate a Stellar public key to a short display form. */
@@ -127,6 +136,7 @@ const BountyCard = memo(function BountyCard({
   hasMore = false,
   isLoadingMore = false,
   onLoadMore,
+  selection,
 }: BountyCardProps) {
   const cardRef = useRef<HTMLElement | null>(null);
   const isLoadingMoreRef = useRef(isLoadingMore);
@@ -162,9 +172,9 @@ const BountyCard = memo(function BountyCard({
   return (
     <article
       className="bounty-card"
-      tabIndex=0
+      tabIndex={0}
       ref={cardRef}
-      aria-label={Bounty: ${bounty.title}. Press Enter or Space to open details.`.}
+      aria-label={`Bounty: ${bounty.title}. Press Enter or Space to open details.`}
       onClick={(event) => {
         if (isInteractiveTarget(event.target) && event.target !== event.currentTarget) return;
         openCard();
@@ -176,11 +186,24 @@ const BountyCard = memo(function BountyCard({
           openCard();
         }
       }}
-    ~
+    >
       <div className="bounty-card__top">
         <div>
+          {selection && (
+            <label
+              className="bounty-card__select"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <input
+                type="checkbox"
+                checked={selection.selected}
+                onChange={selection.onToggle}
+                aria-label={`Select ${bounty.id} for bulk action`}
+              />
+            </label>
+          )}
           <span
-            className={status-pill status-pill--${bounty.status}`}
+            className={`status-pill status-pill--${bounty.status}`}
             title={statusCopy[bounty.status].label}
           >
             {statusCopy[bounty.status].label}
@@ -198,7 +221,7 @@ const BountyCard = memo(function BountyCard({
           <strong>
             <a
               className="inline-link"
-              href={https://github.com/${bounty.repo}/issues/${bounty.issueNumber}`}
+              href={`https://github.com/${bounty.repo}/issues/${bounty.issueNumber}`}
               target="_blank"
               rel="noreferrer"
             >

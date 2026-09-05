@@ -3,6 +3,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import { randomUUID, createHash } from 'node:crypto';
 import swaggerUi from 'swagger-ui-express';
 import pinoHttp from 'pino-http';
+import { z } from 'zod';
 
 import { generateOpenApiDocument } from './docs/openapi';
 import { getMetrics, httpRequestDuration } from './metrics';
@@ -42,6 +43,7 @@ import {
   extendDeadlineSchema,
   resolveDisputeBountySchema,
   maintainerActionSchema,
+  bulkActionSchema,
   reserveBountySchema,
   submitBountySchema,
   updateNotesSchema,
@@ -67,6 +69,14 @@ import { logger } from './logger';
 import { createAdminApiKeyAuthMiddleware } from './middleware/adminAuth';
 import { handleGitHubPrEvent } from './webhooks/githubPrHandler';
 import { draining } from './shutdown';
+import { applyBountyTemplate, listBountyTemplates } from './services/bountyTemplates';
+import { csvRowToBounty, parseBountyCsv } from './services/csvImport';
+import {
+  cancelRecurringSchedule,
+  createRecurringSchedule,
+  listRecurringSchedules,
+  type ScheduleCadence,
+} from './services/recurringBountySchedules';
 
 
 const INCOMING_REQUEST_ID = /^[a-zA-Z0-9-]{1,128}$/;
@@ -333,6 +343,130 @@ app.get('/api/bounties/by-issue', (req: Request, res: Response) => {
   return res.json({ data: found });
 });
 
+app.get('/api/bounties/search', (req: Request, res: Response) => {
+  try {
+    const query = typeof req.query.q === 'string' ? req.query.q.trim().toLowerCase() : '';
+    const page = parsePaginationValue(req.query.page, 'page', 1, 1);
+    const pageSize = parsePaginationValue(req.query.pageSize, 'pageSize', 20, 1, 100);
+    if (!query) {
+      res.json({ data: [], total: 0, page, pageSize, hasMore: false });
+      return;
+    }
+
+    const ranked = listBounties()
+      .map((bounty) => {
+        const title = bounty.title.toLowerCase();
+        const summary = bounty.summary.toLowerCase();
+        const repo = bounty.repo.toLowerCase();
+        const score = title.includes(query) ? 3 : repo.includes(query) ? 2 : summary.includes(query) ? 1 : 0;
+        return { bounty, score };
+      })
+      .filter(({ score }) => score > 0)
+      .sort((a, b) => b.score - a.score || b.bounty.createdAt - a.bounty.createdAt)
+      .map(({ bounty }) => bounty);
+    const total = ranked.length;
+    const start = (page - 1) * pageSize;
+    const data = ranked.slice(start, start + pageSize);
+    res.setHeader('X-Total-Count', String(total));
+    res.json({ data, total, page, pageSize, hasMore: start + data.length < total });
+  } catch (error) {
+    sendError(res, req, error);
+  }
+});
+
+app.get('/api/bounty-templates', (_req: Request, res: Response) => {
+  res.json({ data: listBountyTemplates() });
+});
+
+const adminAuth = createAdminApiKeyAuthMiddleware();
+
+app.post(
+  '/api/bounties/import',
+  mutationLimiter,
+  adminAuth,
+  express.text({ type: ['text/csv', 'application/csv'], limit: '1mb' }),
+  async (req: Request, res: Response) => {
+    if (typeof req.body !== 'string') {
+      jsonError(res, req, 415, 'Content-Type must be text/csv or application/csv.');
+      return;
+    }
+    try {
+      const rows = parseBountyCsv(req.body);
+      const results: Array<{ row: number; id?: string; errors?: string[] }> = [];
+      for (let index = 0; index < rows.length; index += 1) {
+        const csvError = rows[index].__csvError;
+        if (csvError) {
+          results.push({ row: index + 2, errors: [csvError] });
+          continue;
+        }
+        const candidate = applyBountyTemplate(csvRowToBounty(rows[index]));
+        const parsed = createBountySchema.safeParse(candidate);
+        if (!parsed.success) {
+          results.push({ row: index + 2, errors: parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`) });
+          continue;
+        }
+        const amountError = validateBountyAmount(parsed.data.amount);
+        if (amountError) {
+          results.push({ row: index + 2, errors: [amountError] });
+          continue;
+        }
+        try {
+          const bounty = await createBounty(parsed.data);
+          results.push({ row: index + 2, id: bounty.id });
+        } catch (error) {
+          results.push({ row: index + 2, errors: [error instanceof Error ? error.message : 'Unexpected error'] });
+        }
+      }
+      const created = results.filter((result) => result.id).length;
+      res.status(201).json({ data: results, created, failed: results.length - created, total: results.length });
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  }
+);
+
+const recurringScheduleSchema = z.object({
+  cadence: z.enum(['daily', 'weekly', 'monthly']),
+  templateId: z.string().trim().min(1),
+  targetRepo: z.string().trim().regex(/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/),
+  bounty: z.record(z.unknown()),
+  startAt: z.number().int().positive().optional(),
+});
+
+app.get('/api/recurring-bounty-schedules', adminAuth, (_req: Request, res: Response) => {
+  res.json({ data: listRecurringSchedules() });
+});
+
+app.post('/api/recurring-bounty-schedules', mutationLimiter, requireJsonContentType, adminAuth, async (req: Request, res: Response) => {
+  try {
+    const request = recurringScheduleSchema.parse(req.body);
+    const merged = createBountySchema.parse(applyBountyTemplate({
+      templateId: request.templateId,
+      ...request.bounty,
+      repo: request.targetRepo,
+    }));
+    const { repo: _repo, ...bounty } = merged;
+    const schedule = createRecurringSchedule({
+      cadence: request.cadence as ScheduleCadence,
+      templateId: request.templateId,
+      targetRepo: request.targetRepo,
+      bounty,
+      startAt: request.startAt,
+    });
+    res.status(201).json({ data: schedule });
+  } catch (error) {
+    sendError(res, req, error);
+  }
+});
+
+app.delete('/api/recurring-bounty-schedules/:id', mutationLimiter, adminAuth, (req: Request, res: Response) => {
+  try {
+    res.json({ data: cancelRecurringSchedule(parseId(req.params.id)) });
+  } catch (error) {
+    sendError(res, req, error, error instanceof Error && error.message.includes('not found') ? 404 : 400);
+  }
+});
+
 app.get('/api/bounties', async (req: Request, res: Response) => {
   try {
     const q = typeof req.query.q === 'string' ? req.query.q : undefined;
@@ -558,6 +692,14 @@ app.post(
   requireJsonContentType,
   maintainerLimiter,
   createBountyCreationSignatureMiddleware(),
+  (req: Request, res: Response, next: NextFunction) => {
+    try {
+      req.body = applyBountyTemplate(req.body);
+      next();
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  },
   validateBody(createBountySchema),
   async (req: Request, res: Response) => {
     const amountError = validateBountyAmount(req.body.amount);
@@ -645,6 +787,72 @@ app.post(
     } catch (error) {
       sendError(res, req, error);
     }
+  }
+);
+
+/**
+ * POST /api/bounties/bulk-action  (#829)
+ *
+ * Admin-only endpoint that applies a single maintainer transition
+ * (`release` or `refund`) to a list of bounty IDs in one request.
+ *
+ * Each bounty is processed independently: a failure on one item (unknown ID,
+ * wrong maintainer, already finalized, invalid status, ...) is recorded per
+ * item and does NOT abort the remaining items. The response always contains a
+ * per-item `results` array so callers can surface partial success/failure.
+ *
+ * Requires the admin API key (`x-admin-api-key` header) just like the
+ * audit-log endpoint; the admin key replaces the per-item Stellar signature
+ * required by the single-bounty endpoints.
+ */
+app.post(
+  '/api/bounties/bulk-action',
+  mutationLimiter,
+  requireJsonContentType,
+  createAdminApiKeyAuthMiddleware(),
+  validateBody(bulkActionSchema),
+  async (req: Request, res: Response) => {
+    const { action, bountyIds, maintainer, transactionHash } = req.body as {
+      action: 'release' | 'refund';
+      bountyIds: string[];
+      maintainer: string;
+      transactionHash?: string;
+    };
+
+    const results: Array<{
+      bountyId: string;
+      success: boolean;
+      status?: string;
+      error?: string;
+    }> = [];
+
+    for (const bountyId of bountyIds) {
+      try {
+        const bounty =
+          action === 'release'
+            ? await releaseBounty(bountyId, maintainer, transactionHash)
+            : await refundBounty(bountyId, maintainer, transactionHash);
+
+        results.push({ bountyId, success: true, status: bounty.status });
+      } catch (error) {
+        results.push({
+          bountyId,
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error.',
+        });
+      }
+    }
+
+    const succeeded = results.filter((result) => result.success).length;
+
+    res.json({
+      data: {
+        action,
+        results,
+        succeeded,
+        failed: results.length - succeeded,
+      },
+    });
   }
 );
 

@@ -25,6 +25,8 @@ import {
   refundBountySigned,
   reserveBounty,
   submitBounty,
+  bulkBountyAction,
+  type BulkActionResult,
 } from "./api";
 import { useFreighter } from "./hooks/useFreighter";
 import FreighterConnectButton from "./components/FreighterConnectButton";
@@ -117,6 +119,11 @@ function formatTimestamp(value?: number): string {
   return new Date(value * 1000).toLocaleString();
 }
 
+/** Extract the GitHub owner segment from an "owner/repo" string. */
+function repoOwner(repo: string): string {
+  return repo.split("/")[0] ?? "";
+}
+
 function App() {
   const { dark, toggle: toggleDark } = useDarkMode();
   const freighter = useFreighter();
@@ -184,6 +191,17 @@ function App() {
   const [submissionModalSubmitting, setSubmissionModalSubmitting] = useState(false);
   const [submissionModalError, setSubmissionModalError] = useState<string | null>(null);
   const submissionReturnFocusRef = useRef<HTMLElement | null>(null);
+
+  // #829 — maintainer bulk-actions (multi-select release/refund)
+  const [selectedBountyIds, setSelectedBountyIds] = useState<string[]>([]);
+  const [bulkRunning, setBulkRunning] = useState(false);
+  const [bulkResults, setBulkResults] = useState<BulkActionResult[] | null>(null);
+
+  const toggleBountySelection = useCallback((id: string) => {
+    setSelectedBountyIds((prev) =>
+      prev.includes(id) ? prev.filter((selected) => selected !== id) : [...prev, id]
+    );
+  }, []);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     const [bountyData, issueData] = await Promise.all([
@@ -452,6 +470,63 @@ function App() {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to refund bounty.";
       toast.error(message);
+    }
+  }
+
+  /**
+   * #829 — run a bulk release/refund over every selected bounty via the
+   * admin bulk-action endpoint. The backend processes each item
+   * independently, so we surface per-item success/failure results and never
+   * lose successful items because another one failed.
+   */
+  async function handleBulkAction(action: "release" | "refund") {
+    if (selectedBountyIds.length === 0 || bulkRunning) return;
+
+    // The bulk endpoint authorizes via the admin API key and validates the
+    // maintainer address against each bounty, exactly like the single
+    // release/refund endpoints validate `maintainer`.
+    let maintainer =
+      freighter.isConnected && freighter.publicKey ? freighter.publicKey : "";
+    if (!maintainer) {
+      maintainer =
+        window.prompt(
+          "Maintainer Stellar address (G...) used to authorize these bulk actions:"
+        ) ?? "";
+      if (!maintainer.trim()) return;
+      maintainer = maintainer.trim();
+      if (!validateStellarPublicKey(maintainer)) {
+        toast.error("Enter a Stellar public key (starts with 'G', 56 characters)");
+        return;
+      }
+    }
+
+    const adminKey = (window.prompt("Admin API key for bulk actions:") ?? "").trim();
+    if (!adminKey) {
+      toast.error("An admin API key is required for bulk actions.");
+      return;
+    }
+
+    setBulkRunning(true);
+    setBulkResults(null);
+    try {
+      const data = await bulkBountyAction(action, selectedBountyIds, maintainer, adminKey);
+      setBulkResults(data.results);
+      await refresh();
+      setSelectedBountyIds([]);
+
+      const verb = action === "release" ? "released" : "refunded";
+      if (data.failed === 0) {
+        toast.success(`${data.succeeded} bounty(ies) ${verb} successfully.`);
+      } else {
+        toast.error(
+          `Bulk ${action} finished: ${data.succeeded} succeeded, ${data.failed} failed. See the results panel for details.`
+        );
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Bulk action failed.";
+      toast.error(message);
+    } finally {
+      setBulkRunning(false);
     }
   }
 
@@ -758,6 +833,71 @@ function App() {
         <ContributorDashboard bounties={bounties} loading={loading} />
 
         <section className="board-section">
+          {(selectedBountyIds.length > 0 || bulkResults) && (
+            <div
+              className="bulk-toolbar"
+              role="toolbar"
+              aria-label="Bulk actions for selected bounties"
+            >
+              {selectedBountyIds.length > 0 ? (
+                <>
+                  <span className="bulk-toolbar__count" aria-live="polite">
+                    {selectedBountyIds.length} selected
+                  </span>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={bulkRunning}
+                    onClick={() => void handleBulkAction("release")}
+                  >
+                    {bulkRunning ? "Processing..." : "Release selected"}
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    disabled={bulkRunning}
+                    onClick={() => void handleBulkAction("refund")}
+                  >
+                    {bulkRunning ? "Processing..." : "Refund selected"}
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    disabled={bulkRunning}
+                    onClick={() => setSelectedBountyIds([])}
+                  >
+                    Clear selection
+                  </button>
+                </>
+              ) : (
+                <span className="bulk-toolbar__count">
+                  No bounties selected — tick checkboxes on bounty cards to select.
+                </span>
+              )}
+
+              {bulkResults && bulkResults.length > 0 && (
+                <div className="bulk-results" aria-live="polite">
+                  <h4>Last bulk action results</h4>
+                  <ul>
+                    {bulkResults.map((result) => (
+                      <li
+                        key={result.bountyId}
+                        className={
+                          result.success ? "bulk-result--success" : "bulk-result--failure"
+                        }
+                      >
+                        <strong>{result.bountyId}</strong>:{" "}
+                        {result.success
+                          ? `Success (${result.status ?? "updated"})`
+                          : `Failed — ${result.error ?? "Unknown error"}`}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="board-filters">
             <div className="search-box">
               <Search size={18} />
@@ -801,6 +941,16 @@ function App() {
                         bounty={bounty}
                         onOpen={handleOpenBounty}
                         renderActionButton={renderActionButton}
+                        selection={
+                          freighter.isConnected && freighter.publicKey
+                            ? bounty.status !== "released" && bounty.status !== "refunded"
+                              ? {
+                                  selected: selectedBountyIds.includes(bounty.id),
+                                  onToggle: () => toggleBountySelection(bounty.id),
+                                }
+                              : undefined
+                            : undefined
+                        }
                       />
                     ))}
                   </div>

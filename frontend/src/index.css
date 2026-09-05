@@ -2485,3 +2485,65 @@ select {
   .lo-table__cell { padding: 4px 0; display: flex; flex-direction: column; gap: 2px; }
   .lo-table__cell::before { content: attr(data-label); font-family: "IBM Plex Mono", monospace; text-transform: uppercase; font-size: 10px; color: var(--muted); letter-spacing: 0.06em; }
 }
+
+/* #829 — maintainer bulk-actions toolbar & per-item results */
+.bulk-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: 10px;
+  background: var(--surface, #f6f8fa);
+}
+
+.bulk-toolbar__count {
+  font-weight: 600;
+  margin-right: 0.5rem;
+}
+
+.bulk-toolbar button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.bounty-card__select {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 0.5rem;
+  cursor: pointer;
+}
+
+.bounty-card__select input[type="checkbox"] {
+  width: 1.05rem;
+  height: 1.05rem;
+  cursor: pointer;
+  accent-color: var(--accent, #7c3aed);
+}
+
+.bulk-results {
+  width: 100%;
+  margin-top: 0.75rem;
+}
+
+.bulk-results h4 {
+  margin: 0 0 0.5rem;
+}
+
+.bulk-results ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.bulk-result--success {
+  color: var(--success, #1a7f37);
+}
+
+.bulk-result--failure {
+  color: var(--danger, #cf222e);
+}

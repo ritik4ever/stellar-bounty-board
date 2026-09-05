@@ -42,6 +42,12 @@ const UNDOCUMENTED_ROUTES = new Set([
   'GET /api/bounties/:id',
   // GitHub webhook — internal integration endpoint
   'POST /api/webhooks/github',
+  // Maintainer bulk release/refund — admin-only (#829)
+  'POST /api/bounties/bulk-action',
+  // Dispute resolution — undocumented internal endpoint
+  'POST /api/bounties/:id/resolve-dispute',
+  // Public runtime config — undocumented internal endpoint
+  'GET /api/config',
   // Bounty dispute — undocumented
   'POST /api/bounties/:id/dispute',
   // Extend deadline — undocumented

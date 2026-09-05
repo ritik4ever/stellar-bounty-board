@@ -203,6 +203,13 @@ exports[`OpenAPI spec snapshot test > generated OpenAPI spec matches snapshot 1`
             "example": 1911000000,
             "type": "number",
           },
+          "disputeReason": {
+            "type": "string",
+          },
+          "disputedAt": {
+            "example": 1710010800,
+            "type": "number",
+          },
           "events": {
             "items": {
               "properties": {
@@ -262,6 +269,11 @@ exports[`OpenAPI spec snapshot test > generated OpenAPI spec matches snapshot 1`
           "notes": {
             "type": "string",
           },
+          "protocolFeeCollected": {
+            "description": "Protocol fee collected when this bounty was released (in token units).",
+            "example": 0,
+            "type": "number",
+          },
           "refundedAt": {
             "type": "number",
           },
@@ -296,6 +308,7 @@ exports[`OpenAPI spec snapshot test > generated OpenAPI spec matches snapshot 1`
               "released",
               "refunded",
               "expired",
+              "disputed",
             ],
             "example": "open",
             "type": "string",
@@ -578,7 +591,25 @@ exports[`OpenAPI spec snapshot test > generated OpenAPI spec matches snapshot 1`
         "type": "object",
       },
       "HealthResponse": {
-        "properties": {},
+        "properties": {
+          "service": {
+            "example": "stellar-bounty-board-backend",
+            "type": "string",
+          },
+          "status": {
+            "example": "ok",
+            "type": "string",
+          },
+          "timestamp": {
+            "example": "2026-03-24T19:00:00.000Z",
+            "type": "string",
+          },
+        },
+        "required": [
+          "service",
+          "status",
+          "timestamp",
+        ],
         "type": "object",
       },
       "LeaderboardEntry": {
@@ -668,6 +699,66 @@ exports[`OpenAPI spec snapshot test > generated OpenAPI spec matches snapshot 1`
         ],
         "type": "object",
       },
+      "PublicConfig": {
+        "properties": {
+          "defaultReservationTtlSeconds": {
+            "description": "Default reservation TTL in seconds (7 days = 604800). After this window a reservation returns to open.",
+            "example": 604800,
+            "exclusiveMinimum": 0,
+            "type": "integer",
+          },
+          "disputeWindowSeconds": {
+            "description": "Seconds that must elapse after a dispute is raised before an arbiter can resolve it.",
+            "example": 86400,
+            "minimum": 0,
+            "type": "integer",
+          },
+          "feeBps": {
+            "description": "Protocol fee in basis points (250 = 2.5%). 0 means no protocol fee.",
+            "example": 250,
+            "maximum": 10000,
+            "minimum": 0,
+            "type": "integer",
+          },
+          "maxBountyAmount": {
+            "description": "Maximum allowed bounty amount in the payment token.",
+            "example": 10000,
+            "exclusiveMinimum": 0,
+            "type": "number",
+          },
+          "minBountyAmount": {
+            "description": "Minimum allowed bounty amount in the payment token.",
+            "example": 1,
+            "exclusiveMinimum": 0,
+            "type": "number",
+          },
+          "network": {
+            "description": "Stellar network the backend is connected to (mainnet, testnet, or futurenet).",
+            "example": "testnet",
+            "type": "string",
+          },
+          "supportedTokens": {
+            "additionalProperties": {
+              "type": "string",
+            },
+            "description": "Allowed token symbols mapped to their Soroban contract addresses.",
+            "example": {
+              "XLM": "CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA",
+            },
+            "type": "object",
+          },
+        },
+        "required": [
+          "feeBps",
+          "disputeWindowSeconds",
+          "minBountyAmount",
+          "maxBountyAmount",
+          "supportedTokens",
+          "defaultReservationTtlSeconds",
+          "network",
+        ],
+        "type": "object",
+      },
       "ReserveBountyRequest": {
         "properties": {
           "contributor": {
@@ -683,6 +774,31 @@ exports[`OpenAPI spec snapshot test > generated OpenAPI spec matches snapshot 1`
         },
         "required": [
           "contributor",
+        ],
+        "type": "object",
+      },
+      "ResolveDisputeBountyRequest": {
+        "properties": {
+          "arbiter": {
+            "description": "Stellar public key of the arbiter resolving the dispute.",
+            "example": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            "type": "string",
+          },
+          "release": {
+            "description": "Whether the arbiter resolves the dispute in favor of the contributor.",
+            "example": true,
+            "type": "boolean",
+          },
+          "transactionHash": {
+            "description": "Optional transaction hash for the resolution payout.",
+            "example": "0000000000000000000000000000000000000000000000000000000000000000",
+            "pattern": "^[0-9a-fA-F]{64}$",
+            "type": "string",
+          },
+        },
+        "required": [
+          "arbiter",
+          "release",
         ],
         "type": "object",
       },
@@ -934,7 +1050,7 @@ Maintainers may \`cancel\` an \`open\` bounty before reservation, or \`refund\` 
             "required": false,
             "schema": {
               "description": "Filter bounties with deadline before this ISO 8601 date string.",
-              "example": "2026-08-26T16:01:06.327Z",
+              "example": "2026-12-31T23:59:59.000Z",
               "type": "string",
             },
           },
@@ -944,7 +1060,7 @@ Maintainers may \`cancel\` an \`open\` bounty before reservation, or \`refund\` 
             "required": false,
             "schema": {
               "description": "Filter bounties with deadline after this ISO 8601 date string.",
-              "example": "2026-07-27T16:01:06.328Z",
+              "example": "2026-01-01T00:00:00.000Z",
               "type": "string",
             },
           },
@@ -1236,6 +1352,184 @@ Maintainers may \`cancel\` an \`open\` bounty before reservation, or \`refund\` 
         ],
       },
     },
+    "/api/bounties/import": {
+      "post": {
+        "description": "Admin-only CSV import. Validation failures are reported per data row.",
+        "requestBody": {
+          "content": {
+            "text/csv": {
+              "schema": {
+                "type": "string",
+              },
+            },
+          },
+          "required": true,
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "created": {
+                      "type": "integer",
+                    },
+                    "data": {
+                      "items": {
+                        "properties": {
+                          "errors": {
+                            "items": {
+                              "type": "string",
+                            },
+                            "type": "array",
+                          },
+                          "id": {
+                            "type": "string",
+                          },
+                          "row": {
+                            "type": "integer",
+                          },
+                        },
+                        "required": [
+                          "row",
+                        ],
+                        "type": "object",
+                      },
+                      "type": "array",
+                    },
+                    "failed": {
+                      "type": "integer",
+                    },
+                    "total": {
+                      "type": "integer",
+                    },
+                  },
+                  "required": [
+                    "data",
+                    "created",
+                    "failed",
+                    "total",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Import summary.",
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                },
+              },
+            },
+            "description": "Admin authentication required.",
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                },
+              },
+            },
+            "description": "A CSV content type is required.",
+          },
+        },
+        "summary": "Import bounties from CSV",
+        "tags": [
+          "Admin",
+        ],
+      },
+    },
+    "/api/bounties/search": {
+      "get": {
+        "description": "Free-text search across title, repository, and description, ranked in that order.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "type": "string",
+            },
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "minimum": 1,
+              "type": "integer",
+            },
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": false,
+            "schema": {
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer",
+            },
+          },
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/BountyRecord",
+                      },
+                      "type": "array",
+                    },
+                    "hasMore": {
+                      "type": "boolean",
+                    },
+                    "page": {
+                      "type": "integer",
+                    },
+                    "pageSize": {
+                      "type": "integer",
+                    },
+                    "total": {
+                      "type": "integer",
+                    },
+                  },
+                  "required": [
+                    "data",
+                    "total",
+                    "page",
+                    "pageSize",
+                    "hasMore",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Ranked, paginated search results.",
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                },
+              },
+            },
+            "description": "Invalid pagination parameters.",
+          },
+        },
+        "summary": "Search bounties",
+        "tags": [
+          "Bounties",
+        ],
+      },
+    },
     "/api/bounties/{id}/audit-log": {
       "get": {
         "description": "Returns ordered status transition history for a bounty. Use \`page\` (default 1) and \`pageSize\` (1-100, default 20) for pagination.",
@@ -1431,6 +1725,65 @@ Maintainers may \`cancel\` an \`open\` bounty before reservation, or \`refund\` 
         ],
       },
     },
+    "/api/bounties/{id}/resolve-dispute": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "example": "BNT-0001",
+              "type": "string",
+            },
+          },
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveDisputeBountyRequest",
+              },
+            },
+          },
+          "required": true,
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/BountyRecord",
+                    },
+                  },
+                  "required": [
+                    "data",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Dispute resolved.",
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                },
+              },
+            },
+            "description": "Bounty is not disputed or the resolution is invalid.",
+          },
+        },
+        "summary": "Resolve a bounty dispute",
+        "tags": [
+          "Bounties",
+        ],
+      },
+    },
     "/api/bounties/{id}/submit": {
       "post": {
         "description": "Transitions a \`reserved\` bounty to \`submitted\` by attaching a submission URL. The \`contributor\` field must exactly match the address that reserved the bounty. Rate-limited to **5 requests per IP per minute**.",
@@ -1488,6 +1841,113 @@ Maintainers may \`cancel\` an \`open\` bounty before reservation, or \`refund\` 
         "summary": "Submit work for a bounty",
         "tags": [
           "Bounties",
+        ],
+      },
+    },
+    "/api/bounty-templates": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "properties": {
+                          "amount": {
+                            "type": "number",
+                          },
+                          "deadlineDays": {
+                            "type": "integer",
+                          },
+                          "id": {
+                            "type": "string",
+                          },
+                          "labels": {
+                            "items": {
+                              "type": "string",
+                            },
+                            "type": "array",
+                          },
+                          "name": {
+                            "type": "string",
+                          },
+                          "tokenSymbol": {
+                            "type": "string",
+                          },
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "amount",
+                          "labels",
+                          "deadlineDays",
+                          "tokenSymbol",
+                        ],
+                        "type": "object",
+                      },
+                      "type": "array",
+                    },
+                  },
+                  "required": [
+                    "data",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Available bounty presets.",
+          },
+        },
+        "summary": "List bounty templates",
+        "tags": [
+          "Bounties",
+        ],
+      },
+    },
+    "/api/config": {
+      "get": {
+        "description": "Returns non-sensitive runtime values that the frontend and contract-interaction layer need to stay in sync with the backend without hardcoding anything.
+
+**Included:** fee bps, dispute window, min/max bounty amounts, supported token addresses, default reservation TTL, and network label.
+
+**Never included:** API keys, database connection strings, webhook secrets, maintainer public keys, or any other internal-only setting.
+
+Response is cached with \`Cache-Control: public, max-age=300\` (5 min) since these values rarely change.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/PublicConfig",
+                    },
+                  },
+                  "required": [
+                    "data",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Public runtime configuration.",
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                },
+              },
+            },
+            "description": "Failed to build configuration.",
+          },
+        },
+        "summary": "Public runtime configuration",
+        "tags": [
+          "System",
         ],
       },
     },
@@ -1604,6 +2064,351 @@ Maintainers may \`cancel\` an \`open\` bounty before reservation, or \`refund\` 
         "summary": "List open feature requests",
         "tags": [
           "Open Issues",
+        ],
+      },
+    },
+    "/api/recurring-bounty-schedules": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "properties": {
+                          "active": {
+                            "type": "boolean",
+                          },
+                          "bounty": {
+                            "additionalProperties": {},
+                            "type": "object",
+                          },
+                          "cadence": {
+                            "enum": [
+                              "daily",
+                              "weekly",
+                              "monthly",
+                            ],
+                            "type": "string",
+                          },
+                          "createdAt": {
+                            "type": "integer",
+                          },
+                          "createdBountyIds": {
+                            "items": {
+                              "type": "string",
+                            },
+                            "type": "array",
+                          },
+                          "id": {
+                            "format": "uuid",
+                            "type": "string",
+                          },
+                          "lastRunAt": {
+                            "type": "integer",
+                          },
+                          "nextRunAt": {
+                            "type": "integer",
+                          },
+                          "targetRepo": {
+                            "type": "string",
+                          },
+                          "templateId": {
+                            "type": "string",
+                          },
+                        },
+                        "required": [
+                          "id",
+                          "cadence",
+                          "templateId",
+                          "targetRepo",
+                          "bounty",
+                          "active",
+                          "createdAt",
+                          "nextRunAt",
+                          "createdBountyIds",
+                        ],
+                        "type": "object",
+                      },
+                      "type": "array",
+                    },
+                  },
+                  "required": [
+                    "data",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Recurring schedules.",
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                },
+              },
+            },
+            "description": "Admin authentication required.",
+          },
+        },
+        "summary": "List recurring bounty schedules",
+        "tags": [
+          "Admin",
+        ],
+      },
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "bounty": {
+                    "additionalProperties": {},
+                    "type": "object",
+                  },
+                  "cadence": {
+                    "enum": [
+                      "daily",
+                      "weekly",
+                      "monthly",
+                    ],
+                    "type": "string",
+                  },
+                  "startAt": {
+                    "exclusiveMinimum": 0,
+                    "type": "integer",
+                  },
+                  "targetRepo": {
+                    "type": "string",
+                  },
+                  "templateId": {
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "cadence",
+                  "templateId",
+                  "targetRepo",
+                  "bounty",
+                ],
+                "type": "object",
+              },
+            },
+          },
+          "required": true,
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "properties": {
+                        "active": {
+                          "type": "boolean",
+                        },
+                        "bounty": {
+                          "additionalProperties": {},
+                          "type": "object",
+                        },
+                        "cadence": {
+                          "enum": [
+                            "daily",
+                            "weekly",
+                            "monthly",
+                          ],
+                          "type": "string",
+                        },
+                        "createdAt": {
+                          "type": "integer",
+                        },
+                        "createdBountyIds": {
+                          "items": {
+                            "type": "string",
+                          },
+                          "type": "array",
+                        },
+                        "id": {
+                          "format": "uuid",
+                          "type": "string",
+                        },
+                        "lastRunAt": {
+                          "type": "integer",
+                        },
+                        "nextRunAt": {
+                          "type": "integer",
+                        },
+                        "targetRepo": {
+                          "type": "string",
+                        },
+                        "templateId": {
+                          "type": "string",
+                        },
+                      },
+                      "required": [
+                        "id",
+                        "cadence",
+                        "templateId",
+                        "targetRepo",
+                        "bounty",
+                        "active",
+                        "createdAt",
+                        "nextRunAt",
+                        "createdBountyIds",
+                      ],
+                      "type": "object",
+                    },
+                  },
+                  "required": [
+                    "data",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Schedule created.",
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                },
+              },
+            },
+            "description": "Invalid schedule.",
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                },
+              },
+            },
+            "description": "Admin authentication required.",
+          },
+        },
+        "summary": "Create a recurring bounty schedule",
+        "tags": [
+          "Admin",
+        ],
+      },
+    },
+    "/api/recurring-bounty-schedules/{id}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string",
+            },
+          },
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "properties": {
+                        "active": {
+                          "type": "boolean",
+                        },
+                        "bounty": {
+                          "additionalProperties": {},
+                          "type": "object",
+                        },
+                        "cadence": {
+                          "enum": [
+                            "daily",
+                            "weekly",
+                            "monthly",
+                          ],
+                          "type": "string",
+                        },
+                        "createdAt": {
+                          "type": "integer",
+                        },
+                        "createdBountyIds": {
+                          "items": {
+                            "type": "string",
+                          },
+                          "type": "array",
+                        },
+                        "id": {
+                          "format": "uuid",
+                          "type": "string",
+                        },
+                        "lastRunAt": {
+                          "type": "integer",
+                        },
+                        "nextRunAt": {
+                          "type": "integer",
+                        },
+                        "targetRepo": {
+                          "type": "string",
+                        },
+                        "templateId": {
+                          "type": "string",
+                        },
+                      },
+                      "required": [
+                        "id",
+                        "cadence",
+                        "templateId",
+                        "targetRepo",
+                        "bounty",
+                        "active",
+                        "createdAt",
+                        "nextRunAt",
+                        "createdBountyIds",
+                      ],
+                      "type": "object",
+                    },
+                  },
+                  "required": [
+                    "data",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Schedule cancelled.",
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                },
+              },
+            },
+            "description": "Admin authentication required.",
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                },
+              },
+            },
+            "description": "Schedule not found.",
+          },
+        },
+        "summary": "Cancel a recurring bounty schedule",
+        "tags": [
+          "Admin",
         ],
       },
     },

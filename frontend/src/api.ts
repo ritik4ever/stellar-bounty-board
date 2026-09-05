@@ -395,6 +395,50 @@ export async function refundBounty(
   return body.data;
 }
 
+/** Per-item outcome for a bulk release/refund action (#829). */
+export type BulkActionResult = {
+  bountyId: string;
+  success: boolean;
+  status?: string;
+  error?: string;
+};
+
+export type BulkActionResponse = {
+  action: 'release' | 'refund';
+  results: BulkActionResult[];
+  succeeded: number;
+  failed: number;
+};
+
+/**
+ * Apply a maintainer `release` or `refund` transition to many bounties in one
+ * admin-authenticated request. The backend processes each bounty
+ * independently and returns per-item results, so partial failures never hide
+ * partial successes.
+ *
+ * @param adminKey Raw admin API key, sent via the `x-admin-api-key` header.
+ */
+export async function bulkBountyAction(
+  action: 'release' | 'refund',
+  bountyIds: string[],
+  maintainer: string,
+  adminKey: string,
+  transactionHash?: string
+): Promise<BulkActionResponse> {
+  const body = await requestJson<{ data: BulkActionResponse }>('/bounties/bulk-action', {
+    method: 'POST',
+    retry: false,
+    retryLabel: 'Bulk action',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-admin-api-key': adminKey,
+    },
+    body: JSON.stringify({ action, bountyIds, maintainer, transactionHash }),
+  });
+
+  return body.data;
+}
+
 /**
  * Extend a bounty's deadline. `newDeadline` is a Unix timestamp in seconds and
  * must be in the future and later than the current deadline (enforced server-side).

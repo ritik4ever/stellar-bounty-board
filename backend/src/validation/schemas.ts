@@ -406,6 +406,35 @@ export const deepHealthResponseSchema = z
   })
   .openapi('DeepHealthResponse');
 
+/**
+ * Maintainer bulk-action payload (#829).
+ *
+ * Processes the same release/refund transitions as the single-bounty
+ * endpoints, but for many bounties in one admin-authenticated request.
+ * Per-item failures are reported individually instead of failing the
+ * whole batch, so partial success is always visible.
+ */
+export const bulkActionSchema = z
+  .object({
+    action: z.enum(['release', 'refund']).openapi({
+      example: 'release',
+      description: 'The maintainer transition to apply to every listed bounty.',
+    }),
+    bountyIds: z
+      .array(bountyIdSchema)
+      .min(1, 'At least one bounty ID is required.')
+      .max(100, 'A bulk action may target at most 100 bounties.')
+      .openapi({ example: ['BNT-0001', 'BNT-0002'] }),
+    maintainer: stellarAccountSchema,
+    transactionHash: z
+      .string()
+      .trim()
+      .regex(TX_HASH_REGEX, 'Transaction hash must be 64 hexadecimal characters.')
+      .optional()
+      .openapi({ example: 'a'.repeat(64), description: 'Optional Stellar transaction hash.' }),
+  })
+  .openapi('BulkAction');
+
 export function zodErrorMessage(error: z.ZodError): string {
   return error.issues
     .map((issue) => `${issue.path.join('.') || 'body'}: ${issue.message}`)
