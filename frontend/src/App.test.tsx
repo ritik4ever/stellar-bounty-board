@@ -148,6 +148,32 @@ describe("bounty-creation form validation", () => {
     expect(api.createBounty).not.toHaveBeenCalled();
   });
 
+  it("shows an error when the reward amount is negative", async () => {
+    const user = userEvent.setup();
+    await renderBoard();
+
+    const repoInput = screen.getByPlaceholderText("owner/repo");
+    await user.clear(repoInput);
+    await user.type(repoInput, "owner/repo");
+
+    const titleInput = screen.getByPlaceholderText("Add WebSocket updates...");
+    await user.clear(titleInput);
+    await user.type(titleInput, "Valid title");
+
+    const amountInput = screen.getByRole("spinbutton", { name: /reward/i });
+    await user.clear(amountInput);
+    await user.type(amountInput, "-50");
+
+    const submitButton = screen.getByRole("button", { name: /create bounty/i });
+    await user.click(submitButton);
+
+    const { toast } = await import("sonner");
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith("Reward amount must be greater than 0.");
+    });
+    expect(api.createBounty).not.toHaveBeenCalled();
+  });
+
   it("shows an error for an invalid maintainer address", async () => {
     const user = userEvent.setup();
     await renderBoard();
@@ -191,8 +217,13 @@ describe("bounty-creation form validation", () => {
       expect(api.createBounty).toHaveBeenCalledWith(
         expect.objectContaining({
           repo: "owner/repo",
+          issueNumber: 48,
           title: "My new bounty",
           maintainer: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+          tokenSymbol: "XLM",
+          amount: 150,
+          deadlineDays: 14,
+          labels: [{ name: "help wanted", color: "0075ca" }],
         }),
       );
     });
