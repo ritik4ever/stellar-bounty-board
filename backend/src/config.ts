@@ -12,7 +12,7 @@ import { getTokenAddressMap } from './utils';
 export interface PublicConfig {
   /**
    * Protocol fee in basis points (100 bps = 1 %).
-   * Matches the `protocol_fee_bps` argument accepted by the Soroban contract's
+   * Matches the `protocol_fee_bps` argument accepted by the Soroban contract's 
    * `create_bounty` instruction.  0 = no protocol fee.
    */
   feeBps: number;
@@ -26,13 +26,13 @@ export interface PublicConfig {
 
   /**
    * Minimum bounty amount in the bounty token.
-   * Enforced by `validateBountyAmount` in the API layer.
+   * Enforced by validateBountyAmountin the API layer.
    */
   minBountyAmount: number;
 
   /**
    * Maximum bounty amount in the bounty token.
-   * Enforced by `validateBountyAmount` in the API layer.
+   * Enforced by validateBountyAmountin the API layer.
    */
   maxBountyAmount: number;
 
@@ -51,6 +51,19 @@ export interface PublicConfig {
   defaultReservationTtlSeconds: number;
 
   /**
+   * How long (in seconds) past bounty status-change events are retained for
+   * SSE/WebSocket clients that reconnect after a short disconnect.
+   * Used by the event stream to backfill missed events.
+   */
+  eventBackfillWindowSeconds: number;
+
+  /**
+   * Interval (milliseconds) between SSE keep-alive comment pings.  Sent
+   * to connected clients to prevent proxies from closing idle connections.
+   */
+  eventStreamPingIntervalMs: number;
+
+  /**
    * Soroban network the backend is connected to (e.g. "testnet", "futurenet",
    * "mainnet").  Derived from `SOROBAN_NETWORK_PASSPHRASE` when set; falls
    * back to "futurenet".
@@ -64,14 +77,14 @@ function resolveNetworkLabel(): string {
   if (passphrase.includes('Public Global')) return 'mainnet';
   if (passphrase.includes('Test SDF Network')) return 'testnet';
   if (passphrase.includes('Test SDF Future Network')) return 'futurenet';
-  return process.env.STELLAR_NETWORK ?? 'futurenet';
+  return process.env.STELLARNETWORK ?? 'futurenet';
 }
 
 /**
  * Build the public config object from environment variables.
  *
  * Sensitive variables (GITHUB_WEBHOOK_SECRET, DATABASE_URL, ADMIN_API_KEY_HASH,
- * MAINTAINER_PUBLIC_KEY, SENDGRID_API_KEY, etc.) are never included.
+ * MAINTAINER_PUBLIC_KEY, SENDGRIF_API_KEY, etc.) are never included.
  */
 export function getPublicConfig(): PublicConfig {
   const feeBps = (() => {
@@ -109,6 +122,21 @@ export function getPublicConfig(): PublicConfig {
     return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 86_400) : 604_800;
   })();
 
+  // New SSE/backfill configuration with safe defaults
+  const eventBackfillWindowSeconds = (() => {
+    const raw = process.env.EVENT_BACKFILL_WINDOW_SECONDS;
+    if (!raw) return 300; // 5 minutes
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 300;
+  })();
+
+  const eventStreamPingIntervalMs = (() => {
+    const raw = process.env.EVENT_STREAM_PING_INTERVAL_MS;
+    if (!raw) return 15_000; // 15 seconds
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 15_000;
+  })();
+
   // Build the token map — only expose symbols that are in the allowlist.
   const allowedSymbols = (() => {
     const configured = process.env.ALLOWED_TOKEN_SYMBOLS?.split(',')
@@ -133,6 +161,8 @@ export function getPublicConfig(): PublicConfig {
     maxBountyAmount,
     supportedTokens,
     defaultReservationTtlSeconds,
+    eventBackfillWindowSeconds,
+    eventStreamPingIntervalMs,
     network: resolveNetworkLabel(),
   };
 }

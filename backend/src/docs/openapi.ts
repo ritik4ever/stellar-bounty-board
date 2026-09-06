@@ -179,6 +179,69 @@ registry.registerPath({
   },
 });
 
+const bountyStatusEventSchema = z
+  .object({
+    id: z.string().openapi({
+      description: "Opaque, monotonic event ID. Pass this as Last-Event-ID when reconnecting to replay missed events.",
+      example: "evt_000001",
+    }),
+    event: z.enum(["bounty.status.changed"]).openapi({
+      description: "Event type.",
+      example: "bounty.status.changed",
+    }),
+    data: z.object({
+      bountyId: z.string().openapi({ description: "Bounty ID.", example: "BNT-0001" }),
+      fromStatus: z.string().openapi({ description: "Previous status.", example: "open" }),
+      toStatus: z.string().openapi({ description: "New status.", example: "reserved" }),
+      maintainer: z.string().openapi({ description: "Maintainer Stellar address.", example: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF" }),
+      updatedAt: z.string().openapi({ description: "ISO 8601 timestamp.", example: "2025-01-01T00:00:00.000Z" }),
+    }),
+  })
+  .openapi("BountyStatusEvent");
+
+registry.register("BountyStatusEvent", bountyStatusEventSchema);
+
+registry.registerPath({
+  method: "get",
+  path: "/api/bounties/stream",
+  tags: ["Bounties"],
+  summary: "Stream bounty status changes (SSE)",
+  description:
+    "Opens a Server-Sent Events (SSE) stream that pushes a `bounty.status.changed` event " +
+    "whenever a subscribed bounty changes status. Pass `bountyId` and/or `maintainer` query " +
+    "parameters to filter events. Clients can reconnect and send `Last-Event-ID` to backfill any " +
+    "events missed while disconnected.",
+  request: {
+    query: z.object({
+      bountyId: z.string().optional().openapi({
+        description: "Only receive events for this bounty ID.",
+        example: "BNT-0001",
+      }),
+      maintainer: z.string().optional().openapi({
+        description: "Only receive events for bounties maintained by this Stellar address.",
+        example: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+      }),
+    }),
+    headers: z.object({
+      "Last-Event-ID": z.string().optional().openapi({
+        description: "Event ID of the last received event. The server replays events after this ID before opening the live stream.",
+        example: "evt_000001",
+      }),
+    }),
+  },
+  responses: {
+    200: {
+      description: "SSE stream. Each message is sent as `text/event-stream` with `id`, `event`, and `data` fields.",
+      content: {
+        "text/event-stream": {
+          schema: bountyStatusEventSchema,
+        },
+      },
+    },
+    400: errorResponse("Invalid query parameters."),
+  },
+});
+
 registry.registerPath({
   method: "get",
   path: "/api/bounties/search",

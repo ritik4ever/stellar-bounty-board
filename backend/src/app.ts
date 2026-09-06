@@ -10,7 +10,62 @@ import { getMetrics, httpRequestDuration } from './metrics';
 import { buildCorsOptions } from './middleware/corsOptions';
 import { runDeepHealthCheck } from './services/deepHealth';
 
-import {
+import * as bountyStore from './services/bountyStore';
+import { EventEmitter } from 'node:events';
+
+interface BountyEvent {
+  type: string;
+  bountyId?: string;
+  maintainer?: string;
+  status?: string;
+  timestamp: number;
+}
+
+interface BountyEventRecord {
+  id: number;
+  event: BountyEvent;
+}
+
+const bountyEventBus = new EventEmitter();
+const bountyEventLog: BountyEventRecord[] = [];
+let bountyEventSeq = 0;
+
+function publishBountyEvent(event: BountyEvent): void {
+  const id = ++bountyEventSeq;
+  const record: BountyEventRecord = { id, event };
+  bountyEventLog.push(record);
+  if (bountyEventLog.length > 1000) {
+    bountyEventLog.shift();
+  }
+  bountyEventBus.emit('bounty-event', record);
+}
+
+function emitBountyEvent(type: string, result: unknown, args: any[]): void {
+  const data = result && typeof result === 'object' && 'data' in result ? (result as any).data : result;
+  const bountyId = data?.id ?? (typeof args[0] === 'string' ? args[0] : undefined);
+  const maintainer =
+    data?.maintainer ??
+    (typeof args[1] === 'object' && args[1] ? (args[1] as any).maintainer : undefined) ??
+    (typeof args[2] === 'object' && args[2] ? (args[2] as any).maintainer : undefined);
+  const status = data?.status;
+  publishBountyEvent({ type, bountyId, maintainer, status, timestamp: Date.now() });
+}
+
+function wrapBountyMutation<T extends (...args: any[]) => any>(fn: T, type: string): T {
+  return ((...args: any[]) => {
+    const maybePromise = fn.apply(bountyStore, args);
+    if (maybePromise && typeof maybePromise.then === 'function') {
+      return maybePromise.then((result: any) => {
+        emitBountyEvent(type, result, args);
+        return result;
+      });
+    }
+    emitBountyEvent(type, maybePromise, args);
+    return maybePromise;
+  }) as T;
+}
+
+const {
   createBounty,
   disputeBounty,
   extendDeadline,
@@ -32,7 +87,19 @@ import {
   getGlobalMetricsCached,
   getLeaderboard,
   aggregatedMetrics,
-} from './services/bountyStore';
+} = {
+  ...bountyStore,
+  createBounty: wrapBountyMutation(bountyStore.createBounty, 'bounty.created'),
+  disputeBounty: wrapBountyMutation(bountyStore.disputeBounty, 'bounty.disputed'),
+  extendDeadline: wrapBountyMutation(bountyStore.extendDeadline, 'bounty.deadline_extended'),
+  resolveDisputeBounty: wrapBountyMutation(bountyStore.resolveDisputeBounty, 'bounty.dispute_resolved'),
+  updateBountyNotes: wrapBountyMutation(bountyStore.updateBountyNotes, 'bounty.notes_updated'),
+  refundBounty: wrapBountyMutation(bountyStore.refundBounty, 'bounty.refunded'),
+  cancelBounty: wrapBountyMutation(bountyStore.cancelBounty, 'bounty.cancelled'),
+  releaseBounty: wrapBountyMutation(bountyStore.releaseBounty, 'bounty.released'),
+  reserveBounty: wrapBountyMutation(bountyStore.reserveBounty, 'bounty.reserved'),
+  submitBounty: wrapBountyMutation(bountyStore.submitBounty, 'bounty.submitted'),
+};
 
 import { listOpenIssues } from './services/openIssues';
 import {
@@ -345,6 +412,44 @@ app.get('/api/bounties/by-issue', (req: Request, res: Response) => {
   }
 
   return res.json({ data: found });
+});
+
+app.get('/api/bounties/stream', (req: Request, res: Response) => {
+  const bountyId = typeof req.query.bountyId === 'string' ? req.query.bountyId : undefined;
+  const maintainer = typeof req.query.maintainer === 'string' ? req.query.maintainer : undefined;
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.write('retry: 3000\n\n');
+
+  const send = (record: BountyEventRecord) => {
+    if (bountyId && record.event.bountyId !== bountyId) return;
+    if (maintainer && record.event.maintainer !== maintainer) return;
+    res.write(`id: ${record.id}\n`);
+    res.write(`event: bounty\n`);
+    res.write(`data: ${JSON.stringify(record.event)}\n\n`);
+  };
+
+  const listener = (record: BountyEventRecord) => send(record);
+  bountyEventBus.on('bounty-event', listener);
+
+  const lastEventId = parseInt(req.headers['last-event-id']?.toString() ?? '0', 10);
+  if (lastEventId > 0) {
+    for (const record of bountyEventLog) {
+      if (record.id > lastEventId) {
+        send(record);
+      }
+    }
+  }
+
+  const heartbeat = setInterval(() => res.write(': ping\n\n'), 30000);
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    bountyEventBus.off('bounty-event', listener);
+    res.end();
+  });
 });
 
 app.get('/api/bounties/search', (req: Request, res: Response) => {
