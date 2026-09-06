@@ -9,7 +9,8 @@ export type BountyStatus =
   | "released"
   | "refunded"
   | "expired"
-  | "disputed";
+  | "disputed"
+  | "split";
 
 export type EventType =
   | "created"
@@ -18,7 +19,8 @@ export type EventType =
   | "released"
   | "refunded"
   | "expired"
-  | "disputed";
+  | "disputed"
+  | "split";
 
 export interface BountyEvent {
   type: EventType;

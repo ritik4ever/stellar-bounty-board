@@ -11,7 +11,7 @@ export const statusCopy: Record<BountyStatus, { label: string; description: stri
   },
   reserved: {
     label: "Reserved",
-    description: "A contributor has claimed this bounty and is working on it.",
+    description: "A submitter has claimed this bounty and is working on it.",
   },
   submitted: {
     label: "Submitted",
@@ -31,7 +31,7 @@ export const statusCopy: Record<BountyStatus, { label: string; description: stri
   },
   disputed: {
     label: "Disputed",
-    description: "A contributor raised a dispute while the submission was under review.",
+    description: "A submitter raised a dispute while the submission was under review.",
   },
 };
 
@@ -55,7 +55,7 @@ export const sortOptions = [
   { value: "deadline-latest", label: "Deadline latest", direction: "desc" as const },
 ];
 
-export const statusGlossary = Object.entries(statusCopy).map(([status, info]) => ({
+export const statusGlossary = Object.entries(statusCopy).map(([status, info]) => {
   status,
   label: info.label,
   description: info.description,
@@ -87,10 +87,10 @@ export function readInitialFilters(): FilterState {
 }
 
 export interface Action {
-  action: "reserve" | "submit" | "release" | "refund";
+  action: "reserve" | "submit" | "release" | "refund" | "resolve";
   label: string;
   title: string;
-  requires: "contributor" | "maintainer";
+  requires: "contributor" | "maintainer" | "arbiter";
 }
 
 export const actionCopy: Record<BountyStatus, Action[]> = {
@@ -106,8 +106,10 @@ export const actionCopy: Record<BountyStatus, Action[]> = {
   ],
   released: [],
   refunded: [],
-  disputed: [],
+  disputed: [
+    { action: "resolve", label: "Resolve", title: "Mediate this dispute as the configured arbiter.", requires: "arbiter" },
+  ],
   expired: [
     { action: "refund", label: "Refund", title: "Refund an expired bounty.", requires: "maintainer" },
   ],
-};
+}
