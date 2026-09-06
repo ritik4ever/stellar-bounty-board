@@ -509,6 +509,124 @@ export async function getGlobalMetrics(): Promise<GlobalMetrics> {
   return body.data;
 }
 
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+
+  for (let i = 0; i < rawData.length; i += 1) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+
+  return outputArray;
+}
+
+function getVapidPublicKey(): Uint8Array {
+  const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+
+  if (!vapidPublicKey) {
+    throw new Error('VITE_VAPID_PUBLIC_KEY must be set to enable push notifications.');
+  }
+
+  return urlBase64ToUint8Array(vapidPublicKey);
+}
+
+async function getServiceWorkerRegistration(): Promise<ServiceWorkerRegistration> {
+  if (!('serviceWorker' in navigator)) {
+    throw new Error('Push notifications are not supported in this browser.');
+  }
+
+  const existing = await navigator.serviceWorker.getRegistration();
+
+  if (existing) {
+    return existing;
+  }
+
+  const serviceWorkerPath = import.meta.env.VITE_PUSH_SERVICE_WORKER_PATH ?? '/sw.js';
+  await navigator.serviceWorker.register(serviceWorkerPath);
+
+  return navigator.serviceWorker.ready;
+}
+
+export async function requestNotificationPermission(): Promise<NotificationPermission> {
+  if (!('Notification' in window)) {
+    throw new Error('This browser does not support notifications.');
+  }
+
+  return Notification.requestPermission();
+}
+
+export async function getPushSubscription(): Promise<PushSubscription | null> {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    return null;
+  }
+
+  const registration = await navigator.serviceWorker.getRegistration();
+
+  if (!registration) {
+    return null;
+  }
+
+  return registration.pushManager.getSubscription();
+}
+
+export async function subscribeToPushNotifications(): Promise<PushSubscription> {
+  if (!('PushManager' in window) || !('Notification' in window)) {
+    throw new Error('Push notifications are not supported in this browser.');
+  }
+
+  const permission = await requestNotificationPermission();
+
+  if (permission !== 'granted') {
+    throw new Error('Notification permission was not granted.');
+  }
+
+  const registration = await getServiceWorkerRegistration();
+  const existingSubscription = await registration.pushManager.getSubscription();
+  const subscription =
+    existingSubscription ??
+    (await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: getVapidPublicKey(),
+    }));
+
+  await savePushSubscription(subscription);
+
+  return subscription;
+}
+
+export async function savePushSubscription(subscription: PushSubscription): Promise<void> {
+  await requestJson('/notification-preferences/push-subscription', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ subscription: subscription.toJSON() }),
+  });
+}
+
+export async function unsubscribeFromPushNotifications(): Promise<void> {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    return;
+  }
+
+  const registration = await navigator.serviceWorker.getRegistration();
+  const subscription = await registration?.pushManager.getSubscription();
+
+  if (!subscription) {
+    return;
+  }
+
+  try {
+    await requestJson('/notification-preferences/push-subscription', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint: subscription.endpoint }),
+    });
+  } finally {
+    await subscription.unsubscribe();
+  }
+}
+
 /**
  * Map a backend bounty status string to the on-chain contract enum.
  * Keeps the frontend aligned with the Soroban ABI: if the contract adds or
