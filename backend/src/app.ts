@@ -35,6 +35,10 @@ import {
 } from './services/bountyStore';
 
 import { listOpenIssues } from './services/openIssues';
+import {
+  registerPushSubscription,
+  unregisterPushSubscription,
+} from './services/pushSubscriptionService';
 
 import {
   bountyIdSchema,
@@ -1162,6 +1166,65 @@ app.get(
       sendError(res, req, error);
     }
   },
+);
+
+// ─── Browser push notification preferences ─────────────────────────────────
+
+app.post(
+  '/api/notification-preferences/push',
+  mutationLimiter,
+  requireJsonContentType,
+  (req: Request, res: Response) => {
+    try {
+      const { endpoint, keys } = req.body ?? {};
+
+      if (typeof endpoint !== 'string' || !endpoint.startsWith('https://')) {
+        jsonError(res, req, 400, 'endpoint must be a valid https URL.');
+        return;
+      }
+
+      if (
+        !keys ||
+        typeof keys !== 'object' ||
+        typeof keys.p256dh !== 'string' ||
+        typeof keys.auth !== 'string'
+      ) {
+        jsonError(res, req, 400, 'keys.p256dh and keys.auth are required.');
+        return;
+      }
+
+      const subscription = registerPushSubscription({
+        endpoint,
+        keys: { p256dh: keys.p256dh, auth: keys.auth },
+        createdAt: Date.now(),
+      });
+
+      res.status(201).json({ data: subscription });
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  }
+);
+
+app.delete(
+  '/api/notification-preferences/push',
+  mutationLimiter,
+  requireJsonContentType,
+  (req: Request, res: Response) => {
+    try {
+      const { endpoint } = req.body ?? {};
+
+      if (typeof endpoint !== 'string' || !endpoint.startsWith('https://')) {
+        jsonError(res, req, 400, 'endpoint must be a valid https URL.');
+        return;
+      }
+
+      const removed = unregisterPushSubscription(endpoint);
+      res.json({ data: { removed } });
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  }
 );
 
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
