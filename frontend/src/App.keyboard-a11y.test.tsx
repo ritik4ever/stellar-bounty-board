@@ -137,3 +137,31 @@ describe("bounty card keyboard navigation", () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 });
+
+describe("jump-to-search keyboard shortcut", () => {
+  it("focuses the search input when / is pressed outside a text field", async () => {
+    const user = userEvent.setup();
+    await renderBoard();
+
+    const searchInput = screen.getByPlaceholderText("Search by repo, title, or label...");
+    expect(searchInput).not.toHaveFocus();
+
+    await user.keyboard("/");
+
+    expect(searchInput).toHaveFocus();
+  });
+
+  it("does not trigger the shortcut while typing inside a text input", async () => {
+    const user = userEvent.setup();
+    await renderBoard();
+
+    const searchInput = screen.getByPlaceholderText("Search by repo, title, or label...");
+    searchInput.focus();
+
+    await user.keyboard("/");
+
+    // The "/" should be typed into the input, not re-trigger the shortcut.
+    expect(searchInput).toHaveValue("/");
+    expect(searchInput).toHaveFocus();
+  });
+});
