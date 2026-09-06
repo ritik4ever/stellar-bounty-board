@@ -72,6 +72,42 @@ fn setup_test(
     )
 }
 
+fn setup_test_native(
+    env: &Env,
+) -> (
+    StellarBountyBoardContractClient<'static>,
+    Address,
+    Address,
+    Address,
+    Address,
+    Address,
+    Address,
+) {
+    let contract_id = env.register_contract(None, StellarBountyBoardContract);
+    let client = StellarBountyBoardContractClient::new(env, &contract_id);
+
+    let admin = Address::generate(env);
+    let maintainer = Address::generate(env);
+    let contributor = Address::generate(env);
+    let fee_recipient = Address::generate(env);
+    let arbiter = Address::generate(env);
+
+    let token_client = env.register_stellar_asset_contract(soroban_sdk::xdr::Asset::Native);
+    let token_id = token_client.address();
+
+    client.initialize(&admin, &fee_recipient, &arbiter, &600);
+
+    (
+        client,
+        admin,
+        maintainer,
+        contributor,
+        token_id,
+        fee_recipient,
+        arbiter,
+    )
+}
+
 fn create_bounty_with_state(
     env: &Env,
     client: &StellarBountyBoardContractClient<'static>,
@@ -411,6 +447,182 @@ fn test_create_bounty_past_deadline() {
         &0u32,
         &None,
     );
+}
+
+#[test]
+fn test_create_bounty_native_xlm() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) = setup_test_native(&env);
+    env.ledger().set_balance(&maintainer, 1000);
+
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1000),
+        &0u32,
+        &None,
+    );
+
+    assert_eq!(bounty_id, 1);
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.maintainer, maintainer);
+    assert_eq!(bounty.amount, 500);
+    assert_eq!(bounty.status, BountyStatus::Open);
+}
+
+#[test]
+fn test_release_bounty_native_xlm() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _admin, maintainer, contributor, token_id, _fee_recipient, _arbiter) = setup_test_native(&env);
+    env.ledger().set_balance(&maintainer, 1000);
+
+    let deadline = env.ledger().timestamp() + 1000;
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+
+    client.reserve_bounty(&bounty_id, &contributor);
+    client.submit_bounty(&bounty_id, &contributor);
+    client.release_bounty(&bounty_id, &maintainer);
+
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.status, BountyStatus::Released);
+
+    let token = soroban_sdk::token::TokenClient::new(&env, &token_id);
+    assert_eq!(token.balance(&contributor), 500);
+    assert_eq!(token.balance(&client.address), 0);
+}
+
+#[test]
+fn test_refund_bounty_native_xlm() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _admin, maintainer, contributor, token_id, _fee_recipient, _arbiter) = setup_test_native(&env);
+    env.ledger().set_balance(&maintainer, 1000);
+
+    let deadline = env.ledger().timestamp() + 1000;
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+
+    client.reserve_bounty(&bounty_id, &contributor);
+    env.ledger().set_timestamp(deadline + 1);
+    client.refund_bounty(&bounty_id, &maintainer);
+
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.status, BountyStatus::Refunded);
+
+    let token = soroban_sdk::token::TokenClient::new(&env, &token_id);
+    assert_eq!(token.balance(&maintainer), 500);
+    assert_eq!(token.balance(&client.address), 0);
+}
+
+#[test]
+fn test_dispute_bounty_native_xlm() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _admin, maintainer, contributor, token_id, _fee_recipient, _arbiter) = setup_test_native(&env);
+    env.ledger().set_balance(&maintainer, 1000);
+
+    let deadline = env.ledger().timestamp() + 1000;
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+
+    client.reserve_bounty(&bounty_id, &contributor);
+    client.submit_bounty(&bounty_id, &contributor);
+    client.dispute_bounty(&bounty_id, &maintainer);
+
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.status, BountyStatus::Disputed);
+}
+
+#[test]
+fn test_fees_consistent_across_token_types() {
+    let env1 = Env::default();
+    env1.mock_all_auths();
+    let (client1, _admin1, maintainer1, contributor1, token_id1, fee_recipient1, _arbiter1) = setup_test(&env1);
+    let token_admin1 = soroban_sdk::token::StellarAssetClient::new(&env1, &token_id1);
+    token_admin1.mint(&maintainer1, &1000);
+
+    let env2 = Env::default();
+    env2.mock_all_auths();
+    let (client2, _admin2, maintainer2, contributor2, token_id2, _fee_recipient2, _arbiter2) = setup_test_native(&env2);
+    env2.ledger().set_balance(&maintainer2, 1000);
+
+    let fee_bps = 100u32;
+    let amount = 500i128;
+
+    let deadline1 = env1.ledger().timestamp() + 1000;
+    let b1 = client1.create_bounty(
+        &maintainer1,
+        &token_id1,
+        &amount,
+        &String::from_str(&env1, "repo"),
+        &1,
+        &String::from_str(&env1, "title"),
+        &deadline1,
+        &fee_bps,
+        &None,
+    );
+    client1.reserve_bounty(&b1, &contributor1);
+    client1.submit_bounty(&b1, &contributor1);
+    client1.release_bounty(&b1, &maintainer1);
+
+    let deadline2 = env2.ledger().timestamp() + 1000;
+    let b2 = client2.create_bounty(
+        &maintainer2,
+        &token_id2,
+        &amount,
+        &String::from_str(&env2, "repo"),
+        &1,
+        &String::from_str(&env2, "title"),
+        &deadline2,
+        &fee_bps,
+        &None,
+    );
+    client2.reserve_bounty(&b2, &contributor2);
+    client2.submit_bounty(&b2, &contributor2);
+    client2.release_bounty(&b2, &maintainer2);
+
+    let token1 = soroban_sdk::token::TokenClient::new(&env1, &token_id1);
+    let token2 = soroban_sdk::token::TokenClient::new(&env2, &token_id2);
+    assert_eq!(token1.balance(&contributor1), token2.balance(&contributor2));
+    assert_eq!(token1.balance(&fee_recipient1), token2.balance(&fee_recipient2));
 }
 
 #[test]
