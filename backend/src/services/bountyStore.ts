@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { EventEmitter } from "node:events";
 import lockfile from "proper-lockfile";
 import {
   sendNotification,
@@ -91,6 +92,38 @@ export interface BountyAuditLogRecord {
   timestamp: number;
   /** Additional structured metadata for the transition context. */
   metadata?: Record<string, AuditMetadataValue>;
+}
+
+export interface BountyStatusChangeEvent {
+  /** Unique event identifier (monotonic, usable as SSE Last-Event-ID). */
+  id: string;
+  /** The event type discriminator. */
+  type: "bounty_status_changed";
+  /** The bounty whose status changed. */
+  bountyId: string;
+  /** Maintainer address of the bounty, used for filtered streams. */
+  maintainer: string;
+  /** The status before the change. */
+  fromStatus: BountyStatus;
+  /** The status after the change. */
+  toStatus: BountyStatus;
+  /** Unix timestamp in seconds when the transition occurred. */
+  timestamp: number;
+  /** Address or system actor that triggered the change. */
+  actor?: string;
+  /** Additional structured event context. */
+  metadata?: Record<string, unknown>;
+}
+
+export interface BountyEventFilter {
+  /** Only include events for this bounty ID. */
+  bountyId?: string;
+  /** Only include events whose maintainer matches this address. */
+  maintainer?: string;
+  /** Replay only events after this event ID (SSE Last-Event-ID). */
+  sinceId?: string;
+  /** Replay only events after this Unix timestamp (seconds). */
+  since?: number;
 }
 
 /**
@@ -293,6 +326,91 @@ function nowInSeconds(): number {
   return Math.floor(Date.now() / 1000);
 }
 
+const bountyEventEmitter = new EventEmitter();
+bountyEventEmitter.setMaxListeners(0);
+
+const BOUNTY_EVENT_HISTORY_LIMIT = 100;
+const BOUNTY_EVENT_HISTORY_TTL_MS = 5 * 60 * 1000;
+let bountyEventSequence = 0;
+const bountyEventHistory: BountyStatusChangeEvent[] = [];
+
+function eventMatchesFilter(
+  event: BountyStatusChangeEvent,
+  filter: BountyEventFilter,
+): boolean {
+  if (filter.bountyId && event.bountyId !== filter.bountyId) {
+    return false;
+  }
+  if (filter.maintainer && event.maintainer !== filter.maintainer) {
+    return false;
+  }
+  if (filter.sinceId) {
+    const sinceSequence = Number(filter.sinceId.replace("evt-", ""));
+    const eventSequence = Number(event.id.replace("evt-", ""));
+    if (
+      Number.isFinite(sinceSequence) &&
+      Number.isFinite(eventSequence) &&
+      eventSequence <= sinceSequence
+    ) {
+      return false;
+    }
+  }
+  if (filter.since !== undefined && event.timestamp <= filter.since) {
+    return false;
+  }
+  return true;
+}
+
+function publishBountyStatusChange(
+  input: Omit<BountyStatusChangeEvent, "id" | "type">,
+): void {
+  const id = `evt-${++bountyEventSequence}`;
+  const event: BountyStatusChangeEvent = {
+    id,
+    type: "bounty_status_changed",
+    ...input,
+  };
+
+  bountyEventHistory.push(event);
+  const now = Date.now();
+  while (
+    bountyEventHistory.length > BOUNTY_EVENT_HISTORY_LIMIT ||
+    (bountyEventHistory.length > 0 &&
+      now - bountyEventHistory[0].timestamp * 1000 >
+        BOUNTY_EVENT_HISTORY_TTL_MS)
+  ) {
+    bountyEventHistory.shift();
+  }
+
+  bountyEventEmitter.emit("event", event);
+}
+
+export function getBountyEventHistory(
+  filter: BountyEventFilter = {},
+): BountyStatusChangeEvent[] {
+  return bountyEventHistory.filter((event) =>
+    eventMatchesFilter(event, filter),
+  );
+}
+
+export function subscribeBountyEvents(
+  listener: (event: BountyStatusChangeEvent) => void,
+  filter: BountyEventFilter = {},
+): { close: () => void } {
+  const handler = (event: BountyStatusChangeEvent) => {
+    if (eventMatchesFilter(event, filter)) {
+      listener(event);
+    }
+  };
+
+  bountyEventEmitter.on("event", handler);
+  return {
+    close: () => {
+      bountyEventEmitter.off("event", handler);
+    },
+  };
+}
+
 function ensureStore(): void {
   const storePath = getStorePath();
   fs.mkdirSync(path.dirname(storePath), { recursive: true });
@@ -471,6 +589,27 @@ function normalizeRecords(records: BountyRecord[]): BountyRecord[] {
   if (changed) {
     writeStore(next);
     appendAuditLogs(auditEntries);
+
+    for (let i = 0; i < records.length; i++) {
+      const before = records[i];
+      const after = next[i];
+      if (before.status !== after.status) {
+        publishBountyStatusChange({
+          bountyId: after.id,
+          maintainer: after.maintainer,
+          fromStatus: before.status,
+          toStatus: after.status,
+          timestamp: now,
+          actor: "system",
+          metadata: {
+            reason:
+              after.status === "expired"
+                ? "deadline_passed"
+                : "reservation_timeout",
+          },
+        });
+      }
+    }
   }
   return next;
 }
@@ -495,10 +634,25 @@ function persistUpdated(
   records: BountyRecord[],
   updated: BountyRecord,
 ): BountyRecord {
+  const previous = records.find((record) => record.id === updated.id);
   const next = records.map((record) =>
     record.id === updated.id ? updated : record,
   );
   writeStore(next);
+
+  if (previous && previous.status !== updated.status) {
+    const lastEvent = updated.events[updated.events.length - 1];
+    publishBountyStatusChange({
+      bountyId: updated.id,
+      maintainer: updated.maintainer,
+      fromStatus: previous.status,
+      toStatus: updated.status,
+      timestamp: lastEvent?.timestamp ?? nowInSeconds(),
+      actor: lastEvent?.actor,
+      metadata: lastEvent?.details,
+    });
+  }
+
   return updated;
 }
 

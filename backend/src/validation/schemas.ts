@@ -260,6 +260,46 @@ export const bountyEventSchema = z.object({
   details: z.record(z.any()).optional(),
 });
 
+export const bountyStatusChangeEventSchema = z
+  .object({
+    id: z.string().min(1).openapi({
+      example: 'evt_01J0ABCDEFGHIJKLMNOPQRST',
+      description: 'Unique SSE event id used for Last-Event-ID reconnects.',
+    }),
+    event: z.literal('bounty.status_changed').openapi({
+      example: 'bounty.status_changed',
+      description: 'SSE event type for bounty status transitions.',
+    }),
+    data: z
+      .object({
+        bountyId: bountyIdSchema,
+        maintainer: stellarAccountSchema,
+        event: bountyEventSchema,
+      })
+      .openapi('BountyStatusChangeData'),
+  })
+  .openapi('BountyStatusChangeEvent');
+
+export const bountyStreamQuerySchema = z
+  .object({
+    bountyId: bountyIdSchema.optional().openapi({
+      description: 'Only stream events for this bounty ID.',
+    }),
+    maintainer: stellarAccountSchema.optional().openapi({
+      description: 'Only stream events for bounties maintained by this Stellar address.',
+    }),
+    since: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .openapi({
+        example: 1710000000,
+        description: 'Replay events after this Unix timestamp (seconds) on reconnect/backfill.',
+      }),
+  })
+  .openapi('BountyStreamQuery');
+
 export const bountyRecordSchema = z
   .object({
     id: z.string().openapi({ example: 'BNT-0001' }),
