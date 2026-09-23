@@ -1730,3 +1730,52 @@ fn test_double_refund_after_cancel_bounty() {
     client.refund_bounty(&bounty_id, &maintainer);
 }
 
+// ─── Security Auth & Caller Validation Tests (#1163) ──────────────────────
+
+#[test]
+#[should_panic(expected = "MaintainerMismatch")]
+fn test_release_bounty_wrong_maintainer() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, contributor, token_id, _, _) = setup_test(&env);
+    let other_maintainer = Address::generate(&env);
+
+    let bounty_id = create_bounty_with_state(
+        &env,
+        &client,
+        maintainer.clone(),
+        contributor.clone(),
+        token_id.clone(),
+        BountyStatus::Submitted,
+    );
+
+    // Wrong maintainer attempting to release escrow
+    client.release_bounty(&bounty_id, &other_maintainer);
+}
+
+#[test]
+#[should_panic(expected = "MaintainerMismatch")]
+fn test_refund_bounty_wrong_maintainer() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, maintainer, contributor, token_id, _, _) = setup_test(&env);
+    let other_maintainer = Address::generate(&env);
+
+    let bounty_id = create_bounty_with_state(
+        &env,
+        &client,
+        maintainer.clone(),
+        contributor.clone(),
+        token_id.clone(),
+        BountyStatus::Open,
+    );
+
+    // Fast-forward past deadline
+    env.ledger().set_timestamp(env.ledger().timestamp() + 2000);
+
+    // Wrong maintainer attempting to refund escrow
+    client.refund_bounty(&bounty_id, &other_maintainer);
+}
+
