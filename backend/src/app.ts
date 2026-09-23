@@ -490,7 +490,8 @@ app.get('/api/bounties', async (req: Request, res: Response) => {
     const sort = typeof req.query.sort === 'string' && req.query.sort.trim() ? req.query.sort.trim() : 'createdAt';
     const order = typeof req.query.order === 'string' && req.query.order.trim() ? req.query.order.trim() : 'desc';
     const page = parsePaginationValue(req.query.page, 'page', 1, 1);
-    const pageSize = parsePaginationValue(req.query.pageSize, 'pageSize', 20, 1, 100);
+    const limitQuery = req.query.limit ?? req.query.pageSize;
+    const pageSize = parsePaginationValue(limitQuery, 'limit', 20, 1, 100);
 
     let deadlineBefore: number | undefined;
     if (typeof req.query.deadlineBefore === 'string') {

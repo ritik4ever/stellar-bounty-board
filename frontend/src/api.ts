@@ -226,8 +226,18 @@ async function requestBlob(
   throw formatRetryError(retryLabel, retryAttempts, message);
 }
 
-export async function listBounties(signal?: AbortSignal): Promise<Bounty[]> {
-  const body = await requestJson<{ data: Bounty[] }>('/bounties', {
+export async function listBounties(
+  options?: { page?: number; limit?: number; pageSize?: number },
+  signal?: AbortSignal
+): Promise<Bounty[]> {
+  const params = new URLSearchParams();
+  if (options?.page) params.set('page', String(options.page));
+  if (options?.limit) params.set('limit', String(options.limit));
+  if (options?.pageSize) params.set('pageSize', String(options.pageSize));
+  const queryString = params.toString();
+  const url = queryString ? `/bounties?${queryString}` : '/bounties';
+
+  const body = await requestJson<{ data: Bounty[]; total?: number; page?: number; pageSize?: number }>(url, {
     retry: true,
     retryLabel: 'Loading bounties',
     signal,
