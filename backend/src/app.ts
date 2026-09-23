@@ -47,6 +47,7 @@ import {
   extendDeadlineSchema,
   resolveDisputeBountySchema,
   maintainerActionSchema,
+  refundBountySchema,
   bulkActionSchema,
   reserveBountySchema,
   submitBountySchema,
@@ -778,7 +779,7 @@ app.post(
   mutationLimiter,
   idempotencyMiddleware,
   createStellarSignatureAuthMiddleware(),
-  validateBody(maintainerActionSchema),
+  validateBody(refundBountySchema),
   async (req: Request, res: Response) => {
     try {
       const bounty = await refundBounty(

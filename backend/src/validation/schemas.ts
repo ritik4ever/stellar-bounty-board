@@ -210,6 +210,12 @@ export const maintainerActionSchema = z
   })
   .openapi('MaintainerActionRequest');
 
+/**
+ * Zod schema validating input for POST /api/bounties/:id/refund (#1216).
+ */
+export const refundBountySchema = maintainerActionSchema;
+
+
 export const updateNotesSchema = z
   .object({
     maintainer: stellarAccountSchema.openapi({
