@@ -50,6 +50,10 @@ jobs:
       - name: Show Rust version
         run: rustc --version
 
+      - name: Run cargo check
+        working-directory: contracts
+        run: cargo check --all-targets
+
       - name: Run cargo clippy
         working-directory: contracts
         run: cargo clippy --all-targets -- -D warnings
