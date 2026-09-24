@@ -324,3 +324,11 @@ export async function getXlmRate(): Promise<number | null> {
 
   return pendingRequest;
 }
+
+export function validateStellarPublicKey(input: string): string | null {
+  const value = input.trim();
+  if (!value) return "Address is required.";
+  if (!/^G[A-Z0-9]{55}$/.test(value))
+    return "Enter a Stellar public key (starts with 'G', 56 characters)";
+  return null;
+}
