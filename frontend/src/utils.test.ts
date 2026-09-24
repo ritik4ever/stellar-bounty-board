@@ -6,7 +6,9 @@ import {
   deriveBountyStatus,
   filterBounties,
   formatAmount,
+  formatAmountInput,
   getUniqueTokenSymbols,
+  parseAmountInput,
   resetXlmToUsdCache,
   xlmToUsd,
 } from './utils';
@@ -154,5 +156,43 @@ describe('filterBounties — token filter (#293)', () => {
 
   it('returns all bounties when the token filter is empty', () => {
     expect(filterBounties(tokenBounties, baseFilters)).toHaveLength(4);
+  });
+});
+
+describe('formatAmountInput / parseAmountInput (#855)', () => {
+  it('formats a number with thousands separators', () => {
+    expect(formatAmountInput(1500)).toBe('1,500');
+    expect(formatAmountInput(1234567)).toBe('1,234,567');
+  });
+
+  it('does not add separators for numbers under 1000', () => {
+    expect(formatAmountInput(0)).toBe('');
+    expect(formatAmountInput(1)).toBe('1');
+    expect(formatAmountInput(999)).toBe('999');
+  });
+
+  it('preserves decimal values', () => {
+    expect(formatAmountInput(1234.56)).toBe('1,234.56');
+    expect(formatAmountInput(0.5)).toBe('0.5');
+  });
+
+  it('handles NaN gracefully', () => {
+    expect(formatAmountInput(NaN)).toBe('');
+  });
+
+  it('parses a formatted string back to a clean number', () => {
+    expect(parseAmountInput('1,500')).toBe(1500);
+    expect(parseAmountInput('1,234,567')).toBe(1234567);
+    expect(parseAmountInput('1,234.56')).toBe(1234.56);
+  });
+
+  it('strips non-numeric characters from the input', () => {
+    expect(parseAmountInput('$1,500 USD')).toBe(1500);
+    expect(parseAmountInput('abc1,234.56xyz')).toBe(1234.56);
+  });
+
+  it('returns 0 for empty or invalid input', () => {
+    expect(parseAmountInput('')).toBe(0);
+    expect(parseAmountInput('abc')).toBe(0);
   });
 });

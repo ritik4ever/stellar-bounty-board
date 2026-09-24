@@ -54,6 +54,29 @@ export function formatAmount(amount: number, tokenSymbol: string): string {
   return `${amount.toFixed(7)} ${tokenSymbol}`;
 }
 
+/**
+ * Format a number with thousands separators for display in the amount input field.
+ * Handles decimal values by preserving the fractional part.
+ * Examples: 1500 -> "1,500", 1234567.89 -> "1,234,567.89"
+ */
+export function formatAmountInput(value: number): string {
+  if (isNaN(value) || value === 0) return "";
+  const parts = value.toString().split(".");
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return parts.join(".");
+}
+
+/**
+ * Parse a formatted amount string back to a clean number.
+ * Strips thousands separators and any non-numeric characters except decimal point.
+ * Examples: "1,500" -> 1500, "1,234.56" -> 1234.56
+ */
+export function parseAmountInput(value: string): number {
+  const cleaned = value.replace(/[^0-9.]/g, "");
+  const num = parseFloat(cleaned);
+  return isNaN(num) ? 0 : num;
+}
+
 export function getRepoMetrics(bounties: Bounty[], repo: string) {
   const repoBounties = bounties.filter((bounty) => bounty.repo === repo);
   const openBounties = repoBounties.filter((bounty) => bounty.status === 'open');
