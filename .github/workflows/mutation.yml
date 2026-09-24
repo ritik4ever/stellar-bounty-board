@@ -1,0 +1,55 @@
+name: Mutation Testing
+
+# Mutation testing is slower than the unit suite, so it runs on a weekly
+# schedule, on demand, and on pull requests that actually touch the
+# bountyStore service, its tests, or the Stryker configuration (issue #901).
+on:
+  schedule:
+    # Every Monday at 06:00 UTC.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'backend/src/services/bountyStore.ts'
+      - 'backend/test/bountyStore*.test.ts'
+      - 'backend/stryker.conf.json'
+      - 'backend/vitest.stryker.config.ts'
+      - '.github/workflows/mutation.yml'
+
+jobs:
+  mutation:
+    name: Stryker mutation score (bountyStore)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install backend dependencies
+        run: npm ci --prefix backend
+
+      # Fails the job when the mutation score drops below the configured
+      # `thresholds.break` (75) in backend/stryker.conf.json.
+      - name: Run mutation testing
+        run: npm --prefix backend run test:mutation
+
+      - name: Upload mutation report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bountystore-mutation-report
+          path: backend/reports/mutation

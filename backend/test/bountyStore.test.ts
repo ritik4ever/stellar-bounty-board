@@ -6,6 +6,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BountyRecord } from "../src/services/bountyStore";
 import { CONTRIBUTOR, MAINTAINER, OTHER_ACCOUNT } from "./fixtures";
 
+// Keep submission flows deterministic and offline: bypass the live GitHub API
+// call that validateGithubPrUrlForRepo would otherwise make so these unit tests
+// exercise bountyStore logic without network access.
+vi.mock("../src/validation/prUrl", async () => {
+  const actual = await vi.importActual<typeof import("../src/validation/prUrl")>(
+    "../src/validation/prUrl",
+  );
+  return {
+    ...actual,
+    validateGithubPrUrlForRepo: vi.fn(async () => undefined),
+  };
+});
+
 let storeFile: string;
 
 beforeEach(() => {
