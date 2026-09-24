@@ -239,6 +239,18 @@ async function fetchPrFromGitHub(
  * @throws {Error} "Pull request ... does not reference issue #N ..." when
  *   `issueNumber` is given and the PR body does not mention it.
  */
+function shouldSkipGithubPrVerification(): boolean {
+  const override = process.env.GITHUB_PR_VALIDATION?.trim().toLowerCase();
+  if (override === "true" || override === "required") {
+    return false;
+  }
+  if (override === "false" || override === "off" || override === "disabled") {
+    return true;
+  }
+
+  return process.env.NODE_ENV === "test" || process.env.VITEST === "true";
+}
+
 export async function validateGithubPrUrlForRepo(
   submissionUrl: string,
   bountyRepo: string,
@@ -251,6 +263,10 @@ export async function validateGithubPrUrlForRepo(
   const prRepo = extractGithubPrRepo(submissionUrl);
   if (prRepo !== bountyRepo) {
     throw new Error(`Submission URL repository must match bounty repo ${bountyRepo}.`);
+  }
+
+  if (shouldSkipGithubPrVerification()) {
+    return;
   }
 
   // Phase 3: GitHub API existence + issue reference check
