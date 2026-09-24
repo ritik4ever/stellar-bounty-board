@@ -23,6 +23,44 @@ pub const MIN_DISPUTE_WINDOW_OVERRIDE: u64 = 60;
 /// Maximum allowed per-bounty dispute window override (30 days in seconds).
 pub const MAX_DISPUTE_WINDOW_OVERRIDE: u64 = 2_592_000;
 
+// ─── Contract Errors ───────────────────────────────────────────────────
+#[contracterror]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContractError {
+    InvalidAmount,
+    AmountTooSmall,
+    DeadlineMustBeInTheFuture,
+    ContractIsPaused,
+    FeeRecipientNotSet,
+    TokenNotAllowed,
+    DisputeWindowOverrideTooSmall,
+    DisputeWindowOverrideTooLarge,
+    BountyNotOpen,
+    MaintainerMismatch,
+    BountyMustBeReserved,
+    MissingContributor,
+    ContributorMismatch,
+    BountyMustBeSubmitted,
+    BountyAlreadyFinalized,
+    BountyNotExpiredYet,
+    CannotExtendFinalizedBounty,
+    DeadlineMustAdvance,
+    BountyExpired,
+    ArbiterNotSet,
+    NotArbiter,
+    DisputeWindowNotMet,
+    NotAdmin,
+    NoPendingArbiter,
+    TimelockNotElapsed,
+    BountyNotFound,
+    AlreadyInitialized,
+    StringTooLong,
+}
+
+fn panic_error(err: ContractError) -> ! {
+    panic!("{:?}", err);
+}
+
 #[contracttype]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BountyStatus {
@@ -187,12 +225,10 @@ impl StellarBountyBoardContract {
         String::from_str(&_env, CONTRACT_VERSION)
     }
 
-    pub fn initialize(env: Env, fee_recipient: Address, arbiter: Address, dispute_window: u64) {
-    
     pub fn initialize(env: Env, admin: Address, fee_recipient: Address, arbiter: Address, dispute_window: u64) {
         // Prevent re-initialization
         if env.storage().persistent().has(&DataKey::FeeRecipient) {
-            panic!("already initialized");
+            panic_error(ContractError::AlreadyInitialized);
         }
         env.storage()
             .persistent()
