@@ -2472,6 +2472,72 @@ select {
 .lo-cancel-btn { display: inline-flex !important; align-items: center; gap: 6px; padding: 6px 12px !important; font-size: 0.82rem !important; }
 .lo-cancel-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none !important; }
 
+/* ── Network Mismatch Banner ──────────────────────────────────────────── */
+.network-mismatch-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  background: var(--amber-soft);
+  border-bottom: 2px solid var(--amber);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+[data-theme="dark"] .network-mismatch-banner {
+  background: rgba(244, 162, 74, 0.12);
+  border-bottom-color: var(--amber);
+}
+
+.network-mismatch-banner__icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.network-mismatch-banner__content {
+  flex: 1;
+  min-width: 0;
+}
+
+.network-mismatch-banner__title {
+  display: block;
+  margin-bottom: 2px;
+  font-weight: 600;
+}
+
+.network-mismatch-banner__message {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.network-mismatch-banner__dismiss {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  color: var(--muted);
+  padding: 4px 8px;
+  border-radius: 4px;
+  line-height: 1;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.network-mismatch-banner__dismiss:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--ink);
+}
+
+/* ── Disabled button styles ───────────────────────────────────────────── */
+.secondary-button:disabled,
+.ghost-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
 @keyframes lo-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 .lo-spinner { animation: lo-spin 0.8s linear infinite; }
 
