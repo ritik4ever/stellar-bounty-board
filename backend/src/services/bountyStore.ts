@@ -685,6 +685,17 @@ async function withGlobalLock<T>(fn: () => T | Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * Create a new bounty record in the store.
+ *
+ * Allocates a unique bounty ID, resolves the token address, and records creation
+ * in the audit log. Sends a notification to the maintainer on success.
+ *
+ * @param {CreateBountyInput} input - Bounty creation parameters
+ * @returns {Promise<BountyRecord>} The created bounty record with assigned ID
+ * @throws {Error} If token resolution fails or store write encounters an error
+ * @throws {Error} When acquired store lock times out (concurrent access contention)
+ */
 export async function createBounty(
   input: CreateBountyInput,
 ): Promise<BountyRecord> {
@@ -740,6 +751,22 @@ export async function createBounty(
   });
 }
 
+/**
+ * Reserve a bounty for a contributor.
+ *
+ * Transitions an open bounty to "reserved" status, recording the contributor
+ * and timestamp. Implements optimistic locking via `expectedVersion` to detect
+ * concurrent reservations.
+ *
+ * @param {string} id - The bounty ID to reserve
+ * @param {string} contributor - Stellar address of the contributor claiming the bounty
+ * @param {number} [expectedVersion] - Optional version for optimistic locking; if provided
+ *   and doesn't match current version, throws error indicating concurrent modification
+ * @returns {Promise<BountyRecord>} The updated bounty record with "reserved" status
+ * @throws {Error} If bounty is not in "open" status
+ * @throws {Error} If expectedVersion is provided and doesn't match current record version
+ * @throws {Error} When store lock times out or bounty is not found
+ */
 export async function reserveBounty(
   id: string,
   contributor: string,
@@ -1190,6 +1217,22 @@ export async function disputeBounty(
   });
 }
 
+/**
+ * Resolve a disputed bounty by an arbiter.
+ *
+ * Transitions a disputed bounty to a final state (released or refunded) based on
+ * arbiter's decision. Records the resolution in the audit log and notifies involved parties.
+ *
+ * @param {string} id - The bounty ID to resolve
+ * @param {string} arbiter - Stellar address of the arbiter making the decision
+ * @param {string} resolution - The arbiter's decision: "release" or "refund"
+ * @param {string} [txHash] - Optional Stellar transaction hash for the payment
+ * @returns {Promise<BountyRecord>} The resolved bounty record with final status
+ * @throws {Error} If bounty is not in "disputed" status
+ * @throws {Error} If arbiter address is empty
+ * @throws {Error} If resolution is not "release" or "refund"
+ * @throws {Error} When store lock times out or bounty is not found
+ */
 export async function resolveDisputeBounty(
   id: string,
   arbiter: string,
@@ -1253,6 +1296,21 @@ export async function resolveDisputeBounty(
   });
 }
 
+/**
+ * Update the submission notes for a bounty.
+ *
+ * Allows the contributor to modify notes attached to their submission. This is
+ * only possible while the bounty is in "submitted" status (before release/refund).
+ *
+ * @param {string} id - The bounty ID to update
+ * @param {string} maintainer - Stellar address of the maintainer (for authorization)
+ * @param {string} notes - The new notes content
+ * @returns {Promise<BountyRecord>} The updated bounty record
+ * @throws {Error} If bounty is not found
+ * @throws {Error} If bounty is not in "submitted" status
+ * @throws {Error} If maintainer address doesn't match the bounty creator
+ * @throws {Error} When store lock times out
+ */
 export async function updateBountyNotes(
   id: string,
   maintainer: string,
@@ -1469,6 +1527,16 @@ export function listAllAuditLogs(
   };
 }
 
+/**
+ * Retrieve event history for a specific bounty.
+ *
+ * Returns all state transition events recorded for a bounty, in chronological
+ * order from creation to present. Useful for audit trails and status tracking.
+ *
+ * @param {string} bountyId - The ID of the bounty to query
+ * @returns {BountyEvent[]} Array of events, empty if bounty has no recorded events
+ * @throws {Error} If bounty with given ID is not found
+ */
 export function getBountyEvents(bountyId: string): BountyEvent[] {
   const records = listBounties();
   const bounty = findBounty(records, bountyId);
