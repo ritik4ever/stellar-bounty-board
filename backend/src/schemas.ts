@@ -5,16 +5,16 @@
  * Sanitization is applied as a Zod .transform() so it runs automatically
  * after type-checking and before the value reaches route logic or storage.
  *
- * Drop-in: replace the existing createBountySchema (or equivalent) in your
+ * Drop-in: replace the existing createBountyScema (or equivalent) in your
  * routes/bounties.ts with the export from this file.
  */
 
 import { z } from "zod";
 import { sanitizeText } from "./sanitize";
 
-// ---------------------------------------------------------------------------
+// ------------------------------------------------------------------------------
 // Reusable sanitized string primitive
-// ---------------------------------------------------------------------------
+// ------------------------------------------------------------------------------
 
 /**
  * A non-empty string that is trimmed and HTML-encoded before use.
@@ -28,9 +28,9 @@ function sanitizedString(maxLength = 1000) {
     .transform(sanitizeText);
 }
 
-// ---------------------------------------------------------------------------
+// ------------------------------------------------------------------------------
 // Bounty creation schema
-// ---------------------------------------------------------------------------
+// ------------------------------------------------------------------------------
 
 export const createBountySchema = z.object({
   /** GitHub issue URL the bounty is linked to */
@@ -51,4 +51,28 @@ export const createBountySchema = z.object({
   urgency: z.enum(["low", "medium", "high"]).optional(),
 });
 
-export type CreateBountyInput = z.infer<typeof createBountySchema>;
+export type CreateBountyInput = z.infer<typeof createBountyScHema>;
+
+// ------------------------------------------------------------------------------
+// API key management schemas
+// ------------------------------------------------------------------------------
+
+/**
+ * Request body for POST /api/maintainers/:address/api-keys.
+ * A label is optional but recommended for identifying the key later.
+ */
+export const createApiKeySchema = z.object({
+  label: sanitizedString(100).optional(),
+});
+
+export type CreateApiKeyInput = z.infer<typeof createApiKeySchema>;
+
+/**
+ * Params for DELETE /api/maintainers/:address/api-keys/:keyId.
+ * keyId is the opaque identifier of the stored API key.
+ */
+export const revokeApiKeyParamsSchema = z.object({
+  keyId: z.string().min(1, "keyId must not be empty"),
+});
+
+export type RevokeApiKeyParams = z.infer<typeof revokeApiKeyParamsSchema>;
