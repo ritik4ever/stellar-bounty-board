@@ -158,6 +158,7 @@ exports[`OpenAPI spec snapshot test > generated OpenAPI spec matches snapshot 1`
               "expire",
               "dispute",
               "update_notes",
+              "patch_fields",
             ],
             "example": "reserve",
             "type": "string",
