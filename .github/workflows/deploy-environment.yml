@@ -56,3 +56,48 @@ jobs:
       run: |
         sleep 30
         curl -f ${{ secrets.HEALTH_CHECK_URL }} || exit 1
+
+  smoke-test:
+    needs: [deploy-env]
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'staging' }}
+    steps:
+    - name: Smoke test — deep health endpoint
+      env:
+        DEEP_HEALTH_URL: ${{ secrets.DEEP_HEALTH_URL }}
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        URL="${DEEP_HEALTH_URL:-${{ secrets.HEALTH_CHECK_URL }}/deep}"
+
+        echo "Smoke-testing deep health endpoint: ${URL}"
+
+        MAX_RETRIES=5
+        RETRY_DELAY=10
+
+        for i in $(seq 1 $MAX_RETRIES); do
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$URL" || echo "000")
+
+          case "$HTTP_STATUS" in
+            200)
+              echo "✅ Deep health check passed (HTTP 200)"
+              exit 0
+              ;;
+            503)
+              echo "⚠️  Service not ready yet (HTTP 503) — attempt $i/$MAX_RETRIES, retrying in ${RETRY_DELAY}s..."
+              sleep "$RETRY_DELAY"
+              ;;
+            *)
+              echo "❌ Deep health check failed with HTTP ${HTTP_STATUS} — attempt $i/$MAX_RETRIES"
+              if [ "$i" -eq "$MAX_RETRIES" ]; then
+                echo "All retries exhausted. Pipeline failing."
+                exit 1
+              fi
+              sleep "$RETRY_DELAY"
+              ;;
+          esac
+        done
+
+        echo "❌ Deep health check did not return 200 after $MAX_RETRIES attempts"
+        exit 1
