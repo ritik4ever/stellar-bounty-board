@@ -212,6 +212,27 @@ The Soroban contract models the escrow lifecycle:
 
 The backend currently acts as the demo control plane, while the contract gives you a clear path to move the source of truth on-chain.
 
+### Role-Based Caller Authorization
+
+The Soroban smart contract enforces strict cryptographic caller authentication (`require_auth()`) and role verification across all state-modifying functions:
+
+| Method | Authorized Caller | Auth Verification | Role Constraint Check | Failure Error |
+|---|---|---|---|---|
+| `create_bounty` | Maintainer | `maintainer.require_auth()` | Must be funding account | Host Auth Error |
+| `reserve_bounty` | Contributor | `contributor.require_auth()` | Bounty must be `Open` | Host Auth Error / `BountyNotOpen` |
+| `submit_bounty` | Contributor | `contributor.require_auth()` | `bounty.contributor == caller` | `ContributorMismatch` |
+| `release_bounty` | Maintainer | `maintainer.require_auth()` | `bounty.maintainer == caller` | `MaintainerMismatch` |
+| `refund_bounty` | Maintainer | `maintainer.require_auth()` | `bounty.maintainer == caller` | `MaintainerMismatch` |
+| `cancel_bounty` | Maintainer | `maintainer.require_auth()` | `bounty.maintainer == caller` | `MaintainerMismatch` |
+| `extend_deadline` | Maintainer | `maintainer.require_auth()` | `bounty.maintainer == caller` | `MaintainerMismatch` |
+| `reassign_bounty` | Maintainer | `maintainer.require_auth()` | `bounty.maintainer == caller` | `MaintainerMismatch` |
+| `dispute_bounty` | Arbiter | `arbiter.require_auth()` | `caller == configured_arbiter` | `NotArbiter` |
+| `set_min_bounty_amount` | Admin | `admin.require_auth()` | `admin == caller` | `NotAdmin` |
+| `set_arbiter` | Admin | `admin.require_auth()` | `admin == caller` | `NotAdmin` |
+| `confirm_arbiter` | Admin | `admin.require_auth()` | `admin == caller` | `NotAdmin` |
+| `set_protocol_fee_bps`| Admin | `admin.require_auth()` | `admin == caller` | `NotAdmin` |
+| `set_fee_recipient` | Admin | `admin.require_auth()` | `admin == caller` | `NotAdmin` |
+
 ### TypeScript Bindings
 
 The frontend consumes auto-generated TypeScript bindings from the Soroban contract ABI. The generated types live in `frontend/src/generated/` and are imported by `frontend/src/api.ts` to keep frontend and contract types in sync.
