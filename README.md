@@ -201,14 +201,19 @@ Results include p50/p99/max latency, requests/s, bytes/s, error count, and error
 
 ## Contract Notes
 
-The Soroban contract models the escrow lifecycle:
+The Soroban contract models the escrow lifecycle and strictly enforces role-based caller authorization (`require_auth`):
 
-- `create_bounty`
-- `reserve_bounty`
-- `submit_bounty`
-- `release_bounty`
-- `refund_bounty`
-- `get_bounty`
+| Function | Authorized Caller | Enforced Check |
+|---|---|---|
+| `create_bounty` | `maintainer` | `maintainer.require_auth()` |
+| `reserve_bounty` | `contributor` | `contributor.require_auth()` |
+| `submit_bounty` | `contributor` | `contributor.require_auth()`, matches reserved contributor |
+| `release_bounty` | `maintainer` | `maintainer.require_auth()`, matches bounty maintainer |
+| `refund_bounty` | `maintainer` | `maintainer.require_auth()`, matches bounty maintainer, expired |
+| `cancel_bounty` | `maintainer` | `maintainer.require_auth()`, matches bounty maintainer, `Open` status |
+| `extend_deadline` | `maintainer` | `maintainer.require_auth()`, matches bounty maintainer |
+| `dispute_bounty` | `arbiter` | `arbiter.require_auth()`, matches configured arbiter |
+| `get_bounty` | *Public read* | None (read-only query) |
 
 The backend currently acts as the demo control plane, while the contract gives you a clear path to move the source of truth on-chain.
 
