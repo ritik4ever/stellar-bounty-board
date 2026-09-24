@@ -23,6 +23,52 @@ pub const MIN_DISPUTE_WINDOW_OVERRIDE: u64 = 60;
 /// Maximum allowed per-bounty dispute window override (30 days in seconds).
 pub const MAX_DISPUTE_WINDOW_OVERRIDE: u64 = 2_592_000;
 
+/// Default minimum age (in seconds) a Released/Refunded bounty must reach
+/// before it can be archived. Defaults to 30 days.
+pub const DEFAULT_ARCHIVE_AGE: u64 = 2_592_000;
+
+/// Maximum allowed bounty amount to prevent overflow / abuse.
+pub const MAX_BOUNTY_AMOUNT: i128 = 1_000_000_000_000_000_000;
+
+/// Contract error codes surfaced to callers.
+#[contracttype]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContractError {
+    InvalidAmount,
+    AmountTooSmall,
+    DeadlineMustBeInTheFuture,
+    FeeRecipientNotSet,
+    TokenNotAllowed,
+    DisputeWindowOverrideTooSmall,
+    DisputeWindowOverrideTooLarge,
+    ContractIsPaused,
+    BountyNotOpen,
+    MaintainerMismatch,
+    BountyMustBeReserved,
+    MissingContributor,
+    ContributorMismatch,
+    BountyMustBeSubmitted,
+    BountyAlreadyFinalized,
+    BountyNotExpiredYet,
+    CannotExtendFinalizedBounty,
+    DeadlineMustAdvance,
+    BountyExpired,
+    ArbiterNotSet,
+    NotArbiter,
+    DisputeWindowNotMet,
+    NotAdmin,
+    NoPendingArbiter,
+    TimelockNotElapsed,
+    BountyNotFound,
+    BountyNotFinalized,
+    BountyNotOldEnough,
+}
+
+/// Panic with a [`ContractError`] code.
+fn panic_error(error: ContractError) -> ! {
+    panic!("{}", error as u32)
+}
+
 #[contracttype]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BountyStatus {
@@ -74,7 +120,8 @@ pub struct FeeStats {
 enum DataKey {
     NextBountyId,
     Bounty(u64),
-
+    ArchivedBounty(u64),
+    ArchiveAge,
 }
 
 #[contracttype]
@@ -126,6 +173,34 @@ pub struct BountyRefunded {
     pub bounty_id: u64,
     pub maintainer: Address,
     pub amount: i128,
+}
+
+/// Compact representation of an archived (finalized) bounty.
+///
+/// Archived bounties drop the non-essential fields (`repo`, `title`,
+/// `protocol_fee_bps`, `dispute_raised_at`, `dispute_window_override`) that
+/// are no longer needed once a bounty has been Released or Refunded, reducing
+/// the persistent storage rent footprint compared to a full [`Bounty`].
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ArchivedBounty {
+    pub bounty_id: u64,
+    pub maintainer: Address,
+    pub contributor: Option<Address>,
+    pub token: Address,
+    pub amount: i128,
+    pub status: BountyStatus,
+    pub archived_at: u64,
+}
+
+/// Emitted when a finalized bounty is archived so off-chain indexers can keep
+/// a full historical copy of the record.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BountyArchived {
+    pub bounty_id: u64,
+    pub status: BountyStatus,
+    pub archived_at: u64,
 }
 
 #[contracttype]
@@ -576,6 +651,81 @@ impl StellarBountyBoardContract {
                 bounty_id,
                 maintainer,
                 amount: bounty.amount,
+            },
+        );
+    }
+
+    /// Returns the configured minimum age (in seconds) a Released/Refunded
+    /// bounty must reach before it can be archived.
+    pub fn get_archive_age(env: Env) -> u64 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ArchiveAge)
+            .unwrap_or(DEFAULT_ARCHIVE_AGE)
+    }
+
+    /// Admin: set the minimum age (in seconds) a Released/Refunded bounty must
+    /// reach before it can be archived. Only callable by the configured arbiter
+    /// (contract admin).
+    pub fn set_archive_age(env: Env, age: u64) {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Arbiter)
+            .unwrap_or_else(|| panic!("arbiter not set"));
+        admin.require_auth();
+
+        env.storage().persistent().set(&DataKey::ArchiveAge, &age);
+    }
+
+    /// Archives a finalized bounty (Released or Refunded) that is older than the
+    /// configured archive age.
+    ///
+    /// The full [`Bounty`] record is replaced by a compact [`ArchivedBounty`]
+    /// that drops non-essential fields, reducing persistent storage rent. A
+    /// [`BountyArchived`] event is emitted so off-chain indexers can keep a full
+    /// historical copy.
+    ///
+    /// Archiving is rejected for bounties still in an active state
+    /// (Open/Reserved/Submitted/Disputed) or that have not yet reached the
+    /// configured age.
+    pub fn archive_bounty(env: Env, bounty_id: u64) {
+        let bounty = read_bounty(&env, bounty_id);
+
+        // Only finalized bounties may be archived.
+        if bounty.status != BountyStatus::Released && bounty.status != BountyStatus::Refunded {
+            panic_error(ContractError::BountyNotFinalized);
+        }
+
+        // The bounty must be older than the configured archive age.
+        let archive_age = Self::get_archive_age(env.clone());
+        let now = env.ledger().timestamp();
+        if now < bounty.deadline + archive_age {
+            panic_error(ContractError::BountyNotOldEnough);
+        }
+
+        let archived = ArchivedBounty {
+            bounty_id,
+            maintainer: bounty.maintainer.clone(),
+            contributor: bounty.contributor.clone(),
+            token: bounty.token.clone(),
+            amount: bounty.amount,
+            status: bounty.status,
+            archived_at: now,
+        };
+
+        // Replace the full record with the compact archived representation.
+        env.storage()
+            .persistent()
+            .set(&DataKey::ArchivedBounty(bounty_id), &archived);
+        env.storage().persistent().remove(&DataKey::Bounty(bounty_id));
+
+        env.events().publish(
+            (symbol_short!("Bounty"), symbol_short!("Archiv")),
+            BountyArchived {
+                bounty_id,
+                status: archived.status,
+                archived_at: now,
             },
         );
     }
