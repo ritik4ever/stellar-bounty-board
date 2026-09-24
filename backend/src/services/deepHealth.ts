@@ -10,12 +10,14 @@ export interface DeepHealthResult {
     soroban: ComponentStatus;
     contract: ComponentStatus;
     auth: ComponentStatus;
+    sendgrid: ComponentStatus;
   };
   timestamp: string;
 }
 
 const DEFAULT_SOROBAN_RPC_URL = "https://rpc-futurenet.stellar.org";
 const RPC_TIMEOUT_MS = 5_000;
+const SENDGRID_TIMEOUT_MS = 5_000;
 
 function resolveStorePath(): string {
   if (process.env.BOUNTY_STORE_PATH?.trim()) {
@@ -108,15 +110,43 @@ function checkAuth(): ComponentStatus {
   return maintainerKeys.length > 0 && arbiter.length > 0 ? "up" : "down";
 }
 
+async function checkSendGrid(): Promise<ComponentStatus> {
+  const apiKey = process.env.SENDGRID_API_KEY?.trim();
+  if (!apiKey) {
+    return "down";
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), SENDGRID_TIMEOUT_MS);
+
+    const response = await fetch("https://api.sendgrid.com/v3/scopes", {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+
+    return response.ok ? "up" : "down";
+  } catch {
+    return "down";
+  }
+}
+
 export async function runDeepHealthCheck(): Promise<DeepHealthResult> {
-  const [store, soroban, contract, auth] = await Promise.all([
+  const [store, soroban, contract, auth, sendgrid] = await Promise.all([
     Promise.resolve(checkStore()),
     checkSorobanRpc(),
     Promise.resolve(checkContract()),
     Promise.resolve(checkAuth()),
+    checkSendGrid(),
   ]);
 
-  const components = { store, soroban, contract, auth };
+  const components = { store, soroban, contract, auth, sendgrid };
   const overall = Object.values(components).every((status) => status === "up") ? "up" : "down";
 
   return {
@@ -125,3 +155,4 @@ export async function runDeepHealthCheck(): Promise<DeepHealthResult> {
     timestamp: new Date().toISOString(),
   };
 }
+
