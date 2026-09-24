@@ -7,6 +7,12 @@ import { updateSocialMetaTags } from "./metaTags";
 import CopyIcon from "./CopyIcons";
 import { extendDeadline } from "./api";
 import { findSimilarBounties, type BountyRecommendation } from "./recommendations";
+import {
+  buildBountyPermalink,
+  buildBountyShareText,
+  buildLinkedInShareUrl,
+  buildTwitterShareUrl,
+} from "./shareLinks";
 
 
 type BountyAction = "reserve" | "submit" | "release" | "refund";
@@ -143,16 +149,18 @@ export default function BountyDetailPage({
     window.print();
   }
 
+  const sharePermalink = bounty ? buildBountyPermalink(bounty.id) : "";
+  const shareText = bounty ? buildBountyShareText(bounty) : "";
+
   function handleShare() {
     if (!bounty) return;
-    const permalink = `${window.location.origin}/bounties/${encodeURIComponent(bounty.id)}`;
-    navigator.clipboard.writeText(permalink).then(() => {
+    navigator.clipboard.writeText(sharePermalink).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }).catch((err) => {
       console.error("Failed to copy URL:", err);
       // Fallback: show the URL in a prompt so the user can manually copy it
-      window.prompt("Copy the bounty URL manually:", permalink);
+      window.prompt("Copy the bounty URL manually:", sharePermalink);
     });
   }
 
@@ -171,6 +179,44 @@ export default function BountyDetailPage({
             <h2>{bounty ? bounty.title : "Bounty"}</h2>
           </div>
           <div className="panel-header__actions">
+            <div className="share-buttons">
+              <a
+                className="secondary-button share-button share-button--twitter"
+                href={bounty ? buildTwitterShareUrl(sharePermalink, shareText) : undefined}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Share bounty on X (Twitter)"
+                title="Share on X (Twitter)"
+                tabIndex={loading || !bounty ? -1 : undefined}
+                aria-disabled={loading || !bounty}
+                onClick={(event) => {
+                  if (loading || !bounty) {
+                    event.preventDefault();
+                  }
+                }}
+              >
+                <span className="share-button__icon" aria-hidden="true">𝕏</span>
+                <span className="share-button__label">X</span>
+              </a>
+              <a
+                className="secondary-button share-button share-button--linkedin"
+                href={bounty ? buildLinkedInShareUrl(sharePermalink) : undefined}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Share bounty on LinkedIn"
+                title="Share on LinkedIn"
+                tabIndex={loading || !bounty ? -1 : undefined}
+                aria-disabled={loading || !bounty}
+                onClick={(event) => {
+                  if (loading || !bounty) {
+                    event.preventDefault();
+                  }
+                }}
+              >
+                <span className="share-button__icon" aria-hidden="true">in</span>
+                <span className="share-button__label">LinkedIn</span>
+              </a>
+            </div>
             <button
               type="button"
               className="secondary-button"

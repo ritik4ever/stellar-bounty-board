@@ -379,6 +379,41 @@ textarea {
   flex-wrap: wrap;
 }
 
+.share-buttons {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.share-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.share-button[aria-disabled="true"] {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.share-button__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.share-button--linkedin .share-button__icon {
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 0.95rem;
+}
+
 .print-button {
   display: inline-flex;
   align-items: center;
