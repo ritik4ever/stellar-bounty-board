@@ -653,7 +653,7 @@ function App() {
   }, [debouncedSearchQuery]);
 
   if (detailId) {
-    const owner = detailBounty ? repoOwner(detailBounty.repo) : "";
+    const owner = detailBounty ? detailBounty.repo.split('/')[0] : "";
     return (
       <ErrorBoundary componentName="BountyDetailPage">
         <Suspense fallback={<div className="empty-state">Loading bounty...</div>}>

@@ -115,7 +115,7 @@ describe("unsaved-changes warning (#856)", () => {
     const user = userEvent.setup();
     await renderBoard();
 
-    vi.mocked(api.createBounty).mockResolvedValue(undefined);
+    vi.mocked(api.createBounty).mockResolvedValue(mockBounty);
 
     // Fill in the form
     const titleInput = screen.getByPlaceholderText("Add WebSocket updates...");

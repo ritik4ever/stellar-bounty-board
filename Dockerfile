@@ -1,5 +1,5 @@
 # Build stage
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Copy root and backend dependencies
@@ -7,14 +7,14 @@ COPY package.json package-lock.json ./
 COPY backend ./backend
 
 # Install dependencies
-RUN npm ci
+RUN npm install
 
 # Build backend
 WORKDIR /app/backend
 RUN npm run build
 
 # Runtime stage
-FROM node:18-alpine
+FROM node:20-alpine
 WORKDIR /app
 
 # Copy only production dependencies and built files

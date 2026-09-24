@@ -1,6 +1,11 @@
 /// <reference types="vitest" />
 /// <reference types="vite-plugin-pwa/client" />
 
+import crypto from "crypto";
+if (typeof globalThis.crypto === "undefined") {
+  globalThis.crypto = crypto as any;
+}
+
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";

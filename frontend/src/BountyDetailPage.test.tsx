@@ -13,6 +13,7 @@ const statusCopy: Record<BountyStatus, { label: string; description: string }> =
   released: { label: "Released", description: "Funds released." },
   refunded: { label: "Refunded", description: "Funds refunded." },
   expired: { label: "Expired", description: "Past deadline." },
+  disputed: { label: "Disputed", description: "In dispute resolution." },
 };
 
 const actionCopy: Record<BountyStatus, []> = {
@@ -22,6 +23,7 @@ const actionCopy: Record<BountyStatus, []> = {
   released: [],
   refunded: [],
   expired: [],
+  disputed: [],
 };
 
 const bounty: Bounty = {
@@ -49,7 +51,7 @@ const similarBounty: Bounty = {
   title: "Similar bounty for testing",
   summary: "Another bounty with similar characteristics.",
   maintainer: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
-  contributor: null,
+  contributor: undefined,
   tokenSymbol: "XLM",
   amount: 200,
   labels: [{ name: "frontend", color: "blue" }],

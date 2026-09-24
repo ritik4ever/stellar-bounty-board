@@ -128,7 +128,7 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Install cargo-audit
-        run: cargo install cargo-audit --version "=0.21.2" --locked
+        run: cargo install cargo-audit --locked
 
       - name: Cargo audit contract
         run: cd contracts && cargo audit > ../contract-audit.log
