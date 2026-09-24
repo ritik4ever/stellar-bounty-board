@@ -3,9 +3,12 @@ import type { FilterState } from './constants';
 import type { Bounty } from './types';
 import {
   computeDeadlineAt,
+  debounce,
   deriveBountyStatus,
   filterBounties,
   formatAmount,
+  getRepoMetrics,
+  getUniqueRepos,
   getUniqueTokenSymbols,
   resetXlmToUsdCache,
   xlmToUsd,
@@ -156,3 +159,117 @@ describe('filterBounties — token filter (#293)', () => {
     expect(filterBounties(tokenBounties, baseFilters)).toHaveLength(4);
   });
 });
+
+describe('frontend utils comprehensive unit coverage (#1274)', () => {
+  it('debounce executes the callback after the specified delay and cancels previous timers', () => {
+    vi.useFakeTimers();
+    const callback = vi.fn();
+    const debounced = debounce(callback, 200);
+
+    debounced('first');
+    debounced('second');
+    debounced('third');
+
+    expect(callback).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(199);
+    expect(callback).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1);
+    expect(callback).toHaveBeenCalledTimes(1);
+    expect(callback).toHaveBeenCalledWith('third');
+    vi.useRealTimers();
+  });
+
+  it('getUniqueRepos returns distinct, sorted repository names', () => {
+    const list: Bounty[] = [
+      mockBounty({ id: '1', repo: 'org/repo-b' }),
+      mockBounty({ id: '2', repo: 'org/repo-a' }),
+      mockBounty({ id: '3', repo: 'org/repo-b' }),
+    ];
+    expect(getUniqueRepos(list)).toEqual(['org/repo-a', 'org/repo-b']);
+  });
+
+  it('deriveBountyStatus returns terminal statuses untouched and evaluates open bounties against deadline', () => {
+    const now = 10000;
+    expect(deriveBountyStatus('released', 5000, now)).toBe('released');
+    expect(deriveBountyStatus('refunded', 5000, now)).toBe('refunded');
+    expect(deriveBountyStatus('expired', 5000, now)).toBe('expired');
+    expect(deriveBountyStatus('submitted', 5000, now)).toBe('submitted');
+    expect(deriveBountyStatus('open', 15000, now)).toBe('open');
+    expect(deriveBountyStatus('open', 10000, now)).toBe('expired');
+    expect(deriveBountyStatus('reserved', 15000, now)).toBe('reserved');
+    expect(deriveBountyStatus('reserved', 9000, now)).toBe('expired');
+  });
+
+  it('getRepoMetrics computes complete breakdown counts and totals correctly', () => {
+    const metricsBounties: Bounty[] = [
+      mockBounty({ id: '1', repo: 'target/repo', status: 'open', amount: 100 }),
+      mockBounty({ id: '2', repo: 'target/repo', status: 'reserved', amount: 200 }),
+      mockBounty({ id: '3', repo: 'target/repo', status: 'submitted', amount: 300 }),
+      mockBounty({ id: '4', repo: 'target/repo', status: 'released', amount: 400 }),
+      mockBounty({ id: '5', repo: 'target/repo', status: 'refunded', amount: 50 }),
+      mockBounty({ id: '6', repo: 'target/repo', status: 'expired', amount: 50 }),
+      mockBounty({ id: '7', repo: 'other/repo', status: 'open', amount: 1000 }),
+    ];
+
+    const metrics = getRepoMetrics(metricsBounties, 'target/repo');
+    expect(metrics).toEqual({
+      totalBounties: 6,
+      openBounties: 1,
+      reservedBounties: 1,
+      submittedBounties: 1,
+      releasedBounties: 1,
+      refundedBounties: 1,
+      expiredBounties: 1,
+      totalFunded: 1100,
+      totalPaidOut: 400,
+    });
+  });
+
+  it('filterBounties supports min/max reward, repo filter, search query and sorting', () => {
+    const filterData: Bounty[] = [
+      mockBounty({ id: '1', repo: 'org/frontend', title: 'Fix CSS button', amount: 50, status: 'open', createdAt: 100 }),
+      mockBounty({ id: '2', repo: 'org/backend', title: 'Add REST API auth', amount: 200, status: 'open', createdAt: 200 }),
+      mockBounty({ id: '3', repo: 'org/contract', title: 'Soroban escrow refund', amount: 500, status: 'submitted', createdAt: 300 }),
+    ];
+
+    // Filter by minReward & maxReward
+    const rewardFiltered = filterBounties(filterData, {
+      ...baseFilters,
+      minReward: '100',
+      maxReward: '300',
+    });
+    expect(rewardFiltered.map((b) => b.id)).toEqual(['2']);
+
+    // Filter by repo
+    const repoFiltered = filterBounties(filterData, {
+      ...baseFilters,
+      repoFilter: 'org/frontend',
+    });
+    expect(repoFiltered.map((b) => b.id)).toEqual(['1']);
+
+    // Filter by search query in title
+    const searchFiltered = filterBounties(filterData, {
+      ...baseFilters,
+      searchQuery: 'escrow',
+    });
+    expect(searchFiltered.map((b) => b.id)).toEqual(['3']);
+
+    // Sort by reward ascending
+    const sortedAsc = filterBounties(filterData, {
+      ...baseFilters,
+      sortOption: 'reward',
+      sortDirection: 'asc',
+    });
+    expect(sortedAsc.map((b) => b.id)).toEqual(['1', '2', '3']);
+
+    // Sort by reward descending
+    const sortedDesc = filterBounties(filterData, {
+      ...baseFilters,
+      sortOption: 'reward',
+      sortDirection: 'desc',
+    });
+    expect(sortedDesc.map((b) => b.id)).toEqual(['3', '2', '1']);
+  });
+});
+
