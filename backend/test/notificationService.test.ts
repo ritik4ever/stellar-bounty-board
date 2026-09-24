@@ -233,6 +233,139 @@ describe("sendNotification — WEBHOOK channel", () => {
   });
 });
 
+// ── buildDiscordPayload ───────────────────────────────────────────────────────
+
+describe("buildDiscordPayload", () => {
+  const BOUNTY = {
+    bountyId: "BNT-0001",
+    title: "Fix the widget",
+    amount: 100,
+    tokenSymbol: "XLM",
+    repo: "ritik4ever/stellar-stream",
+    status: "open",
+  };
+
+  it("produces a valid Discord webhook embed schema", async () => {
+    const { buildDiscordPayload } = await import("../src/services/notificationService");
+    const payload = buildDiscordPayload(BOUNTY, "bounty_created");
+
+    expect(payload).toHaveProperty("embeds");
+    expect(Array.isArray(payload.embeds)).toBe(true);
+    for (const embed of payload.embeds) {
+      expect(typeof embed.title).toBe("string");
+      expect(typeof embed.color).toBe("number");
+      expect(Array.isArray(embed.fields)).toBe(true);
+      for (const field of embed.fields) {
+        expect(field).toHaveProperty("name");
+        expect(field).toHaveProperty("value");
+        expect(typeof field.inline).toBe("boolean");
+      }
+    }
+  });
+
+  it("includes bounty title, reward, repo link, and status as fields", async () => {
+    const { buildDiscordPayload } = await import("../src/services/notificationService");
+    const payload = buildDiscordPayload(BOUNTY, "bounty_created");
+    const fields = payload.embeds[0].fields;
+
+    expect(payload.embeds[0].title).toContain("Fix the widget");
+    const reward = fields.find((f) => f.name === "Reward");
+    const repoField = fields.find((f) => f.name === "Repository");
+    const status = fields.find((f) => f.name === "Status");
+
+    expect(reward?.value).toBe("100 XLM");
+    expect(repoField?.value).toBe("https://github.com/ritik4ever/stellar-stream");
+    expect(status?.value).toBe("open");
+  });
+
+  it("uses distinct colors per event type", async () => {
+    const { buildDiscordPayload } = await import("../src/services/notificationService");
+    const events = [
+      "bounty_created",
+      "bounty_reserved",
+      "bounty_submitted",
+      "bounty_released",
+      "bounty_refunded",
+      "bounty_disputed",
+      "dispute_stuck_alert",
+    ];
+    const colors = events.map(
+      (event) => buildDiscordPayload(BOUNTY, event).embeds[0].color,
+    );
+
+    expect(new Set(colors).size).toBe(events.length);
+  });
+
+  it("maps each event to a distinctly labeled title", async () => {
+    const { buildDiscordPayload } = await import("../src/services/notificationService");
+    const payload = buildDiscordPayload(BOUNTY, "bounty_released");
+    expect(payload.embeds[0].title).toContain("Reward released");
+  });
+
+  it("falls back for unknown event types without throwing", async () => {
+    const { buildDiscordPayload } = await import("../src/services/notificationService");
+    const payload = buildDiscordPayload(BOUNTY, "bounty_alien_event");
+    expect(payload.embeds[0].color).toBeTypeOf("number");
+  });
+});
+
+// ── DISCORD channel ───────────────────────────────────────────────────────────
+
+describe("sendNotification — DISCORD channel", () => {
+  const fetchMock = vi.fn<typeof fetch>();
+  const DISCORD_URL = "https://discord.com/api/webhooks/1234/abc";
+
+  beforeEach(() => {
+    fetchMock.mockClear();
+    vi.stubGlobal("fetch", fetchMock);
+    process.env.NOTIFICATION_CHANNEL = "DISCORD";
+    process.env.DISCORD_WEBHOOK_URL = DISCORD_URL;
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.NOTIFICATION_CHANNEL;
+    delete process.env.DISCORD_WEBHOOK_URL;
+  });
+
+  it("POSTs a Discord embed payload to DISCORD_WEBHOOK_URL", async () => {
+    fetchMock.mockResolvedValue(okResponse(204));
+    const { sendNotification } = await import("../src/services/notificationService");
+
+    await sendNotification(RECIPIENTS, "bounty_created", PAYLOAD);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(DISCORD_URL);
+
+    const body = JSON.parse(init?.body as string);
+    expect(body.embeds).toHaveLength(1);
+    const fields = body.embeds[0].fields.map((f: { name: string }) => f.name);
+    expect(fields).toEqual(
+      expect.arrayContaining(["Reward", "Repository", "Status", "Bounty ID"]),
+    );
+  });
+
+  it("skips dispatch and logs warning when DISCORD_WEBHOOK_URL is absent", async () => {
+    delete process.env.DISCORD_WEBHOOK_URL;
+    const { sendNotification } = await import("../src/services/notificationService");
+
+    await sendNotification(RECIPIENTS, "bounty_created", PAYLOAD);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("catches and logs Discord errors without re-throwing", async () => {
+    fetchMock.mockResolvedValue(errResponse(500, "Internal Server Error"));
+    const { sendNotification } = await import("../src/services/notificationService");
+
+    await expect(
+      sendNotification(RECIPIENTS, "bounty_created", PAYLOAD),
+    ).resolves.toBeUndefined();
+  });
+});
+
 // ── No channel configured ─────────────────────────────────────────────────────
 
 describe("sendNotification — no channel", () => {
