@@ -79,6 +79,16 @@ export interface OpenIssue {
   impact: "starter" | "core" | "advanced";
 }
 
+export interface BountyTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  amount: number;
+  deadlineDays: number;
+  labels: GithubLabel[];
+  tokenSymbol: string;
+}
+
 
 
 export interface MaintainerMetrics {
