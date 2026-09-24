@@ -1,5 +1,17 @@
 # Stellar Bounty Board Contract
 
+## Versioning
+
+The contract exposes `CONTRACT_VERSION` from the `version` field in
+`contracts/Cargo.toml`. Any pull request that changes `contracts/src/lib.rs`
+must bump that package version so deployed contract behavior can be traced back
+to a semver release.
+
+The contract CI workflow diffs pull requests against `main` and fails when
+`contracts/src/lib.rs` changes without a `contracts/Cargo.toml` version bump.
+Maintainers may apply the `skip-version-check` label for trivial doc-only
+changes that touch `lib.rs` but do not affect contract behavior.
+
 ## Error Codes
 
 The contract uses named error codes for all invalid operations. These codes are emitted as panic messages in tests.

@@ -10,6 +10,40 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check contract version bump
+        env:
+          HAS_SKIP_VERSION_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'skip-version-check') }}
+        run: |
+          if [ "$HAS_SKIP_VERSION_LABEL" = "true" ]; then
+            echo "Skipping contract version check because skip-version-check label is present."
+            exit 0
+          fi
+
+          git fetch origin main
+
+          if ! git diff --name-only origin/main...HEAD | grep -qx 'contracts/src/lib.rs'; then
+            echo "contracts/src/lib.rs did not change; no contract version bump required."
+            exit 0
+          fi
+
+          BASE_VERSION=$(git show origin/main:contracts/Cargo.toml | sed -n 's/^version = "\(.*\)"/\1/p' | head -n 1)
+          HEAD_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' contracts/Cargo.toml | head -n 1)
+
+          if [ -z "$BASE_VERSION" ] || [ -z "$HEAD_VERSION" ]; then
+            echo "Unable to read contracts/Cargo.toml package version."
+            exit 1
+          fi
+
+          if [ "$BASE_VERSION" = "$HEAD_VERSION" ]; then
+            echo "contracts/src/lib.rs changed, but contracts/Cargo.toml version stayed at $HEAD_VERSION."
+            echo "Bump contracts/Cargo.toml package.version so CONTRACT_VERSION changes, or apply the skip-version-check label for trivial doc-only changes."
+            exit 1
+          fi
+
+          echo "Contract version changed from $BASE_VERSION to $HEAD_VERSION."
 
       - name: Cache rustup toolchains
         uses: actions/cache@v4
