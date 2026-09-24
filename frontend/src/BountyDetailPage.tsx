@@ -5,8 +5,9 @@ import BountyCountdown from "./BountyCountdown";
 import UsdAmount from "./UsdAmount";
 import { updateSocialMetaTags } from "./metaTags";
 import CopyIcon from "./CopyIcons";
-import { extendDeadline } from "./api";
+import { extendDeadline, getDisputeEvents } from "./api";
 import { findSimilarBounties, type BountyRecommendation } from "./recommendations";
+import DisputeTimeline from "./DisputeTimeline";
 
 
 type BountyAction = "reserve" | "submit" | "release" | "refund";
@@ -131,6 +132,11 @@ export default function BountyDetailPage({
     if (!bounty || !bounties || bounties.length === 0) return [];
     return findSimilarBounties(bounty, bounties, 3);
   }, [bounty, bounties]);
+
+  const disputeEvents = useMemo(() => {
+    if (!bounty || !bounty.events) return [];
+    return getDisputeEvents(bounty.events);
+  }, [bounty]);
 
   useEffect(() => {
     updateSocialMetaTags(bounty);
@@ -375,6 +381,10 @@ export default function BountyDetailPage({
 
             {bounty.events && bounty.events.length > 0 && (
               <BountyTimeline events={bounty.events} formatTimestamp={formatTimestamp} />
+            )}
+
+            {disputeEvents.length > 0 && (
+              <DisputeTimeline events={disputeEvents} formatTimestamp={formatTimestamp} />
             )}
           </div>
         )}
