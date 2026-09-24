@@ -61,6 +61,7 @@ import {
 } from './middleware/auth';
 import { idempotencyMiddleware } from './middleware/idempotency';
 import { requireJsonContentType } from './middleware/contentType';
+import { enforceBodyLimit, DEFAULT_BODY_LIMIT } from './middleware/bodyLimit';
 import { readLimiter, mutationLimiter } from './utils';
 import { maintainerLimiter } from './middleware/maintainerLimiter';
 import { logger } from './logger';
@@ -118,7 +119,7 @@ app.use(cors(buildCorsOptions()));
 app.use(
   express.json({
     verify: captureRawBody,
-    limit: '32kb',
+    limit: '256kb',
   })
 );
 
@@ -555,6 +556,7 @@ app.get('/api/bounties/released/export.csv', (req: Request, res: Response) => {
 app.post(
   '/api/bounties',
   mutationLimiter,
+  enforceBodyLimit(DEFAULT_BODY_LIMIT),
   requireJsonContentType,
   maintainerLimiter,
   createBountyCreationSignatureMiddleware(),
@@ -576,7 +578,7 @@ app.post(
   }
 );
 
-app.post('/api/bounties/:id/reserve', mutationLimiter, requireJsonContentType, idempotencyMiddleware, validateBody(reserveBountySchema), async (req: Request, res: Response) => {
+app.post('/api/bounties/:id/reserve', mutationLimiter, enforceBodyLimit(DEFAULT_BODY_LIMIT), requireJsonContentType, idempotencyMiddleware, validateBody(reserveBountySchema), async (req: Request, res: Response) => {
   try {
     const bounty = await reserveBounty(
       parseId(req.params.id),
@@ -608,6 +610,7 @@ app.post('/api/bounties/:id/submit', mutationLimiter, requireJsonContentType, id
 app.post(
   '/api/bounties/:id/release',
   mutationLimiter,
+  enforceBodyLimit(DEFAULT_BODY_LIMIT),
   requireJsonContentType,
   idempotencyMiddleware,
   createStellarSignatureAuthMiddleware(),
@@ -630,6 +633,7 @@ app.post(
 app.post(
   '/api/bounties/:id/refund',
   mutationLimiter,
+  enforceBodyLimit(DEFAULT_BODY_LIMIT),
   idempotencyMiddleware,
   createStellarSignatureAuthMiddleware(),
   validateBody(maintainerActionSchema),
@@ -651,6 +655,7 @@ app.post(
 app.post(
   '/api/bounties/:id/cancel',
   mutationLimiter,
+  enforceBodyLimit(DEFAULT_BODY_LIMIT),
   idempotencyMiddleware,
   createStellarSignatureAuthMiddleware(),
   async (req: Request, res: Response) => {
@@ -678,6 +683,7 @@ app.post(
 app.post(
   '/api/bounties/:id/dispute',
   mutationLimiter,
+  enforceBodyLimit(DEFAULT_BODY_LIMIT),
   createStellarSignatureAuthMiddleware(),
   validateBody(disputeBountySchema),
   async (req: Request, res: Response) => {
@@ -698,6 +704,7 @@ app.post(
 app.post(
   '/api/bounties/:id/resolve-dispute',
   mutationLimiter,
+  enforceBodyLimit(DEFAULT_BODY_LIMIT),
   validateBody(resolveDisputeBountySchema),
   async (req: Request, res: Response) => {
     try {
@@ -739,6 +746,7 @@ app.patch(
 app.post(
   '/api/bounties/:id/extend-deadline',
   mutationLimiter,
+  enforceBodyLimit(DEFAULT_BODY_LIMIT),
   idempotencyMiddleware,
   createStellarSignatureAuthMiddleware(),
   async (req: Request, res: Response) => {
@@ -958,7 +966,7 @@ app.get(
 
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   if ((err as any).type === 'entity.too.large') {
-    res.status(413).json({ error: 'Payload too large', maxBytes: 32768 });
+    res.status(413).json({ error: 'Payload Too Large' });
     return;
   }
   if (err instanceof SyntaxError && (err as any).type === 'entity.parse.failed' && (err as any).body) {
