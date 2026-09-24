@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import {
   createBounty,
   getBounty,
+  getGlobalMetrics,
   listBounties,
   listOpenIssues,
   releaseBountySigned,
@@ -55,6 +56,7 @@ import ContributorProfilePage from "./ContributorProfilePage";
 import ContributorDashboard from "./ContributorDashboard";
 import ErrorBoundary from "./ErrorBoundary";
 import SubmissionChecklistModal, { type SubmissionFormData } from "./SubmissionChecklistModal";
+import StatsBanner from "./StatsBanner";
 
 const DARK_MODE_KEY = "stellar-bounty-board-theme";
 
@@ -131,6 +133,7 @@ function App() {
   const [form, setForm] = useState<CreateBountyPayload>(initialForm);
   const [bounties, setBounties] = useState<Bounty[]>([]);
   const [, setIssues] = useState<OpenIssue[]>([]);
+  const [globalMetrics, setGlobalMetrics] = useState<import("./types").GlobalMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [showShortcutsOverlay, setShowShortcutsOverlay] = useState(false);
@@ -204,12 +207,14 @@ function App() {
   }, []);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
-    const [bountyData, issueData] = await Promise.all([
-      listBounties(signal),
+    const [bountyData, issueData, metricsData] = await Promise.all([
+      listBounties(undefined, signal),
       listOpenIssues(signal),
+      getGlobalMetrics().catch(() => null),
     ]);
     setBounties(bountyData);
     setIssues(issueData);
+    if (metricsData) setGlobalMetrics(metricsData);
   }, []);
 
   useEffect(() => {
@@ -736,6 +741,7 @@ function App() {
       </header>
 
       <main className="main-content">
+        <StatsBanner metrics={globalMetrics} loading={loading} />
         <section className="dashboard-hero">
           <div className="hero-grid">
             <div className="hero-main">

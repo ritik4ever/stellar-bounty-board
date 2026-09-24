@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  calculateRecommendationScore,
   countLabelOverlap,
   createDefaultProfile,
+  findSimilarBounties,
   generateRecommendations,
   getFallbackRecommendations,
   scoreMatch,
@@ -161,3 +163,130 @@ describe('generateRecommendations', () => {
     expect(recommendations).toHaveLength(3);
   });
 });
+
+describe('calculateRecommendationScore', () => {
+  it('computes score and reasons for open bounties matching profile', () => {
+    const bounty = makeBounty({
+      id: 'score-1',
+      title: 'Implement React Frontend with TypeScript',
+      amount: 250,
+      labels: [
+        { name: 'frontend', color: 'blue' },
+        { name: 'good first issue', color: 'green' },
+      ],
+    });
+
+    const profile = {
+      completedLabels: ['frontend'],
+      preferredRepos: ['ritik4ever/stellar-bounty-board'],
+      averageRewardRange: { min: 100, max: 500 },
+      skills: ['React', 'TypeScript'],
+    };
+
+    const result = calculateRecommendationScore(bounty, profile);
+    expect(result.score).toBeGreaterThan(0);
+    expect(result.reasons.length).toBeGreaterThan(0);
+    expect(result.reasons.length).toBeLessThanOrEqual(3);
+  });
+
+  it('handles beginner friendly label correctly', () => {
+    const bounty = makeBounty({
+      id: 'beginner-1',
+      title: 'Beginner Friendly Issue',
+      amount: 100,
+      labels: [{ name: 'beginner friendly', color: 'green' }],
+    });
+
+    const profile = createDefaultProfile();
+    const result = calculateRecommendationScore(bounty, profile);
+    expect(result.reasons).toContain('Great for getting started');
+  });
+
+  it('returns 0 score for terminal status bounties', () => {
+    const bounty = makeBounty({
+      id: 'terminal-1',
+      title: 'Released Bounty',
+      amount: 100,
+      status: 'released',
+      labels: [{ name: 'react', color: 'blue' }],
+    });
+
+    const profile = createDefaultProfile();
+    const result = calculateRecommendationScore(bounty, profile);
+    expect(result.score).toBe(0);
+  });
+});
+
+describe('findSimilarBounties', () => {
+  it('finds similar open bounties excluding target itself', () => {
+    const target = makeBounty({
+      id: 'target-1',
+      title: 'Target Bounty',
+      amount: 200,
+      labels: [{ name: 'React', color: 'cyan' }, { name: 'TypeScript', color: 'blue' }],
+    });
+
+    const allBounties = [
+      target,
+      makeBounty({
+        id: 'sim-1',
+        title: 'Similar React Bounty',
+        amount: 250,
+        status: 'open',
+        labels: [{ name: 'React', color: 'cyan' }],
+      }),
+      makeBounty({
+        id: 'sim-closed',
+        title: 'Closed React Bounty',
+        amount: 250,
+        status: 'released',
+        labels: [{ name: 'React', color: 'cyan' }],
+      }),
+    ];
+
+    const similar = findSimilarBounties(target, allBounties, 3);
+    expect(similar).toHaveLength(1);
+    expect(similar[0]?.bounty.id).toBe('sim-1');
+  });
+});
+
+describe('updateProfileFromBounties', () => {
+  it('updates profile from completed bounties with inferred skills and repo preferences', () => {
+    const initialProfile = createDefaultProfile();
+    const completed = [
+      makeBounty({
+        id: 'done-1',
+        title: 'Done Docs and Rust',
+        status: 'released',
+        amount: 400,
+        repo: 'stellar-org/soroban-sdk',
+        labels: [
+          { name: 'docs', color: 'gray' },
+          { name: 'node.js', color: 'green' },
+          { name: 'rust', color: 'orange' },
+        ],
+      }),
+      makeBounty({
+        id: 'done-2',
+        title: 'Done Testing',
+        status: 'released',
+        amount: 600,
+        repo: 'stellar-org/soroban-tools',
+        labels: [{ name: 'testing', color: 'yellow' }],
+      }),
+    ];
+
+    const updated = updateProfileFromBounties(initialProfile, completed);
+    expect(updated.completedLabels).toContain('docs');
+    expect(updated.completedLabels).toContain('node.js');
+    expect(updated.completedLabels).toContain('rust');
+    expect(updated.completedLabels).toContain('testing');
+    expect(updated.preferredRepos).toContain('stellar-org');
+    expect(updated.averageRewardRange).toEqual({ min: 400, max: 600 });
+    expect(updated.skills).toContain('Docs');
+    expect(updated.skills).toContain('Node.js');
+    expect(updated.skills).toContain('Rust');
+    expect(updated.skills).toContain('Testing');
+  });
+});
+
