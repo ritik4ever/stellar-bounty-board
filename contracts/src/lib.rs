@@ -373,6 +373,16 @@ impl StellarBountyBoardContract {
             dispute_window_override,
         };
 
+        let mut maintainer_bounties: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MaintainerBounties(maintainer.clone()))
+            .unwrap_or(Vec::new(&env));
+        maintainer_bounties.push_back(next_id);
+        env.storage()
+            .persistent()
+            .set(&DataKey::MaintainerBounties(maintainer.clone()), &maintainer_bounties);
+
         env.storage()
             .persistent()
             .set(&DataKey::NextBountyId, &next_id);
