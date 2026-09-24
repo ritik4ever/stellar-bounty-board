@@ -551,6 +551,30 @@ chmod +x .husky/pre-commit
 - `.prettierrc.json` - Prettier formatting rules
 - `.prettierignore` - Files to exclude from Prettier
 
+## Code Owners
+
+Code review ownership is defined in the root [`.github/CODEOWNERS`](./.github/CODEOWNERS) file. GitHub
+automatically requests reviews from the owners of the paths a PR touches.
+
+The current ownership mapping:
+
+| Path                     | Owners                       |
+| ------------------------ | ---------------------------- |
+| `*` (default)            | `@ritik4ever`                |
+| `contracts/`             | `@ritik4ever`                |
+| `backend/`               | `@ritik4ever`                |
+| `frontend/`              | `@ritik4ever`                |
+| `.github/workflows/`     | `@ritik4ever` (infra)        |
+| `docker-compose.yml`     | `@ritik4ever` (infra)        |
+| `nginx/`, `scripts/`     | `@ritik4ever` (infra)        |
+
+Rules:
+
+- The last matching pattern takes precedence; more specific paths can override the default owner.
+- A PR touching `contracts/`, `backend/`, or `frontend/` will request review from the mapped owners.
+- A PR touching infrastructure paths (`.github/workflows/`, `docker-compose.yml`) requests review from the infra owner.
+- To change ownership, update `.github/CODEOWNERS` in a dedicated PR and keep this table in sync.
+
 ## Getting Help
 
 - **New to the project?** Start with [ONBOARDING.md](./ONBOARDING.md)
