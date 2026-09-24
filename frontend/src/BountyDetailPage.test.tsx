@@ -154,6 +154,18 @@ describe("BountyDetailPage copy actions", () => {
     expect(print).toHaveBeenCalledOnce();
   });
 
+  it("applies print-friendly classes to hide interactive chrome in @media print", () => {
+    renderDetail();
+
+    // Interactive chrome elements that should be hidden in print
+    expect(screen.getByRole("button", { name: /share bounty/i }).closest(".panel-header__actions")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /print \/ export pdf/i }).closest(".panel-header__actions")).toBeInTheDocument();
+
+    // Key content that should remain visible in print
+    expect(screen.getByText("Copy button test bounty")).toBeInTheDocument();
+    expect(screen.getByText(/BNTY-42/)).toBeInTheDocument();
+  });
+
   it("announces status changes for assistive technology", () => {
     const { rerender } = renderDetail();
     const reservedBounty: Bounty = {

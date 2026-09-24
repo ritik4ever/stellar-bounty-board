@@ -1479,7 +1479,16 @@ select {
   .panel-header__actions,
   .action-row,
   .copy-button-wrapper,
-  .submission-modal {
+  .submission-modal,
+  .extend-deadline,
+  .more-like-this,
+  .recommendation-score,
+  .recommendation-reasons,
+  .recommendation-footer,
+  .recommendations-disclaimer,
+  .copy-row [class*="copy-icon"],
+  .copy-row button,
+  .submission-link {
     display: none !important;
   }
 
