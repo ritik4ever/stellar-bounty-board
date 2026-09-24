@@ -545,6 +545,61 @@ impl StellarBountyBoardContract {
         );
     }
 
+    pub fn batch_release_bounty(env: Env, bounty_ids: Vec<u64>, maintainer: Address) {
+        maintainer.require_auth();
+
+        for bounty_id in bounty_ids.iter() {
+            let mut bounty = read_bounty(&env, bounty_id);
+
+            if bounty.status != BountyStatus::Submitted {
+                continue;
+            }
+
+            if bounty.maintainer != maintainer {
+                panic_error(ContractError::MaintainerMismatch);
+            }
+
+            let contributor = bounty.contributor.clone().unwrap();
+
+            let token_client = TokenClient::new(&env, &bounty.token);
+            let contract_address = env.current_contract_address();
+
+            let fee_amount: i128 = if bounty.protocol_fee_bps == 0 {
+                0
+            } else {
+                (bounty.amount * bounty.protocol_fee_bps as i128) / 10_000
+            };
+
+            let net_payout = bounty.amount - fee_amount;
+
+            token_client.transfer(&contract_address, &contributor, &net_payout);
+
+            if fee_amount > 0 {
+                let fee_recipient: Address = env
+                    .storage()
+                    .persistent()
+                    .get(&DataKey::FeeRecipient)
+                    .unwrap_or_else(|| panic!("fee recipient not set"));
+                token_client.transfer(&contract_address, &fee_recipient, &fee_amount);
+            }
+
+            accumulate_fee_stats(&env, fee_amount);
+
+            bounty.status = BountyStatus::Released;
+            write_bounty(&env, bounty_id, &bounty);
+
+            env.events().publish(
+                (symbol_short!("Bounty"), symbol_short!("Releas")),
+                BountyReleased {
+                    bounty_id,
+                    contributor,
+                    amount: net_payout,
+                    fee_amount,
+                },
+            );
+        }
+    }
+
     pub fn refund_bounty(env: Env, bounty_id: u64, maintainer: Address) {
         maintainer.require_auth();
         let mut bounty = read_bounty(&env, bounty_id);
