@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { listBounties } from './api';
 import RecommendedBounties from './RecommendedBounties';
+import ContributorHeatmap from './components/heatmap/ContributorHeatmap';
 import {
   createDefaultProfile,
   generateRecommendations,
@@ -63,17 +64,21 @@ export default function ContributorDashboard({
   const bounties = bountiesProp ?? fetchedBounties;
   const loading = loadingProp ?? fetchLoading;
 
+  const userBounties = useMemo(() => {
+    if (!address) return [];
+    return bounties.filter((bounty) => bounty.contributor === address);
+  }, [address, bounties]);
+
   const recommendations = useMemo(() => {
     if (!address) {
       return [];
     }
 
-    const contributorBounties = bounties.filter((bounty) => bounty.contributor === address);
-    const profile = updateProfileFromBounties(createDefaultProfile(), contributorBounties);
+    const profile = updateProfileFromBounties(createDefaultProfile(), userBounties);
     profile.address = address;
 
     return generateRecommendations(bounties, profile, 3);
-  }, [address, bounties]);
+  }, [address, bounties, userBounties]);
 
   const metrics = useMemo(
     () => getContributorMetrics(bounties, address ?? undefined),
@@ -113,20 +118,24 @@ export default function ContributorDashboard({
       </header>
 
       {isConnected && (
-        <section className="metrics contributor-dashboard__metrics" aria-label="Contributor metrics">
-          <div>
-            <span className="meta-label">Released earnings</span>
-            <strong>{releasedTotal || '0'}</strong>
-          </div>
-          <div>
-            <span className="meta-label">Completed</span>
-            <strong>{metrics.countsByStatus.get('released') ?? 0}</strong>
-          </div>
-          <div>
-            <span className="meta-label">Active reservations</span>
-            <strong>{metrics.countsByStatus.get('reserved') ?? 0}</strong>
-          </div>
-        </section>
+        <>
+          <section className="metrics contributor-dashboard__metrics" aria-label="Contributor metrics">
+            <div>
+              <span className="meta-label">Released earnings</span>
+              <strong>{releasedTotal || '0'}</strong>
+            </div>
+            <div>
+              <span className="meta-label">Completed</span>
+              <strong>{metrics.countsByStatus.get('released') ?? 0}</strong>
+            </div>
+            <div>
+              <span className="meta-label">Active reservations</span>
+              <strong>{metrics.countsByStatus.get('reserved') ?? 0}</strong>
+            </div>
+          </section>
+
+          <ContributorHeatmap bounties={userBounties} />
+        </>
       )}
 
       <RecommendedBounties

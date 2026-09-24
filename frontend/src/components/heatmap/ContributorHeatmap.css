@@ -1,0 +1,108 @@
+.contributor-heatmap-container {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.contributor-heatmap-container h3 {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.contributor-heatmap-container.empty .heatmap-grid {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.heatmap-scroll-wrapper {
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+}
+
+.heatmap-wrapper {
+  display: inline-flex;
+  flex-direction: column;
+  min-width: max-content;
+}
+
+.heatmap-months {
+  display: grid;
+  grid-template-columns: repeat(53, 1fr);
+  gap: 3px;
+  margin-bottom: 4px;
+  margin-left: 2rem; /* offset for day labels */
+}
+
+.heatmap-month-label {
+  font-size: 0.75rem;
+  color: var(--text-muted, #6b7280);
+}
+
+.heatmap-body {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.heatmap-days-y {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  font-size: 0.75rem;
+  color: var(--text-muted, #6b7280);
+  height: calc(7 * 12px + 6 * 3px); /* 7 cells of 12px height with 3px gaps */
+}
+
+.heatmap-days-y span {
+  line-height: 12px;
+}
+
+.heatmap-grid {
+  display: flex;
+  gap: 3px;
+}
+
+.heatmap-week {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.heatmap-cell {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  background-color: var(--heatmap-0, #ebedf0);
+  transition: transform 0.1s ease-in-out;
+}
+
+/* Fallbacks for generic colors if css vars aren't strictly defined */
+.heatmap-cell.activity-0 {
+  background-color: var(--heatmap-0, #ebedf0);
+}
+.heatmap-cell.activity-1 {
+  background-color: var(--heatmap-1, #9be9a8);
+}
+.heatmap-cell.activity-2 {
+  background-color: var(--heatmap-2, #40c463);
+}
+.heatmap-cell.activity-3 {
+  background-color: var(--heatmap-3, #30a14e);
+}
+.heatmap-cell.activity-4 {
+  background-color: var(--heatmap-4, #216e39);
+}
+
+.heatmap-cell:not(.empty):hover {
+  transform: scale(1.2);
+  outline: 1px solid rgba(0,0,0,0.2);
+  z-index: 10;
+}
+
+.heatmap-cell.empty {
+  background-color: transparent;
+}
