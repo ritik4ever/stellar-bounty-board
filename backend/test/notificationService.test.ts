@@ -15,13 +15,255 @@ const PAYLOAD = {
   tokenSymbol: "XLM",
 };
 
-function okResponse(status = 202): Response {
+function okResponse(status = 200): Response {
   return new Response(null, { status });
 }
 
 function errResponse(status: number, body: string): Response {
   return new Response(body, { status });
 }
+
+// ── buildSlackPayload ─────────────────────────────────────────────────────────
+
+describe("buildSlackPayload", () => {
+  beforeEach(() => {
+    delete process.env.FRONTEND_URL;
+  });
+
+  afterEach(() => {
+    delete process.env.FRONTEND_URL;
+  });
+
+  it("builds Slack Block Kit payload for created event with deep link and green styling", async () => {
+    const { buildSlackPayload } = await import("../src/services/notificationService");
+
+    const bounty = {
+      id: "BNT-100",
+      title: "Add wallet connect",
+      amount: 500,
+      tokenSymbol: "USDC",
+      repo: "stellar/bounty-board",
+      summary: "Integrate Freighter wallet connector",
+    };
+
+    const payload = buildSlackPayload(bounty, "bounty_created");
+
+    expect(payload.text).toContain("New Bounty Created: Add wallet connect (500 USDC)");
+    expect(payload.text).toContain("https://stellar-bounty-board.vercel.app/bounties/BNT-100");
+
+    expect(payload.attachments).toHaveLength(1);
+    const attachment = payload.attachments![0];
+    expect(attachment.color).toBe("#2EB886");
+    expect(attachment.blocks).toBeDefined();
+
+    const [headerBlock, titleBlock, fieldsBlock, actionsBlock] = attachment.blocks!;
+
+    expect(headerBlock).toMatchObject({
+      type: "header",
+      text: { type: "plain_text", text: "✨ New Bounty Created", emoji: true },
+    });
+
+    expect(titleBlock).toMatchObject({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: expect.stringContaining("*<https://stellar-bounty-board.vercel.app/bounties/BNT-100|Add wallet connect>*"),
+      },
+    });
+
+    expect(fieldsBlock.type).toBe("section");
+    expect(fieldsBlock.fields).toEqual(
+      expect.arrayContaining([
+        { type: "mrkdwn", text: "*Amount:*\n500 USDC" },
+        { type: "mrkdwn", text: "*Status:*\nopen" },
+        { type: "mrkdwn", text: "*Bounty ID:*\n`BNT-100`" },
+        { type: "mrkdwn", text: "*Repository:*\nstellar/bounty-board" },
+      ]),
+    );
+
+    expect(actionsBlock).toMatchObject({
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          text: { type: "plain_text", text: "View Bounty", emoji: true },
+          url: "https://stellar-bounty-board.vercel.app/bounties/BNT-100",
+          style: "primary",
+        },
+      ],
+    });
+  });
+
+  it("builds distinct payload styling for reserved event (blue)", async () => {
+    const { buildSlackPayload } = await import("../src/services/notificationService");
+
+    const bounty = {
+      bountyId: "BNT-200",
+      title: "Optimize indexer queries",
+      amount: 300,
+      tokenSymbol: "XLM",
+      contributor: "GCONTRIBUTOR123",
+    };
+
+    const payload = buildSlackPayload(bounty, "reserved");
+
+    expect(payload.attachments![0].color).toBe("#3AA3E3");
+    const [headerBlock, , fieldsBlock] = payload.attachments![0].blocks!;
+    expect(headerBlock.text?.text).toBe("🎯 Bounty Reserved");
+    expect(fieldsBlock.fields).toEqual(
+      expect.arrayContaining([
+        { type: "mrkdwn", text: "*Amount:*\n300 XLM" },
+        { type: "mrkdwn", text: "*Status:*\nreserved" },
+        { type: "mrkdwn", text: "*Contributor:*\n`GCONTRIBUTOR123`" },
+      ]),
+    );
+  });
+
+  it("builds distinct payload styling for disputed event (red with danger button)", async () => {
+    const { buildSlackPayload } = await import("../src/services/notificationService");
+
+    const bounty = {
+      id: "BNT-300",
+      title: "Deploy Soroban contract",
+      amount: 1000,
+      tokenSymbol: "USDC",
+      reason: "Submission does not match specs",
+    };
+
+    const payload = buildSlackPayload(bounty, "bounty_disputed");
+
+    expect(payload.attachments![0].color).toBe("#E01E5A");
+    const [headerBlock, , fieldsBlock, actionsBlock] = payload.attachments![0].blocks!;
+    expect(headerBlock.text?.text).toBe("⚠️ Bounty Disputed");
+    expect(fieldsBlock.fields).toEqual(
+      expect.arrayContaining([
+        { type: "mrkdwn", text: "*Status:*\ndisputed" },
+        { type: "mrkdwn", text: "*Reason:*\nSubmission does not match specs" },
+      ]),
+    );
+    expect(actionsBlock.elements![0].style).toBe("danger");
+  });
+
+  it("builds distinct payload styling for released event (green)", async () => {
+    const { buildSlackPayload } = await import("../src/services/notificationService");
+
+    const bounty = {
+      id: "BNT-400",
+      title: "UI Dark Mode",
+      amount: 200,
+      tokenSymbol: "XLM",
+      status: "released",
+    };
+
+    const payload = buildSlackPayload(bounty, "bounty_released");
+
+    expect(payload.attachments![0].color).toBe("#2EB886");
+    const [headerBlock, , fieldsBlock] = payload.attachments![0].blocks!;
+    expect(headerBlock.text?.text).toBe("🎉 Bounty Reward Released");
+    expect(fieldsBlock.fields).toEqual(
+      expect.arrayContaining([
+        { type: "mrkdwn", text: "*Status:*\nreleased" },
+      ]),
+    );
+  });
+
+  it("builds distinct payload styling for submitted event (purple)", async () => {
+    const { buildSlackPayload } = await import("../src/services/notificationService");
+
+    const payload = buildSlackPayload(PAYLOAD, "bounty_submitted");
+
+    expect(payload.attachments![0].color).toBe("#8957E5");
+    expect(payload.attachments![0].blocks![0].text?.text).toBe("📝 Solution Submitted");
+  });
+
+  it("builds distinct payload styling for refunded event (orange)", async () => {
+    const { buildSlackPayload } = await import("../src/services/notificationService");
+
+    const payload = buildSlackPayload(PAYLOAD, "bounty_refunded");
+
+    expect(payload.attachments![0].color).toBe("#E8912D");
+    expect(payload.attachments![0].blocks![0].text?.text).toBe("↩️ Bounty Refunded");
+  });
+
+  it("respects custom FRONTEND_URL environment variable", async () => {
+    process.env.FRONTEND_URL = "https://app.custom-domain.org/";
+    const { buildSlackPayload } = await import("../src/services/notificationService");
+
+    const payload = buildSlackPayload({ id: "BNT-999", title: "Test" }, "created");
+
+    expect(payload.text).toContain("https://app.custom-domain.org/bounties/BNT-999");
+    expect(payload.attachments![0].blocks![3].elements![0].url).toBe(
+      "https://app.custom-domain.org/bounties/BNT-999",
+    );
+  });
+
+  it("handles empty / partial bounty objects gracefully", async () => {
+    const { buildSlackPayload } = await import("../src/services/notificationService");
+
+    const payload = buildSlackPayload({}, "unknown_event");
+
+    expect(payload.attachments![0].color).toBe("#4A154B");
+    expect(payload.attachments![0].blocks![0].text?.text).toBe("📢 Bounty Event: unknown_event");
+    expect(payload.attachments![0].blocks![1].text?.text).toBe(
+      "*<https://stellar-bounty-board.vercel.app|Untitled Bounty>*",
+    );
+  });
+});
+
+// ── SLACK channel ─────────────────────────────────────────────────────────────
+
+describe("sendNotification — SLACK channel", () => {
+  const fetchMock = vi.fn<typeof fetch>();
+  const SLACK_WEBHOOK_URL = "https://hooks.slack.com/services/T00/B00/XXXX";
+
+  beforeEach(() => {
+    fetchMock.mockClear();
+    vi.stubGlobal("fetch", fetchMock);
+    process.env.NOTIFICATION_CHANNEL = "SLACK";
+    process.env.SLACK_WEBHOOK_URL = SLACK_WEBHOOK_URL;
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.NOTIFICATION_CHANNEL;
+    delete process.env.SLACK_WEBHOOK_URL;
+  });
+
+  it("POSTs Block Kit payload to SLACK_WEBHOOK_URL", async () => {
+    fetchMock.mockResolvedValue(okResponse(200));
+    const { sendNotification } = await import("../src/services/notificationService");
+
+    await sendNotification(RECIPIENTS, "bounty_created", PAYLOAD);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe(SLACK_WEBHOOK_URL);
+
+    const [, init] = fetchMock.mock.calls[0];
+    const body = JSON.parse(init?.body as string);
+    expect(body.text).toContain("New Bounty Created");
+    expect(body.attachments).toHaveLength(1);
+    expect(body.attachments[0].blocks).toBeDefined();
+  });
+
+  it("skips dispatch and logs warning when SLACK_WEBHOOK_URL is absent", async () => {
+    delete process.env.SLACK_WEBHOOK_URL;
+    const { sendNotification } = await import("../src/services/notificationService");
+
+    await sendNotification(RECIPIENTS, "bounty_created", PAYLOAD);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("catches and logs slack webhook errors without re-throwing", async () => {
+    fetchMock.mockResolvedValue(errResponse(500, "Internal Server Error"));
+    const { sendNotification } = await import("../src/services/notificationService");
+
+    await expect(
+      sendNotification(RECIPIENTS, "bounty_created", PAYLOAD),
+    ).resolves.toBeUndefined();
+  });
+});
 
 // ── EMAIL channel ─────────────────────────────────────────────────────────────
 
@@ -45,7 +287,7 @@ describe("sendNotification — EMAIL channel", () => {
   });
 
   it("calls SendGrid API once per recipient", async () => {
-    fetchMock.mockResolvedValue(okResponse());
+    fetchMock.mockResolvedValue(okResponse(202));
     const { sendNotification } = await import("../src/services/notificationService");
 
     await sendNotification(RECIPIENTS, "bounty_created", PAYLOAD);
@@ -57,7 +299,7 @@ describe("sendNotification — EMAIL channel", () => {
   });
 
   it("sets Authorization header with Bearer token", async () => {
-    fetchMock.mockResolvedValue(okResponse());
+    fetchMock.mockResolvedValue(okResponse(202));
     const { sendNotification } = await import("../src/services/notificationService");
 
     await sendNotification([RECIPIENTS[0]], "bounty_created", PAYLOAD);
@@ -68,7 +310,7 @@ describe("sendNotification — EMAIL channel", () => {
   });
 
   it("sends correct recipient address and from email in body", async () => {
-    fetchMock.mockResolvedValue(okResponse());
+    fetchMock.mockResolvedValue(okResponse(202));
     const { sendNotification } = await import("../src/services/notificationService");
 
     await sendNotification([RECIPIENTS[0]], "bounty_created", PAYLOAD);
@@ -80,7 +322,7 @@ describe("sendNotification — EMAIL channel", () => {
   });
 
   it("includes bountyId in email subject", async () => {
-    fetchMock.mockResolvedValue(okResponse());
+    fetchMock.mockResolvedValue(okResponse(202));
     const { sendNotification } = await import("../src/services/notificationService");
 
     await sendNotification([RECIPIENTS[0]], "bounty_reserved", PAYLOAD);
@@ -91,7 +333,7 @@ describe("sendNotification — EMAIL channel", () => {
   });
 
   it("includes plain-text content block", async () => {
-    fetchMock.mockResolvedValue(okResponse());
+    fetchMock.mockResolvedValue(okResponse(202));
     const { sendNotification } = await import("../src/services/notificationService");
 
     await sendNotification([RECIPIENTS[0]], "bounty_submitted", {
@@ -125,7 +367,7 @@ describe("sendNotification — EMAIL channel", () => {
   });
 
   it("uses default subject for unknown events", async () => {
-    fetchMock.mockResolvedValue(okResponse());
+    fetchMock.mockResolvedValue(okResponse(202));
     const { sendNotification } = await import("../src/services/notificationService");
 
     await sendNotification([RECIPIENTS[0]], "bounty_unknown_event", PAYLOAD);
