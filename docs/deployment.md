@@ -246,3 +246,13 @@ docker run -d \
 - Check the [ONBOARDING.md](../ONBOARDING.md) for local setup.
 - See [RUNBOOK.md](../RUNBOOK.md) for common operational tasks and emergency procedures.
 - Open an issue or discussion in the repo for deployment help.
+
+---
+
+## Wave and backlog context
+
+Deployment-related work is tracked in the current wave backlog,
+[`docs/wave-6.md`](wave-6.md), with earlier waves in
+[`wave-5.md`](wave-5.md) and [`wave-4.md`](wave-4.md). Check the latest wave
+document before changing deployment behaviour, and update this guide in the
+same PR when you do.

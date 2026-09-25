@@ -330,6 +330,22 @@ These changes are self-contained, reviewable quickly, and help you learn the str
 
 ---
 
+### Waves and the backlog
+
+Work is organised into **waves**. Each wave has a backlog document listing its
+issues by area: [`docs/wave-4.md`](docs/wave-4.md), [`docs/wave-5.md`](docs/wave-5.md)
+and [`docs/wave-6.md`](docs/wave-6.md) (the current one). Individual issue
+drafts live in [`docs/issues/`](docs/issues/README.md). Check the newest wave
+document first when choosing an issue.
+
+### Worked example: your first documentation PR
+
+1. Pick a docs issue from the current wave backlog and comment to claim it.
+2. Create a branch off an up-to-date `main`: `git checkout -b docs/fix-onboarding-typo`.
+3. Edit the file (for example `ONBOARDING.md`) and preview it on GitHub.
+4. Commit with a conventional message: `docs: fix typo in onboarding guide`.
+5. Push to your fork and open a PR against upstream with `Closes #<issue>` in the body.
+
 ### If you are comfortable with the stack
 
 Look for issues tagged **`enhancement`** or **`help wanted`**. High-value areas include:
