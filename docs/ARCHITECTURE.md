@@ -421,6 +421,57 @@ sequenceDiagram
     Frontend-->>Maintainer: Show "Refunded"<br/>Escrow returned ✓
 ```
 
+### Worked Example: One Bounty, End to End
+
+This walks a single bounty through the happy path (`OPEN → RESERVED → SUBMITTED → RELEASED`)
+using the endpoints from the diagrams above. Addresses, IDs and the PR URL are illustrative.
+
+**1. Maintainer creates the bounty** — `POST /api/bounties`
+
+```json
+{ "title": "Fix pagination on /bounties", "amount": 100, "token": "XLM" }
+```
+
+Response `201`: `{ "data": { "id": "b-42", "status": "OPEN", ... } }`.
+The record is written to `bounties.json` and shows up in the open list.
+
+**2. Contributor reserves it** — `POST /api/bounties/b-42/reserve`
+
+```json
+{ "contributor": "GCONTRIBUTOR..." }
+```
+
+The backend checks the bounty is `OPEN`, then stores the contributor and moves it to
+`RESERVED`. No one else can reserve it while it is held.
+
+**3. Contributor submits work** — `POST /api/bounties/b-42/submit`
+
+```json
+{ "submissionUrl": "https://github.com/org/repo/pull/123" }
+```
+
+The backend checks the bounty is `RESERVED`, stores the URL, and moves it to `SUBMITTED`.
+
+**4. Maintainer releases the payout** — `POST /api/bounties/b-42/release`
+
+```json
+{ "maintainer": "GMAINTAINER..." }
+```
+
+The backend checks the bounty is `SUBMITTED`, sets `RELEASED` and records the release
+timestamp. This is a terminal state.
+
+| Step | Endpoint | Precondition | Resulting status |
+|------|----------|--------------|------------------|
+| 1 | `POST /api/bounties` | — | `OPEN` |
+| 2 | `POST /api/bounties/:id/reserve` | `OPEN` | `RESERVED` |
+| 3 | `POST /api/bounties/:id/submit` | `RESERVED` | `SUBMITTED` |
+| 4 | `POST /api/bounties/:id/release` | `SUBMITTED` | `RELEASED` |
+
+Calling a step out of order (for example releasing an `OPEN` bounty) is rejected because the
+precondition status check fails. If the maintainer cancels before submission, they call
+`POST /api/bounties/:id/refund` instead, which moves an `OPEN` or `RESERVED` bounty to `REFUNDED`.
+
 ## Data Flow
 
 ```
