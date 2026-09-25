@@ -1,3 +1,5 @@
+import { getWebhookConfig } from './config';
+
 /**
  * In-memory deduplication store for GitHub webhook delivery IDs.
  *
@@ -6,12 +8,13 @@
  * delivery IDs we have already processed and returns early for duplicates,
  * preventing double-releases or other repeated side-effects.
  *
- * TTL mirrors the idempotency middleware (10 minutes) — long enough to absorb
- * GitHub's retry window, short enough to keep memory bounded.
+ * TTL and cleanup intervals are read from environment configuration.
+ * See {@link getWebhookConfig} for defaults and configuration options.
  */
 
-const DEDUP_TTL_MS = 10 * 60 * 1_000; // 10 minutes
-const CLEANUP_INTERVAL_MS = 60_000; // 1 minute
+const config = getWebhookConfig();
+const DEDUP_TTL_MS = config.dedupTtlMs;
+const CLEANUP_INTERVAL_MS = config.dedupCleanupIntervalMs;
 
 interface DeliveryEntry {
   processedAt: number;
