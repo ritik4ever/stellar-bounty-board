@@ -3,6 +3,14 @@
 This document describes how maintainership works in **stellar-bounty-board** and how
 community members can step up to help maintain the project.
 
+## Table of contents
+
+- [Roles](#roles)
+- [How to become a maintainer](#how-to-become-a-maintainer)
+- [Onboarding a new maintainer](#onboarding-a-new-maintainer)
+- [Expectations](#expectations)
+- [Related docs](#related-docs)
+
 ## Roles
 
 | Role | Permissions | Responsibilities |
@@ -47,3 +55,10 @@ When the owner decides to grant maintainer or triage rights:
 - Keep the review queue moving and help contributors land their work.
 - Maintain test coverage and documentation.
 - Follow the responsible disclosure process in [SECURITY.md](../SECURITY.md).
+
+## Related docs
+
+- [Architecture overview](ARCHITECTURE.md) — how the pieces fit together
+- [Deployment guide](deployment.md) — releasing and operating the service
+- [FAQ](FAQ.md) — common contributor and operator questions
+- [API authentication](api-authentication.md) — credentials maintainers will handle
