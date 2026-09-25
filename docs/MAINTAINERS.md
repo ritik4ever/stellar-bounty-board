@@ -9,6 +9,7 @@ community members can step up to help maintain the project.
 - [How to become a maintainer](#how-to-become-a-maintainer)
 - [Onboarding a new maintainer](#onboarding-a-new-maintainer)
 - [Expectations](#expectations)
+- [Contribution process](#contribution-process)
 - [Related docs](#related-docs)
 
 ## Roles
@@ -56,9 +57,14 @@ When the owner decides to grant maintainer or triage rights:
 - Maintain test coverage and documentation.
 - Follow the responsible disclosure process in [SECURITY.md](../SECURITY.md).
 
+## Contribution process
+
+This document covers maintainer governance only and carries no contributor workflow of its own. The canonical contribution process is [CONTRIBUTING.md](../CONTRIBUTING.md); the wave docs' "How to Contribute" sections (for example [wave-4](wave-4.md)) follow the same flow: comment on an issue to claim it, fork, branch, and open a PR with `Closes #<issue>`.
+
 ## Related docs
 
 - [Architecture overview](ARCHITECTURE.md) — how the pieces fit together
 - [Deployment guide](deployment.md) — releasing and operating the service
+- [Wave 4 backlog](wave-4.md) — the active contribution wave and its process
 - [FAQ](FAQ.md) — common contributor and operator questions
 - [API authentication](api-authentication.md) — credentials maintainers will handle

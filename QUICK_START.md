@@ -1,5 +1,26 @@
 # GitHub Webhook Secret Validation - Quick Start
 
+## Table of Contents
+
+- [What Was Implemented](#what-was-implemented)
+- [Key Files](#key-files)
+- [How It Works](#how-it-works)
+- [Getting Started](#getting-started)
+- [Testing](#testing)
+- [Error Messages](#error-messages)
+- [Security Checklist](#security-checklist)
+- [Troubleshooting](#troubleshooting)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [Test Results](#test-results)
+- [Acceptance Criteria](#acceptance-criteria)
+- [Next Steps](#next-steps)
+- [Support](#support)
+
+**See also:** [CONTRIBUTING.md](CONTRIBUTING.md) (setup and PR checklist) ·
+[docs/MAINTAINERS.md](docs/MAINTAINERS.md) (maintainer procedures) ·
+[docs/wave-4.md](docs/wave-4.md) (wave backlog and "How to Contribute")
+
 ## What Was Implemented
 
 A startup validation system that ensures `GITHUB_WEBHOOK_SECRET` is configured before the application starts, preventing unauthorized webhook events.

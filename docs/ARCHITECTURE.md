@@ -2,6 +2,43 @@
 
 This document describes the system architecture of Stellar Bounty Board, including component relationships and the bounty lifecycle flow.
 
+## Table of contents
+
+- [System Overview](#system-overview)
+- [Component Breakdown](#component-breakdown)
+  - [Frontend (`frontend/`)](#frontend-frontend)
+  - [Backend (`backend/`)](#backend-backend)
+  - [Smart Contract (`contracts/`)](#smart-contract-contracts)
+- [Bounty Lifecycle](#bounty-lifecycle)
+  - [Bounty Lifecycle Sequence](#bounty-lifecycle-sequence)
+  - [BountyStatus State Machine (Mermaid)](#bountystatus-state-machine-mermaid)
+- [Interaction Sequence Diagrams](#interaction-sequence-diagrams)
+  - [0. Maintainer-Raised Dispute Flow](#0-maintainer-raised-dispute-flow)
+  - [1. Create Bounty](#1-create-bounty)
+  - [2. Reserve Bounty](#2-reserve-bounty)
+  - [3. Submit Work](#3-submit-work)
+  - [4. Release Payout](#4-release-payout)
+  - [5. Refund (Cancelled Bounty)](#5-refund-cancelled-bounty)
+  - [Worked Example: One Bounty, End to End](#worked-example-one-bounty-end-to-end)
+- [Data Flow](#data-flow)
+- [On-Chain vs Off-Chain Data Ownership](#on-chain-vs-off-chain-data-ownership)
+  - [Data Field Mapping](#data-field-mapping)
+  - [State Transition Authority](#state-transition-authority)
+  - [Migration Path Notes](#migration-path-notes)
+- [Deployment Architecture](#deployment-architecture)
+- [Directory Structure](#directory-structure)
+
+## See also
+
+- [Architecture diagram](ARCHITECTURE_DIAGRAM.md)
+- [Architecture decision records](adr/)
+- [Deployment guide](deployment.md)
+- [API authentication](api-authentication.md)
+- [Webhook signatures](webhook-signatures.md)
+- [GraphQL API reference](GRAPHQL_API_REFERENCE.md)
+- [FAQ](FAQ.md) and [Maintainers](MAINTAINERS.md)
+- [Contributing](../CONTRIBUTING.md), [Onboarding](../ONBOARDING.md) and [Security](../SECURITY.md)
+
 ## System Overview
 
 ```
@@ -653,3 +690,9 @@ stellar-bounty-board/
 ├── ONBOARDING.md
 └── package.json                # Root workspace scripts
 ```
+
+---
+
+## Contributing
+
+This document describes system design only and intentionally carries no contribution steps. The canonical contribution process is [CONTRIBUTING.md](../CONTRIBUTING.md); the per-wave "How to Contribute" sections (for example [wave-4](wave-4.md)) follow the same flow: comment on an issue to claim it, fork, branch, and open a PR with `Closes #<issue>`.
