@@ -4,6 +4,8 @@ import { hasBeenProcessed, markAsProcessed } from "./deliveryDedup";
 
 /**
  * Shape of a GitHub pull_request webhook payload (the fields we care about).
+ *
+ * @internal
  */
 interface GitHubPrPayload {
   action: string;
@@ -25,13 +27,68 @@ function isPrPayload(body: unknown): body is GitHubPrPayload {
 /**
  * Processes a GitHub `pull_request` webhook event.
  *
- * Acceptance criteria:
- *  1. Merged PR  → finds the bounty whose `submissionUrl` matches and auto-releases it.
- *  2. Closed-but-not-merged PR → returns early without touching any bounty.
- *  3. No matching bounty URL → ignored gracefully (log only).
- *  4. Manual release via the API endpoint is unaffected.
- *  5. Duplicate delivery ID (same X-GitHub-Delivery) → returns early without
- *     re-running any side-effects (deduplication).
+ * **Purpose:**
+ * Automatically releases bounties when their associated PRs are merged,
+ * eliminating a manual step for maintainers. This is triggered by the
+ * `pull_request` event from GitHub's webhook delivery.
+ *
+ * **Acceptance criteria:**
+ *  1. **Merged PR** → Finds the bounty whose `submissionUrl` matches the PR URL
+ *     and automatically releases it (calls {@link releaseBounty}).
+ *  2. **Closed but not merged** → Returns early without modifying any bounty.
+ *  3. **No matching bounty** → Logs a notice and returns early (no error).
+ *  4. **Duplicate delivery** → Checks deduplication store and returns early
+ *     without re-running side-effects.
+ *  5. **Manual release** → Concurrent manual releases via the API endpoint
+ *     are unaffected (use optimistic versioning to detect race conditions).
+ *
+ * **Side-effects:**
+ * - Calls {@link releaseBounty} if a merged PR matches a submitted bounty.
+ * - Logs events at `info` level for tracking and debugging.
+ * - Records the delivery ID in the deduplication store (marks as processed).
+ *
+ * **Concurrency:**
+ * - Synchronous and async-friendly (returns a promise).
+ * - Multiple concurrent webhook deliveries for different PRs are safe.
+ * - Duplicate deliveries are detected and skipped via {@link hasBeenProcessed}.
+ * - Concurrent manual releases (API) and automatic releases (webhook) may race;
+ *   {@link releaseBounty} uses optimistic versioning to handle that.
+ *
+ * @param body - The raw webhook payload (should be a GitHub PR event).
+ * @param deliveryId - The GitHub delivery ID from the `X-GitHub-Delivery` header (optional).
+ *   Used for deduplication. If omitted, no deduplication is performed.
+ * @returns A promise resolving to `{ duplicate: true }` if the delivery ID was already
+ *   processed (dedup), or `{ duplicate: false }` otherwise.
+ *
+ * @throws {Error} Never throws. All errors (missing fields, API calls, state mutations)
+ *   are caught, logged at `warn`/`error` level, and converted to a graceful response.
+ *   The webhook HTTP handler wraps this function in `try`/`catch` as a safety net.
+ *
+ * **Logging:**
+ * - `github_webhook_duplicate_delivery` (info): Delivery ID already processed.
+ * - `github_webhook_pr_skipped` (info): PR event skipped (not closed or not merged).
+ * - `github_webhook_pr_missing_url` (warn): PR event missing `html_url`.
+ * - `github_webhook_pr_no_matching_bounty` (info): PR URL doesn't match any bounty.
+ * - `github_webhook_pr_auto_releasing` (info): About to auto-release a bounty.
+ * - `github_webhook_pr_auto_released` (info): Bounty auto-released successfully.
+ *
+ * @example
+ * ```ts
+ * // In an Express route handler:
+ * app.post('/api/webhooks/github', signatureMiddleware, async (req, res) => {
+ *   const deliveryId = req.header('x-github-delivery');
+ *   try {
+ *     const result = await handleGitHubPrEvent(req.body, deliveryId);
+ *     if (result.duplicate) {
+ *       res.status(200).json({ received: true, duplicate: true });
+ *     } else {
+ *       res.status(202).json({ received: true, duplicate: false });
+ *     }
+ *   } catch (error) {
+ *     res.status(500).json({ error: error.message });
+ *   }
+ * });
+ * ```
  */
 export async function handleGitHubPrEvent(body: unknown, deliveryId?: string): Promise<{ duplicate: boolean }> {
   // Deduplication: if we have already processed this delivery ID, return early
