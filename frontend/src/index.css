@@ -2485,3 +2485,240 @@ select {
   .lo-table__cell { padding: 4px 0; display: flex; flex-direction: column; gap: 2px; }
   .lo-table__cell::before { content: attr(data-label); font-family: "IBM Plex Mono", monospace; text-transform: uppercase; font-size: 10px; color: var(--muted); letter-spacing: 0.06em; }
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   View-toggle (List / Board switch)
+   ────────────────────────────────────────────────────────────────────────── */
+
+.view-toggle {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 3px;
+  flex-shrink: 0;
+}
+
+.view-toggle__btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.view-toggle__btn:hover {
+  background: var(--mint-soft);
+  color: var(--mint);
+}
+
+.view-toggle__btn.active {
+  background: var(--mint);
+  color: #fff;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Kanban board layout
+   ────────────────────────────────────────────────────────────────────────── */
+
+.kanban-board {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(220px, 1fr));
+  gap: 16px;
+  align-items: start;
+  padding-top: 8px;
+  overflow-x: auto;
+  /* allow columns to scroll on narrow screens */
+  min-width: 0;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Kanban column
+   ────────────────────────────────────────────────────────────────────────── */
+
+.kanban-column {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+  transition: box-shadow 0.15s;
+  min-height: 200px;
+}
+
+.kanban-column--over-valid {
+  box-shadow: 0 0 0 2px var(--mint);
+  background: var(--mint-soft);
+}
+
+.kanban-column--over-invalid {
+  box-shadow: 0 0 0 2px var(--rose);
+}
+
+.kanban-column__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px 10px;
+  border-top: 3px solid transparent;
+  background: var(--surface-strong);
+}
+
+.kanban-column__title {
+  font-weight: 700;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink);
+}
+
+.kanban-column__count {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--muted);
+  background: var(--line);
+  border-radius: 999px;
+  padding: 2px 8px;
+  min-width: 24px;
+  text-align: center;
+}
+
+.kanban-column__cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  min-height: 80px;
+}
+
+.kanban-column__empty {
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-align: center;
+  padding: 24px 8px;
+  opacity: 0.6;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Kanban card
+   ────────────────────────────────────────────────────────────────────────── */
+
+.kanban-card {
+  background: var(--surface-strong);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  transition:
+    box-shadow 0.15s,
+    transform 0.1s;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  /* prevent text selection during drag */
+  user-select: none;
+}
+
+.kanban-card:focus-within {
+  outline: 2px solid var(--mint);
+  outline-offset: 1px;
+}
+
+.kanban-card__handle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px 6px;
+  background: var(--mint-soft);
+  cursor: grab;
+  touch-action: none;
+}
+
+.kanban-card__handle:active {
+  cursor: grabbing;
+}
+
+.kanban-card__amount {
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-family: "IBM Plex Mono", monospace;
+  color: var(--mint);
+}
+
+.kanban-card__title-btn {
+  all: unset;
+  display: block;
+  padding: 8px 10px 4px;
+  font-size: 0.87rem;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.35;
+  cursor: pointer;
+  border-radius: 0;
+  width: 100%;
+  box-sizing: border-box;
+  word-break: break-word;
+}
+
+.kanban-card__title-btn:hover {
+  color: var(--mint);
+}
+
+.kanban-card__title-btn:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: -2px;
+}
+
+.kanban-card__meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 2px 10px 8px;
+}
+
+.kanban-card__meta .meta-label {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.kanban-card__actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 6px 10px 10px;
+  border-top: 1px solid var(--line);
+}
+
+.kanban-card__actions .secondary-button,
+.kanban-card__actions .ghost-button {
+  font-size: 0.78rem;
+  padding: 4px 10px;
+  flex: 1 1 auto;
+}
+
+/* ── Drag overlay ────────────────────────────────────────────────────── */
+
+.kanban-card[style*="transform"] {
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+  z-index: 1000;
+}
+
+@media (max-width: 900px) {
+  .kanban-board {
+    grid-template-columns: repeat(2, minmax(200px, 1fr));
+  }
+}
+
+@media (max-width: 540px) {
+  .kanban-board {
+    grid-template-columns: 1fr;
+  }
+}
