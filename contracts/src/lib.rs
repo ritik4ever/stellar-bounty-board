@@ -5,7 +5,7 @@ mod test;
 
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short,
-    token::Client as TokenClient, Address, Env, String, Vec,
+    token::Client as TokenClient, Address, BytesN, Env, String, Vec,
 };
 
 // ─── Contract Version ───────────────────────────────────────────────────
@@ -72,9 +72,20 @@ pub struct FeeStats {
 
 #[contracttype]
 enum DataKey {
+    Admin,
+    FeeRecipient,
+    Arbiter,
+    DisputeWindow,
+    MinBountyAmount,
+    Paused,
+    FeeStats,
+    AllowlistConfig,
+    PendingArbiter,
+    ArbiterRotationTimelock,
+    Config,
     NextBountyId,
     Bounty(u64),
-
+    PendingResolution(u64),
 }
 
 #[contracttype]
@@ -170,8 +181,141 @@ pub struct ContractUnpaused {
     pub admin: Address,
 }
 
+/// Emitted when a bounty is canceled by its maintainer before reservation.
 #[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BountyCanceled {
+    pub bounty_id: u64,
+    pub maintainer: Address,
+    pub amount: i128,
+}
 
+/// Emitted when a bounty's deadline is extended.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BountyDeadlineExtended {
+    pub bounty_id: u64,
+    pub new_deadline: u64,
+}
+
+/// Emitted when a contributor raises a dispute on a submitted bounty.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BountyDisputed {
+    pub bounty_id: u64,
+    pub contributor: Address,
+    pub arbiter: Address,
+}
+
+/// Emitted when an arbiter resolves a dispute (release or refund).
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BountyResolved {
+    pub bounty_id: u64,
+    pub arbiter: Address,
+    pub release: bool,
+}
+
+/// Emitted when the losing party of a dispute files an appeal.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DisputeAppealed {
+    pub bounty_id: u64,
+}
+
+/// Emitted when the admin proposes a new arbiter address (pending timelock).
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ArbiterRotationProposed {
+    pub new_arbiter: Address,
+    pub unlock_time: u64,
+}
+
+/// Emitted when the admin confirms an arbiter rotation after the timelock elapses.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ArbiterRotationConfirmed {
+    pub old_arbiter: Address,
+    pub new_arbiter: Address,
+}
+
+/// ─── Upgrade Event ──────────────────────────────────────────────────────
+/// Emitted when the contract admin successfully upgrades the contract's
+/// executable WASM bytecode via `upgrade()`.
+///
+/// Fields:
+/// - `admin`: The address that authorized the upgrade (must match the
+///   stored `DataKey::Admin`).
+/// - `new_wasm_hash`: The SHA-256 hash of the new WASM bytecode that the
+///   contract will now execute. This hash **must** correspond to a
+///   `DeployerContract` install on the same network prior to calling
+///   `upgrade()`.
+/// - `previous_wasm_hash`: The SHA-256 hash of the WASM that was active
+///   *before* the upgrade took effect.  This is populated by reading the
+///   contract info from the host; on the rare off-chance the host cannot
+///   resolve the current WASM hash this field will be all zeros and an
+///   indexer should treat it as "unknown".
+///
+/// Storage compatibility note for indexers:
+/// While the *new* WASM may add new fields to `#[contracttype]` structs
+/// and new variants to `#[contracttype]` enums (appended at the end,
+/// in both cases), it MUST NEVER reorder, rename, remove, or change
+/// the type of *existing* fields or variants.  Violating this rule
+/// corrupts every instance of that type already in storage.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ContractUpgraded {
+    pub admin: Address,
+    pub new_wasm_hash: BytesN<32>,
+    pub previous_wasm_hash: BytesN<32>,
+}
+
+// ─── Constants & Error Envelope ────────────────────────────────────────────
+
+/// Maximum allowed bounty amount, enforced to prevent accidental
+/// transfers of impossible sums.  1_000_000_000 * 10_000_000 stroops
+/// covers the entire native XLM supply with headroom; for SAC tokens
+/// with 7 decimals this still comfortably maps to the max i128.
+pub const MAX_BOUNTY_AMOUNT: i128 = 1_000_000_000_000_000;
+
+/// Contract error discriminant used by `panic_error` to produce stable,
+/// indexer-friendly panic messages.  We stringify via Display (via
+/// `panic!` with `"{e:?}"`) so the variant name appears verbatim in
+/// the ledger entry and in any snapshot diffs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContractError {
+    AlreadyInitialized,
+    NotInitialized,
+    NotAdmin,
+    NotArbiter,
+    ArbiterNotSet,
+    NoPendingArbiter,
+    TimelockNotElapsed,
+    InvalidAmount,
+    AmountTooSmall,
+    DeadlineMustBeInTheFuture,
+    DeadlineMustAdvance,
+    FeeRecipientNotSet,
+    TokenNotAllowed,
+    DisputeWindowOverrideTooSmall,
+    DisputeWindowOverrideTooLarge,
+    BountyNotFound,
+    BountyNotOpen,
+    BountyMustBeReserved,
+    BountyMustBeSubmitted,
+    BountyNotExpiredYet,
+    BountyExpired,
+    BountyAlreadyFinalized,
+    CannotExtendFinalizedBounty,
+    MaintainerMismatch,
+    ContributorMismatch,
+    MissingContributor,
+    DisputeWindowNotMet,
+    ContractIsPaused,
+}
+
+fn panic_error(e: ContractError) -> ! {
+    panic!("{e:?}")
 }
 
 #[contract]
@@ -187,8 +331,13 @@ impl StellarBountyBoardContract {
         String::from_str(&_env, CONTRACT_VERSION)
     }
 
-    pub fn initialize(env: Env, fee_recipient: Address, arbiter: Address, dispute_window: u64) {
-    
+    /// Initializes the contract with the admin address, fee recipient,
+    /// arbiter, and default dispute window (in seconds).
+    ///
+    /// # Panics
+    ///
+    /// Panics with `"already initialized"` if called more than once
+    /// (detected by checking for `DataKey::FeeRecipient`).
     pub fn initialize(env: Env, admin: Address, fee_recipient: Address, arbiter: Address, dispute_window: u64) {
         // Prevent re-initialization
         if env.storage().persistent().has(&DataKey::FeeRecipient) {
@@ -987,24 +1136,6 @@ impl StellarBountyBoardContract {
                 bounty_count: 0,
             })
     }
-}
-
-fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
-    if fee_amount > 0 {
-        let mut stats: FeeStats = env
-            .storage()
-            .persistent()
-            .get(&DataKey::FeeStats)
-            .unwrap_or(FeeStats {
-                total_collected: 0,
-                bounty_count: 0,
-            });
-        stats.total_collected += fee_amount;
-        stats.bounty_count += 1;
-        env.storage()
-            .persistent()
-            .set(&DataKey::FeeStats, &stats);
-    }
 
     /// Returns the effective dispute window for a bounty.
     /// If the bounty has a per-bounty override, returns that value.
@@ -1146,6 +1277,150 @@ fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
                 token,
             );
         }
+    }
+
+    // ─── Contract Upgrade ────────────────────────────────────────────────
+    /// Upgrades the contract's executable WASM bytecode to the version
+    /// identified by `new_wasm_hash`.
+    ///
+    /// # High-Level Procedure
+    ///
+    /// 1. **Authorization**.  The caller is looked up from persistent
+    ///    `DataKey::Admin` and its `require_auth()` is invoked, which
+    ///    enforces that a valid signature / soroban-auth envelope for
+    ///    the admin address.  **Only the stored admin may call this
+    ///    function; any other caller panics with
+    ///    `ContractError::NotAdmin`.
+    ///
+    /// 2. **Capture previous WASM hash**.  Before performing the upgrade,
+    ///    `env.deployer().get_contract_info(...)` is used to
+    ///    record the current WASM hash so it can be emitted in the
+    ///    [`ContractUpgraded`] event.  If the host cannot resolve
+    ///    the hash (which should never happen on a live network, but can
+    ///    may happen in unusual test configurations) the field is set to a zero-filled
+    ///    `BytesN<32>` and the event is still emitted.
+    ///
+    /// 3. **Perform the upgrade**.  `env.deployer().update_current_contract_wasm(new_wasm_hash)`
+    ///    is invoked.  This is the single operation on the host that atomically
+    ///    replaces the WASM backing this contract ID.  The hash **must** already
+    ///    be a WASM previously uploaded to the network via `DeployerContract::install`,
+    ///    otherwise the host will trap.
+    ///
+    /// 4. **Emit event**.  A `ContractUpgraded event is published with
+    ///    `(symbol_short!("Cntrct"), symbol_short!("Upgrade")) topics
+    ///    containing the admin address, the previous WASM hash, and the
+    ///    new WASM hash for indexers and clients.
+    ///
+    /// # ⚠️ Storage Compatibility Requirements (CRITICAL)
+    ///
+    /// This function performs a **hot-swap of the executable** — **without** any
+    /// migration of the on-chain storage**.  All bytes previously written by the old
+    /// contract remain in place and are interpreted by the new WASM.  If the
+    /// new WASM uses incompatible type definitions, **every stored value of that
+    /// type becomes silently corrupted and the contract will trap on next
+    /// read.
+    ///
+    /// Therefore the following rules MUST be followed for every upgrade:
+    ///
+    /// ## 1. `#[contracttype]` **Structs** — Append-Only Fields
+    ///
+    /// - ✅ **ALLOWED**: Append **new fields at the END** of the struct
+    ///   declaration.  The Soroban host tolerates trailing fields.  The new optional /
+    ///   will be zero-value (zero for numerics, `None` for `Option`, empty
+    ///   for `Vec`/`Map`, etc) when a record written by the old
+    ///   WASM is read by the new WASM.
+    ///
+    /// - ❌ **FORBIDDEN**:
+    ///   - Reordering existing fields.
+    ///   - Renaming existing fields (the field name is not stored, but the
+    ///     ordinal position **is**; renaming and keeping position is
+    ///     *accidentally* safe but extremely fragile and must never be relied
+    ///     upon; prefer append with a `_v2` field instead).
+    ///   - Changing the type of an existing field (e.g. `u64` → `u128`,
+    ///     or `Address` → `BytesN<32>`).
+    ///   - Inserting a new field **before** an existing field.
+    ///   - Deleting any existing field.
+    ///
+    /// ## 2. `#[contracttype]` **Enums** — Append-Only Variants
+    ///
+    /// - ✅ **ALLOWED**: Append **new variants at the END** of the
+    ///   enum declaration.  The discriminant is implicit `Nth variant
+    ///   value, so inserting in the middle corrupts every subsequent
+    ///   discriminant.
+    ///
+    /// - ❌ **FORBIDDEN**:
+    ///   - Reordering existing variants.
+    ///   - Inserting a new variant anywhere except the last position.
+    ///   - Removing an existing variant.
+    ///   - Changing the **arity** or **tuple/struct-body type layout of an
+    ///     existing variant (e.g. `Vote(Address)` →
+    ///     `Vote(Address, u64)` or `Vote { voter: Address }`).
+    ///
+    /// ## 3. `DataKey` Enum — Same Rules, and Never Reuse Discriminants
+    ///
+    /// The `DataKey` enum is the root of every persisted key and obeys the
+    /// same append-only rules.  In addition:
+    ///
+    /// - NEVER repurpose a removed `DataKey::Foo(u64)` variant; even if
+    ///   no writes to `Foo` exist, a future migration code may collide
+    ///   with stale tombstones.  Always append a brand new variant.
+    ///
+    /// ## 4. `Vec`, `Map`, `BytesN<N>` Types
+    ///
+    /// - The length prefix is part of the on wire format; **N is fixed.**
+    ///   cannot widen (e.g. `BytesN<32>` → `BytesN<64>`); that is a
+    ///   different type.  Introduce a new field / new variant.
+    ///
+    /// ## 5. Semver Discipline
+    ///
+    /// Before deploying a breaking storage change (i.e., anything other than a
+    /// struct/enum append), the safe path is:
+    ///
+    /// 1. Deploy a **new contract new contract ID (fresh storage).
+    /// 2. Add a migration entry-point callable only by admin that reads
+    ///    state from the legacy contract and writes it into the new one
+    ///    in a bounded batch.
+    /// 3. Redirect integrators the new contract address.
+    ///
+    /// # Arguments
+    ///
+    /// - `env`: The host environment.
+    /// - `new_wasm_hash`: The 32-byte SHA-256 hash of the new WASM
+    ///   bytecode, as returned by the `Deployer` when the WASM was
+    ///   installed on-chain.  The hash **must** match an installed
+    ///   WASM on the same network, else the host traps.
+    ///
+    /// # Panics
+    ///
+    /// Panics with `ContractError::NotAdmin` if the caller is not
+    /// the stored admin.  Panics propagated from
+    /// `deployer().update_current_contract_wasm` when the hash does not
+    /// correspond to a currently installed WASM.
+    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_error(ContractError::NotAdmin));
+        admin.require_auth();
+
+        let previous_wasm_hash: BytesN<32> = env
+            .deployer()
+            .get_contract_info(&env.current_contract_address())
+            .map(|info| info.wasm_hash)
+            .unwrap_or_else(|| BytesN::from_array(&env, &[0u8; 32]));
+
+        env.deployer()
+            .update_current_contract_wasm(new_wasm_hash.clone());
+
+        env.events().publish(
+            (symbol_short!("Cntrct"), symbol_short!("Upgrade")),
+            ContractUpgraded {
+                admin: admin.clone(),
+                new_wasm_hash,
+                previous_wasm_hash,
+            },
+        );
     }
 }
 
