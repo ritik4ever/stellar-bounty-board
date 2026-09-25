@@ -24,6 +24,76 @@
 import { getTokenAddressMap } from './utils';
 
 /**
+ * Internal operational configuration for the Stellar Bounty Board backend.
+ *
+ * Values here are sourced from environment variables and used internally
+ * by the backend for operational tuning (timeouts, rate limits, retry counts).
+ * These are NOT exposed publicly and should only be used for backend operations.
+ *
+ * Like PublicConfig, nothing throws on bad configuration — all values fall back
+ * to documented defaults.
+ */
+export interface OperationalConfig {
+  /**
+   * Rate limit window in milliseconds.
+   * Applies to both read and mutation limiters.
+   *
+   * Source: `RATE_LIMIT_WINDOW_MS`. Default: `60000` (1 minute).
+   * Must be a finite number greater than `0`; otherwise falls back to `60000`.
+   */
+  rateLimitWindowMs: number;
+
+  /**
+   * Maximum requests per window for the read limiter (GET requests).
+   *
+   * Source: `RATE_LIMIT_READ_MAX`. Default: `120`.
+   * Must be a finite number greater than `0`; otherwise falls back to `120`.
+   */
+  rateLimitReadMax: number;
+
+  /**
+   * Maximum requests per window for the mutation limiter (state-changing routes).
+   *
+   * Source: `RATE_LIMIT_MUTATION_MAX`. Default: `10`.
+   * Must be a finite number greater than `0`; otherwise falls back to `10`.
+   */
+  rateLimitMutationMax: number;
+
+  /**
+   * Test suite timeout in milliseconds. Used by Vitest to extend timeouts
+   * for concurrency or stress tests that require more time.
+   *
+   * Source: `TEST_TIMEOUT_MS`. Default: `15000` (15 seconds).
+   * Must be a finite number greater than `0`; otherwise falls back to `15000`.
+   *
+   * Note: This is read at runtime but primarily used in test configuration files.
+   * The vitest config default (15000) is also documented in vitest.config.ts.
+   */
+  testTimeoutMs: number;
+
+  /**
+   * Number of concurrent requests to fire in concurrency tests.
+   *
+   * Source: `CONCURRENCY_TEST_COUNT`. Default: `20`.
+   * Must be a finite number greater than `0`; otherwise falls back to `20`.
+   *
+   * Affects how many simultaneous operations are attempted to verify
+   * lock mechanisms and race condition handling.
+   */
+  concurrencyTestCount: number;
+
+  /**
+   * Number of requests to fire in rate-limit stress tests.
+   *
+   * Source: `RATE_LIMIT_TEST_COUNT`. Default: `200`.
+   * Must be a finite number greater than `0`; otherwise falls back to `200`.
+   *
+   * Should be greater than rateLimitReadMax to verify rate limit enforcement.
+   */
+  rateLimitTestCount: number;
+}
+
+/**
  * Shape of the public, non-sensitive configuration returned by
  * {@link getPublicConfig} and served (as `{ data: PublicConfig }`) from
  * `GET /api/config`.
@@ -140,6 +210,76 @@ function resolveNetworkLabel(): string {
   if (passphrase.includes('Test SDF Network')) return 'testnet';
   if (passphrase.includes('Test SDF Future Network')) return 'futurenet';
   return process.env.STELLAR_NETWORK ?? 'futurenet';
+}
+
+/**
+ * Build the operational (internal) config object from environment variables.
+ *
+ * @returns A freshly built {@link OperationalConfig}. Every field is always
+ *   populated (never `null` / `undefined`); see the individual fields for
+ *   their environment variable, default, and fallback rules.
+ *
+ * @remarks
+ * Same concurrency contract as {@link getPublicConfig}: reads `process.env`
+ * fresh on every call, returns a new object, never throws for bad values.
+ *
+ * @example
+ * ```ts
+ * const { rateLimitWindowMs, rateLimitReadMax } = getOperationalConfig();
+ * // Logged at startup for operator visibility.
+ * ```
+ */
+export function getOperationalConfig(): OperationalConfig {
+  const rateLimitWindowMs = (() => {
+    const raw = process.env.RATE_LIMIT_WINDOW_MS;
+    if (!raw) return 60_000;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 60_000;
+  })();
+
+  const rateLimitReadMax = (() => {
+    const raw = process.env.RATE_LIMIT_READ_MAX;
+    if (!raw) return 120;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 120;
+  })();
+
+  const rateLimitMutationMax = (() => {
+    const raw = process.env.RATE_LIMIT_MUTATION_MAX;
+    if (!raw) return 10;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 10;
+  })();
+
+  const testTimeoutMs = (() => {
+    const raw = process.env.TEST_TIMEOUT_MS;
+    if (!raw) return 15_000;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 15_000;
+  })();
+
+  const concurrencyTestCount = (() => {
+    const raw = process.env.CONCURRENCY_TEST_COUNT;
+    if (!raw) return 20;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 20;
+  })();
+
+  const rateLimitTestCount = (() => {
+    const raw = process.env.RATE_LIMIT_TEST_COUNT;
+    if (!raw) return 200;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 200;
+  })();
+
+  return {
+    rateLimitWindowMs,
+    rateLimitReadMax,
+    rateLimitMutationMax,
+    testTimeoutMs,
+    concurrencyTestCount,
+    rateLimitTestCount,
+  };
 }
 
 /**

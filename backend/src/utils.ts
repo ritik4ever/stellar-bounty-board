@@ -1,6 +1,7 @@
 import type { Request, RequestHandler, Response } from "express";
 import { rateLimit } from "express-rate-limit";
 import { StrKey } from "@stellar/stellar-sdk";
+import { getOperationalConfig } from "./config";
 
 /**
  * Rate limiting (#349).
@@ -13,10 +14,14 @@ import { StrKey } from "@stellar/stellar-sdk";
  *
  * Standard `RateLimit-*` headers are returned on every response; 429 responses
  * additionally carry a `Retry-After` header.
+ *
+ * Configuration is sourced from environment variables via `getOperationalConfig()`.
+ * See backend/src/config.ts for details.
  */
-const WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000);
-const READ_MAX = Number(process.env.RATE_LIMIT_READ_MAX ?? 120);
-const MUTATION_MAX = Number(process.env.RATE_LIMIT_MUTATION_MAX ?? 10);
+const config = getOperationalConfig();
+const WINDOW_MS = config.rateLimitWindowMs;
+const READ_MAX = config.rateLimitReadMax;
+const MUTATION_MAX = config.rateLimitMutationMax;
 
 const isTest = process.env.NODE_ENV === "test";
 
