@@ -1,11 +1,12 @@
 import { z } from "zod";
 import { getCache } from "../services/cache";
 import { logStructured } from "../logger";
+import { getWebhookConfig } from "../webhooks/config";
 
 const GITHUB_PR_URL_REGEX = /^https:\/\/github\.com\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+\/pull\/\d+$/;
 
-/** TTL for caching GitHub PR verification results (5 minutes). */
-const PR_CACHE_TTL_SECONDS = 5 * 60;
+/** TTL for caching GitHub PR verification results (configurable, default: 5 minutes). */
+const PR_CACHE_TTL_SECONDS = getWebhookConfig().prCacheTtlSeconds;
 
 /**
  * Zod schema for a GitHub pull request URL of the exact form
