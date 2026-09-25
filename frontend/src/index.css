@@ -1475,11 +1475,17 @@ select {
     padding: 0;
   }
 
+  /* Hide navigation and interactive chrome */
   .glow,
   .panel-header__actions,
   .action-row,
   .copy-button-wrapper,
-  .submission-modal {
+  .submission-modal,
+  .copy-meta-button,
+  .copy-row button,
+  .extend-deadline,
+  .more-like-this,
+  .dark-mode-toggle {
     display: none !important;
   }
 
@@ -1514,12 +1520,57 @@ select {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  /* Ensure high contrast for print */
   .status-pill,
   .amount-chip,
   .chip {
-    border: 1px solid #999;
-    background: transparent !important;
+    border: 1px solid #000;
+    background: #fff !important;
     color: #000 !important;
+  }
+
+  /* Ensure links are readable and show URLs */
+  a {
+    color: #000;
+    text-decoration: underline;
+  }
+
+  a[href]:after {
+    content: " (" attr(href) ")";
+    font-size: 0.85em;
+    color: #666;
+  }
+
+  /* Improve timeline visibility in print */
+  .bounty-timeline {
+    break-inside: avoid;
+  }
+
+  .bounty-timeline__list {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .bounty-timeline__dot {
+    border: 1px solid #000;
+  }
+
+  /* Ensure text is legible */
+  .meta-label,
+  .panel-kicker {
+    color: #000;
+    font-weight: 600;
+  }
+
+  .bounty-summary,
+  .status-helper,
+  .timeline-content p {
+    color: #000;
+  }
+
+  /* Hide USD amount in print to avoid clutter */
+  .usd-amount {
+    display: none;
   }
 }
 
