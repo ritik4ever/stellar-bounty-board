@@ -199,6 +199,22 @@ Workload distribution: **70 %** `GET /api/bounties` · **20 %** `GET /api/bounti
 
 Results include p50/p99/max latency, requests/s, bytes/s, error count, and error rate.
 
+## Visual Regression Testing
+
+Visual regression testing is configured with [Chromatic](https://www.chromatic.com/) and Storybook. It runs in CI on every pull request to flag visual diffs against the existing baseline.
+
+- CI snapshots every PR and flags any visual diff for review.
+- Intentional visual changes are approved by a maintainer in the Chromatic build link from the PR status check.
+- Approving an accepted diff updates the baseline so future comparisons use the new UI.
+
+To approve a visual change:
+
+1. Open the Chromatic build link from the PR status check.
+2. Review the visual diff for the changed component.
+3. Accept the change to update the baseline.
+
+New or modified components should include Storybook stories so they are covered by visual snapshots.
+
 ## Contract Notes
 
 The Soroban contract models the escrow lifecycle:
