@@ -291,6 +291,14 @@ textarea {
   transform: translateY(-1px);
 }
 
+.primary-button:disabled,
+.secondary-button:disabled,
+.ghost-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
+}
+
 .hero-panel__row {
   display: flex;
   gap: 12px;
@@ -348,6 +356,50 @@ textarea {
   background: rgba(244, 162, 74, 0.15);
   border-color: rgba(244, 162, 74, 0.3);
   color: #f4a24a;
+}
+
+.network-mismatch-banner {
+  margin-bottom: 20px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: var(--amber-soft);
+  border: 1px solid rgba(217, 128, 46, 0.35);
+  color: var(--ink);
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.network-mismatch-banner__content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.network-mismatch-banner__content strong {
+  font-weight: 700;
+}
+
+.network-mismatch-banner__content p {
+  margin: 0;
+  color: var(--ink);
+}
+
+.network-mismatch-banner__network {
+  font-weight: 700;
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.network-mismatch-banner__link {
+  color: var(--amber);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  margin-top: 4px;
+}
+
+.network-mismatch-banner__link:hover {
+  opacity: 0.85;
 }
 
 .content-grid {
