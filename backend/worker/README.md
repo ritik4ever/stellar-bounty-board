@@ -13,6 +13,11 @@ This worker polls Soroban contract events and normalizes them for backend use. I
 1. Set environment variables:
    - `SOROBAN_CONTRACT_ID` (required): The contract ID to index
    - `SOROBAN_RPC_URL` (optional): Soroban RPC endpoint (default: `https://rpc-futurenet.stellar.org`)
+   - `SOROBAN_POLL_INTERVAL` (optional): seconds between polls (default: `10`)
+   - `SOROBAN_INDEXER_MAX_RETRIES` (optional): attempts per poll before giving up until the next poll; whole number >= 1 (default: `5`)
+   - `SOROBAN_INDEXER_INITIAL_BACKOFF_MS` (optional): delay before the first retry in milliseconds, doubling on each further attempt (default: `1000`)
+
+   Invalid values (non-numeric, zero, negative) fall back to the default rather than failing. The effective values are logged once at startup (`[Indexer] Effective config: ...`).
 
 2. Run the worker:
 
