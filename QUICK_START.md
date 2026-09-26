@@ -27,19 +27,26 @@ A startup validation system that ensures `GITHUB_WEBHOOK_SECRET` is configured b
 
 ## Key Files
 
-| File                                                | Type     | Purpose                         |
-| --------------------------------------------------- | -------- | ------------------------------- |
-| `backend/src/validation/webhookSecretValidation.ts` | NEW      | Validation logic                |
-| `backend/src/index.ts`                              | MODIFIED | Calls validation before startup |
-| `backend/test/webhookSecretValidation.test.ts`      | NEW      | 13 comprehensive tests          |
-| `.env.example`                                      | MODIFIED | Enhanced documentation          |
+| File | Type | Purpose |
+|------|------|---------|
+| `backend/src/validation/webhookSecretValidation.ts` | NEW | Validation logic |
+| `backend/src/app.ts`                                | MODIFIED | Configures webhook signature middleware using the secret |
+| `backend/test/webhookSecretValidation.test.ts` | NEW | 25 comprehensive tests |
+| `.env.example` | MODIFIED | Enhanced documentation |
 
 ## How It Works
+
+> **Note:** `validateGitHubWebhookSecret()` in `backend/src/validation/webhookSecretValidation.ts`
+> is exported and fully unit-tested, but it is **not currently invoked at startup** — neither `backend/src/index.ts`
+> nor `backend/src/app.ts` calls it. The behavior described below is what the function does when called; the
+> webhook signature middleware in `backend/src/app.ts` (`createGitHubWebhookSignatureMiddleware`)
+> is what actually uses `GITHUB_WEBHOOK_SECRET` at runtime.
+
 
 ### Production (NODE_ENV=production)
 
 ```bash
-$ NODE_ENV=production npm start
+$ NODE_ENV=production npm --prefix backend start
 # If GITHUB_WEBHOOK_SECRET is missing:
 # Error: GITHUB_WEBHOOK_SECRET environment variable is not configured...
 # Exit code: 1
@@ -48,7 +55,7 @@ $ NODE_ENV=production npm start
 ### Development (NODE_ENV=development or unset)
 
 ```bash
-$ npm run dev
+$ npm run dev:backend
 # If GITHUB_WEBHOOK_SECRET is missing:
 # [WARN] startup_validation_warning
 # [INFO] server_listen { port: 3001 }
@@ -67,7 +74,7 @@ export NODE_ENV=production
 export GITHUB_WEBHOOK_SECRET=$SECRET
 
 # 3. Start app
-npm start
+npm --prefix backend start
 ```
 
 ### Local Development
@@ -80,7 +87,7 @@ cp .env.example .env
 echo "GITHUB_WEBHOOK_SECRET=test-secret-123" >> .env
 
 # 3. Start dev server
-npm run dev
+npm run dev:backend
 ```
 
 ## Testing
@@ -89,7 +96,7 @@ npm run dev
 # Run webhook secret validation tests
 npm test -- webhookSecretValidation.test.ts
 
-# Expected: 13 tests, all passing ✓
+# Expected: 25 tests, all passing ✓
 ```
 
 ## Error Messages
@@ -148,12 +155,8 @@ If you landed here looking for how to pick up work, start with the wave document
 
 ## Test Results
 
-✅ All 13 tests passing:
-
-- Production environment: 5 tests
-- Development environment: 4 tests
-- Default environment: 1 test
-- Edge cases: 3 tests
+✅ 25 tests in `backend/test/webhookSecretValidation.test.ts`:
+- Run with: `npm test -- webhookSecretValidation.test.ts`
 
 ## Acceptance Criteria
 
