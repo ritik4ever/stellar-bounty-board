@@ -1,2 +1,16 @@
+#!/usr/bin/env sh
+
+# Run formatting check on Rust contract code when contract files are staged.
+# The check is skipped entirely for commits that don't touch contracts/ so
+# unrelated commits aren't slowed down.
+if git diff --cached --name-only --diff-filter=ACMR | grep -q '^contracts/'; then
+  echo "contracts/ changed: running cargo fmt --check..."
+  (cd contracts && cargo fmt --check) || {
+    echo "Error: contract formatting check failed." >&2
+    echo "Run \`cargo fmt\` inside contracts/ and stage the changes, e.g.:" >&2
+    echo "  (cd contracts && cargo fmt)" >&2
+    exit 1
+  }
+fi
 
 npx lint-staged

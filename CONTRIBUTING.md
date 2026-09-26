@@ -456,7 +456,19 @@ When you commit changes, the following checks run on staged `.ts` and `.tsx` fil
 2. **ESLint** - Enforces code style and catches potential bugs
 3. **Prettier** - Formats code consistently
 
-The commit is blocked if any check fails.
+In addition, when your staged changes touch files under `contracts/`, the pre-commit hook runs `cargo fmt --check` on the Rust contract code:
+
+```bash
+(cd contracts && cargo fmt --check)
+```
+
+Commits that don't touch `contracts/` skip the Rust formatting check entirely so unrelated commits aren't slowed down. If `cargo fmt --check` fails, the commit is blocked and the hook prints a message telling you to fix it with:
+
+```bash
+(cd contracts && cargo fmt)
+```
+
+The commit is blocked if any applicable check fails.
 
 ### Setup
 
