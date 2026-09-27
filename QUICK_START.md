@@ -1,5 +1,7 @@
 # GitHub Webhook Secret Validation - Quick Start
 
+> **Last verified:** September 27, 2026 · Content verified against current codebase
+
 ## Table of Contents
 
 - [What Was Implemented](#what-was-implemented)
@@ -182,3 +184,16 @@ For detailed information, see:
 - Quick overview: `IMPLEMENTATION_SUMMARY.md`
 - Visual guide: `WEBHOOK_SECURITY_GUIDE.md`
 - Code reference: `CODE_EXAMPLES.md`
+
+---
+
+## See Also
+
+Related documentation that covers complementary topics:
+
+- **[ONBOARDING.md](./ONBOARDING.md)** — Contributor setup and first contribution workflow
+- **[CONTRIBUTING.md](./CONTRIBUTING.md)** — Contribution standards, conventional commits, and PR checklist
+- **[README.md](./README.md)** — Project overview, architecture, and API reference
+- **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** — Detailed system architecture and data flow
+- **[WEBHOOK_SECURITY_GUIDE.md](./WEBHOOK_SECURITY_GUIDE.md)** — Visual guide with examples and security best practices
+- **[WEBHOOK_SECRET_VALIDATION.md](./WEBHOOK_SECRET_VALIDATION.md)** — Complete technical documentation
