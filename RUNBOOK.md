@@ -1241,6 +1241,8 @@ When contract upgrades are possible, prioritize implementing:
 
 If you encounter an issue not covered in this runbook:
 
-- Open an issue in the GitHub repository
+- Check the [GitHub Issues](https://github.com/ritik4ever/stellar-bounty-board/issues) for similar problems
+- If none exists, open an issue in the GitHub repository
 - Contact the maintainers via the project's communication channels
-- Check the [GitHub Issues](https://github.com/your-org/stellar-bounty-board/issues) for similar problems
+
+To contribute a fix, follow the canonical contribution process in [CONTRIBUTING.md](./CONTRIBUTING.md): comment on the issue to claim it, fork the repo, create a feature branch, and open a PR referencing the issue (`Closes #<issue>`). The same process is used across the [wave-4](docs/wave-4.md#how-to-contribute), [wave-5](docs/wave-5.md#how-to-contribute), and [wave-6](docs/wave-6.md#how-to-contribute) backlogs.
