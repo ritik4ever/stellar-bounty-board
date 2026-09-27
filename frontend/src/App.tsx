@@ -6,18 +6,13 @@ import React, {
   useRef,
   Suspense,
   type FormEvent,
-} from "react";
-import { useBeforeUnload } from "./useBeforeUnload";
-import {
-  FolderGit2,
-  Moon,
-  Rocket,
-  Search,
-  Sun,
-} from "lucide-react";
-import { toast } from "sonner";
+} from 'react';
+import { useBeforeUnload } from './useBeforeUnload';
+import { FolderGit2, Moon, Rocket, Search, Sun } from 'lucide-react';
+import { toast } from 'sonner';
 import {
   createBounty,
+  exportReleasedPayoutsCsv,
   getBounty,
   listBounties,
   listOpenIssues,
@@ -27,53 +22,41 @@ import {
   submitBounty,
   bulkBountyAction,
   type BulkActionResult,
-} from "./api";
-import { useFreighter } from "./hooks/useFreighter";
-import FreighterConnectButton from "./components/FreighterConnectButton";
-import {
-  statusCopy,
-  actionCopy,
-  readInitialFilters,
-} from "./constants";
-import {
-  debounce,
-  filterBounties,
-} from "./utils";
-import {
-  type Bounty,
-  type BountyStatus,
-  type CreateBountyPayload,
-  type OpenIssue,
-} from "./types";
+} from './api';
+import { useFreighter } from './hooks/useFreighter';
+import FreighterConnectButton from './components/FreighterConnectButton';
+import { statusCopy, actionCopy, readInitialFilters } from './constants';
+import { debounce, filterBounties } from './utils';
+import { type Bounty, type BountyStatus, type CreateBountyPayload, type OpenIssue } from './types';
 
-import BountyCard from "./BountyCard";
-import SkeletonBountyCard from "./SkeletonBountyCard";
-import EmptyState from "./EmptyState";
-import { ShortcutsHelpOverlay } from "./ShortcutsHelpOverlay";
-import BountyDetailPage from "./BountyDetailPage";
-import ContributorProfilePage from "./ContributorProfilePage";
-import ContributorDashboard from "./ContributorDashboard";
-import ErrorBoundary from "./ErrorBoundary";
-import SubmissionChecklistModal, { type SubmissionFormData } from "./SubmissionChecklistModal";
+import BountyCard from './BountyCard';
+import SkeletonBountyCard from './SkeletonBountyCard';
+import EmptyState from './EmptyState';
+import { ShortcutsHelpOverlay } from './ShortcutsHelpOverlay';
+import BountyDetailPage from './BountyDetailPage';
+import ContributorProfilePage from './ContributorProfilePage';
+import ContributorDashboard from './ContributorDashboard';
+import ErrorBoundary from './ErrorBoundary';
+import SubmissionChecklistModal, { type SubmissionFormData } from './SubmissionChecklistModal';
 
-const DARK_MODE_KEY = "stellar-bounty-board-theme";
+const DARK_MODE_KEY = 'stellar-bounty-board-theme';
 
 function useDarkMode() {
   const [dark, setDark] = useState<boolean>(() => {
     try {
       const stored = localStorage.getItem(DARK_MODE_KEY);
-      if (stored !== null) return stored === "dark";
+      if (stored !== null) return stored === 'dark';
     } catch {
       // ignore
     }
-    return window.matchMedia("(prefers-color-scheme: dark)").matches;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
 
   useEffect(() => {
     const root = document.documentElement;
-    root.setAttribute("data-theme", dark ? "dark" : "light");
+    root.setAttribute('data-theme', dark ? 'dark' : 'light');
     try {
-      localStorage.setItem(DARK_MODE_KEY, dark ? "dark" : "light");
+      localStorage.setItem(DARK_MODE_KEY, dark ? 'dark' : 'light');
     } catch {
       // ignore
     }
@@ -83,45 +66,45 @@ function useDarkMode() {
 }
 
 const initialForm: CreateBountyPayload = {
-  repo: "ritik4ever/stellar-stream",
+  repo: 'ritik4ever/stellar-stream',
   issueNumber: 48,
-  title: "",
-  summary: "",
-  maintainer: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
-  tokenSymbol: "XLM",
+  title: '',
+  summary: '',
+  maintainer: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
+  tokenSymbol: 'XLM',
   amount: 150,
   deadlineDays: 14,
-  labels: [{ name: "help wanted", color: "0075ca" }],
+  labels: [{ name: 'help wanted', color: '0075ca' }],
 };
 
 function validateStellarPublicKey(input: string): string | null {
   const value = input.trim();
-  if (!value) return "Address is required.";
+  if (!value) return 'Address is required.';
   if (!/^G[A-Z0-9]{55}$/.test(value))
     return "Enter a Stellar public key (starts with 'G', 56 characters)";
   return null;
 }
 
-const contributorStatuses: Array<BountyStatus | "all"> = [
-  "all",
-  "reserved",
-  "submitted",
-  "released",
-  "refunded",
-  "expired",
-  "disputed",
+const contributorStatuses: Array<BountyStatus | 'all'> = [
+  'all',
+  'reserved',
+  'submitted',
+  'released',
+  'refunded',
+  'expired',
+  'disputed',
 ];
 
-type BountyAction = "reserve" | "submit" | "release" | "refund";
+type BountyAction = 'reserve' | 'submit' | 'release' | 'refund';
 
 function formatTimestamp(value?: number): string {
-  if (!value) return "-";
+  if (!value) return '-';
   return new Date(value * 1000).toLocaleString();
 }
 
 /** Extract the GitHub owner segment from an "owner/repo" string. */
 function repoOwner(repo: string): string {
-  return repo.split("/")[0] ?? "";
+  return repo.split('/')[0] ?? '';
 }
 
 function App() {
@@ -132,6 +115,7 @@ function App() {
   const [bounties, setBounties] = useState<Bounty[]>([]);
   const [, setIssues] = useState<OpenIssue[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showShortcutsOverlay, setShowShortcutsOverlay] = useState(false);
   const [isFormDirty, setIsFormDirty] = useState(false);
@@ -145,11 +129,11 @@ function App() {
     function goOffline() {
       // setIsOffline(true);
     }
-    window.addEventListener("online", goOnline);
-    window.addEventListener("offline", goOffline);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
     return () => {
-      window.removeEventListener("online", goOnline);
-      window.removeEventListener("offline", goOffline);
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
     };
   }, []);
 
@@ -165,7 +149,7 @@ function App() {
     debouncedSetSearchQuery(searchQuery);
   }, [searchQuery, debouncedSetSearchQuery]);
 
-  const [statusFilter, setStatusFilter] = useState<"all" | BountyStatus>(
+  const [statusFilter, setStatusFilter] = useState<'all' | BountyStatus>(
     initialFilters.statusFilter
   );
   const [minReward, setMinReward] = useState(initialFilters.minReward);
@@ -178,7 +162,7 @@ function App() {
 
   const detailId = useMemo(() => {
     const match = pathname.match(/^\/bounties\/([^/]+)$/);
-    return match ? decodeURIComponent(match[1] ?? "") : null;
+    return match ? decodeURIComponent(match[1] ?? '') : null;
   }, [pathname]);
 
   const [detailBounty, setDetailBounty] = useState<Bounty | null>(null);
@@ -221,7 +205,7 @@ function App() {
         await refresh(signal);
       } catch (err) {
         if (signal.aborted) return;
-        console.error("Failed to load project data:", err);
+        console.error('Failed to load project data:', err);
       } finally {
         if (!signal.aborted) {
           setLoading(false);
@@ -233,7 +217,7 @@ function App() {
 
     const timer = window.setInterval(() => {
       const pollController = new AbortController();
-      void refresh(pollController.signal).catch(() => { });
+      void refresh(pollController.signal).catch(() => {});
     }, 7000);
 
     return () => {
@@ -243,21 +227,21 @@ function App() {
   }, [refresh]);
 
   useEffect(() => {
-    if (pathname.startsWith("/bounties/") || pathname.startsWith("/repo/")) return;
+    if (pathname.startsWith('/bounties/') || pathname.startsWith('/repo/')) return;
 
     const params = new URLSearchParams();
-    if (debouncedSearchQuery.trim() !== "") params.set("search", debouncedSearchQuery);
-    if (statusFilter !== "all") params.set("status", statusFilter);
-    if (minReward !== "") params.set("minReward", minReward);
-    if (maxReward !== "") params.set("maxReward", maxReward);
-    if (repoFilter !== "") params.set("repo", repoFilter);
-    if (tokenFilter !== "") params.set("tokenSymbol", tokenFilter);
-    if (sortOption !== "newest") params.set("sort", sortOption);
-    if (sortDirection !== "desc") params.set("direction", sortDirection);
+    if (debouncedSearchQuery.trim() !== '') params.set('search', debouncedSearchQuery);
+    if (statusFilter !== 'all') params.set('status', statusFilter);
+    if (minReward !== '') params.set('minReward', minReward);
+    if (maxReward !== '') params.set('maxReward', maxReward);
+    if (repoFilter !== '') params.set('repo', repoFilter);
+    if (tokenFilter !== '') params.set('tokenSymbol', tokenFilter);
+    if (sortOption !== 'newest') params.set('sort', sortOption);
+    if (sortDirection !== 'desc') params.set('direction', sortDirection);
 
     const nextSearch = params.toString();
-    const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`;
-    window.history.replaceState(null, "", nextUrl);
+    const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`;
+    window.history.replaceState(null, '', nextUrl);
   }, [
     debouncedSearchQuery,
     statusFilter,
@@ -273,7 +257,10 @@ function App() {
   useEffect(() => {
     function handlePopState() {
       setPathname(window.location.pathname);
-      if (window.location.pathname.startsWith("/bounties/") || window.location.pathname.startsWith("/repo/"))
+      if (
+        window.location.pathname.startsWith('/bounties/') ||
+        window.location.pathname.startsWith('/repo/')
+      )
         return;
       const filters = readInitialFilters();
       setSearchQuery(filters.searchQuery);
@@ -286,8 +273,8 @@ function App() {
       setSortDirection(filters.sortDirection);
     }
 
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -296,38 +283,41 @@ function App() {
     function handleGlobalKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement;
       if (
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.tagName === "SELECT" ||
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
         target.isContentEditable
       ) {
         return;
       }
 
-      if (event.key === "?") {
+      if (event.key === '?') {
         event.preventDefault();
         setShowShortcutsOverlay((prev) => !prev);
-      } else if (event.key === "/") {
+      } else if (event.key === '/') {
         event.preventDefault();
         searchInputRef.current?.focus();
       }
     }
 
-    window.addEventListener("keydown", handleGlobalKeyDown);
-    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, []);
 
-  const navigate = useCallback((nextPath: string) => {
-    if (nextPath === window.location.pathname) return;
-    if (isFormDirty) {
-      const confirmed = window.confirm(
-        "You have unsaved changes in the bounty creation form. Are you sure you want to leave?",
-      );
-      if (!confirmed) return;
-    }
-    window.history.pushState(null, "", nextPath);
-    setPathname(nextPath);
-  }, [isFormDirty]);
+  const navigate = useCallback(
+    (nextPath: string) => {
+      if (nextPath === window.location.pathname) return;
+      if (isFormDirty) {
+        const confirmed = window.confirm(
+          'You have unsaved changes in the bounty creation form. Are you sure you want to leave?'
+        );
+        if (!confirmed) return;
+      }
+      window.history.pushState(null, '', nextPath);
+      setPathname(nextPath);
+    },
+    [isFormDirty]
+  );
 
   const handleOpenBounty = useCallback(
     (id: string) => {
@@ -337,7 +327,7 @@ function App() {
   );
 
   async function handleReserve(bounty: Bounty) {
-    const contributor = window.prompt("Contributor Stellar address", bounty.contributor ?? "");
+    const contributor = window.prompt('Contributor Stellar address', bounty.contributor ?? '');
     if (!contributor) return;
     const contributorError = validateStellarPublicKey(contributor);
     if (contributorError) {
@@ -347,9 +337,9 @@ function App() {
     try {
       await reserveBounty(bounty.id, contributor.trim());
       await refresh();
-      toast.success("Bounty reserved successfully!");
+      toast.success('Bounty reserved successfully!');
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to reserve bounty.");
+      toast.error(err instanceof Error ? err.message : 'Failed to reserve bounty.');
     }
   }
 
@@ -385,9 +375,9 @@ function App() {
       closeSubmissionModal();
       setSubmissionModalData(undefined);
       await refresh();
-      toast.success("PR submitted successfully!");
+      toast.success('PR submitted successfully!');
     } catch (err) {
-      setSubmissionModalError(err instanceof Error ? err.message : "Submission failed.");
+      setSubmissionModalError(err instanceof Error ? err.message : 'Submission failed.');
     } finally {
       setSubmissionModalSubmitting(false);
     }
@@ -396,20 +386,20 @@ function App() {
   async function handleRelease(bounty: Bounty) {
     // Require Freighter connection for maintainer actions
     if (!freighter.isConnected || !freighter.publicKey) {
-      toast.error("Please connect your Freighter wallet first to sign the release action.");
+      toast.error('Please connect your Freighter wallet first to sign the release action.');
       return;
     }
     if (!freighter.isOnCorrectNetwork) {
-      toast.error("Please switch to the correct Stellar network in Freighter.");
+      toast.error('Please switch to the correct Stellar network in Freighter.');
       return;
     }
 
-    const transactionHash = window.prompt("Transaction hash (64 hex chars, optional)") ?? undefined;
+    const transactionHash = window.prompt('Transaction hash (64 hex chars, optional)') ?? undefined;
     const timestamp = Math.floor(Date.now() / 1000);
     const payload = {
       maintainer: freighter.publicKey,
       ...(transactionHash ? { transactionHash } : {}),
-      action: "release" as const,
+      action: 'release' as const,
       bountyId: bounty.id,
       timestamp,
     };
@@ -419,16 +409,11 @@ function App() {
       const { signature, publicKey } = await freighter.signPayload(payload);
 
       // Send the signed request
-      await releaseBountySigned(
-        bounty.id,
-        payload,
-        signature,
-        publicKey
-      );
+      await releaseBountySigned(bounty.id, payload, signature, publicKey);
       await refresh();
-      toast.success("Bounty released — payment sent!");
+      toast.success('Bounty released — payment sent!');
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to release bounty.";
+      const message = err instanceof Error ? err.message : 'Failed to release bounty.';
       toast.error(message);
     }
   }
@@ -436,20 +421,20 @@ function App() {
   async function handleRefund(bounty: Bounty) {
     // Require Freighter connection for maintainer actions
     if (!freighter.isConnected || !freighter.publicKey) {
-      toast.error("Please connect your Freighter wallet first to sign the refund action.");
+      toast.error('Please connect your Freighter wallet first to sign the refund action.');
       return;
     }
     if (!freighter.isOnCorrectNetwork) {
-      toast.error("Please switch to the correct Stellar network in Freighter.");
+      toast.error('Please switch to the correct Stellar network in Freighter.');
       return;
     }
 
-    const transactionHash = window.prompt("Transaction hash (64 hex chars, optional)") ?? undefined;
+    const transactionHash = window.prompt('Transaction hash (64 hex chars, optional)') ?? undefined;
     const timestamp = Math.floor(Date.now() / 1000);
     const payload = {
       maintainer: freighter.publicKey,
       ...(transactionHash ? { transactionHash } : {}),
-      action: "refund" as const,
+      action: 'refund' as const,
       bountyId: bounty.id,
       timestamp,
     };
@@ -459,16 +444,11 @@ function App() {
       const { signature, publicKey } = await freighter.signPayload(payload);
 
       // Send the signed request
-      await refundBountySigned(
-        bounty.id,
-        payload,
-        signature,
-        publicKey
-      );
+      await refundBountySigned(bounty.id, payload, signature, publicKey);
       await refresh();
-      toast.success("Bounty refunded successfully!");
+      toast.success('Bounty refunded successfully!');
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to refund bounty.";
+      const message = err instanceof Error ? err.message : 'Failed to refund bounty.';
       toast.error(message);
     }
   }
@@ -479,19 +459,17 @@ function App() {
    * independently, so we surface per-item success/failure results and never
    * lose successful items because another one failed.
    */
-  async function handleBulkAction(action: "release" | "refund") {
+  async function handleBulkAction(action: 'release' | 'refund') {
     if (selectedBountyIds.length === 0 || bulkRunning) return;
 
     // The bulk endpoint authorizes via the admin API key and validates the
     // maintainer address against each bounty, exactly like the single
     // release/refund endpoints validate `maintainer`.
-    let maintainer =
-      freighter.isConnected && freighter.publicKey ? freighter.publicKey : "";
+    let maintainer = freighter.isConnected && freighter.publicKey ? freighter.publicKey : '';
     if (!maintainer) {
       maintainer =
-        window.prompt(
-          "Maintainer Stellar address (G...) used to authorize these bulk actions:"
-        ) ?? "";
+        window.prompt('Maintainer Stellar address (G...) used to authorize these bulk actions:') ??
+        '';
       if (!maintainer.trim()) return;
       maintainer = maintainer.trim();
       if (!validateStellarPublicKey(maintainer)) {
@@ -500,9 +478,9 @@ function App() {
       }
     }
 
-    const adminKey = (window.prompt("Admin API key for bulk actions:") ?? "").trim();
+    const adminKey = (window.prompt('Admin API key for bulk actions:') ?? '').trim();
     if (!adminKey) {
-      toast.error("An admin API key is required for bulk actions.");
+      toast.error('An admin API key is required for bulk actions.');
       return;
     }
 
@@ -514,7 +492,7 @@ function App() {
       await refresh();
       setSelectedBountyIds([]);
 
-      const verb = action === "release" ? "released" : "refunded";
+      const verb = action === 'release' ? 'released' : 'refunded';
       if (data.failed === 0) {
         toast.success(`${data.succeeded} bounty(ies) ${verb} successfully.`);
       } else {
@@ -523,10 +501,30 @@ function App() {
         );
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Bulk action failed.";
+      const message = err instanceof Error ? err.message : 'Bulk action failed.';
       toast.error(message);
     } finally {
       setBulkRunning(false);
+    }
+  }
+
+  async function handleExportCsv() {
+    setIsExporting(true);
+    try {
+      const { blob, filename } = await exportReleasedPayoutsCsv();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      anchor.style.display = 'none';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to export CSV.');
+    } finally {
+      setIsExporting(false);
     }
   }
 
@@ -534,17 +532,17 @@ function App() {
     (bounty: Bounty, action: { action: BountyAction; label: string; title: string }) => {
       const onClick = (event: React.MouseEvent<HTMLButtonElement>) => {
         event.stopPropagation();
-        if (action.action === "reserve") void handleReserve(bounty);
-        else if (action.action === "submit") void handleSubmit(bounty);
-        else if (action.action === "release") void handleRelease(bounty);
-        else if (action.action === "refund") void handleRefund(bounty);
+        if (action.action === 'reserve') void handleReserve(bounty);
+        else if (action.action === 'submit') void handleSubmit(bounty);
+        else if (action.action === 'release') void handleRelease(bounty);
+        else if (action.action === 'refund') void handleRefund(bounty);
       };
 
       return (
         <button
           key={action.action}
           type="button"
-          className={action.action === "refund" ? "ghost-button" : "secondary-button"}
+          className={action.action === 'refund' ? 'ghost-button' : 'secondary-button'}
           title={action.title}
           onClick={onClick}
         >
@@ -559,9 +557,9 @@ function App() {
     const match = pathname.match(/^\/repo\/([^/]+)\/([^/]+)$/);
     return match
       ? {
-        owner: decodeURIComponent(match[1]),
-        name: decodeURIComponent(match[2]),
-      }
+          owner: decodeURIComponent(match[1]),
+          name: decodeURIComponent(match[2]),
+        }
       : null;
   }, [pathname]);
 
@@ -633,36 +631,36 @@ function App() {
   }, [filteredBounties, repoRoute]);
 
   const hasActiveFilters =
-    debouncedSearchQuery.trim() !== "" ||
-    statusFilter !== "all" ||
-    minReward !== "" ||
-    maxReward !== "" ||
-    repoFilter !== "";
+    debouncedSearchQuery.trim() !== '' ||
+    statusFilter !== 'all' ||
+    minReward !== '' ||
+    maxReward !== '' ||
+    repoFilter !== '';
 
   const { emptyStateHeading, emptyStateMessage } = useMemo(() => {
     if (debouncedSearchQuery.trim()) {
       return {
         emptyStateHeading: `No results for "${debouncedSearchQuery.trim()}"`,
-        emptyStateMessage: "Try a different search term or clear filters.",
+        emptyStateMessage: 'Try a different search term or clear filters.',
       };
     }
     return {
-      emptyStateHeading: "No bounties yet",
-      emptyStateMessage: "Be the first to create one!",
+      emptyStateHeading: 'No bounties yet',
+      emptyStateMessage: 'Be the first to create one!',
     };
   }, [debouncedSearchQuery]);
 
   if (detailId) {
-    const owner = detailBounty ? repoOwner(detailBounty.repo) : "";
+    const owner = detailBounty ? repoOwner(detailBounty.repo) : '';
     return (
       <ErrorBoundary componentName="BountyDetailPage">
         <Suspense fallback={<div className="empty-state">Loading bounty...</div>}>
           <BountyDetailPage
             bounty={detailBounty}
             loading={detailLoading}
-            onBack={() => navigate("/")}
+            onBack={() => navigate('/')}
             owner={owner}
-            avatarUrl={detailBounty ? `https://github.com/${owner}.png?size=72` : ""}
+            avatarUrl={detailBounty ? `https://github.com/${owner}.png?size=72` : ''}
             statusCopy={statusCopy}
             actionCopy={actionCopy}
             renderActionButton={renderActionButton}
@@ -676,7 +674,7 @@ function App() {
 
   if (contributorRoute) {
     return (
-      <ContributorProfilePage address={contributorRoute.address} onBack={() => navigate("/")} />
+      <ContributorProfilePage address={contributorRoute.address} onBack={() => navigate('/')} />
     );
   }
 
@@ -686,15 +684,15 @@ function App() {
     try {
       // Validate required fields
       if (!form.repo.trim()) {
-        toast.error("Repository is required.");
+        toast.error('Repository is required.');
         return;
       }
       if (!form.title.trim()) {
-        toast.error("Title is required.");
+        toast.error('Title is required.');
         return;
       }
       if (form.amount <= 0) {
-        toast.error("Reward amount must be greater than 0.");
+        toast.error('Reward amount must be greater than 0.');
         return;
       }
       const maintainerError = validateStellarPublicKey(form.maintainer);
@@ -710,9 +708,9 @@ function App() {
       setForm({ ...initialForm, issueNumber: form.issueNumber + 1 });
       setIsFormDirty(false);
       await refresh();
-      toast.success("Bounty created successfully!");
+      toast.success('Bounty created successfully!');
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create bounty.");
+      toast.error(err instanceof Error ? err.message : 'Failed to create bounty.');
     } finally {
       setSubmitting(false);
     }
@@ -722,7 +720,7 @@ function App() {
     <div className="app-container">
       <header className="main-header">
         <div className="header-content">
-          <div className="logo" onClick={() => navigate("/")}>
+          <div className="logo" onClick={() => navigate('/')}>
             <Rocket className="logo-icon" />
             <h1>Stellar Bounty Board</h1>
           </div>
@@ -809,22 +807,22 @@ function App() {
                   </label>
                 </div>
                 <div className="form-actions">
-                <button type="submit" disabled={submitting}>
-                  {submitting ? "Creating..." : "Create Bounty"}
-                </button>
-                {isFormDirty && (
-                  <button
-                    type="button"
-                    className="ghost-button"
-                    onClick={() => {
-                      setForm(initialForm);
-                      setIsFormDirty(false);
-                    }}
-                  >
-                    Discard
+                  <button type="submit" disabled={submitting}>
+                    {submitting ? 'Creating...' : 'Create Bounty'}
                   </button>
-                )}
-              </div>
+                  {isFormDirty && (
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={() => {
+                        setForm(initialForm);
+                        setIsFormDirty(false);
+                      }}
+                    >
+                      Discard
+                    </button>
+                  )}
+                </div>
               </form>
             </div>
           </div>
@@ -848,17 +846,17 @@ function App() {
                     type="button"
                     className="secondary-button"
                     disabled={bulkRunning}
-                    onClick={() => void handleBulkAction("release")}
+                    onClick={() => void handleBulkAction('release')}
                   >
-                    {bulkRunning ? "Processing..." : "Release selected"}
+                    {bulkRunning ? 'Processing...' : 'Release selected'}
                   </button>
                   <button
                     type="button"
                     className="ghost-button"
                     disabled={bulkRunning}
-                    onClick={() => void handleBulkAction("refund")}
+                    onClick={() => void handleBulkAction('refund')}
                   >
-                    {bulkRunning ? "Processing..." : "Refund selected"}
+                    {bulkRunning ? 'Processing...' : 'Refund selected'}
                   </button>
                   <button
                     type="button"
@@ -875,6 +873,23 @@ function App() {
                 </span>
               )}
 
+              {selectedBountyIds.length > 0 && (
+                <div className="export-toolbar" aria-label="Export bounties">
+                  <button
+                    type="button"
+                    className={
+                      isExporting
+                        ? 'secondary-button secondary-button--loading'
+                        : 'secondary-button'
+                    }
+                    disabled={isExporting}
+                    onClick={handleExportCsv}
+                  >
+                    {isExporting ? <span className="spinner" aria-hidden="true" /> : 'Export CSV'}
+                  </button>
+                </div>
+              )}
+
               {bulkResults && bulkResults.length > 0 && (
                 <div className="bulk-results" aria-live="polite">
                   <h4>Last bulk action results</h4>
@@ -882,14 +897,12 @@ function App() {
                     {bulkResults.map((result) => (
                       <li
                         key={result.bountyId}
-                        className={
-                          result.success ? "bulk-result--success" : "bulk-result--failure"
-                        }
+                        className={result.success ? 'bulk-result--success' : 'bulk-result--failure'}
                       >
-                        <strong>{result.bountyId}</strong>:{" "}
+                        <strong>{result.bountyId}</strong>:{' '}
                         {result.success
-                          ? `Success (${result.status ?? "updated"})`
-                          : `Failed — ${result.error ?? "Unknown error"}`}
+                          ? `Success (${result.status ?? 'updated'})`
+                          : `Failed — ${result.error ?? 'Unknown error'}`}
                       </li>
                     ))}
                   </ul>
@@ -912,7 +925,7 @@ function App() {
               {contributorStatuses.map((status) => (
                 <button
                   key={status}
-                  className={`filter-chip ${statusFilter === status ? "active" : ""}`}
+                  className={`filter-chip ${statusFilter === status ? 'active' : ''}`}
                   onClick={() => setStatusFilter(status)}
                 >
                   {status}
@@ -943,7 +956,7 @@ function App() {
                         renderActionButton={renderActionButton}
                         selection={
                           freighter.isConnected && freighter.publicKey
-                            ? bounty.status !== "released" && bounty.status !== "refunded"
+                            ? bounty.status !== 'released' && bounty.status !== 'refunded'
                               ? {
                                   selected: selectedBountyIds.includes(bounty.id),
                                   onToggle: () => toggleBountySelection(bounty.id),
@@ -963,8 +976,8 @@ function App() {
               message={emptyStateMessage}
               hasFilters={hasActiveFilters}
               onClearFilters={() => {
-                setSearchQuery("");
-                setStatusFilter("all");
+                setSearchQuery('');
+                setStatusFilter('all');
               }}
             />
           )}
