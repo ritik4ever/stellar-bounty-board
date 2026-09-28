@@ -4,6 +4,11 @@ This document tracks the **Wave 5** contribution issues for Stellar Bounty Board
 Wave 5 focuses on hardening the platform: security posture, operational documentation,
 observability, and contributor-experience polish built on top of the Wave 4 foundation.
 
+> **This is a planning snapshot, not a status report.** Several items here restate Wave 4
+> work. For the current state of every item below — which GitHub issue carries it, and
+> whether it is open, closed, not yet opened, or superseded — see
+> [`wave-status.md`](wave-status.md).
+
 ## Summary
 
 | Area                              | Issues | Focus                                                       |

@@ -1,0 +1,90 @@
+name: Post-deploy smoke test
+
+# #1466 — a platform's own "build succeeded" signal proves nothing about the
+# running app: the process can boot and then fail to answer, or answer while its
+# dependencies (bounty store, Soroban RPC, contract, auth config) are
+# unreachable. This workflow runs `scripts/post-deploy-smoke.mjs` against the
+# live backend and frontend after every successful deployment and fails the
+# check when either does not respond correctly.
+#
+# Render and Vercel both report a completed deploy as a GitHub deployment
+# status, so `deployment_status` covers the normal Render/Vercel flow. Use the
+# manual dispatch (or re-run this job) to smoke test on demand — for example
+# right after rotating a backend secret.
+#
+# URLs are read from Actions variables/secrets so nothing is hardcoded:
+#   vars.BACKEND_BASE_URL  (or secrets.BACKEND_BASE_URL)
+#   vars.FRONTEND_BASE_URL (or secrets.FRONTEND_BASE_URL)
+# See docs/deployment.md, "Post-deploy smoke test", for how to set them — and
+# note that a failing run blocks the deploy from being treated as successful
+# once this check is marked required.
+
+on:
+  deployment_status:
+  workflow_dispatch:
+    inputs:
+      backend_base_url:
+        description: 'Backend base URL to smoke test (defaults to the BACKEND_BASE_URL variable)'
+        required: false
+        type: string
+      frontend_base_url:
+        description: 'Frontend base URL to smoke test (defaults to the FRONTEND_BASE_URL variable)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  # Keyed per deployment so two deploys cannot smoke test over each other;
+  # deploy verifications are never cancelled mid-flight.
+  group: post-deploy-smoke-${{ github.event.deployment.id || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    name: Smoke test deployed backend and frontend
+    runs-on: ubuntu-latest
+    # Only verify deployments that actually succeeded; in-flight or failed
+    # deploys have nothing to smoke test.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.deployment_status.state == 'success'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run post-deploy smoke test
+        env:
+          BACKEND_BASE_URL: ${{ github.event.inputs.backend_base_url || vars.BACKEND_BASE_URL || secrets.BACKEND_BASE_URL }}
+          FRONTEND_BASE_URL: ${{ github.event.inputs.frontend_base_url || vars.FRONTEND_BASE_URL || secrets.FRONTEND_BASE_URL }}
+          SMOKE_ATTEMPTS: '10'
+          SMOKE_DELAY_MS: '15000'
+        run: node scripts/post-deploy-smoke.mjs
+
+      - name: Summarize for the deployment page
+        if: always()
+        env:
+          BACKEND_BASE_URL: ${{ github.event.inputs.backend_base_url || vars.BACKEND_BASE_URL || secrets.BACKEND_BASE_URL }}
+          FRONTEND_BASE_URL: ${{ github.event.inputs.frontend_base_url || vars.FRONTEND_BASE_URL || secrets.FRONTEND_BASE_URL }}
+        run: |
+          {
+            echo "### Post-deploy smoke test (#1466)"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Trigger | \`${{ github.event_name }}\` |"
+            echo "| Deployment | \`${{ github.event.deployment.environment || 'n/a' }}\` |"
+            echo "| Backend | \`${BACKEND_BASE_URL:-unset}\` |"
+            echo "| Frontend | \`${FRONTEND_BASE_URL:-unset}\` |"
+            echo "| Result | \`${{ job.status }}\` |"
+            echo ""
+            echo "Checked \`GET /api/health\`, \`GET /api/health/deep\` (overall plus every component)"
+            echo "and the frontend root page. See docs/deployment.md for the required variables."
+          } >> "$GITHUB_STEP_SUMMARY"

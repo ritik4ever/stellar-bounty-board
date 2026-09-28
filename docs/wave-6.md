@@ -6,6 +6,10 @@ improving the contributor experience, and closing documentation gaps left by Wav
 
 > **Individual issue drafts** are in [`docs/issues/`](issues/README.md).  
 > The index in that folder lists every draft with its category, title, and link.
+>
+> **This is a planning snapshot, not a status report.** For the current state of every
+> item below — which GitHub issue carries it and whether it is open, closed, not yet
+> opened, or superseded — see [`wave-status.md`](wave-status.md).
 
 ## Summary
 

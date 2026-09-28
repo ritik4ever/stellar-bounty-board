@@ -1,0 +1,59 @@
+name: Wave status drift
+
+# #1467 — `docs/wave-status.md` reconciles every wave-4/5/6 backlog item against
+# the live issue tracker. The structural check in pr-check.yml keeps the file
+# complete; this scheduled job keeps it *accurate*, by re-reading the state of
+# every mapped issue and failing when a snapshot row no longer matches.
+#
+# A failure here is not a code defect: it means someone opened, closed or
+# renumbered an issue, and docs/wave-status.md needs a refreshed snapshot in the
+# next PR. Run it manually with the dispatch trigger after bulk-closing issues.
+
+on:
+  schedule:
+    # Mondays at 06:00 UTC.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  drift:
+    name: Compare wave status against live issues
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Check docs/wave-status.md for drift
+        env:
+          # `gh` needs a token to list issues; the default token can read public
+          # issues of the upstream repository this fork is based on.
+          GH_TOKEN: ${{ github.token }}
+          WAVE_STATUS_REPO: ${{ vars.WAVE_STATUS_REPO || 'ritik4ever/stellar-bounty-board' }}
+        run: node scripts/check-wave-status.mjs --live
+
+      - name: Summarize
+        if: always()
+        run: |
+          {
+            echo "### Wave status drift (#1467)"
+            echo ""
+            echo "Compared the \`docs/wave-status.md\` snapshot with live issue states"
+            echo "(\`WAVE_STATUS_REPO: ${{ vars.WAVE_STATUS_REPO || 'ritik4ever/stellar-bounty-board' }}\`)."
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Result | \`${{ job.status }}\` |"
+            echo ""
+            echo "On drift: refresh the affected rows in docs/wave-status.md, commit them"
+            echo "on the branch that closes the item, and re-run this workflow."
+          } >> "$GITHUB_STEP_SUMMARY"

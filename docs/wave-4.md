@@ -4,6 +4,10 @@ This document tracks the **Wave 4** contribution issues for Stellar Bounty Board
 Wave 4 expands the MVP into a production-ready platform across frontend, backend,
 smart contracts, docs, and DevOps.
 
+> **This is a planning snapshot, not a status report.** For the current state of every
+> item below — which GitHub issue carries it, whether it is open, closed, not yet opened,
+> or superseded by a later wave — see [`wave-status.md`](wave-status.md).
+
 ## Summary
 
 | Area | Issues | Focus |

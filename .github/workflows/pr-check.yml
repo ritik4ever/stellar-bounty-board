@@ -31,5 +31,11 @@ jobs:
       - name: Type check
         run: npm --prefix backend run build
 
+      # #1467 — keeps docs/wave-status.md reconciled with the wave backlogs and
+      # the live tracker. Structural only (no network): a PR that changes a wave
+      # document without updating the status document fails here.
+      - name: Check wave status document
+        run: node scripts/check-wave-status.mjs
+
       - name: Run tests
         run: npm test

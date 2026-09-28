@@ -87,6 +87,20 @@ curl http://localhost:3001/api/health/deep
 
 If any component is `"down"`, the endpoint returns HTTP 503. Set `MAINTAINER_PUBLIC_KEY`, `ARBITER_ADDRESS`, and `SOROBAN_CONTRACT_ID` in your environment, and ensure the Soroban RPC URL is reachable.
 
+### Rate limiting
+
+The backend applies three independent per-IP limits, all within `RATE_LIMIT_WINDOW_MS` (default 60000):
+
+| Tier | Applies to | Variable | Default |
+|---|---|---|---|
+| Read | all `GET` routes except health probes | `RATE_LIMIT_READ_MAX` | 120 |
+| Mutation | state-changing routes (create, reserve, submit, release, refund, …) | `RATE_LIMIT_MUTATION_MAX` | 10 |
+| Webhook | `POST /api/webhooks/github` only | `RATE_LIMIT_WEBHOOK_MAX` | 300 |
+
+The webhook route has its own, larger ceiling because GitHub is its legitimate caller: a single busy repository can deliver a burst of `pull_request` events around a merge, and dropping those deliveries means manual redelivery. Signature verification runs **before** the webhook limit, so unsigned or tampered requests are rejected with 401 and never spend the quota a real delivery needs. Limits are keyed by `req.ip`; behind a reverse proxy that rewrites the peer address, the webhook ceiling becomes global rather than per-source, so keep `RATE_LIMIT_WEBHOOK_MAX` generous there. Rationale and tuning notes live in `backend/src/utils.ts`.
+
+**Disabling rate limiting is a two-signal decision.** Limiters are switched off only when `NODE_ENV=test` **and** `RATE_LIMIT_TEST_BYPASS=true` are both set. `NODE_ENV=test` alone leaves them enabled, and setting the bypass flag outside a test run makes the backend **refuse to start** — a stray test variable in a real environment fails loudly instead of silently serving unprotected. See `backend/src/middleware/rateLimitGuard.ts`.
+
 ### Dispute lifecycle
 
 1. **Maintainer raises a dispute** — after the work is submitted, the maintainer can open a dispute within the on-chain dispute window.
@@ -352,7 +366,7 @@ npm run build
 
 ## Testing
 
-Backend tests cover the JSON-backed bounty lifecycle (create, reserve, submit, release, refund, expiration) and the main HTTP routes. They use a temporary store file via `BOUNTY_STORE_PATH` and disable strict rate limiting when `NODE_ENV=test`.
+Backend tests cover the JSON-backed bounty lifecycle (create, reserve, submit, release, refund, expiration) and the main HTTP routes. They use a temporary store file via `BOUNTY_STORE_PATH`, and disable rate limiting through the explicit test opt-in: `NODE_ENV=test` plus `RATE_LIMIT_TEST_BYPASS=true` (set for the suite in `backend/vitest.config.ts`). `NODE_ENV=test` on its own no longer disables any limiter.
 
 From the repository root (after `npm run install:all`):
 

@@ -15,10 +15,16 @@ import {
   stopRecurringBountyScheduler,
 } from "./services/recurringBountySchedules";
 import { getOperationalConfig } from "./config";
+import { assertRateLimitSafety, isRateLimitTestBypassActive } from "./middleware/rateLimitGuard";
 
 const port = Number(process.env.PORT ?? 3001);
 const keepAliveTimeout = Number(process.env.KEEP_ALIVE_TIMEOUT ?? 65000);
 const headersTimeout = Number(process.env.HEADERS_TIMEOUT ?? 66000);
+
+// Refuse to boot when a test-only flag would disable rate limiting outside a
+// test run (#1465). Must run before the server starts listening, so a
+// misconfigured deployment fails loudly instead of serving unprotected.
+assertRateLimitSafety();
 
 // Log effective operational configuration at startup for operator visibility
 const operationalConfig = getOperationalConfig();
@@ -26,6 +32,8 @@ logStructured("info", "operational_config", {
   rateLimitWindowMs: operationalConfig.rateLimitWindowMs,
   rateLimitReadMax: operationalConfig.rateLimitReadMax,
   rateLimitMutationMax: operationalConfig.rateLimitMutationMax,
+  rateLimitWebhookMax: operationalConfig.rateLimitWebhookMax,
+  rateLimitingEnabled: !isRateLimitTestBypassActive(),
 });
 
 const server = app.listen(port, () => {

@@ -12,9 +12,10 @@ cross-referencing wave docs and individual drafts stays consistent.
 
 | Task | Action |
 |------|--------|
+| Check what is still open | Read [`docs/wave-status.md`](../wave-status.md), which maps every wave-4/5/6 item to its live issue and state |
 | Pick up a documented issue | Open the linked draft, read the acceptance criteria, then claim the GitHub issue |
 | Add a new draft | Create `docs/issues/<slug>.md`, add a row to the relevant table below, and update the wave summary doc |
-| Start a new wave | Append a new **Wave N** section at the bottom of this file following the same table format |
+| Start a new wave | Append a new **Wave N** section at the bottom of this file following the same table format, then reconcile it in `docs/wave-status.md` (`npm run check:wave-status` enforces this) |
 
 ---
 

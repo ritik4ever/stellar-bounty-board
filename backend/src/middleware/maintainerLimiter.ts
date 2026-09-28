@@ -4,6 +4,7 @@ import path from "path";
 import lockfile from "proper-lockfile";
 import { logger } from "../logger";
 import { MiddlewareDependencyError } from "./errors";
+import { isRateLimitTestBypassActive } from "./rateLimitGuard";
 
 const LIMIT = Number(process.env.MAINTAINER_BOUNTY_RATE_LIMIT ?? 10);
 const WINDOW_MS = Number(process.env.MAINTAINER_BOUNTY_RATE_WINDOW_MS ?? 3600_000);
@@ -60,8 +61,11 @@ async function releaseQuietly(release: () => Promise<void>, storePath: string): 
  * `MAINTAINER_BOUNTY_RATE_WINDOW_MS` (default 1h) for each `body.maintainer`.
  * Both are read **once at module load**.
  *
- * Passes through (calls `next()`) when `NODE_ENV === "test"` or when
- * `body.maintainer` is not a non-empty string (body validation rejects those).
+ * Passes through (calls `next()`) when the test bypass is active —
+ * `NODE_ENV=test` **and** the explicit `RATE_LIMIT_TEST_BYPASS=true` opt-in
+ * (#1465, see `./rateLimitGuard.ts`) — or when `body.maintainer` is not a
+ * non-empty string (body validation rejects those). `NODE_ENV=test` alone no
+ * longer disables this limit.
  * Must run after `express.json()`.
  *
  * Over the limit it responds 429 with a `Retry-After` header (seconds until
@@ -90,7 +94,7 @@ async function releaseQuietly(release: () => Promise<void>, storePath: string): 
  * taken over.
  */
 export const maintainerLimiter: RequestHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-  if (process.env.NODE_ENV === "test") {
+  if (isRateLimitTestBypassActive()) {
     next();
     return;
   }

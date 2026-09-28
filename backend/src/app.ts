@@ -68,7 +68,7 @@ import {
 import { idempotencyMiddleware } from './middleware/idempotency';
 import { requireJsonContentType } from './middleware/contentType';
 import { enforceBodyLimit, DEFAULT_BODY_LIMIT } from './middleware/bodyLimit';
-import { readLimiter, mutationLimiter } from './utils';
+import { readLimiter, mutationLimiter, webhookLimiter } from './utils';
 import { maintainerLimiter } from './middleware/maintainerLimiter';
 import { logger } from './logger';
 import { createAdminApiKeyAuthMiddleware } from './middleware/adminAuth';
@@ -984,9 +984,26 @@ app.post(
   }
 );
 
+/**
+ * POST /api/webhooks/github
+ *
+ * Middleware order is deliberate and load-bearing (#1460):
+ *
+ * 1. `createGitHubWebhookSignatureMiddleware()` — verifies the HMAC signature
+ *    and replies 401 for anything unsigned or tampered with.
+ * 2. `webhookLimiter` — the webhook-specific rate limit
+ *    (`RATE_LIMIT_WEBHOOK_MAX`, default 300/min/IP). It is applied *after*
+ *    verification so a spoofed flood is rejected by step 1 and never consumes
+ *    the quota a real GitHub delivery needs.
+ *
+ * Swapping these two would let an attacker burn the legitimate quota with
+ * unsigned requests, which is exactly the failure #1460 asks us to prevent.
+ * Unlike the read tier, this route is never covered by `readLimiter` (GET-only).
+ */
 app.post(
   '/api/webhooks/github',
   createGitHubWebhookSignatureMiddleware(() => process.env.GITHUB_WEBHOOK_SECRET),
+  webhookLimiter,
   async (req: Request, res: Response) => {
     const rawDeliveryId = req.headers['x-github-delivery'];
     const deliveryId = Array.isArray(rawDeliveryId) ? rawDeliveryId[0] : rawDeliveryId;

@@ -60,6 +60,20 @@ export interface OperationalConfig {
   rateLimitMutationMax: number;
 
   /**
+   * Maximum requests per window for the webhook limiter (GitHub deliveries to
+   * `POST /api/webhooks/github`).
+   *
+   * Source: `RATE_LIMIT_WEBHOOK_MAX`. Default: `300`.
+   * Must be a finite number greater than `0`; otherwise falls back to `300`.
+   *
+   * Deliberately larger than both the read and mutation limits, and separate
+   * from them (#1460): the caller is GitHub, not a browser, and a single busy
+   * repository can legitimately deliver a burst of events around a merge. See
+   * `backend/src/utils.ts` (`webhookLimiter`) for how the ceiling is justified.
+   */
+  rateLimitWebhookMax: number;
+
+  /**
    * Test suite timeout in milliseconds. Used by Vitest to extend timeouts
    * for concurrency or stress tests that require more time.
    *
@@ -251,6 +265,13 @@ export function getOperationalConfig(): OperationalConfig {
     return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 10;
   })();
 
+  const rateLimitWebhookMax = (() => {
+    const raw = process.env.RATE_LIMIT_WEBHOOK_MAX;
+    if (!raw) return 300;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 300;
+  })();
+
   const testTimeoutMs = (() => {
     const raw = process.env.TEST_TIMEOUT_MS;
     if (!raw) return 15_000;
@@ -276,6 +297,7 @@ export function getOperationalConfig(): OperationalConfig {
     rateLimitWindowMs,
     rateLimitReadMax,
     rateLimitMutationMax,
+    rateLimitWebhookMax,
     testTimeoutMs,
     concurrencyTestCount,
     rateLimitTestCount,
