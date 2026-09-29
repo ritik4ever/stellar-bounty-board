@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { logger } from "../../src/logger";
+import { getCorrelationId } from "../../src/correlation";
 import { requestContextMiddleware } from "../../src/middleware/requestContext";
 import { mockNext, mockReq, mockRes } from "./helpers";
 
@@ -28,7 +29,7 @@ describe("requestContextMiddleware", () => {
     const out = run(incoming);
     expect(out.req.requestId).toBe(expected);
     expect(out.headers["x-request-id"]).toBe(expected);
-    expect(out.child).toHaveBeenCalledWith({ requestId: expected });
+    expect(out.child).toHaveBeenCalledWith({ requestId: expected, correlationId: expected });
     expect(out.next).toHaveBeenCalledWith();
   });
 
@@ -61,9 +62,35 @@ describe("requestContextMiddleware", () => {
     expect(out.info).toHaveBeenCalledTimes(1);
     const [fields, msg] = out.info.mock.calls[0];
     expect(msg).toBe("http_request");
-    expect(fields).toMatchObject({ method: "PATCH", path: "/api/bounties/1", status: 204 });
+    expect(fields).toMatchObject({
+      correlationId: "req-1",
+      method: "PATCH",
+      path: "/api/bounties/1",
+      status: 204,
+    });
     expect(fields.durationMs).toBeGreaterThanOrEqual(0);
-    expect(Object.keys(fields).sort()).toEqual(["durationMs", "method", "path", "status"]);
+    expect(Object.keys(fields).sort()).toEqual([
+      "correlationId",
+      "durationMs",
+      "method",
+      "path",
+      "status",
+    ]);
+  });
+
+  it("runs the rest of the request inside the correlation context (#1457)", () => {
+    vi.spyOn(logger, "child").mockReturnValue({ info: vi.fn() } as unknown as typeof logger);
+    const req = mockReq({ headers: { "x-request-id": "req-ctx" } });
+    const out = mockRes();
+    const seen: Array<string | undefined> = [];
+
+    requestContextMiddleware(req, out.res, () => {
+      seen.push(getCorrelationId());
+    });
+
+    expect(seen).toEqual(["req-ctx"]);
+    // The context does not leak past the request.
+    expect(getCorrelationId()).toBeUndefined();
   });
 
   it("logs '/' when the request path is empty", () => {

@@ -30,6 +30,11 @@ const UNDOCUMENTED_ROUTES = new Set([
   'GET /api/global-metrics',
   // Per-maintainer metrics — undocumented internal endpoint
   'GET /api/maintainers/:maintainer/metrics',
+  // Per-contributor reputation — undocumented internal helper (#1459)
+  'GET /api/contributors/:address/reputation',
+  // Browser push notification preferences — undocumented internal endpoints
+  'POST /api/notification-preferences/push',
+  'DELETE /api/notification-preferences/push',
   // Bounty event history — undocumented internal endpoint
   'GET /api/bounties/:id/events',
   // Legacy paginated audit-log alias (/:id/audit-logs vs /:id/audit-log)

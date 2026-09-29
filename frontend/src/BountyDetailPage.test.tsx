@@ -6,6 +6,20 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import BountyDetailPage from './BountyDetailPage';
 import type { Bounty, BountyStatus } from './types';
 
+// The reputation badge (#1459) looks the contributor up over the network. Stub
+// the api so these copy/print tests never leave the page.
+vi.mock('./api', () => ({
+  extendDeadline: vi.fn(),
+  getContributorReputation: vi.fn().mockResolvedValue({
+    address: '',
+    reputation: null,
+    releasedCount: 0,
+    totalEarned: 0,
+    level: null,
+    isFirstTime: true,
+  }),
+}));
+
 const statusCopy: Record<BountyStatus, { label: string; description: string }> = {
   open: { label: 'Open', description: 'Ready for contributors.' },
   reserved: { label: 'Reserved', description: 'Reserved by a contributor.' },

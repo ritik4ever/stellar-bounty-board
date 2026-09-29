@@ -3,6 +3,7 @@ import path from "node:path";
 import { Worker } from "node:worker_threads";
 import { app } from "./app";
 import { logStructured } from "./logger";
+import { newCorrelationId, normalizeCorrelationId, runWithCorrelationId } from "./correlation";
 import { invalidateBountyCache } from "./services/bountyStore";
 import { startExpirationJob, stopExpirationJob } from "./services/reservationExpirationJob";
 import { setDraining, DRAIN_TIMEOUT_MS } from "./shutdown";
@@ -44,24 +45,45 @@ function startIndexerWorker() {
   let worker: Worker;
 
   const spawn = () => {
-    worker = new Worker(workerPath);
+    // One correlation id per worker session (#1457); the worker stamps it on
+    // every log line and echoes it on each `indexedEvents` message so the API
+    // and worker log streams can be joined on a single id.
+    const sessionCorrelationId = newCorrelationId();
+    worker = new Worker(workerPath, { workerData: { correlationId: sessionCorrelationId } });
     indexerWorker = worker;
-    logStructured("info", "indexer_worker_spawn", { pid: worker.threadId });
+    logStructured("info", "indexer_worker_spawn", {
+      pid: worker.threadId,
+      correlationId: sessionCorrelationId,
+    });
 
     worker.on("message", async (msg: any) => {
       if (msg && msg.type === "indexedEvents") {
-        try {
-          await invalidateBountyCache();
-        } catch (err) {
-          logStructured("warn", "indexer_cache_invalidation_failed", {
-            message: err instanceof Error ? err.message : String(err),
-          });
-        }
+        const correlationId =
+          normalizeCorrelationId(msg.correlationId) ?? sessionCorrelationId;
+
+        await runWithCorrelationId(correlationId, async () => {
+          try {
+            await invalidateBountyCache();
+            logStructured("info", "indexer_events_indexed", {
+              correlationId,
+              eventCount: Array.isArray(msg.events) ? msg.events.length : 0,
+            });
+          } catch (err) {
+            logStructured("warn", "indexer_cache_invalidation_failed", {
+              correlationId,
+              message: err instanceof Error ? err.message : String(err),
+            });
+          }
+        });
       }
     });
 
     worker.on("exit", (code) => {
-      logStructured("warn", "indexer_worker_exit", { code, backoff });
+      logStructured("warn", "indexer_worker_exit", {
+        code,
+        backoff,
+        correlationId: sessionCorrelationId,
+      });
       setTimeout(() => {
         backoff = Math.min(backoff * 2, 30_000);
         spawn();
@@ -69,7 +91,10 @@ function startIndexerWorker() {
     });
 
     worker.on("error", (err) => {
-      logStructured("error", "indexer_worker_error", { message: err instanceof Error ? err.message : String(err) });
+      logStructured("error", "indexer_worker_error", {
+        correlationId: sessionCorrelationId,
+        message: err instanceof Error ? err.message : String(err),
+      });
       try {
         worker.terminate();
       } catch {

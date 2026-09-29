@@ -11,6 +11,7 @@ This runbook provides step-by-step procedures for common operational tasks in pr
 - [Emergency Contract Pause](#emergency-contract-pause)
 - [Redeploy Contract](#redeploy-contract)
 - [Incident Response: Compromised Arbiter Key](#incident-response-compromised-arbiter-key)
+- [Trace a Request Across Backend and Worker](#trace-a-request-across-backend-and-worker)
 - [Update OpenAPI Snapshot](#update-openapi-snapshot)
 
 ---
@@ -78,6 +79,7 @@ This runbook provides step-by-step procedures for common operational tasks in pr
    ```
 
 5. **Verify the reset**
+
    ```bash
    # Check the API health endpoint
    curl https://your-backend.example.com/api/health
@@ -280,6 +282,7 @@ sudo systemctl start stellar-bounty-board-backend
 
 - This updates the maintainer key in the JSON store only. If the Soroban contract is deployed, you may need to update on-chain data as well.
 - Consider adding an audit log entry for this change:
+
   ```bash
   # Manually add an audit entry (optional but recommended)
   AUDIT_ENTRY='{
@@ -575,6 +578,7 @@ fi
    ```
 
 7. **Verify the system is working**
+
    ```bash
    # Check health endpoint
    curl https://your-backend.example.com/api/health
@@ -769,6 +773,7 @@ soroban contract invoke \
    ```
 
 8. **Verify the deployment**
+
    ```bash
    # Check backend health
    curl https://your-backend.example.com/api/health
@@ -1109,6 +1114,58 @@ When contract upgrades are possible, prioritize implementing:
 3. **Multi-Signature Protection**
    - Require multiple signatures for critical operations
    - Reduce single point of failure risk
+
+---
+
+## Trace a Request Across Backend and Worker
+
+**Use case:** Follow a single action from the inbound API request through to the Soroban indexer worker that processes the resulting contract event, without matching timestamps across two log streams by hand (#1457).
+
+### How correlation IDs work
+
+- The backend mints a correlation id per request (or reuses a valid inbound `X-Request-ID`) and returns it in the `X-Request-ID` response header.
+- Every backend log line for that request carries a `correlationId` field (structured JSON in production, key/value in dev).
+- When the indexer worker thread starts, the backend passes a session correlation id through `workerData`. The worker stamps `[Indexer][cid=<id>]` on every line and echoes the id on each `indexedEvents` message it posts back.
+- Work the request/worker triggers (for example cache invalidation after indexed events) runs inside the same correlation context, so related lines share the id.
+
+### Steps
+
+1. **Capture the correlation id**
+
+   ```bash
+   # Reuse the id the backend generated (returned on the response)
+   curl -sD - -o /dev/null https://your-backend.example.com/api/bounties | grep -i x-request-id
+
+   # Or supply your own so it is easy to grep for
+   curl -H 'X-Request-ID: debug-1234' https://your-backend.example.com/api/bounties
+   ```
+
+2. **Find the backend log lines for the id**
+
+   ```bash
+   # systemd
+   journalctl -u stellar-bounty-board-backend | grep debug-1234
+
+   # Docker
+   docker logs stellar-bounty-board-backend 2>&1 | grep debug-1234
+   ```
+
+3. **Find the related worker lines**
+
+   The backend logs `indexer_worker_spawn` with the session `correlationId` it handed to the worker. Worker output is prefixed with that id:
+
+   ```bash
+   docker logs stellar-bounty-board-backend 2>&1 | grep 'cid=<session-correlation-id>'
+   docker logs stellar-bounty-board-backend 2>&1 | grep indexer_events_indexed
+   ```
+
+   `indexer_events_indexed` records the `correlationId` and `eventCount` for each poll that produced events, closing the loop back to the API side.
+
+### Notes
+
+- Correlation ids are opaque `[a-zA-Z0-9-]{1,128}` tokens; never parse them.
+- Logs never include request bodies, query strings, or secrets (see `backend/src/logger.ts`).
+- Outside a request context, `getCorrelationId()` returns `undefined`; background jobs that need an id can mint one with `newCorrelationId()`.
 
 ---
 

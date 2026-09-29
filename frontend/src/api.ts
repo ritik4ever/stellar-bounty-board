@@ -1,6 +1,7 @@
 import type {
   Bounty,
   BountyEvent,
+  ContributorReputation,
   CreateBountyPayload,
   GlobalMetrics,
   MaintainerMetrics,
@@ -510,6 +511,44 @@ export async function getGlobalMetrics(): Promise<GlobalMetrics> {
 }
 
 /**
+ * Platform-wide stats for the dashboard banner (#1458).
+ *
+ * Backed by `GET /api/stats`, which serves cached `GlobalMetrics` (30s TTL) so
+ * the banner can refresh on every poll without hammering the store.
+ */
+export async function getStats(signal?: AbortSignal): Promise<GlobalMetrics> {
+  const body = await requestJson<{ data: GlobalMetrics }>('/stats', {
+    retry: true,
+    retryLabel: 'Loading platform stats',
+    signal,
+  });
+
+  return body.data;
+}
+
+/**
+ * Contributor reputation derived from released-bounty history (#1459).
+ *
+ * First-time contributors resolve successfully with `reputation: null` so the
+ * caller can omit the badge rather than showing a misleading zero.
+ */
+export async function getContributorReputation(
+  address: string,
+  signal?: AbortSignal
+): Promise<ContributorReputation> {
+  const body = await requestJson<{ data: ContributorReputation }>(
+    `/contributors/${encodeURIComponent(address)}/reputation`,
+    {
+      retry: true,
+      retryLabel: 'Loading contributor reputation',
+      signal,
+    }
+  );
+
+  return body.data;
+}
+
+/**
  * Map a backend bounty status string to the on-chain contract enum.
  * Keeps the frontend aligned with the Soroban ABI: if the contract adds or
  * reorders a variant, the generated enum will change and TypeScript will
@@ -531,5 +570,4 @@ export function getContractErrorLabel(error: ContractError): string {
  * Stellar test network configuration for Freighter.
  */
 export const STELLAR_NETWORK_PASSPHRASE =
-  import.meta.env.VITE_STELLAR_NETWORK_PASSPHRASE ??
-  'Test SDF Network ; September 2015';
+  import.meta.env.VITE_STELLAR_NETWORK_PASSPHRASE ?? 'Test SDF Network ; September 2015';
