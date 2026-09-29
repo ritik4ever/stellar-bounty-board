@@ -52,6 +52,7 @@ export interface FreighterState {
   isConnected: boolean;
   publicKey: string | null;
   isOnCorrectNetwork: boolean;
+  walletNetwork: string | null;
   error: FreighterError | null;
   connecting: boolean;
 }
@@ -95,10 +96,22 @@ async function checkNetwork(): Promise<boolean> {
   }
 }
 
+async function getWalletNetwork(): Promise<string | null> {
+  if (!isFreighterInstalled()) return null;
+
+  try {
+    const { network } = await window.freighter!.getNetwork();
+    return network ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function useFreighter(): FreighterState & FreighterActions {
   const [isConnected, setIsConnected] = useState(false);
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [isOnCorrectNetwork, setIsOnCorrectNetwork] = useState(false);
+  const [walletNetwork, setWalletNetwork] = useState<string | null>(null);
   const [error, setError] = useState<FreighterError | null>(null);
   const [connecting, setConnecting] = useState(false);
   const mountedRef = useRef(true);
@@ -140,6 +153,11 @@ export function useFreighter(): FreighterState & FreighterActions {
             } else {
               setError(null);
             }
+          }
+
+          const network = await getWalletNetwork();
+          if (mountedRef.current) {
+            setWalletNetwork(network);
           }
         }
       } catch (err) {
@@ -184,6 +202,11 @@ export function useFreighter(): FreighterState & FreighterActions {
           );
         }
       }
+
+      const network = await getWalletNetwork();
+      if (mountedRef.current) {
+        setWalletNetwork(network);
+      }
     } catch (err) {
       if (mountedRef.current) {
         const fErr = err as FreighterError;
@@ -202,6 +225,7 @@ export function useFreighter(): FreighterState & FreighterActions {
     setIsConnected(false);
     setPublicKey(null);
     setIsOnCorrectNetwork(false);
+    setWalletNetwork(null);
     setError(null);
   }, []);
 
@@ -246,6 +270,7 @@ export function useFreighter(): FreighterState & FreighterActions {
     isConnected,
     publicKey,
     isOnCorrectNetwork,
+    walletNetwork,
     error,
     connecting,
     connect,

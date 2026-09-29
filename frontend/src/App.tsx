@@ -25,9 +25,22 @@ import {
 } from './api';
 import { useFreighter } from './hooks/useFreighter';
 import FreighterConnectButton from './components/FreighterConnectButton';
-import { statusCopy, actionCopy, readInitialFilters } from './constants';
-import { debounce, filterBounties } from './utils';
-import { type Bounty, type BountyStatus, type CreateBountyPayload, type OpenIssue } from './types';
+import NetworkMismatchBanner from './components/NetworkMismatchBanner';
+import {
+  statusCopy,
+  actionCopy,
+  readInitialFilters,
+} from './constants';
+import {
+  debounce,
+  filterBounties,
+} from './utils';
+import {
+  type Bounty,
+  type BountyStatus,
+  type CreateBountyPayload,
+  type OpenIssue,
+} from './types';
 
 import BountyCard from './BountyCard';
 import SkeletonBountyCard from './SkeletonBountyCard';
@@ -538,19 +551,27 @@ function App() {
         else if (action.action === 'refund') void handleRefund(bounty);
       };
 
+      const isMutatingAction = action.action === 'release' || action.action === 'refund';
+      const disabled = isMutatingAction && freighter.isConnected && !freighter.isOnCorrectNetwork;
+
       return (
         <button
           key={action.action}
           type="button"
           className={action.action === 'refund' ? 'ghost-button' : 'secondary-button'}
-          title={action.title}
+          title={
+            disabled
+              ? `${action.title} (disabled: wallet is on the wrong Stellar network)`
+              : action.title
+          }
           onClick={onClick}
+          disabled={disabled}
         >
           {action.label}
         </button>
       );
     },
-    [refresh]
+    [refresh, freighter.isConnected, freighter.isOnCorrectNetwork]
   );
 
   const repoRoute = useMemo(() => {
@@ -654,6 +675,9 @@ function App() {
     const owner = detailBounty ? repoOwner(detailBounty.repo) : '';
     return (
       <ErrorBoundary componentName="BountyDetailPage">
+        {freighter.isConnected && !freighter.isOnCorrectNetwork && (
+          <NetworkMismatchBanner walletNetwork={freighter.walletNetwork} />
+        )}
         <Suspense fallback={<div className="empty-state">Loading bounty...</div>}>
           <BountyDetailPage
             bounty={detailBounty}
@@ -732,6 +756,10 @@ function App() {
           </div>
         </div>
       </header>
+
+      {freighter.isConnected && !freighter.isOnCorrectNetwork && (
+        <NetworkMismatchBanner walletNetwork={freighter.walletNetwork} />
+      )}
 
       <main className="main-content">
         <section className="dashboard-hero">
