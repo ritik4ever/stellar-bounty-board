@@ -14,6 +14,7 @@ import {
   createBounty,
   exportReleasedPayoutsCsv,
   getBounty,
+  getStats,
   listBounties,
   listOpenIssues,
   releaseBountySigned,
@@ -27,7 +28,13 @@ import { useFreighter } from './hooks/useFreighter';
 import FreighterConnectButton from './components/FreighterConnectButton';
 import { statusCopy, actionCopy, readInitialFilters } from './constants';
 import { debounce, filterBounties } from './utils';
-import { type Bounty, type BountyStatus, type CreateBountyPayload, type OpenIssue } from './types';
+import {
+  type Bounty,
+  type BountyStatus,
+  type CreateBountyPayload,
+  type GlobalMetrics,
+  type OpenIssue,
+} from './types';
 
 import BountyCard from './BountyCard';
 import SkeletonBountyCard from './SkeletonBountyCard';
@@ -38,6 +45,7 @@ import ContributorProfilePage from './ContributorProfilePage';
 import ContributorDashboard from './ContributorDashboard';
 import ErrorBoundary from './ErrorBoundary';
 import SubmissionChecklistModal, { type SubmissionFormData } from './SubmissionChecklistModal';
+import StatsBanner from './StatsBanner';
 
 const DARK_MODE_KEY = 'stellar-bounty-board-theme';
 
@@ -113,6 +121,7 @@ function App() {
   const initialFilters = useMemo(() => readInitialFilters(), []);
   const [form, setForm] = useState<CreateBountyPayload>(initialForm);
   const [bounties, setBounties] = useState<Bounty[]>([]);
+  const [stats, setStats] = useState<GlobalMetrics | null>(null);
   const [, setIssues] = useState<OpenIssue[]>([]);
   const [loading, setLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
@@ -188,12 +197,16 @@ function App() {
   }, []);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
-    const [bountyData, issueData] = await Promise.all([
+    const [bountyData, issueData, statsData] = await Promise.all([
       listBounties(signal),
       listOpenIssues(signal),
+      // Stats power the dashboard banner (#1458). A stats failure must not take
+      // down the bounty list, so it resolves to null and leaves the last value.
+      getStats(signal).catch(() => null),
     ]);
     setBounties(bountyData);
     setIssues(issueData);
+    if (statsData) setStats(statsData);
   }, []);
 
   useEffect(() => {
@@ -734,6 +747,8 @@ function App() {
       </header>
 
       <main className="main-content">
+        <StatsBanner stats={stats} loading={loading && !stats} />
+
         <section className="dashboard-hero">
           <div className="hero-grid">
             <div className="hero-main">

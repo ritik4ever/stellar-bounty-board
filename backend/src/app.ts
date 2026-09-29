@@ -1,6 +1,6 @@
 import cors from 'cors';
 import express, { Request, Response, NextFunction } from 'express';
-import { randomUUID, createHash } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import swaggerUi from 'swagger-ui-express';
 import pinoHttp from 'pino-http';
 import { z } from 'zod';
@@ -35,6 +35,7 @@ import {
 } from './services/bountyStore';
 
 import { listOpenIssues } from './services/openIssues';
+import { getContributorReputation } from './services/contributorReputation';
 import {
   registerPushSubscription,
   unregisterPushSubscription,
@@ -71,6 +72,7 @@ import { enforceBodyLimit, DEFAULT_BODY_LIMIT } from './middleware/bodyLimit';
 import { readLimiter, mutationLimiter } from './utils';
 import { maintainerLimiter } from './middleware/maintainerLimiter';
 import { logger } from './logger';
+import { newCorrelationId, normalizeCorrelationId, runWithCorrelationId } from './correlation';
 import { createAdminApiKeyAuthMiddleware } from './middleware/adminAuth';
 import { createTerminalErrorHandler } from './middleware/errors';
 import { handleGitHubPrEvent } from './webhooks/githubPrHandler';
@@ -85,20 +87,14 @@ import {
 } from './services/recurringBountySchedules';
 
 
-const INCOMING_REQUEST_ID = /^[a-zA-Z0-9-]{1,128}$/;
-
+/**
+ * Resolve the per-request correlation id (#1457): reuse a valid inbound
+ * `X-Request-ID` so callers can trace their own request through our logs,
+ * otherwise mint a fresh id.
+ */
 function resolveRequestId(req: Request): string {
-  const raw = req.headers['x-request-id'];
-
-  if (typeof raw === 'string') {
-    const trimmed = raw.trim();
-
-    if (INCOMING_REQUEST_ID.test(trimmed)) {
-      return trimmed;
-    }
-  }
-
-  return randomUUID();
+  const incoming = normalizeCorrelationId(req.headers['x-request-id']);
+  return incoming ?? newCorrelationId();
 }
 
 function requestContextMiddleware(req: Request, res: Response, next: NextFunction): void {
@@ -122,7 +118,9 @@ function requestContextMiddleware(req: Request, res: Response, next: NextFunctio
     );
   });
 
-  next();
+  // Handle the request inside the correlation context so any async work it
+  // starts (background jobs, worker messages) inherits the same id (#1457).
+  runWithCorrelationId(req.requestId, next);
 }
 
 export const app = express();
@@ -1083,6 +1081,31 @@ app.get('/api/maintainers/:maintainer/metrics', (req: Request, res: Response) =>
 
     const metrics = getMaintainerMetrics(maintainer);
     res.json({ data: metrics });
+  } catch (error) {
+    sendError(res, req, error);
+  }
+});
+
+/**
+ * GET /api/contributors/:address/reputation
+ *
+ * Contributor reputation derived from released-bounty history (#1459).
+ * First-time contributors return `reputation: null` / `isFirstTime: true` so
+ * the UI can omit the badge instead of showing a misleading zero.
+ *
+ * Invalid addresses return 400; a valid address with no completed bounties is
+ * still a 200 (it is simply a first-time contributor).
+ */
+app.get('/api/contributors/:address/reputation', (req: Request, res: Response) => {
+  try {
+    const address = typeof req.params.address === 'string' ? req.params.address.trim() : '';
+
+    if (!isValidStellarAddress(address)) {
+      jsonError(res, req, 400, 'A valid Stellar public key is required.');
+      return;
+    }
+
+    res.json({ data: getContributorReputation(address) });
   } catch (error) {
     sendError(res, req, error);
   }

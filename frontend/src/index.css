@@ -2486,7 +2486,7 @@ select {
   .lo-table__cell::before { content: attr(data-label); font-family: "IBM Plex Mono", monospace; text-transform: uppercase; font-size: 10px; color: var(--muted); letter-spacing: 0.06em; }
 }
 
-/* #829 � maintainer bulk-actions toolbar & per-item results */
+/* #829 � maintainer bulk-actions toolbar & per-item results */
 .bulk-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -2546,4 +2546,96 @@ select {
 
 .bulk-result--failure {
   color: var(--danger, #cf222e);
+}
+
+/* ── Platform stats banner (#1458) ─────────────────────────────────────── */
+.stats-banner {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.stats-banner__item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  backdrop-filter: blur(6px);
+}
+
+.stats-banner__item > svg {
+  flex: none;
+  color: var(--mint);
+}
+
+.stats-banner__label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.stats-banner__value {
+  margin-left: auto;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 1.05rem;
+}
+
+.stats-banner--loading .stats-banner__skeleton {
+  display: block;
+  height: 3.25rem;
+  border-radius: 12px;
+  background: var(--line);
+  animation: stats-skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes stats-skeleton-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+/* ── Contributor reputation badge (#1459) ──────────────────────────────── */
+.reputation-badge {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--mint);
+  border-radius: 999px;
+  background: var(--mint-soft);
+  color: var(--ink);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.reputation-badge > svg {
+  flex: none;
+  color: var(--mint);
+}
+
+.reputation-badge__count {
+  font-weight: 600;
+}
+
+.reputation-badge__level {
+  padding: 0.05rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-strong);
+}
+
+.reputation-badge__earned {
+  color: var(--muted);
 }

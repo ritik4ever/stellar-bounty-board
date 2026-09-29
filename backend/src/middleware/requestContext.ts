@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import { logger } from "../logger";
+import { runWithCorrelationId } from "../correlation";
 
 const INCOMING_REQUEST_ID = /^[a-zA-Z0-9-]{1,128}$/;
 
@@ -23,8 +24,13 @@ function resolveRequestId(req: Request): string {
  * An incoming `X-Request-ID` is used only if, after trimming, it is 1–128
  * characters of `[a-zA-Z0-9-]`. Anything else is replaced with a new UUID v4.
  * Sets `req.requestId` and `req.log` (a pino child logger bound to
- * `requestId`) before calling `next()`, so later middleware and routes can
- * rely on both.
+ * `requestId`/`correlationId`) before calling `next()`, so later middleware and
+ * routes can rely on both.
+ *
+ * The rest of the request runs inside a correlation context (#1457), so async
+ * work started while handling the request (queued jobs, worker messages) can
+ * recover the same id with `getCorrelationId()` and log it alongside the
+ * request's own lines.
  *
  * Never throws. Stateless apart from the per-request `finish` listener.
  *
@@ -35,7 +41,7 @@ function resolveRequestId(req: Request): string {
 export function requestContextMiddleware(req: Request, res: Response, next: NextFunction): void {
   const requestId = resolveRequestId(req);
   req.requestId = requestId;
-  req.log = logger.child({ requestId });
+  req.log = logger.child({ requestId, correlationId: requestId });
   res.setHeader("X-Request-ID", requestId);
 
   const start = process.hrtime.bigint();
@@ -44,6 +50,7 @@ export function requestContextMiddleware(req: Request, res: Response, next: Next
     const durationNs = process.hrtime.bigint() - start;
     const durationMs = Number(durationNs) / 1e6;
     req.log.info({
+      correlationId: requestId,
       method: req.method,
       path: req.path || "/",
       status: res.statusCode,
@@ -51,5 +58,7 @@ export function requestContextMiddleware(req: Request, res: Response, next: Next
     }, "http_request");
   });
 
-  next();
+  // Run the rest of the request inside the correlation context so async work it
+  // triggers inherits the id (#1457).
+  runWithCorrelationId(requestId, next);
 }

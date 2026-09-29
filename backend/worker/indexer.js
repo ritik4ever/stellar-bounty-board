@@ -4,20 +4,24 @@
 import axios from "axios";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { parentPort, workerData } from "node:worker_threads";
 import { loadIndexerConfig } from "./indexerConfig.js";
-let parentPort;
-try {
-  // worker_threads parentPort is available when running as a Worker
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  parentPort = require("worker_threads").parentPort;
-} catch (e) {
-  parentPort = undefined;
-}
+import { createCorrelationLogger, resolveWorkerCorrelationId } from "./correlation.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // CONFIGURATION
 const CONTRACT_ID = process.env.SOROBAN_CONTRACT_ID || ""; // Set in env
 const SOROBAN_RPC_URL = process.env.SOROBAN_RPC_URL || "https://rpc-futurenet.stellar.org";
 const INDEX_FILE = path.join(__dirname, "indexed-events.json");
+
+// Correlation id for this worker session (#1457). The parent process passes one
+// through `workerData`; a standalone run mints its own. Every log line carries
+// it and the `indexedEvents` message echoes it back to the backend so one id
+// links the API request and the worker work it triggered.
+const CORRELATION_ID = resolveWorkerCorrelationId(workerData);
+const log = createCorrelationLogger(CORRELATION_ID);
 
 // Operational settings are env-driven (see indexerConfig.js for the variables
 // and their defaults, which match the values previously hardcoded here).
@@ -37,10 +41,12 @@ async function retryWithBackoff(fn, maxRetries = MAX_RETRIES) {
       lastError = err;
       if (attempt < maxRetries - 1) {
         const backoffMs = INITIAL_BACKOFF_MS * Math.pow(2, attempt);
-        console.log(`[Indexer] Retry attempt ${attempt + 1}/${maxRetries} after ${backoffMs}ms. Error: ${err.message}`);
+        log.info(
+          `Retry attempt ${attempt + 1}/${maxRetries} after ${backoffMs}ms. Error: ${err.message}`,
+        );
         await new Promise(resolve => setTimeout(resolve, backoffMs));
       } else {
-        console.error(`[Indexer] All ${maxRetries} retries exhausted. Last error:`, err.message);
+        log.error(`All ${maxRetries} retries exhausted. Last error:`, err.message);
       }
     }
   }
@@ -65,7 +71,7 @@ function normalizeEvent(event) {
 function saveEvents(events) {
   if (parentPort) {
     // In worker mode, send events to the main thread instead of persisting locally
-    parentPort.postMessage({ type: "indexedEvents", events });
+    parentPort.postMessage({ type: "indexedEvents", correlationId: CORRELATION_ID, events });
   } else {
     fs.writeFileSync(INDEX_FILE, JSON.stringify(events, null, 2));
   }
@@ -103,26 +109,38 @@ async function pollEvents() {
         allEvents = normalized;
       }
       saveEvents(allEvents);
-      console.log(`[Indexer] Indexed ${events.length} new events.`);
+      log.info(`Indexed ${events.length} new events.`);
     } else {
-      console.log("[Indexer] No new events.");
+      log.info("No new events.");
     }
   } catch (err) {
-    console.error("[Indexer] Polling failed after all retries:", err.message);
+    log.error("Polling failed after all retries:", err.message);
   }
 }
 
 function startWorker() {
-  console.log("[Indexer] Starting Soroban contract event indexer...");
+  log.info("Starting Soroban contract event indexer...");
   // Deliberately omits SOROBAN_RPC_URL: some RPC providers embed an API key in it.
-  console.log(
-    `[Indexer] Effective config: pollIntervalMs=${POLL_INTERVAL_MS} ` +
+  log.info(
+    `Effective config: pollIntervalMs=${POLL_INTERVAL_MS} ` +
       `maxRetries=${MAX_RETRIES} initialBackoffMs=${INITIAL_BACKOFF_MS}`,
   );
   setInterval(pollEvents, POLL_INTERVAL_MS);
 }
 
-if (require.main === module) {
+/** True when this module is running inside a worker_threads Worker. */
+function isWorkerThread() {
+  return Boolean(parentPort);
+}
+
+/** True when this module is the process entrypoint (`node indexer.js`). */
+function isEntrypoint() {
+  if (isWorkerThread()) return true;
+  const entry = process.argv[1];
+  return Boolean(entry) && import.meta.url === pathToFileURL(entry).href;
+}
+
+if (isEntrypoint()) {
   startWorker();
 }
 

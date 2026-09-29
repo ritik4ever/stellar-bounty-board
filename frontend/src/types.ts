@@ -3,22 +3,22 @@ export interface GithubLabel {
   color: string; // hex without '#', e.g. "e4e669"
 }
 export type BountyStatus =
-  | "open"
-  | "reserved"
-  | "submitted"
-  | "released"
-  | "refunded"
-  | "expired"
-  | "disputed";
+  | 'open'
+  | 'reserved'
+  | 'submitted'
+  | 'released'
+  | 'refunded'
+  | 'expired'
+  | 'disputed';
 
 export type EventType =
-  | "created"
-  | "reserved"
-  | "submitted"
-  | "released"
-  | "refunded"
-  | "expired"
-  | "disputed";
+  | 'created'
+  | 'reserved'
+  | 'submitted'
+  | 'released'
+  | 'refunded'
+  | 'expired'
+  | 'disputed';
 
 export interface BountyEvent {
   type: EventType;
@@ -76,10 +76,8 @@ export interface OpenIssue {
   title: string;
   labels: GithubLabel[];
   summary: string;
-  impact: "starter" | "core" | "advanced";
+  impact: 'starter' | 'core' | 'advanced';
 }
-
-
 
 export interface MaintainerMetrics {
   maintainer: string;
@@ -107,4 +105,23 @@ export interface GlobalMetrics {
   totalReleased: number;
   uniqueMaintainers: number;
   uniqueContributors: number;
+  /** Cumulative protocol fees collected across released bounties (#1458). */
+  protocolFeesCollected?: number;
+}
+
+/** Coarse trust tier derived from a contributor's completed-bounty count (#1459). */
+export type ReputationLevel = 'rising' | 'trusted' | 'veteran';
+
+export interface ContributorReputation {
+  address: string;
+  /**
+   * Completed (released) bounty count, or `null` for first-time contributors.
+   * `null` — never `0` — so the UI can hide the badge instead of implying a
+   * bad track record.
+   */
+  reputation: number | null;
+  releasedCount: number;
+  totalEarned: number;
+  level: ReputationLevel | null;
+  isFirstTime: boolean;
 }
