@@ -23,6 +23,12 @@ import { defineConfig, devices } from '@playwright/test';
 // 4. Browser Matrix: [chromium] (Playwright Default: chromium, firefox, webkit)
 //    - Deviation: Scoped exclusively to Chromium desktop in default E2E runs.
 //    - Reason: Reduces CI runner memory consumption and accelerates validation loops.
+//
+// 5. Monorepo & CI Verification:
+//    - Verified against `.github/workflows/playwright-e2e.yml`:
+//      * BASE_URL maps to frontend container on port 3000.
+//      * API_URL maps to backend container on port 3001.
+//      * Reporter generates HTML artifacts in CI while keeping terminal output concise.
 // ==============================================================================
 
 export default defineConfig({
@@ -36,6 +42,9 @@ export default defineConfig({
 
   // Execution Parallelism (Deliberately chosen: false vs true tool default):
   fullyParallel: false,
+
+  // Reporter (Cross-checked with CI workflow):
+  reporter: process.env.CI ? [['html', { open: 'never' }], ['list']] : 'list',
 
   use: {
     // Run headless in automated CI and local pre-commit runs
