@@ -4,6 +4,7 @@
     "prettier --write"
   ],
   "*.{json,md,yaml,yml}": ["prettier --write"],
+  ".coderabbit.yaml": ["prettier --write"],
   "*.sol": ["forge fmt"],
   "*.rs": ["rustfmt"]
 }
