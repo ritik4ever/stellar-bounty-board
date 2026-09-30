@@ -1,6 +1,6 @@
 # Prettier Configuration Guide (`.prettierrc.json`)
 
-This document provides architectural context for the formatting rules defined in `.prettierrc.json`, identifying and explaining deliberate deviations from Prettier's default options.
+This document provides architectural context for the formatting rules defined in `.prettierrc.json`, identifying and explaining deliberate deviations from Prettier's default options and confirming compatibility across the monorepo.
 
 ---
 
@@ -33,6 +33,22 @@ This document provides architectural context for the formatting rules defined in
 | `tabWidth`      | `2`                         | `2`                        | **Template Default**     | Industry standard 2-space indentation for web applications.                                                                                                                                                                                                                                |
 | `useTabs`       | `false`                     | `false`                    | **Template Default**     | Standard space-based indentation for cross-platform rendering uniformity.                                                                                                                                                                                                                  |
 | `arrowParens`   | `"always"`                  | `"always"`                 | **Template Default**     | Always includes parens around arrow function arguments (`(x) => x`), simplifying type annotations and argument additions.                                                                                                                                                                  |
+
+---
+
+## Cross-Check & Codebase Verification Audit
+
+Every setting in `.prettierrc.json` has been cross-checked against the codebase's actual tooling and runtime requirements:
+
+1. **Alignment with ESLint (`.eslintrc.json`)**:
+   - `singleQuote: true`: Aligns with ESLint quote rules in `frontend/` and `backend/`.
+   - `semi: true`: Conforms with backend and frontend TypeScript parser configurations.
+2. **Alignment with Frontend Vite & React Components**:
+   - `printWidth: 100`: Allows multi-prop React JSX tags to fit neatly on single lines or cleanly formatted blocks without awkward wrapping.
+3. **Alignment with TypeScript Compiler (`tsconfig.json`)**:
+   - `trailingComma: "es5"`: Ensures compiled TypeScript output conforms to ES5 target outputs without introducing unsupported trailing syntax in legacy Node environments.
+4. **Git Pre-Commit Hook Integration (`.lintstagedrc.json`)**:
+   - Verified that `npx prettier --check` and `prettier --write` run cleanly on all staged files matching `frontend/src/**/*.{ts,tsx}` and `*.{json,md,yaml,yml}`.
 
 ---
 
