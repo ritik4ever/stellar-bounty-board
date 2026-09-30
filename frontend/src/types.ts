@@ -42,6 +42,9 @@ export interface Bounty {
   tags?: string[];
 
   status: BountyStatus;
+  /** On-chain Soroban escrow status distinct from application lifecycle status (Issue #1452) */
+  escrowStatus?: BountyStatus | string;
+  onChainEscrowStatus?: BountyStatus | string;
   createdAt: number;
   deadlineAt: number;
   /** ISO 8601 date string representing when the bounty expires. Added in Wave 4. */

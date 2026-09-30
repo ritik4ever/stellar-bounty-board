@@ -214,4 +214,51 @@ describe('BountyDetailPage copy actions', () => {
       expect(screen.getByText('Copy button test bounty')).toBeInTheDocument();
     });
   });
+
+  describe('On-chain escrow status and mismatch detection (Issue #1452)', () => {
+    it('renders only application status when escrow status is not wired', () => {
+      renderDetail({ ...bounty, escrowStatus: undefined, onChainEscrowStatus: undefined });
+      expect(screen.getByTestId('bounty-application-status')).toHaveTextContent('Open');
+      expect(screen.queryByTestId('bounty-escrow-status')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('bounty-status-mismatch-alert')).not.toBeInTheDocument();
+    });
+
+    it('renders distinct application and escrow status pills when escrow status matches', () => {
+      renderDetail({ ...bounty, status: 'open', escrowStatus: 'open' });
+      expect(screen.getByTestId('bounty-application-status')).toHaveTextContent('Open');
+      expect(screen.getByTestId('bounty-escrow-status')).toHaveTextContent('Escrow: OPEN');
+      expect(screen.getByTestId('meta-escrow-status')).toHaveTextContent('OPEN');
+      expect(screen.queryByTestId('bounty-status-mismatch-alert')).not.toBeInTheDocument();
+    });
+
+    it('flags a mismatch when application status differs from on-chain escrow status', () => {
+      renderDetail({
+        ...bounty,
+        status: 'released',
+        escrowStatus: 'held',
+      });
+
+      expect(screen.getByTestId('bounty-application-status')).toHaveTextContent('Released');
+      expect(screen.getByTestId('bounty-escrow-status')).toHaveTextContent('Escrow: HELD');
+      expect(screen.getByTestId('meta-escrow-status')).toHaveTextContent('HELD');
+
+      const alert = screen.getByTestId('bounty-status-mismatch-alert');
+      expect(alert).toBeInTheDocument();
+      expect(alert).toHaveAttribute('role', 'alert');
+      expect(alert).toHaveTextContent(/Status Mismatch Detected/i);
+      expect(alert).toHaveTextContent(/Application status is Released, but on-chain escrow status is HELD/i);
+    });
+
+    it('flags a mismatch when using onChainEscrowStatus property alias', () => {
+      renderDetail({
+        ...bounty,
+        status: 'open',
+        onChainEscrowStatus: 'released',
+      });
+
+      expect(screen.getByTestId('bounty-status-mismatch-alert')).toBeInTheDocument();
+      expect(screen.getByTestId('bounty-status-mismatch-alert')).toHaveTextContent(/Application status is Open, but on-chain escrow status is RELEASED/i);
+    });
+  });
 });
+

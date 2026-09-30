@@ -1,5 +1,5 @@
 import { ReactNode, useState, useCallback, useEffect, useRef, useMemo } from "react";
-import { ArrowUpRight, Check, Clock, Copy, Share2, Printer, Star } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Check, Clock, Copy, Share2, Printer, Star } from "lucide-react";
 import { Bounty, BountyEvent, BountyStatus } from "./types";
 import BountyCountdown from "./BountyCountdown";
 import UsdAmount from "./UsdAmount";
@@ -223,12 +223,25 @@ export default function BountyDetailPage({
                 />
               )}
               <div>
-                <span
-                  className={`status-pill status-pill--${bounty.status}`}
-                  title={statusCopy[bounty.status].description}
-                >
-                  {statusCopy[bounty.status].label}
-                </span>
+                <div className="bounty-status-pills" style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '8px' }}>
+                  <span
+                    className={`status-pill status-pill--${bounty.status}`}
+                    title={statusCopy[bounty.status]?.description}
+                    data-testid="bounty-application-status"
+                  >
+                    {statusCopy[bounty.status]?.label ?? bounty.status}
+                  </span>
+                  {(bounty.escrowStatus || bounty.onChainEscrowStatus) && (
+                    <span
+                      className={`status-pill status-pill--escrow status-pill--${(bounty.escrowStatus || bounty.onChainEscrowStatus)?.toLowerCase()}`}
+                      data-testid="bounty-escrow-status"
+                      title="On-chain Soroban escrow status"
+                      style={{ border: '1px solid currentColor' }}
+                    >
+                      Escrow: {((bounty.escrowStatus || bounty.onChainEscrowStatus) as string).toUpperCase()}
+                    </span>
+                  )}
+                </div>
                 <p className="bounty-summary">{bounty.summary}</p>
               </div>
               <div className="amount-chip">
@@ -238,6 +251,42 @@ export default function BountyDetailPage({
                 )}
               </div>
             </div>
+
+            {/* Status Mismatch Warning Banner (Issue #1452) */}
+            {(() => {
+              const escrow = bounty.escrowStatus || bounty.onChainEscrowStatus;
+              if (!escrow) return null;
+              const isMismatch = escrow.toLowerCase() !== bounty.status.toLowerCase();
+              if (!isMismatch) return null;
+              return (
+                <div
+                  className="error-banner status-mismatch-banner"
+                  role="alert"
+                  data-testid="bounty-status-mismatch-alert"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    padding: '12px 16px',
+                    margin: '16px 0',
+                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                    border: '1px solid #ef4444',
+                    borderRadius: '8px',
+                    color: '#f87171',
+                  }}
+                >
+                  <AlertTriangle size={20} aria-hidden="true" style={{ flexShrink: 0 }} />
+                  <div>
+                    <strong style={{ display: 'block', marginBottom: '2px' }}>
+                      Status Mismatch Detected
+                    </strong>
+                    <span>
+                      Application status is <strong>{statusCopy[bounty.status]?.label ?? bounty.status}</strong>, but on-chain escrow status is <strong>{escrow.toUpperCase()}</strong>. Contract state and backend state disagree.
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
 
             <div className="meta-grid meta-grid--detail">
               <div>
@@ -326,6 +375,14 @@ export default function BountyDetailPage({
                   <strong className="copy-row">
                     {bounty.refundedTxHash}
                     <CopyIcon text={bounty.refundedTxHash} label="refund transaction hash" />
+                  </strong>
+                </div>
+              )}
+              {(bounty.escrowStatus || bounty.onChainEscrowStatus) && (
+                <div>
+                  <span className="meta-label">Escrow state</span>
+                  <strong data-testid="meta-escrow-status">
+                    {((bounty.escrowStatus || bounty.onChainEscrowStatus) as string).toUpperCase()}
                   </strong>
                 </div>
               )}
