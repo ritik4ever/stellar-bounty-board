@@ -23,6 +23,135 @@ pub const MIN_DISPUTE_WINDOW_OVERRIDE: u64 = 60;
 /// Maximum allowed per-bounty dispute window override (30 days in seconds).
 pub const MAX_DISPUTE_WINDOW_OVERRIDE: u64 = 2_592_000;
 
+/// Shared error-code taxonomy between Soroban contract errors and backend
+/// HTTP error responses.
+///
+/// Each discriminant is the stable numeric error code surfaced as
+/// `error.code` in API responses. The backend maps these codes to HTTP
+/// status codes using [`ContractError::http_status`]; the human-readable
+/// message is [`ContractError::message`].
+#[contracttype]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContractError {
+    AlreadyInitialized = 1001,
+    NotAdmin = 1002,
+    ArbiterNotSet = 1003,
+    NotArbiter = 1004,
+    InvalidAmount = 1005,
+    AmountTooSmall = 1006,
+    DeadlineMustBeInTheFuture = 1007,
+    FeeExceedsMax = 1008,
+    FeeRecipientNotSet = 1009,
+    TokenNotAllowed = 1010,
+    DisputeWindowOverrideTooSmall = 1011,
+    DisputeWindowOverrideTooLarge = 1012,
+    ContractIsPaused = 1013,
+    BountyNotFound = 1014,
+    BountyNotOpen = 1015,
+    BountyMustBeReserved = 1016,
+    MissingContributor = 1017,
+    MaintainerMismatch = 1018,
+    ContributorMismatch = 1019,
+    BountyMustBeSubmitted = 1020,
+    BountyAlreadyFinalized = 1021,
+    BountyNotExpiredYet = 1022,
+    CannotExtendFinalizedBounty = 1023,
+    DeadlineMustAdvance = 1024,
+    BountyExpired = 1025,
+    BountyNotDisputed = 1026,
+    DisputeWindowNotMet = 1027,
+    ConfigAlreadySet = 1028,
+    ConfigNotSet = 1029,
+    NoPendingResolution = 1030,
+    AppealWindowNotElapsed = 1031,
+    AppealWindowElapsed = 1032,
+    InvalidDecision = 1033,
+    NoPendingArbiter = 1034,
+    TimelockNotElapsed = 1035,
+}
+
+impl ContractError {
+    /// Returns the stable numeric error code included in API responses.
+    pub fn code(self) -> u32 {
+        self as u32
+    }
+
+    /// Returns the human-readable message associated with this error code.
+    pub fn message(&self) -> &'static str {
+        match self {
+            Self::AlreadyInitialized => "contract has already been initialized",
+            Self::NotAdmin => "caller is not the contract admin",
+            Self::ArbiterNotSet => "contract arbiter has not been configured",
+            Self::NotArbiter => "caller is not the configured arbiter",
+            Self::InvalidAmount => "amount must be greater than zero and within limits",
+            Self::AmountTooSmall => "amount is below the minimum bounty amount",
+            Self::DeadlineMustBeInTheFuture => "deadline must be in the future",
+            Self::FeeExceedsMax => "protocol fee cannot exceed 100% (10000 bps)",
+            Self::FeeRecipientNotSet => "fee recipient has not been configured",
+            Self::TokenNotAllowed => "token is not on the allowlist",
+            Self::DisputeWindowOverrideTooSmall => "dispute window override is below the minimum",
+            Self::DisputeWindowOverrideTooLarge => "dispute window override exceeds the maximum",
+            Self::ContractIsPaused => "contract is paused",
+            Self::BountyNotFound => "bounty does not exist",
+            Self::BountyNotOpen => "bounty is not open",
+            Self::BountyMustBeReserved => "bounty must be reserved before this action",
+            Self::MissingContributor => "bounty has no contributor assigned",
+            Self::MaintainerMismatch => "caller is not the bounty maintainer",
+            Self::ContributorMismatch => "caller is not the assigned contributor",
+            Self::BountyMustBeSubmitted => "bounty must be submitted before this action",
+            Self::BountyAlreadyFinalized => "bounty has already been finalized",
+            Self::BountyNotExpiredYet => "bounty deadline has not passed yet",
+            Self::CannotExtendFinalizedBounty => "cannot extend a finalized bounty",
+            Self::DeadlineMustAdvance => "new deadline must be after the current deadline",
+            Self::BountyExpired => "bounty has expired",
+            Self::BountyNotDisputed => "bounty is not currently disputed",
+            Self::DisputeWindowNotMet => "dispute appeal window has not elapsed",
+            Self::ConfigAlreadySet => "contract config has already been set",
+            Self::ConfigNotSet => "contract config has not been set",
+            Self::NoPendingResolution => "no dispute resolution is pending",
+            Self::AppealWindowNotElapsed => "appeal window has not elapsed",
+            Self::AppealWindowElapsed => "appeal window has already elapsed",
+            Self::InvalidDecision => "invalid dispute decision",
+            Self::NoPendingArbiter => "no arbiter rotation is pending",
+            Self::TimelockNotElapsed => "arbiter rotation timelock has not elapsed",
+        }
+    }
+
+    /// Returns the HTTP status code the backend API should use for this error.
+    pub fn http_status(&self) -> u16 {
+        match self {
+            Self::AlreadyInitialized
+            | Self::ConfigAlreadySet
+            | Self::BountyAlreadyFinalized
+            | Self::BountyNotDisputed
+            | Self::DisputeWindowNotMet
+            | Self::AppealWindowNotElapsed
+            | Self::AppealWindowElapsed
+            | Self::TimelockNotElapsed => 409,
+            Self::NotAdmin
+            | Self::NotArbiter
+            | Self::MaintainerMismatch
+            | Self::ContributorMismatch => 403,
+            Self::ArbiterNotSet
+            | Self::BountyNotFound
+            | Self::ConfigNotSet
+            | Self::NoPendingResolution
+            | Self::NoPendingArbiter => 404,
+            Self::ContractIsPaused => 503,
+            _ => 400,
+        }
+    }
+}
+
+/// Panics with a formatted, taxonomy-aware contract error.
+///
+/// The panic message is prefixed with `CONTRACT_ERROR_<code>` so the backend
+/// middleware can translate known errors into the shared HTTP error-code
+/// taxonomy and fall back to a generic code for any unrecognized panic.
+fn panic_error(err: ContractError) -> ! {
+    panic!("CONTRACT_ERROR_{}: {}", err.code(), err.message())
+}
+
 #[contracttype]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BountyStatus {
