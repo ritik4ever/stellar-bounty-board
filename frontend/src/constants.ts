@@ -111,3 +111,42 @@ export const actionCopy: Record<BountyStatus, Action[]> = {
     { action: "refund", label: "Refund", title: "Refund an expired bounty.", requires: "maintainer" },
   ],
 };
+
+export const notificationCopy = {
+  subscribeTitle: "Enable push notifications",
+  subscribeBody: "Get notified when bounties you subscribe to change status.",
+  unsubscribeTitle: "Disable push notifications",
+  unsubscribeBody: "Stop receiving push notifications for bounty status changes.",
+  permissionDenied: "Notifications are blocked. Enable them in your browser settings.",
+};
+
+export const statusNotificationCopy: Record<BountyStatus, { title: string; body: string }> = {
+  open: {
+    title: "Bounty open",
+    body: "A bounty you follow is now open.",
+  },
+  reserved: {
+    title: "Bounty reserved",
+    body: "A bounty you follow has been reserved.",
+  },
+  submitted: {
+    title: "Bounty submitted",
+    body: "A bounty you follow has a submitted solution.",
+  },
+  released: {
+    title: "Bounty released",
+    body: "Payment was released on a bounty you follow.",
+  },
+  refunded: {
+    title: "Bounty refunded",
+    body: "A bounty you follow was refunded.",
+  },
+  disputed: {
+    title: "Bounty disputed",
+    body: "A dispute was raised on a bounty you follow.",
+  },
+  expired: {
+    title: "Bounty expired",
+    body: "A bounty you follow has expired.",
+  },
+};
