@@ -75,9 +75,11 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 
 # Set runtime defaults:
 # - NODE_ENV=production enables performance optimizations in Express & V8 (view caching, streamlined errors).
-# - PORT=3001 default port matching docker-compose proxy configurations.
+# - PORT=3001 default port matching backend server startup and docker-compose proxy configurations.
+# - BOUNTY_STORE_PATH=/app/data/bounties.json guarantees persistent JSON store writes to pre-created /app/data directory.
 ENV NODE_ENV=production
 ENV PORT=3001
+ENV BOUNTY_STORE_PATH=/app/data/bounties.json
 
 EXPOSE 3001
 
