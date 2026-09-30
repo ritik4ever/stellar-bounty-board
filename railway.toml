@@ -1,2 +1,32 @@
-[build]
+# ==============================================================================
+# Railway Deployment Configuration (`railway.toml`)
+# ==============================================================================
+# This configuration governs container build and deployment semantics on the
+# Railway platform (https://railway.app).
+#
+# Deliberately chosen architectural settings and template distinctions:
+#
+# 1. Builder Type (`builder = "DOCKERFILE"`):
+#    - Deliberately chosen: Bypasses Railway's automatic Nixpacks build system.
+#    - Architectural Rationale: Nixpacks does not correctly handle monorepo multi-stage
+#      dependencies between root, backend, and contracts. Specifying "DOCKERFILE" ensures
+#      Railway uses the tested production multi-stage Dockerfile.
+#
+# 2. Dockerfile Location (`dockerfilePath = "Dockerfile"`):
+#    - Deliberately chosen: Directly targets the production backend Dockerfile at root.
+#
+# 3. Restart Policy (`restartPolicyType = "ON_FAILURE"`):
+#    - Standard template default: Restarts the container on non-zero exit codes.
+#    - Pinned retries: restartPolicyMaxRetries = 10 prevents indefinite restart loops
+#      if external infrastructure (e.g. Stellar RPC endpoint) is unreachable.
+# ==============================================================================
 
+[build]
+# Deliberately chosen: Enforces Dockerfile multi-stage builds over automatic Nixpacks
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# Template default: Restart on crash up to 10 attempts
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
