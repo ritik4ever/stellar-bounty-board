@@ -1,32 +1,37 @@
 # ==============================================================================
 # Railway Deployment Configuration (`railway.toml`)
 # ==============================================================================
-# This configuration governs container build and deployment semantics on the
-# Railway platform (https://railway.app).
+# Architectural Overview & Deviations from Railway Platform Defaults
+# ==============================================================================
 #
-# Deliberately chosen architectural settings and template distinctions:
+# 1. Builder Engine: builder = "DOCKERFILE"
+#    - Railway Default: "NIXPACKS"
+#    - Deliberate Deviation: Explicitly overrides Nixpacks with Dockerfile builds.
+#    - Rationale: Railway's default Nixpacks heuristic fails to resolve the monorepo
+#      dependency graph (where backend requires root dependencies and generated Soroban
+#      contract types). The multi-stage Dockerfile guarantees deterministic builds.
 #
-# 1. Builder Type (`builder = "DOCKERFILE"`):
-#    - Deliberately chosen: Bypasses Railway's automatic Nixpacks build system.
-#    - Architectural Rationale: Nixpacks does not correctly handle monorepo multi-stage
-#      dependencies between root, backend, and contracts. Specifying "DOCKERFILE" ensures
-#      Railway uses the tested production multi-stage Dockerfile.
+# 2. Dockerfile Resolution: dockerfilePath = "Dockerfile"
+#    - Railway Default: Auto-detected root or subdirectory Dockerfile.
+#    - Deliberate Deviation: Explicit path declaration prevents Railway from selecting
+#      a nested or test Dockerfile (such as frontend/Dockerfile) during backend deploys.
 #
-# 2. Dockerfile Location (`dockerfilePath = "Dockerfile"`):
-#    - Deliberately chosen: Directly targets the production backend Dockerfile at root.
+# 3. Crash Recovery Policy: restartPolicyType = "ON_FAILURE"
+#    - Railway Default: "NEVER"
+#    - Deliberate Deviation: Automatically restarts containers on non-zero exit codes
+#      to self-heal from transient Stellar RPC network timeouts or Futurenet restarts.
 #
-# 3. Restart Policy (`restartPolicyType = "ON_FAILURE"`):
-#    - Standard template default: Restarts the container on non-zero exit codes.
-#    - Pinned retries: restartPolicyMaxRetries = 10 prevents indefinite restart loops
-#      if external infrastructure (e.g. Stellar RPC endpoint) is unreachable.
+# 4. Restart Retry Cap: restartPolicyMaxRetries = 10
+#    - Railway Default: 10
+#    - Classification: Template default to prevent endless crash-loop resource consumption.
 # ==============================================================================
 
 [build]
-# Deliberately chosen: Enforces Dockerfile multi-stage builds over automatic Nixpacks
+# Deliberate deviation: Force multi-stage Dockerfile instead of Railway Nixpacks
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-# Template default: Restart on crash up to 10 attempts
+# Deliberate deviation: Auto-restart on transient container exit vs default NEVER
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
