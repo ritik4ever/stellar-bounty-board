@@ -1,9 +1,30 @@
 # ==============================================================================
 # Stellar Bounty Board - Backend Service Dockerfile
 # ==============================================================================
-# Multi-stage Docker build separating compile/build tools from runtime.
-# This prevents leaking devDependencies, TypeScript toolchains, and source
-# files into the production image, minimizing the final attack surface.
+# Architectural Overview & Deviations from Framework Defaults
+# ==============================================================================
+# This container specification deliberately deviates from standard single-stage
+# and default Node.js Docker templates:
+#
+# 1. Multi-Stage Separation (Deviation from standard single-stage templates):
+#    - Compiles TypeScript in an isolated `builder` stage.
+#    - Excludes devDependencies, source maps, Vitest suites, and TypeScript compiler
+#      toolchains from the production runtime image to minimize image size and CVE surface.
+#
+# 2. Built-in Native Healthcheck (Deviation from `curl` / `wget` dependencies):
+#    - Alpine Linux base images do not include `curl`. Instead of running `apk add curl`,
+#      we invoke a zero-dependency native Node `http.get` probe. This avoids introducing
+#      unnecessary OS-level package manager vulnerabilities.
+#
+# 3. Two-Tier Dependency Isolation:
+#    - Reuses compiled `/app/backend/node_modules` from the builder stage rather than
+#      re-running `npm install --production` in the runtime stage, ensuring offline
+#      and deterministic container assembly.
+#
+# 4. Fallback File-Store Directory (`/app/data`):
+#    - Pre-creates `/app/data` to support the lightweight file-backed JSON store
+#      without requiring persistent host volume mounting for simple deployments.
+# ==============================================================================
 
 # ------------------------------------------------------------------------------
 # 1. Build Stage
@@ -48,6 +69,7 @@ RUN mkdir -p /app/data
 # - start-period=10s: Essential grace period allowing Node.js runtime and Soroban RPC
 #   connection setup to complete before health check failures trigger container restarts.
 # - retries=3: Tolerates transient network hiccups before marking container unhealthy.
+# Native Node probe avoids installing curl on Alpine (Zero external dependencies).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3001/api/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
 
