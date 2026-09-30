@@ -24,6 +24,10 @@
 # 4. Restart Retry Cap: restartPolicyMaxRetries = 10
 #    - Railway Default: 10
 #    - Classification: Template default to prevent endless crash-loop resource consumption.
+# 5. Service Healthcheck Probe: healthcheckPath = "/api/health"
+#    - Verified App Route: Backend exposes `GET /api/health` returning 200 `{ status: "ok" }`.
+#    - Alignment: Matches Dockerfile HEALTHCHECK command (`http://localhost:3001/api/health`).
+#    - Timeout: Set to 100s to allow cold container boot and RPC simulation initialization.
 # ==============================================================================
 
 [build]
@@ -32,6 +36,10 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
+# Confirmed alignment: Service exposes GET /api/health for zero-downtime health verification
+healthcheckPath = "/api/health"
+healthcheckTimeout = 100
+
 # Deliberate deviation: Auto-restart on transient container exit vs default NEVER
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
