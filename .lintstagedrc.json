@@ -1,6 +1,8 @@
 {
   "frontend/src/**/*.{ts,tsx}": [
-
+    "prettier --write"
+  ],
+  "backend/{src,test}/**/*.ts": [
     "prettier --write"
   ],
   "*.{json,md,yaml,yml}": ["prettier --write"],
