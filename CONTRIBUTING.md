@@ -634,7 +634,7 @@ chmod +x .husky/pre-commit
 
 - [`.lintstagedrc.json`](./docs/LINT_STAGED_CONFIG.md) - Defines which files to check and which commands to run ([configuration guide](./docs/LINT_STAGED_CONFIG.md))
 - [`.eslintrc.json`](./docs/ESLINT_CONFIG.md) - ESLint configuration ([configuration guide](./docs/ESLINT_CONFIG.md))
-- `.prettierrc.json` - Prettier formatting rules
+- [`.prettierrc.json`](./docs/PRETTIER_CONFIG.md) - Prettier formatting rules ([configuration guide](./docs/PRETTIER_CONFIG.md))
 - `.prettierignore` - Files to exclude from Prettier
 
 ## Getting Help
