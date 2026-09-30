@@ -27,6 +27,22 @@ out
 # coverage reports contain machine-generated HTML/JSON test metrics from Vitest/c8.
 coverage
 
+# Auto-generated Soroban smart contract TypeScript bindings (Deliberately chosen):
+# Produced by `bash scripts/gen-bindings.sh`. Reformatting generated files causes
+# `npm run check:bindings` to fail in CI due to git diff discrepancies.
+frontend/src/generated
+
+# Cargo compiler artifacts for Soroban contracts (Deliberately chosen):
+contracts/target
+target
+
+# ------------------------------------------------------------------------------
+# Runtime Data Stores (Deliberately chosen)
+# ------------------------------------------------------------------------------
+# Local file-based database JSON records mutated at runtime by the backend store
+data/*.json
+backend/data/*.json
+
 # ------------------------------------------------------------------------------
 # Environment & Secrets (Security Sensitive)
 # ------------------------------------------------------------------------------
