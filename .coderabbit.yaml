@@ -1,0 +1,53 @@
+# CodeRabbit Configuration for stellar-bounty-board
+# Schema and reference: https://docs.coderabbit.ai/reference/yaml-config/
+#
+# Context (Issue #1447):
+# This configuration documents repository-specific review settings and rationale
+# for deviations from CodeRabbit framework defaults.
+
+version: "2"
+
+language: "en-US"
+
+# High-level summary of changes on PR description
+tone_instructions: "Be concise, constructive, and prioritize correctness, security, and adherence to Conventional Commits."
+
+early_access: false
+
+reviews:
+  # Review profile: "assertive" or "chill". We stick with default thorough review.
+  profile: "chill"
+  
+  # Auto-review pull requests on open/synchronize
+  auto_review:
+    enabled: true
+    drafts: false
+    # Do not auto-review automated dependency bumps or bot PRs
+    ignore_authors:
+      - "dependabot[bot]"
+      - "renovate[bot]"
+
+  # Tools and Linters Integration
+  tools:
+    eslint:
+      # Enabled to respect monorepo ESLint configs in backend and frontend
+      enabled: true
+    shellcheck:
+      # Enabled to lint scripts/gen-bindings.sh and utility bash scripts
+      enabled: true
+    markdownlint:
+      # Kept enabled for docs and wave tracking consistency
+      enabled: true
+
+  # Path Filters:
+  # Exclude generated contract bindings, build artifacts, and mock persistent JSON stores
+  # to prevent noisy automated comments on generated files.
+  path_filters:
+    - "!frontend/src/generated/**"
+    - "!backend/data/*.json"
+    - "!**/dist/**"
+    - "!**/node_modules/**"
+
+chat:
+  # Enable interactive review comments and queries directly on GitHub PRs
+  auto_reply: true
