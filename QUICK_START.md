@@ -83,6 +83,23 @@ echo "GITHUB_WEBHOOK_SECRET=test-secret-123" >> .env
 
 # 3. Start dev server
 npm run dev
+
+# 4. (Optional) Seed demo data for UI testing
+npm run seed:demo
+```
+
+### Seeding Demo Data
+
+To populate the local store with a realistic, curated set of bounties across every lifecycle state (`open`, `reserved`, `submitted`, `released`, `refunded`, `expired`), run:
+
+```bash
+npm run seed:demo
+```
+
+Unlike the throughput load-test seeder (`npm run load:test` which generates identical bounties for performance benchmarks), `seed:demo` is tailored for UI inspection, product demos, and manual QA with distinct tokens, amounts, labels, and event histories. Pass `--reset` if you wish to clear and re-initialize the store cleanly:
+
+```bash
+npm run seed:demo -- --reset
 ```
 
 ## Testing
