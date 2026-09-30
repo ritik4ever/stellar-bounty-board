@@ -1,13 +1,28 @@
-# Stellar Bounty Board — local dev stack
+# Stellar Bounty Board — Local Dev Stack Specification
 #
-# Health checks ensure `docker compose up` only reports services healthy once
-# they actually respond. The frontend uses `depends_on: condition: service_healthy`
-# so it waits for the backend to be ready before starting.
+# ==============================================================================
+# Architectural Overview & Deviations from Framework Defaults
+# ==============================================================================
+# This Docker Compose file deviates deliberately from standard Docker / Compose
+# defaults to satisfy monorepo security, service synchronization, and fast local dev:
 #
-# - interval: how often to run the check (10s gives quick feedback during boot)
-# - timeout:  fail the probe if it takes longer than 5s
-# - retries:  N consecutive failures before marking unhealthy
-# - start_period: grace period at startup before failures count
+# 1. Restart Policy (Default: "no" -> Deviation: "unless-stopped")
+#    Compose defaults to never restarting crashed containers. We set "unless-stopped"
+#    across all services so background microservices survive host sleep/wake and transient crashes.
+#
+# 2. Healthcheck Cadence (Default: interval: 30s, timeout: 30s, retries: 3)
+#    Compose default 30s interval results in unacceptably sluggish feedback during boot (~1-2m).
+#    We override to interval: 10s and timeout: 5s with custom start_period (10s-30s) so dependent
+#    services start immediately once upstream dependencies report ready.
+#
+# 3. Port Publishing & Network Isolation
+#    Instead of publishing all container ports to host interfaces, backend port 3001 is only
+#    exposed internally. External client traffic must ingress through the Nginx reverse proxy.
+#
+# 4. Redis Ephemeral Mode
+#    Redis default saves RDB snapshots and writes AOF logs to disk. We pass CLI flags
+#    to disable persistence, ensuring a clean in-memory state on every run without disk wear.
+# ==============================================================================
 
 services:
   backend:
@@ -16,18 +31,16 @@ services:
       dockerfile: Dockerfile
     container_name: stellar-bounty-backend
     expose:
-      # Deliberately expose without publishing host port directly;
-      # ingress traffic must route through the Nginx reverse proxy.
+      # Deliberate deviation: Expose internally to compose network only.
+      # Bypasses direct host port publishing to enforce Nginx reverse proxy routing.
       - '3001'
     environment:
       - NODE_ENV=development
       - PORT=3001
-      # HTTP Keep-Alive & Header Timeouts (Deliberately chosen):
-      # Node.js defaults keepAliveTimeout to 5s. Nginx reverse proxy default
-      # keepalive_timeout is 65s. If Node closes the idle TCP connection before
-      # Nginx does, Nginx encounters ECONNRESET and serves HTTP 502 Bad Gateway.
-      # Setting KEEP_ALIVE_TIMEOUT=65000 (65s) and HEADERS_TIMEOUT=66000 (66s)
-      # ensures Node's socket timeout always exceeds the reverse proxy keepalive window.
+      # HTTP Keep-Alive & Header Timeouts (Deliberate deviation from Node default 5s):
+      # Nginx reverse proxy default keepalive_timeout is 65s. Setting Node timeouts
+      # to 65s/66s prevents race conditions where Node drops the connection before Nginx,
+      # eliminating premature TCP resets (HTTP 502 Bad Gateway).
       - KEEP_ALIVE_TIMEOUT=65000
       - HEADERS_TIMEOUT=66000
       # Shared cache across replicas (#361); falls back to in-memory if unset.
@@ -44,7 +57,7 @@ services:
     restart: unless-stopped
 
   nginx:
-    # Pinned to specific minor version 1.27-alpine for reproducible local builds
+    # Deliberate version pin: 1.27-alpine ensures reproducible HTTP/2 & TLS behavior
     image: nginx:1.27-alpine
     container_name: stellar-bounty-nginx
     ports:
@@ -52,7 +65,8 @@ services:
       - '80:80'
       - '443:443'
     volumes:
-      # Read-only mounts ensure container cannot mutate local TLS certs or server config
+      # Deliberate deviation: Mount configuration and certificates as read-only (:ro)
+      # to adhere to least-privilege container security practices.
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/certs:/etc/nginx/certs:ro
     depends_on:
@@ -72,7 +86,7 @@ services:
     container_name: stellar-bounty-redis
     ports:
       - '6379:6379'
-    # Ephemeral Cache Configuration (Deliberately chosen):
+    # Ephemeral Cache Configuration (Deliberate deviation from Redis default persistence):
     # Local dev cache should never persist dirty data between teardowns.
     # Disabling RDB snapshots (--save "") and AOF (--appendonly no) prevents disk I/O
     # overhead and ensures clean, repeatable test state across container reboots.
@@ -94,8 +108,8 @@ services:
       - '3000:3000'
     environment:
       - NODE_ENV=development
-      # Reverse Proxy Routing (Deliberately chosen):
-      # Points to http://nginx instead of direct backend port 3001 so that
+      # Reverse Proxy Routing (Deliberate deviation from direct localhost:3001 endpoint):
+      # Points to http://nginx instead of backend port 3001 so that
       # client-side requests emulate the production topology (SSL termination, rate limiting).
       - NEXT_PUBLIC_API_URL=http://nginx
     depends_on:
