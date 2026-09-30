@@ -1,53 +1,80 @@
 # CodeRabbit Configuration for stellar-bounty-board
-# Schema and reference: https://docs.coderabbit.ai/reference/yaml-config/
+# Schema & Reference: https://docs.coderabbit.ai/reference/yaml-config/
 #
-# Context (Issue #1447):
-# This configuration documents repository-specific review settings and rationale
-# for deviations from CodeRabbit framework defaults.
+# Context (Issues #1445 & #1447):
+# This file configures automated AI review behaviour for the repository.
+# To prevent future contributors from breaking load-bearing configurations or
+# unnecessarily preserving stale template values, each setting is annotated below
+# as either [DELIBERATE] (chosen specifically for this repo's architecture)
+# or [TEMPLATE DEFAULT] (standard boilerplate convention).
 
-version: "2"
+# [DELIBERATE]: Explicitly pinned to version "2" of the CodeRabbit config schema
+# to guarantee support for glob path_filters, multi-tool toggles, and chat replies.
+version: '2'
 
-language: "en-US"
+# [TEMPLATE DEFAULT]: Default language for PR summary generation and inline comments.
+language: 'en-US'
 
-# High-level summary of changes on PR description
-tone_instructions: "Be concise, constructive, and prioritize correctness, security, and adherence to Conventional Commits."
+# [DELIBERATE]: Custom prompt directive instructing the review model to focus strictly
+# on functional correctness, security vulnerabilities (auth, crypto, Soroban boundaries),
+# and adherence to Conventional Commits, while avoiding pedantic nitpicks on whitespace/formatting.
+tone_instructions: 'Be concise, constructive, and prioritize correctness, security, and adherence to Conventional Commits.'
 
+# [TEMPLATE DEFAULT]: Set to false to avoid experimental or breaking reviewer features on production PRs.
 early_access: false
 
 reviews:
-  # Review profile: "assertive" or "chill". We stick with default thorough review.
-  profile: "chill"
-  
-  # Auto-review pull requests on open/synchronize
-  auto_review:
-    enabled: true
-    drafts: false
-    # Do not auto-review automated dependency bumps or bot PRs
-    ignore_authors:
-      - "dependabot[bot]"
-      - "renovate[bot]"
+  # [DELIBERATE]: "chill" profile is selected rather than "assertive".
+  # Rationale: "chill" only posts high-confidence comments and avoids blocking PRs
+  # on minor stylistic opinions, keeping contributor friction low for fast iteration.
+  profile: 'chill'
 
-  # Tools and Linters Integration
+  # Auto-review settings on PR lifecycle events
+  auto_review:
+    # [TEMPLATE DEFAULT]: Automatically triggers reviews when PRs are opened or updated.
+    enabled: true
+
+    # [DELIBERATE]: Set to false so work-in-progress draft PRs do not consume review
+    # quotas or spam contributors before code is ready for review.
+    drafts: false
+
+    # [DELIBERATE]: Excludes automated bot accounts to prevent review noise on
+    # routine automated dependency updates or automated releases.
+    ignore_authors:
+      - 'dependabot[bot]'
+      - 'renovate[bot]'
+
+  # Specialized linters and static analysis tools invoked during review
   tools:
     eslint:
-      # Enabled to respect monorepo ESLint configs in backend and frontend
-      enabled: true
-    shellcheck:
-      # Enabled to lint scripts/gen-bindings.sh and utility bash scripts
-      enabled: true
-    markdownlint:
-      # Kept enabled for docs and wave tracking consistency
+      # [DELIBERATE]: Enabled so CodeRabbit checks against monorepo ESLint configurations
+      # defined in frontend/ and backend/ before approving frontend/backend PRs.
       enabled: true
 
-  # Path Filters:
-  # Exclude generated contract bindings, build artifacts, and mock persistent JSON stores
-  # to prevent noisy automated comments on generated files.
+    shellcheck:
+      # [DELIBERATE]: Enabled to statically verify bash/sh scripts (such as scripts/gen-bindings.sh,
+      # CI runner scripts, and deployment hooks) against POSIX standards and syntax errors.
+      enabled: true
+
+    markdownlint:
+      # [TEMPLATE DEFAULT]: Enabled to maintain consistent markdown formatting across documentation,
+      # runbooks, and contributor guides.
+      enabled: true
+
+  # Path exclusion rules
+  # [DELIBERATE]: These negative globs prevent CodeRabbit from reviewing generated,
+  # transient, or mock database files that produce useless review noise.
   path_filters:
-    - "!frontend/src/generated/**"
-    - "!backend/data/*.json"
-    - "!**/dist/**"
-    - "!**/node_modules/**"
+    # Generated TypeScript Soroban contract bindings (do not edit manually)
+    - '!frontend/src/generated/**'
+    # Local mock database JSON files used for development seeds
+    - '!backend/data/*.json'
+    # Build distribution artifacts
+    - '!**/dist/**'
+    # External package dependencies
+    - '!**/node_modules/**'
 
 chat:
-  # Enable interactive review comments and queries directly on GitHub PRs
+  # [DELIBERATE]: Enables interactive conversations with CodeRabbit directly inside PR threads,
+  # allowing contributors to ask follow-up implementation questions or seek clarification.
   auto_reply: true
