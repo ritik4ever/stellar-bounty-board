@@ -37,19 +37,25 @@ services:
     environment:
       - NODE_ENV=development
       - PORT=3001
-      # HTTP Keep-Alive & Header Timeouts (Deliberate deviation from Node default 5s):
+      # HTTP Keep-Alive & Header Timeouts (matches backend/src/index.ts):
       # Nginx reverse proxy default keepalive_timeout is 65s. Setting Node timeouts
       # to 65s/66s prevents race conditions where Node drops the connection before Nginx,
       # eliminating premature TCP resets (HTTP 502 Bad Gateway).
       - KEEP_ALIVE_TIMEOUT=65000
       - HEADERS_TIMEOUT=66000
-      # Shared cache across replicas (#361); falls back to in-memory if unset.
+      # Shared cache across replicas (#361); matches backend/src/services/cache.ts
       - REDIS_URL=redis://redis:6379
+      # Persistent JSON store path (matches backend/src/store.ts):
+      - BOUNTY_STORE_PATH=/app/data/bounties.json
+    volumes:
+      # Mount local data directory for file-backed JSON store persistence
+      - ./data:/app/data
     depends_on:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ['CMD-SHELL', 'curl -f http://localhost:3001/api/health || exit 1']
+      # Verified against Alpine Linux environment (zero-dependency native Node / wget probe)
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:3001/api/health || node -e "require(\"http\").get(\"http://localhost:3001/api/health\", (r) => {if (r.statusCode !== 200) process.exit(1)})"']
       interval: 10s
       timeout: 5s
       retries: 5
