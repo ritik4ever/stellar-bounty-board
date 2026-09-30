@@ -1,4 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { axe } from "jest-axe";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import GitHubIssuePreviewCard from "./GitHubIssuePreviewCard";
@@ -93,5 +95,102 @@ describe("GitHubIssuePreviewCard", () => {
 
     expect(fetch).not.toHaveBeenCalled();
     expect(screen.queryByTestId("github-issue-preview-loading")).not.toBeInTheDocument();
+  });
+
+  describe("Accessibility (a11y)", () => {
+    it("has zero accessibility violations in the loaded state", async () => {
+      vi.mocked(fetch).mockImplementation(
+        mockFetchJson({
+          title: "Add GitHubIssuePreviewCard live data fetch",
+          state: "open",
+          created_at: "2026-01-15T10:00:00Z",
+          labels: [
+            { name: "enhancement", color: "84b6eb" },
+            { name: "good first issue", color: "7057ff" },
+          ],
+        }),
+      );
+
+      const { container } = render(
+        <main>
+          <GitHubIssuePreviewCard repo="ritik4ever/stellar-bounty-board" issueNumber={287} />
+        </main>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("Add GitHubIssuePreviewCard live data fetch")).toBeInTheDocument();
+      });
+
+      const results = await axe(container);
+      expect(results).toHaveNoViolations();
+    });
+
+    it("has zero accessibility violations in the loading skeleton state", async () => {
+      vi.mocked(fetch).mockReturnValue(new Promise(() => undefined));
+
+      const { container } = render(
+        <main>
+          <GitHubIssuePreviewCard repo="ritik4ever/stellar-bounty-board" issueNumber={287} />
+        </main>,
+      );
+
+      const results = await axe(container);
+      expect(results).toHaveNoViolations();
+    });
+
+    it("has zero accessibility violations in the error state", async () => {
+      vi.mocked(fetch).mockImplementation(mockFetchJson({}, { ok: false, status: 404 }));
+
+      const { container } = render(
+        <main>
+          <GitHubIssuePreviewCard repo="ritik4ever/stellar-bounty-board" issueNumber={999} />
+        </main>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByRole("alert")).toBeInTheDocument();
+      });
+
+      const results = await axe(container);
+      expect(results).toHaveNoViolations();
+    });
+
+    it("has zero accessibility violations in the disabled state", async () => {
+      const { container } = render(
+        <main>
+          <GitHubIssuePreviewCard repo="not-a-valid-repo" issueNumber={0} />
+        </main>,
+      );
+
+      const results = await axe(container);
+      expect(results).toHaveNoViolations();
+    });
+
+    it("supports keyboard navigation with tab focus", async () => {
+      const user = userEvent.setup();
+      vi.mocked(fetch).mockImplementation(
+        mockFetchJson({
+          title: "Keyboard navigable issue",
+          state: "open",
+          created_at: "2026-01-15T10:00:00Z",
+          labels: [],
+        }),
+      );
+
+      render(<GitHubIssuePreviewCard repo="ritik4ever/stellar-bounty-board" issueNumber={287} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("Keyboard navigable issue")).toBeInTheDocument();
+      });
+
+      const cardLink = screen.getByRole("link");
+      expect(cardLink).toHaveAttribute(
+        "href",
+        "https://github.com/ritik4ever/stellar-bounty-board/issues/287",
+      );
+
+      await user.tab();
+      expect(cardLink).toHaveFocus();
+    });
   });
 });
