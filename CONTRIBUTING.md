@@ -60,6 +60,12 @@ This project is intentionally scoped as an MVP with obvious upgrade paths.
    node scripts/seed-bounties.js --count 5 --reset
    ```
 
+   Alternatively, generate a rich, comprehensive demo dataset covering every lifecycle state with mock developers and realistic timestamps via:
+
+   ```bash
+   npm run seed:demo
+   ```
+
 3. Start the backend:
 
    ```bash
@@ -643,6 +649,12 @@ chmod +x .husky/pre-commit
 
 We value quality contributions and clear communication. If this guide is missing something, a PR improving it is one of the most valuable contributions you can make.
 
+
+## Document Verification
+
+- **Last Verified Date:** 2026-09-30
+- **Verified Commit:** `45b1f59` (Wave delivery baseline)
+- **Status:** All commands, lifecycle scripts (including `seed:demo`), testing instructions, and conventional commit guidelines verified against active monorepo implementation.
 
 ## See Also / Related Documentation
 
