@@ -366,3 +366,5 @@ All updates to secret validation logic and associated tests must adhere to the s
 - [GitHub Webhook Security](https://docs.github.com/en/developers/webhooks-and-events/webhooks/securing-your-webhooks)
 - [HMAC-SHA256 Verification](https://nodejs.org/api/crypto.html#crypto_class_hmac)
 - [Environment Variables Best Practices](https://12factor.net/config)
+
+<!-- Verified: 2026-10-01 — all referenced files exist + function signatures match source code (per issue #1387) -->
