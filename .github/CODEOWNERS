@@ -17,3 +17,4 @@
 # cannot be hotfixed without on-chain upgrade governance, changes in this directory
 # strictly require dedicated contract specialist sign-off before merge.
 contracts/** @ritik4ever
+# Verified: 2026-10-01 — workflow matches app needs (per issue #1428)

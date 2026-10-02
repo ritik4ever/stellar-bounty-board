@@ -61,3 +61,4 @@ jobs:
             echo "Run 'npm run gen:bindings' locally and commit the updated files in frontend/src/generated/.";
             exit 1;
           }
+
