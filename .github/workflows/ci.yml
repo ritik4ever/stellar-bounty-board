@@ -142,3 +142,10 @@ jobs:
 
       - name: Build Soroban contract
         run: cd contracts && cargo build --target wasm32-unknown-unknown --release
+
+# Deviations from framework defaults:
+# - node-version: 20 (not 18) — matches .nvmrc + actions/setup-node v4
+# - Separate backend/frontend/contract jobs (not single job) — monorepo layout
+# - npm ci --prefix backend/frontend (not npm install) — CI reproducibility
+# - cache-dependency-path includes both root + sub package-lock.json — monorepo cache
+# - Cargo audit in contract job (not in backend) — Rust security scan
