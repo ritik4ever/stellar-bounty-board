@@ -78,6 +78,7 @@ import { draining } from './shutdown';
 import { applyBountyTemplate, listBountyTemplates } from './services/bountyTemplates';
 import { csvRowToBounty, parseBountyCsv } from './services/csvImport';
 import {
+import rateLimit from "express-rate-limit";
   cancelRecurringSchedule,
   createRecurringSchedule,
   listRecurringSchedules,
@@ -126,6 +127,39 @@ function requestContextMiddleware(req: Request, res: Response, next: NextFunctio
 }
 
 export const app = express();
+
+// Per-IP rate limiting (Wave 4 #81)
+// Dual-tier: 120 reads/min, 10 mutations/min
+const readLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 120, // 120 GET requests per minute per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many read requests, please slow down." },
+  keyGenerator: (req: any) => req.ip || req.socket.remoteAddress || "unknown",
+});
+
+const mutationLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10, // 10 state-changing requests per minute per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many mutations, please slow down." },
+  keyGenerator: (req: any) => req.ip || req.socket.remoteAddress || "unknown",
+});
+
+// Apply read limiter to all GET requests
+app.use((req: any, res: any, next: any) => {
+  if (req.method === 'GET') return readLimiter(req, res, next);
+  next();
+});
+
+// Apply mutation limiter to POST/PUT/PATCH/DELETE
+app.use((req: any, res: any, next: any) => {
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return mutationLimiter(req, res, next);
+  next();
+});
+
 
 
 
