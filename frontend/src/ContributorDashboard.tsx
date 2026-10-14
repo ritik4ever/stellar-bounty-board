@@ -11,6 +11,7 @@ import { useWallet } from './hooks';
 import type { Bounty } from './types';
 import { getContributorMetrics } from './utils';
 import DisconnectConfirmModal from './DisconnectConfirmModal';
+import ContributorActivityHeatmap from './ContributorActivityHeatmap';
 
 function shortAddress(value: string): string {
   return `${value.slice(0, 6)}...${value.slice(-4)}`;
@@ -128,6 +129,11 @@ export default function ContributorDashboard({
           </div>
         </section>
       )}
+
+      <ContributorActivityHeatmap
+        bounties={bounties}
+        contributorAddress={address ?? undefined}
+      />
 
       <RecommendedBounties
         recommendations={recommendations}
