@@ -6,12 +6,216 @@ export interface NotificationRecipient {
   address: string;
 }
 
-type NotificationChannel = "EMAIL" | "WEBHOOK";
+type NotificationChannel = "EMAIL" | "WEBHOOK" | "SLACK";
+
+export interface SlackBlock {
+  type: string;
+  text?: {
+    type: string;
+    text: string;
+    emoji?: boolean;
+  };
+  fields?: Array<{
+    type: string;
+    text: string;
+    emoji?: boolean;
+  }>;
+  elements?: Array<{
+    type: string;
+    text?: {
+      type: string;
+      text: string;
+      emoji?: boolean;
+    };
+    url?: string;
+    style?: string;
+    value?: string;
+    action_id?: string;
+  }>;
+}
+
+export interface SlackAttachment {
+  color?: string;
+  blocks?: SlackBlock[];
+}
+
+export interface SlackPayload {
+  text: string;
+  blocks?: SlackBlock[];
+  attachments?: SlackAttachment[];
+}
+
+export interface SlackBountyInput {
+  id?: string;
+  bountyId?: string;
+  title?: string;
+  amount?: number | string;
+  tokenSymbol?: string;
+  token?: string;
+  status?: string;
+  repo?: string;
+  summary?: string;
+  contributor?: string;
+  maintainer?: string;
+  submissionUrl?: string;
+  reason?: string;
+  [key: string]: unknown;
+}
 
 function getChannel(): NotificationChannel | null {
   const ch = process.env.NOTIFICATION_CHANNEL?.trim().toUpperCase();
-  if (ch === "EMAIL" || ch === "WEBHOOK") return ch;
+  if (ch === "EMAIL" || ch === "WEBHOOK" || ch === "SLACK") return ch;
   return null;
+}
+
+export function buildSlackPayload(
+  bounty: SlackBountyInput,
+  eventType: string,
+): SlackPayload {
+  const bountyId = String(bounty.id ?? bounty.bountyId ?? "").trim();
+  const title = String(bounty.title ?? "Untitled Bounty").trim();
+  const amount = bounty.amount !== undefined ? String(bounty.amount) : "0";
+  const tokenSymbol = String(bounty.tokenSymbol ?? bounty.token ?? "XLM").trim();
+  const repo = bounty.repo ? String(bounty.repo).trim() : undefined;
+  const summary = bounty.summary ? String(bounty.summary).trim() : undefined;
+  const contributor = bounty.contributor ? String(bounty.contributor).trim() : undefined;
+  const reason = bounty.reason ? String(bounty.reason).trim() : undefined;
+
+  const frontendUrl = (process.env.FRONTEND_URL?.trim() || "https://stellar-bounty-board.vercel.app").replace(/\/+$/, "");
+  const bountyUrl = bountyId ? `${frontendUrl}/bounties/${bountyId}` : frontendUrl;
+
+  const normalizedEvent = eventType.toLowerCase().replace(/^bounty_/, "");
+
+  let headerText = "Bounty Update";
+  let color = "#4A154B";
+  let defaultStatus = bounty.status ? String(bounty.status) : normalizedEvent;
+  let buttonStyle: "primary" | "danger" | undefined = "primary";
+
+  switch (normalizedEvent) {
+    case "created":
+      headerText = "✨ New Bounty Created";
+      color = "#2EB886";
+      defaultStatus = bounty.status ? String(bounty.status) : "open";
+      break;
+    case "reserved":
+      headerText = "🎯 Bounty Reserved";
+      color = "#3AA3E3";
+      defaultStatus = bounty.status ? String(bounty.status) : "reserved";
+      break;
+    case "submitted":
+      headerText = "📝 Solution Submitted";
+      color = "#8957E5";
+      defaultStatus = bounty.status ? String(bounty.status) : "submitted";
+      break;
+    case "disputed":
+    case "dispute_stuck_alert":
+      headerText = "⚠️ Bounty Disputed";
+      color = "#E01E5A";
+      defaultStatus = bounty.status ? String(bounty.status) : "disputed";
+      buttonStyle = "danger";
+      break;
+    case "released":
+      headerText = "🎉 Bounty Reward Released";
+      color = "#2EB886";
+      defaultStatus = bounty.status ? String(bounty.status) : "released";
+      break;
+    case "refunded":
+      headerText = "↩️ Bounty Refunded";
+      color = "#E8912D";
+      defaultStatus = bounty.status ? String(bounty.status) : "refunded";
+      buttonStyle = undefined;
+      break;
+    default:
+      headerText = `📢 Bounty Event: ${eventType}`;
+      color = "#4A154B";
+      break;
+  }
+
+  const fields: Array<{ type: "mrkdwn"; text: string }> = [
+    {
+      type: "mrkdwn",
+      text: `*Amount:*\n${amount} ${tokenSymbol}`,
+    },
+    {
+      type: "mrkdwn",
+      text: `*Status:*\n${defaultStatus}`,
+    },
+  ];
+
+  if (bountyId) {
+    fields.push({
+      type: "mrkdwn",
+      text: `*Bounty ID:*\n\`${bountyId}\``,
+    });
+  }
+
+  if (repo) {
+    fields.push({
+      type: "mrkdwn",
+      text: `*Repository:*\n${repo}`,
+    });
+  }
+
+  if (contributor) {
+    fields.push({
+      type: "mrkdwn",
+      text: `*Contributor:*\n\`${contributor}\``,
+    });
+  }
+
+  if (reason) {
+    fields.push({
+      type: "mrkdwn",
+      text: `*Reason:*\n${reason}`,
+    });
+  }
+
+  const blocks: SlackBlock[] = [
+    {
+      type: "header",
+      text: {
+        type: "plain_text",
+        text: headerText,
+        emoji: true,
+      },
+    },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*<${bountyUrl}|${title}>*` + (summary ? `\n${summary}` : ""),
+      },
+    },
+    {
+      type: "section",
+      fields,
+    },
+    {
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          text: {
+            type: "plain_text",
+            text: "View Bounty",
+            emoji: true,
+          },
+          url: bountyUrl,
+          ...(buttonStyle ? { style: buttonStyle } : {}),
+        },
+      ],
+    },
+  ];
+
+  return {
+    text: `${headerText}: ${title} (${amount} ${tokenSymbol}) - ${bountyUrl}`,
+    attachments: [
+      {
+        color,
+        blocks,
+      },
+    ],
+  };
 }
 
 function buildEmailBody(
@@ -138,6 +342,30 @@ async function dispatchWebhook(
   }
 }
 
+async function dispatchSlack(
+  event: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  const webhookUrl = process.env.SLACK_WEBHOOK_URL?.trim();
+
+  if (!webhookUrl) {
+    logger.warn({ event }, "SLACK_WEBHOOK_URL not set; skipping slack notification");
+    return;
+  }
+
+  const slackPayload = buildSlackPayload(payload, event);
+  const response = await fetch(webhookUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(slackPayload),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Slack webhook responded ${response.status}: ${text}`);
+  }
+}
+
 export async function sendNotification(
   recipients: NotificationRecipient[],
   event: string,
@@ -149,6 +377,8 @@ export async function sendNotification(
   try {
     if (channel === "EMAIL") {
       await dispatchEmail(recipients, event, payload);
+    } else if (channel === "SLACK") {
+      await dispatchSlack(event, payload);
     } else {
       await dispatchWebhook(recipients, event, payload);
     }
