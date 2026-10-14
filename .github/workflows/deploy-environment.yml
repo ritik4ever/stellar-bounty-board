@@ -15,10 +15,13 @@ on:
         - production
 
 jobs:
-  deploy-env:
+  deploy-staging:
+    if: >
+      github.ref_name == 'develop' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
     runs-on: ubuntu-latest
-    environment: ${{ github.event.inputs.environment || 'staging' }}
-    
+    environment: staging
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -37,7 +40,7 @@ jobs:
         RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
       run: |
         railway login --token $RAILWAY_TOKEN
-        railway environment --name ${{ github.event.inputs.environment || 'staging' }}
+        railway environment --name staging
         railway up --detach
 
     - name: Update environment variables
@@ -50,9 +53,58 @@ jobs:
         railway variables set DATABASE_URL="$DATABASE_URL"
         railway variables set STELLAR_NETWORK="$STELLAR_NETWORK"
         railway variables set STELLAR_HORIZON_URL="$STELLAR_HORIZON_URL"
-        railway variables set NODE_ENV="${{ github.event.inputs.environment || 'staging' }}"
+        railway variables set NODE_ENV="staging"
 
     - name: Health check
+      env:
+        HEALTH_CHECK_URL: ${{ secrets.HEALTH_CHECK_URL }}
       run: |
         sleep 30
-        curl -f ${{ secrets.HEALTH_CHECK_URL }} || exit 1
+        curl -f "$HEALTH_CHECK_URL" || exit 1
+
+  deploy-production:
+    if: >
+      github.ref_name == 'main' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install Railway CLI
+      run: npm install -g @railway/cli
+
+    - name: Deploy to Railway
+      env:
+        RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      run: |
+        railway login --token $RAILWAY_TOKEN
+        railway environment --name production
+        railway up --detach
+
+    - name: Update environment variables
+      env:
+        RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        STELLAR_NETWORK: ${{ secrets.STELLAR_NETWORK }}
+        STELLAR_HORIZON_URL: ${{ secrets.STELLAR_HORIZON_URL }}
+      run: |
+        railway variables set DATABASE_URL="$DATABASE_URL"
+        railway variables set STELLAR_NETWORK="$STELLAR_NETWORK"
+        railway variables set STELLAR_HORIZON_URL="$STELLAR_HORIZON_URL"
+        railway variables set NODE_ENV="production"
+
+    - name: Health check
+      env:
+        HEALTH_CHECK_URL: ${{ secrets.HEALTH_CHECK_URL }}
+      run: |
+        sleep 30
+        curl -f "$HEALTH_CHECK_URL" || exit 1
