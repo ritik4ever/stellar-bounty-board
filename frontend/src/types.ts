@@ -27,6 +27,13 @@ export interface BountyEvent {
   details?: Record<string, unknown>;
 }
 
+export interface DisputeEvent {
+  type: "disputed" | "resolved";
+  timestamp: number;
+  actor?: string;
+  description?: string;
+}
+
 export interface Bounty {
   id: string;
   repo: string;
