@@ -1,0 +1,261 @@
+# -----------------------------------------------------------------------------
+# Soroban Testnet Auto-Deploy
+# -----------------------------------------------------------------------------
+# Triggers on merges to main that touch contracts/.
+# Runs the contract test suite as a gate, then deploys to Soroban testnet.
+#
+# Required GitHub repository secrets:
+#   DEPLOYER_SECRET_KEY  – Stellar secret key (S…) for the deployer account
+#   DEPLOYER_PUBLIC_KEY  – Corresponding public key (G…) of the deployer
+#
+# Optional secrets (default to deployer address):
+#   ARBITER_ADDRESS      – Public key for dispute resolution
+#   FEE_RECIPIENT_ADDRESS – Public key that receives protocol fees
+#   DISPUTE_WINDOW_SECONDS – Default dispute window in seconds (default: 86400)
+# -----------------------------------------------------------------------------
+
+name: Deploy Contract to Soroban Testnet
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "contracts/**"
+  pull_request:
+    branches: [main]
+    types: [closed]
+    paths:
+      - "contracts/**"
+
+env:
+  SOROBAN_RPC_URL: https://rpc-testnet.stellar.org
+  SOROBAN_NETWORK_PASSPHRASE: Test SDF Network ; September 2015
+  STELLAR_CLI_VERSION: "27.0.0"
+  DEFAULT_DISPUTE_WINDOW: "86400" # 1 day in seconds
+
+jobs:
+  contract-test:
+    name: Contract tests (required gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache rustup toolchains
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.rustup/toolchains
+          key: ${{ runner.os }}-rustup-toolchains
+          restore-keys: |
+            ${{ runner.os }}-rustup-toolchains
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache contracts target
+        uses: actions/cache@v4
+        with:
+          path: contracts/target
+          key: ${{ runner.os }}-cargo-target-${{ hashFiles('contracts/**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-target-
+
+      - name: Install Rust toolchain & wasm target
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: wasm32-unknown-unknown
+          components: clippy
+          profile: minimal
+          override: true
+
+      - name: Run cargo clippy
+        working-directory: contracts
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Run cargo test
+        working-directory: contracts
+        run: cargo test --all --verbose
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Run cargo audit
+        working-directory: contracts
+        run: cargo audit --deny warnings
+
+      - name: Build release WASM
+        working-directory: contracts
+        run: cargo build --release --target wasm32-unknown-unknown
+
+      - name: Report WASM binary size
+        run: |
+          WASM_FILE=$(ls contracts/target/wasm32-unknown-unknown/release/*.wasm 2>/dev/null | head -n 1)
+          if [ -n "$WASM_FILE" ]; then
+            SIZE=$(stat -c%s "$WASM_FILE")
+            GZ_SIZE=$(gzip -c "$WASM_FILE" | wc -c)
+            echo "### WASM binary size" >> $GITHUB_STEP_SUMMARY
+            echo "- File: $WASM_FILE" >> $GITHUB_STEP_SUMMARY
+            echo "- Size: $SIZE bytes ($GZ_SIZE gzipped)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "::error::No WASM artifact found after build"
+            exit 1
+          fi
+
+      - name: Upload WASM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-wasm
+          path: contracts/target/wasm32-unknown-unknown/release/*.wasm
+          retention-days: 3
+
+  deploy-testnet:
+    name: Deploy to testnet
+    runs-on: ubuntu-latest
+    needs: contract-test
+    # Only deploy on actual merges to main, not on PR close-without-merge
+    if: |
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download WASM artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: contract-wasm
+          path: contracts/target/wasm32-unknown-unknown/release
+
+      - name: Install Stellar CLI
+        run: bash scripts/install-stellar-cli.sh
+        env:
+          STELLAR_CLI_VERSION: ${{ env.STELLAR_CLI_VERSION }}
+
+      - name: Resolve deployer address
+        id: deployer
+        run: |
+          if [ -z "$DEPLOYER_PUBLIC_KEY" ]; then
+            echo "::error::DEPLOYER_PUBLIC_KEY secret is required. Set it to the public key (G…) corresponding to DEPLOYER_SECRET_KEY."
+            exit 1
+          fi
+          echo "address=$DEPLOYER_PUBLIC_KEY" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve initialization addresses
+        id: init
+        run: |
+          DEPLOYER_ADDR="${{ steps.deployer.outputs.address }}"
+          FEE_RECIPIENT="${FEE_RECIPIENT_ADDRESS:-$DEPLOYER_ADDR}"
+          ARBITER="${ARBITER_ADDRESS:-$DEPLOYER_ADDR}"
+          DISPUTE_WINDOW="${DISPUTE_WINDOW_SECONDS:-$DEFAULT_DISPUTE_WINDOW}"
+          echo "fee_recipient=$FEE_RECIPIENT" >> "$GITHUB_OUTPUT"
+          echo "arbiter=$ARBITER" >> "$GITHUB_OUTPUT"
+          echo "dispute_window=$DISPUTE_WINDOW" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy contract to testnet
+        id: deploy
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+
+          WASM_FILE=$(ls contracts/target/wasm32-unknown-unknown/release/*.wasm | head -n 1)
+          echo "Deploying $WASM_FILE to Soroban testnet..."
+
+          # stellar contract deploy outputs the contract address.
+          # --source accepts raw secret keys (SC…), identity names, or public keys.
+          CONTRACT_ID=$(stellar contract deploy \
+            --wasm "$WASM_FILE" \
+            --network testnet \
+            --source "$DEPLOYER_SECRET_KEY" \
+            -- \
+              "${{ steps.deployer.outputs.address }}" \
+              "${{ steps.init.outputs.fee_recipient }}" \
+              "${{ steps.init.outputs.arbiter }}" \
+              "${{ steps.init.outputs.dispute_window }}" \
+          )
+
+          echo "CONTRACT_ID=$CONTRACT_ID" >> "$GITHUB_ENV"
+          echo "contract_id=$CONTRACT_ID" >> "$GITHUB_OUTPUT"
+
+          echo "### Deployed Contract" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Contract ID** | \`$CONTRACT_ID\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Network** | Testnet |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Admin** | \`${{ steps.deployer.outputs.address }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Fee Recipient** | \`${{ steps.init.outputs.fee_recipient }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Arbiter** | \`${{ steps.init.outputs.arbiter }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Dispute Window** | ${{ steps.init.outputs.dispute_window }}s |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "1. Update \`SOROBAN_CONTRACT_ID\` in your \`.env\` file to \`$CONTRACT_ID\`" >> $GITHUB_STEP_SUMMARY
+          echo "2. Update the backend and worker env vars with the new contract ID" >> $GITHUB_STEP_SUMMARY
+          echo "3. Run \`npm run gen:bindings\` to regenerate TypeScript bindings if the ABI changed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> **Explorer:** [View on Stellar Explorer](https://testnet.stellarchain.io/contracts/$CONTRACT_ID)" >> $GITHUB_STEP_SUMMARY
+
+      - name: Post PR comment with contract ID
+        if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const contractId = '${{ steps.deploy.outputs.contract_id }}';
+            const deployer = '${{ steps.deployer.outputs.address }}';
+            const feeRecipient = '${{ steps.init.outputs.fee_recipient }}';
+            const arbiter = '${{ steps.init.outputs.arbiter }}';
+            const disputeWindow = '${{ steps.init.outputs.dispute_window }}';
+
+            const body = [
+              '## 🚀 Testnet Deployment Complete',
+              '',
+              '| Field | Value |',
+              '|-------|-------|',
+              `| **Contract ID** | \\`${contractId}\\` |`,
+              '| **Network** | Testnet |',
+              `| **Admin** | \\`${deployer}\\` |`,
+              `| **Fee Recipient** | \\`${feeRecipient}\\` |`,
+              `| **Arbiter** | \\`${arbiter}\\` |`,
+              `| **Dispute Window** | ${disputeWindow}s |`,
+              '',
+              `**Explorer:** [View on Stellar Explorer](https://testnet.stellarchain.io/contracts/${contractId})`,
+              '',
+              '### Next Steps',
+              `- [ ] Update \\`SOROBAN_CONTRACT_ID\\` in \\`.env\\` to \\`${contractId}\\``,
+              '- [ ] Update backend and worker env vars with the new contract ID',
+              '- [ ] Run \\`npm run gen:bindings\\` if the ABI changed',
+              '',
+              '---',
+              `<sub>🤖 Auto-deployed by [soroban-testnet-deploy.yml](https://github.com/${{ github.repository }}/blob/main/.github/workflows/soroban-testnet-deploy.yml)</sub>`,
+            ].join('\\n');
+
+            // Find existing bot comment to update (avoid duplicate comments)
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+            });
+
+            const marker = '<!-- soroban-testnet-deploy -->';
+            const existing = comments.find(c => c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: `${marker}\\n${body}`,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body: `${marker}\\n${body}`,
+              });
+            }
