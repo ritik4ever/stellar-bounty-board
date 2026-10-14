@@ -11,3 +11,21 @@ contracts/.stellar/
 issue.md
 pr.md
 frontend/storybook-static/
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+dist/
+build/
+.next/
+
+# Env
+.env.local
+.env.*.local
