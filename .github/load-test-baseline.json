@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "description": "Accepted p99 latency baselines for the load-test regression gate. Update intentionally via the 'update-baseline' workflow_dispatch job or by running: node scripts/update-load-test-baseline.js",
+  "updatedAt": "2026-07-29T00:00:00.000Z",
+  "commitSha": "initial",
+  "runId": "initial",
+  "baselines": {
+    "GET /api/bounties": {
+      "p99Ms": 500,
+      "note": "Seed value — replace after first real CI run via update-baseline job"
+    },
+    "POST /api/bounties": {
+      "p99Ms": 500,
+      "note": "Seed value — replace after first real CI run via update-baseline job"
+    }
+  }
+}

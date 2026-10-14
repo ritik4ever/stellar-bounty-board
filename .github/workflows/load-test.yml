@@ -4,6 +4,26 @@ on:
   schedule:
     - cron: '0 0 * * 0' # Every Sunday at midnight
   workflow_dispatch:
+    inputs:
+      update_baseline:
+        description: >
+          Update the p99 baseline after this run?
+          Set to 'true' to commit new baseline values from this run.
+          Only do this after a deliberate, reviewed performance change.
+        required: false
+        default: 'false'
+      latency_tolerance_pct:
+        description: >
+          Regression gate tolerance (%). Current run p99 must not exceed
+          baseline × (1 + tolerance/100). Default: 10.
+        required: false
+        default: '10'
+
+env:
+  # Default tolerance used by the regression gate.
+  # Override per-run via the workflow_dispatch input above,
+  # or repo-wide via a repository variable LATENCY_TOLERANCE_PCT.
+  LATENCY_TOLERANCE_PCT: ${{ inputs.latency_tolerance_pct || vars.LATENCY_TOLERANCE_PCT || '10' }}
 
 jobs:
   load-test:
@@ -39,13 +59,13 @@ jobs:
       - name: Run load tests
         run: |
           autocannon -c 20 -d 30 -j http://localhost:3001/api/bounties > get-results.json
-          
+
           # Use a JSON payload that conforms to the createBountySchema
           JSON_PAYLOAD='{"repo":"ritik4ever/stellar-bounty-board","issueNumber":331,"title":"Load test","summary":"This is a load test generated bounty that must be at least twenty characters long.","maintainer":"GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF","tokenSymbol":"XLM","amount":100,"deadlineDays":7,"labels":["load-test"]}'
-          
+
           autocannon -c 20 -d 30 -m POST -H "Content-Type: application/json" -b "$JSON_PAYLOAD" -j http://localhost:3001/api/bounties > post-results.json
 
-      - name: Analyze results
+      - name: Analyze results (absolute thresholds)
         run: |
           cat << 'EOF' > analyze.js
           const fs = require('fs');
@@ -94,10 +114,57 @@ jobs:
           EOF
           node analyze.js
 
+      # ── Regression gate ────────────────────────────────────────────────────
+      # Compares the current run's p99 values against the committed baseline.
+      # Fails the job if any endpoint regresses beyond LATENCY_TOLERANCE_PCT.
+      - name: Install root dev dependencies (for regression gate script)
+        run: npm install --ignore-scripts
+
+      - name: Run latency regression gate
+        env:
+          GET_RESULTS_FILE: get-results.json
+          POST_RESULTS_FILE: post-results.json
+          BASELINE_FILE: .github/load-test-baseline.json
+        run: node scripts/check-latency-regression.js
+
+      # ── Optional: update baseline ──────────────────────────────────────────
+      # Only runs when update_baseline input is 'true' (workflow_dispatch only).
+      # Writes new p99 values to .github/load-test-baseline.json and commits
+      # them back to the branch that triggered this run.
+      - name: Update baseline
+        if: ${{ inputs.update_baseline == 'true' }}
+        env:
+          GET_RESULTS_FILE: get-results.json
+          POST_RESULTS_FILE: post-results.json
+          BASELINE_FILE: .github/load-test-baseline.json
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: node scripts/update-load-test-baseline.js
+
+      - name: Commit updated baseline
+        if: ${{ inputs.update_baseline == 'true' }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/load-test-baseline.json
+          git commit -m "chore(perf): update load-test baseline [run ${{ github.run_id }}]" \
+            || echo "No baseline changes to commit"
+          git push
+
       - name: Upload Summary Artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: load-test-summary
           path: summary.md
+          retention-days: 7
+
+      - name: Upload raw results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-test-raw-results
+          path: |
+            get-results.json
+            post-results.json
           retention-days: 7
