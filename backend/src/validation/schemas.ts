@@ -481,6 +481,7 @@ export const deepHealthResponseSchema = z
       soroban: componentStatusSchema,
       contract: componentStatusSchema,
       auth: componentStatusSchema,
+      sendgrid: componentStatusSchema,
     }),
     timestamp: z.string(),
   })
