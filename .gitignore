@@ -3,6 +3,7 @@ dist/
 frontend/storybook-static/
 .env
 *.log
+*.zip
 .DS_Store
 backend/data/*.local.json
 contracts/target/
