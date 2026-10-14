@@ -7,6 +7,7 @@ export interface SubmissionFormData {
   prLink: string;
   testsWritten: boolean;
   notes: string;
+  evidenceFile?: File;
 }
 
 /**
@@ -42,6 +43,12 @@ interface Props {
   onClose: () => void;
 }
 
+// Evidence file validation constants
+const MAX_FILE_SIZE_MB = 10;
+const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+const ALLOWED_FILE_TYPES = ['.pdf', '.png', '.jpg', '.jpeg'];
+const ALLOWED_MIME_TYPES = ['application/pdf', 'image/png', 'image/jpeg'];
+
 const STELLAR_PUBLIC_KEY_REGEX = /^G[A-Z0-9]{55}$/;
 
 function validateUrl(value: string): string | null {
@@ -68,6 +75,8 @@ export default function SubmissionChecklistModal({
   const [prLink, setPrLink] = useState(initialData?.prLink ?? "");
   const [testsWritten] = useState(initialData?.testsWritten ?? false);
   const [notes, setNotes] = useState(initialData?.notes ?? "");
+  const [evidenceFile, setEvidenceFile] = useState<File | null>(initialData?.evidenceFile ?? null);
+  const [evidenceError, setEvidenceError] = useState<string | null>(null);
   const [checklist, setChecklist] = useState<Record<ChecklistId, boolean>>(() =>
     CHECKLIST_ITEMS.reduce(
       (acc, item) => ({ ...acc, [item.id]: false }),
@@ -153,15 +162,84 @@ export default function SubmissionChecklistModal({
     validateUrl(prLink) === null &&
     allChecked;
 
+  function validateEvidenceFile(file: File): string | null {
+    // Validate file size
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      return `File is too large. Maximum size is ${MAX_FILE_SIZE_MB} MB.`;
+    }
+
+    // Validate file type by MIME type
+    if (!ALLOWED_MIME_TYPES.includes(file.type)) {
+      return `File type not supported. Please upload PDF, PNG, or JPG.`;
+    }
+
+    // Validate file extension as additional check
+    const fileName = file.name.toLowerCase();
+    const hasValidExtension = ALLOWED_FILE_TYPES.some(ext => fileName.endsWith(ext));
+    if (!hasValidExtension) {
+      return `File type not supported. Please upload PDF, PNG, or JPG.`;
+    }
+
+    return null;
+  }
+
+  function handleEvidenceChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    
+    // Clear previous errors
+    setEvidenceError(null);
+    
+    if (!file) {
+      setEvidenceFile(null);
+      return;
+    }
+
+    // Validate the selected file
+    const validationError = validateEvidenceFile(file);
+    
+    if (validationError) {
+      // Reject invalid file - do not store it
+      setEvidenceError(validationError);
+      setEvidenceFile(null);
+      // Reset the input
+      e.target.value = '';
+      return;
+    }
+
+    // Valid file - store it
+    setEvidenceFile(file);
+  }
+
+  function handleRemoveEvidence() {
+    setEvidenceFile(null);
+    setEvidenceError(null);
+    // Also reset the file input
+    const fileInput = document.querySelector<HTMLInputElement>('input[type="file"]');
+    if (fileInput) {
+      fileInput.value = '';
+    }
+  }
+
+  function formatFileSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setTouched({ contributor: true, prLink: true });
+    
+    // Clear evidence error before submission
+    setEvidenceError(null);
+    
     if (!isValid) return;
     onSubmit({
       contributor: contributor.trim(),
       prLink: prLink.trim(),
       testsWritten,
       notes: notes.trim(),
+      evidenceFile: evidenceFile ?? undefined,
     });
   }
 
@@ -228,6 +306,44 @@ export default function SubmissionChecklistModal({
             <small className="field-hint">Link to your PR, branch, or live demo</small>
             {prLinkError && (
               <small className="field-error" id="prlink-error">{prLinkError}</small>
+            )}
+          </label>
+
+          {/* Evidence file attachment */}
+          <label>
+            Supporting evidence (optional)
+            <input
+              type="file"
+              accept={ALLOWED_FILE_TYPES.join(',')}
+              onChange={handleEvidenceChange}
+              disabled={submitting}
+              aria-invalid={Boolean(evidenceError)}
+              aria-describedby={evidenceError ? "evidence-error" : evidenceFile ? "evidence-summary" : "evidence-hint"}
+            />
+            <small className="field-hint" id="evidence-hint">
+              Attach supporting evidence: PDF, PNG, or JPG (max {MAX_FILE_SIZE_MB} MB)
+            </small>
+            {evidenceError && (
+              <small className="field-error" id="evidence-error">{evidenceError}</small>
+            )}
+            {evidenceFile && !evidenceError && (
+              <div className="evidence-summary" id="evidence-summary">
+                <div className="evidence-summary__info">
+                  <strong>{evidenceFile.name}</strong>
+                  <span className="evidence-summary__meta">
+                    {formatFileSize(evidenceFile.size)} • {evidenceFile.type || 'Unknown type'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="evidence-summary__remove"
+                  onClick={handleRemoveEvidence}
+                  disabled={submitting}
+                  aria-label="Remove evidence file"
+                >
+                  Remove
+                </button>
+              </div>
             )}
           </label>
 
