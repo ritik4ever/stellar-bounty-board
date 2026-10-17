@@ -5,6 +5,7 @@
   "playwright/**/*.{ts,js}": ["prettier --write"],
   "*.{json,md,yaml,yml}": ["prettier --write"],
   ".coderabbit.yaml": ["prettier --write"],
+  "railway.toml": ["node scripts/validate-devops-configs.mjs"],
   "*.sol": ["forge fmt"],
   "*.rs": ["rustfmt"]
 }

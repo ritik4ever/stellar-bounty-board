@@ -154,13 +154,42 @@ export function validatePipelineWiring(cwd = process.cwd()) {
   };
 }
 
+export function validateRailwayToml(cwd = process.cwd()) {
+  const errors = [];
+  const railwayPath = join(cwd, 'railway.toml');
+
+  if (!existsSync(railwayPath)) {
+    return { valid: false, errors: ['railway.toml is missing (Issue #1417)'] };
+  }
+
+  const content = readFileSync(railwayPath, 'utf8');
+  if (!content.includes('builder = "DOCKERFILE"')) {
+    errors.push('railway.toml must define builder = "DOCKERFILE"');
+  }
+  if (!content.includes('healthcheckPath = "/api/health"')) {
+    errors.push('railway.toml must define healthcheckPath = "/api/health"');
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  };
+}
+
 export function determineDevopsOutcome(cwd = process.cwd()) {
   const env = validateEnvExample(cwd);
   const eslint = validateEslintConfig(cwd);
   const npmrc = validateNpmrc(cwd);
+  const railway = validateRailwayToml(cwd);
   const pipeline = validatePipelineWiring(cwd);
 
-  const allErrors = [...env.errors, ...eslint.errors, ...npmrc.errors, ...pipeline.errors];
+  const allErrors = [
+    ...env.errors,
+    ...eslint.errors,
+    ...npmrc.errors,
+    ...railway.errors,
+    ...pipeline.errors,
+  ];
 
   if (allErrors.length > 0) {
     return {
