@@ -4,12 +4,12 @@ A practical guide to running stellar-bounty-board on your own machine.
 
 ## Prerequisites
 
-| Tool     | Version  | Required for        |
-| -------- | -------- | ------------------- |
-| Node.js  | 20+      | Backend + Frontend  |
-| npm      | 10+      | Package management  |
-| git      | 2.30+    | Cloning + branching |
-| Stellar CLI | latest | Contract builds (optional — only if you intend to touch `contracts/`) |
+| Tool        | Version | Required for                                                          |
+| ----------- | ------- | --------------------------------------------------------------------- |
+| Node.js     | 20+     | Backend + Frontend                                                    |
+| npm         | 10+     | Package management                                                    |
+| git         | 2.30+   | Cloning + branching                                                   |
+| Stellar CLI | latest  | Contract builds (optional — only if you intend to touch `contracts/`) |
 
 ## First-Time Setup
 
@@ -45,20 +45,20 @@ Open http://localhost:3000 — the React dashboard should load and call http://l
 
 ## Port Layout
 
-| Service   | Port | Notes |
-| --------- | ---- | ----- |
-| Frontend  | 3000 | Vite dev server |
-| Backend   | 3001 | Express API |
+| Service  | Port | Notes           |
+| -------- | ---- | --------------- |
+| Frontend | 3000 | Vite dev server |
+| Backend  | 3001 | Express API     |
 
 ## Environment Variables
 
 Most behaviour works without any env vars. Optional overrides:
 
-| Name                     | Default | Purpose |
-| ------------------------ | ------- | ------- |
-| `PORT`                   | 3001    | Backend listen port |
-| `BOUNTIES_FILE`          | `backend/data/bounties.json` | Path to JSON persistence |
-| `ADMIN_KEY_HASH`         | (none)  | SHA-256 hash of admin password (see `scripts/hash-admin-key.js`) |
+| Name             | Default                      | Purpose                                                          |
+| ---------------- | ---------------------------- | ---------------------------------------------------------------- |
+| `PORT`           | 3001                         | Backend listen port                                              |
+| `BOUNTIES_FILE`  | `backend/data/bounties.json` | Path to JSON persistence                                         |
+| `ADMIN_KEY_HASH` | (none)                       | SHA-256 hash of admin password (see `scripts/hash-admin-key.js`) |
 
 ## Common Issues
 

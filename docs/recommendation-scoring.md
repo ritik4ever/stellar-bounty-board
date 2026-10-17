@@ -9,12 +9,12 @@ to contributors based on their skill tags and past activity.
 
 Each bounty is scored against the contributor's profile:
 
-| Factor | Weight | Description |
-|--------|--------|-------------|
-| Skill match | 40% | Bounty tags overlap with contributor skills |
-| Amount fit | 25% | Bounty amount within contributor's typical range |
-| Recency | 20% | Bounties posted recently score higher |
-| Status | 15% | Open bounties preferred over reserved/submitted |
+| Factor      | Weight | Description                                      |
+| ----------- | ------ | ------------------------------------------------ |
+| Skill match | 40%    | Bounty tags overlap with contributor skills      |
+| Amount fit  | 25%    | Bounty amount within contributor's typical range |
+| Recency     | 20%    | Bounties posted recently score higher            |
+| Status      | 15%    | Open bounties preferred over reserved/submitted  |
 
 ## Score calculation
 
@@ -34,6 +34,7 @@ score = (skill_overlap / total_tags) * 0.4
 ## Tuning
 
 The weights above are defaults. To adjust:
+
 1. Edit `frontend/src/recommendations.ts`
 2. Update the weights in the `scoreBounty` function
 3. Run `npm --prefix frontend test` to verify recommendation tests pass

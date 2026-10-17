@@ -25,7 +25,9 @@ export async function getXlmToUsdRate(): Promise<number | null> {
     return cachedRate;
   }
   try {
-    const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd');
+    const res = await fetch(
+      'https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd'
+    );
     const data = await res.json();
     cachedRate = data.stellar.usd;
     cachedAt = Date.now();

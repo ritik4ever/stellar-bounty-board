@@ -36,6 +36,12 @@ frontend/src/generated
 contracts/target
 target
 
+# Snapshot test fixtures (Deliberately chosen):
+# Soroban test snapshot files contain verbatim JSON state captures that must not be altered.
+contracts/test_snapshots
+contracts/**/test_snapshots
+*.zip
+
 # ------------------------------------------------------------------------------
 # Runtime Data Stores (Deliberately chosen)
 # ------------------------------------------------------------------------------

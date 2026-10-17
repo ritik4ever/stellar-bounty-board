@@ -28,11 +28,11 @@ Maintainer-only checklist for cutting a new release of stellar-bounty-board.
 
 We follow semver:
 
-| Change type | Bump |
-| ----------- | ---- |
-| Breaking API or contract change | major |
+| Change type                       | Bump  |
+| --------------------------------- | ----- |
+| Breaking API or contract change   | major |
 | New feature, backwards compatible | minor |
-| Bug fix, docs, refactors | patch |
+| Bug fix, docs, refactors          | patch |
 
 Update `package.json` version in both `backend/package.json` and `frontend/package.json`.
 

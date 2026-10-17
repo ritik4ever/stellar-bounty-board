@@ -5,12 +5,12 @@ how to run tests locally, and how to add new tests for features and bug fixes.
 
 ## Test Stack
 
-| Layer         | Framework  | Location                              |
-| ------------- | ---------- | ------------------------------------- |
-| Backend (API) | Vitest     | `backend/test/**/*.test.ts`           |
-| Frontend      | Vitest     | `frontend/src/**/*.test.tsx`          |
-| E2E           | Playwright | `playwright/**/*.spec.ts`             |
-| Contract      | rust-soroban test | `contracts/test/`               |
+| Layer         | Framework         | Location                     |
+| ------------- | ----------------- | ---------------------------- |
+| Backend (API) | Vitest            | `backend/test/**/*.test.ts`  |
+| Frontend      | Vitest            | `frontend/src/**/*.test.tsx` |
+| E2E           | Playwright        | `playwright/**/*.spec.ts`    |
+| Contract      | rust-soroban test | `contracts/test/`            |
 
 ## Quick Start
 

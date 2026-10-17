@@ -58,3 +58,19 @@ When upgrading Prettier versions:
 
 - Do not revert `trailingComma: "es5"` to `"all"` without verifying that all code generators and downstream tooling support trailing function parameter commas.
 - Do not revert `printWidth: 100` to `80`, as doing so would cause mass reformatting across hundreds of source files.
+
+---
+
+## `.prettierignore` Deviations from Framework Defaults (Issue #1440)
+
+Prettier's default behavior only ignores `node_modules` and version control directories (`.git`). This repository deliberately extends the ignore policy for monorepo-specific and smart-contract architectural requirements:
+
+| Ignored Path / Pattern               | Classification           | Architectural Rationale & Framework Default Difference                                                                                                                                                           |
+| :----------------------------------- | :----------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `frontend/src/generated`             | **Deliberate Deviation** | Auto-generated Soroban smart contract TypeScript bindings produced via `bash scripts/gen-bindings.sh`. Reformatting generated files causes `npm run check:bindings` to fail in CI due to git diff discrepancies. |
+| `contracts/target`, `target`         | **Deliberate Deviation** | Rust/Cargo compiler output for Soroban WASM smart contracts. Standard JavaScript framework scaffolds do not account for compiled Rust targets in monorepo structures.                                            |
+| `contracts/test_snapshots/**`        | **Deliberate Deviation** | Verbatim test snapshot fixtures from Soroban Rust test suites. Modifying snapshot JSON formatting causes regression test assertion failures.                                                                     |
+| `data/*.json`, `backend/data/*.json` | **Deliberate Deviation** | Runtime JSON database files mutated dynamically by backend endpoints. Excluding them prevents runtime data churn from polluting git commits.                                                                     |
+| `*.zip`, `.cache`, `.temp`, `tmp`    | **Deliberate Deviation** | Binary deliverables (e.g. `crowdpay.zip`, `stellar-bounty-board.zip`) and compiler intermediate caches that must not be parsed as text.                                                                          |
+| `.nyc_output`, `coverage`            | **Deliberate Deviation** | Machine-generated test coverage metrics from Vitest/c8. Framework defaults do not exclude all test runner variants.                                                                                              |
+| `.env`, `.env.local`, `.env.*.local` | **Security Sensitive**   | Secret keyrings and local environment overrides must never be altered or exposed by automated linters.                                                                                                           |

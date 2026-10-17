@@ -14,12 +14,12 @@ community members can step up to help maintain the project.
 
 ## Roles
 
-| Role | Permissions | Responsibilities |
-|------|-------------|------------------|
-| **Owner** | Full admin | Final decision-making, repository settings, releases, security incidents |
-| **Maintainer** | Write / Maintain | Review and merge PRs, triage issues, manage labels, guide contributors |
-| **Triage** | Triage | Label and triage issues, close duplicates, reproduce bug reports |
-| **Contributor** | Read | Open issues and submit pull requests |
+| Role            | Permissions      | Responsibilities                                                         |
+| --------------- | ---------------- | ------------------------------------------------------------------------ |
+| **Owner**       | Full admin       | Final decision-making, repository settings, releases, security incidents |
+| **Maintainer**  | Write / Maintain | Review and merge PRs, triage issues, manage labels, guide contributors   |
+| **Triage**      | Triage           | Label and triage issues, close duplicates, reproduce bug reports         |
+| **Contributor** | Read             | Open issues and submit pull requests                                     |
 
 ## How to become a maintainer
 

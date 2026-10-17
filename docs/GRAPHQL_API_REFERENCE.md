@@ -56,7 +56,9 @@ type LeaderboardEntry {
 }
 
 type Query {
-  """Mirrors GET /api/bounties — filterable, paginated bounty listing."""
+  """
+  Mirrors GET /api/bounties — filterable, paginated bounty listing.
+  """
   bounties(
     q: String
     contributor: String
@@ -71,19 +73,29 @@ type Query {
     pageSize: Int
   ): BountyConnection!
 
-  """Mirrors GET /api/bounties/:id"""
+  """
+  Mirrors GET /api/bounties/:id
+  """
   bounty(id: ID!): Bounty
 
-  """Mirrors GET /api/bounties/by-issue"""
+  """
+  Mirrors GET /api/bounties/by-issue
+  """
   bountyByIssue(repo: String!, issue: Int!): Bounty
 
-  """Mirrors GET /api/bounties/:id/events"""
+  """
+  Mirrors GET /api/bounties/:id/events
+  """
   bountyEvents(id: ID!): [BountyEvent!]!
 
-  """Mirrors GET /api/bounties/:id/audit-logs"""
+  """
+  Mirrors GET /api/bounties/:id/audit-logs
+  """
   bountyAuditLogs(id: ID!, limit: Int, offset: Int): [AuditLogEntry!]!
 
-  """Mirrors GET /api/leaderboard"""
+  """
+  Mirrors GET /api/leaderboard
+  """
   leaderboard(limit: Int): [LeaderboardEntry!]!
 }
 
@@ -96,31 +108,55 @@ type BountyConnection {
 }
 
 type Mutation {
-  """Mirrors POST /api/bounties — requires signature auth per REST implementation."""
-  createBounty(repo: String!, issueNumber: Int!, amount: Float!, tokenSymbol: String!, deadline: Int): Bounty!
+  """
+  Mirrors POST /api/bounties — requires signature auth per REST implementation.
+  """
+  createBounty(
+    repo: String!
+    issueNumber: Int!
+    amount: Float!
+    tokenSymbol: String!
+    deadline: Int
+  ): Bounty!
 
-  """Mirrors POST /api/bounties/:id/reserve"""
+  """
+  Mirrors POST /api/bounties/:id/reserve
+  """
   reserveBounty(id: ID!, contributor: String!, expectedVersion: Int): Bounty!
 
-  """Mirrors POST /api/bounties/:id/submit"""
+  """
+  Mirrors POST /api/bounties/:id/submit
+  """
   submitBounty(id: ID!, contributor: String!, submissionUrl: String!, notes: String): Bounty!
 
-  """Mirrors POST /api/bounties/:id/release — maintainer-signed action."""
+  """
+  Mirrors POST /api/bounties/:id/release — maintainer-signed action.
+  """
   releaseBounty(id: ID!, maintainer: String!, transactionHash: String!): Bounty!
 
-  """Mirrors POST /api/bounties/:id/refund — maintainer-signed action."""
+  """
+  Mirrors POST /api/bounties/:id/refund — maintainer-signed action.
+  """
   refundBounty(id: ID!, maintainer: String!, transactionHash: String!): Bounty!
 
-  """Mirrors POST /api/bounties/:id/cancel — maintainer-signed action."""
+  """
+  Mirrors POST /api/bounties/:id/cancel — maintainer-signed action.
+  """
   cancelBounty(id: ID!, maintainer: String!, transactionHash: String!): Bounty!
 
-  """Mirrors POST /api/bounties/:id/dispute"""
+  """
+  Mirrors POST /api/bounties/:id/dispute
+  """
   disputeBounty(id: ID!, contributor: String!, reason: String!): Bounty!
 
-  """Mirrors PATCH /api/bounties/:id/notes — maintainer-signed action."""
+  """
+  Mirrors PATCH /api/bounties/:id/notes — maintainer-signed action.
+  """
   updateBountyNotes(id: ID!, maintainer: String!, notes: String!): Bounty!
 
-  """Mirrors POST /api/bounties/:id/extend-deadline — maintainer-signed action."""
+  """
+  Mirrors POST /api/bounties/:id/extend-deadline — maintainer-signed action.
+  """
   extendDeadline(id: ID!, maintainer: String!, newDeadline: Int!): Bounty!
 }
 ```
@@ -173,6 +209,7 @@ mutation DisputeBounty {
 ## Known REST-Only Capabilities (Not Yet Mapped to GraphQL Proposal)
 
 The following existing REST endpoints have no GraphQL equivalent proposed above yet, and would need further design work:
+
 - `GET /api/bounties/released/export.csv` — CSV export is a REST-specific/file-download concept; GraphQL would need a different pattern (e.g., a mutation returning a signed URL, or leaving this as a REST-only endpoint).
 - `GET /api/audit-log` (global, admin-only) — admin-gated cross-bounty audit log; would need equivalent auth-aware resolver design.
 - `GET /api/metrics`, `/api/global-metrics`, `/api/stats`, `/api/maintainers/:maintainer/metrics` — Prometheus-format metrics and aggregate stats; only `leaderboard` has been mapped so far.
@@ -182,6 +219,7 @@ The following existing REST endpoints have no GraphQL equivalent proposed above 
 ## Local Development
 
 There is currently no GraphQL playground or endpoint to link, since GraphQL is not implemented. Once implemented, this section should include:
+
 - The local dev GraphQL endpoint URL (e.g., `http://localhost:PORT/graphql`)
 - Playground/introspection tooling instructions
 
