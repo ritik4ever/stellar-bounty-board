@@ -223,6 +223,41 @@ export function validateDockerCompose(cwd = process.cwd()) {
   };
 }
 
+export function validateLintstagedrc(cwd = process.cwd()) {
+  const errors = [];
+  const configPath = join(cwd, '.lintstagedrc.json');
+
+  if (!existsSync(configPath)) {
+    return { valid: false, errors: ['.lintstagedrc.json is missing (Issue #1404)'] };
+  }
+
+  try {
+    const content = JSON.parse(readFileSync(configPath, 'utf8'));
+    if (!content['.lintstagedrc.json']) {
+      errors.push(
+        '.lintstagedrc.json must define self-validation rule in .lintstagedrc.json (Issue #1404)'
+      );
+    }
+  } catch (e) {
+    errors.push(`.lintstagedrc.json contains invalid JSON: ${e.message}`);
+  }
+
+  const preCommitPath = join(cwd, '.husky', 'pre-commit');
+  if (!existsSync(preCommitPath)) {
+    errors.push('.husky/pre-commit is missing');
+  } else {
+    const preCommit = readFileSync(preCommitPath, 'utf8');
+    if (!preCommit.includes('lint-staged')) {
+      errors.push('.husky/pre-commit must execute lint-staged (Issue #1404)');
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  };
+}
+
 export function determineDevopsOutcome(cwd = process.cwd()) {
   const env = validateEnvExample(cwd);
   const eslint = validateEslintConfig(cwd);
@@ -230,6 +265,7 @@ export function determineDevopsOutcome(cwd = process.cwd()) {
   const railway = validateRailwayToml(cwd);
   const dockerfile = validateDockerfile(cwd);
   const compose = validateDockerCompose(cwd);
+  const lintstaged = validateLintstagedrc(cwd);
   const pipeline = validatePipelineWiring(cwd);
 
   const allErrors = [
@@ -239,6 +275,7 @@ export function determineDevopsOutcome(cwd = process.cwd()) {
     ...railway.errors,
     ...dockerfile.errors,
     ...compose.errors,
+    ...lintstaged.errors,
     ...pipeline.errors,
   ];
 
