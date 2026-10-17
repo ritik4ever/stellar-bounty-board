@@ -1,7 +1,12 @@
 # GitHub Webhook Security Implementation Guide
 
+> [!NOTE]
+> **Document Status:** Verified & Synchronized with Current Implementation  
+> **Last Verified Date:** October 18, 2026  
+> **Reference Commit:** `1f837a2` (Issue #1394)  
+> **Verified Modules:** `backend/src/webhooks/signatureVerification.ts`, `backend/src/validation/webhookSecretValidation.ts`, `backend/src/webhooks/githubPrHandler.ts`  
+> **Test Coverage:** `backend/test/webhookSecretValidation.test.ts`, `backend/test/webhookSignature.test.ts`, `backend/test/webhooks.comprehensive.test.ts`
 
-## Table of Contents
 
 - [Executive Summary](#executive-summary)
 - [Security Architecture](#security-architecture)
@@ -401,18 +406,29 @@ This worked walkthrough demonstrates how to compute an HMAC-SHA256 signature for
 # 5. Check response status (should be 202)
 ```
 
-### Unit Tests
+### Unit Tests & Verification Suites
+
+The repository contains three targeted test suites covering webhook security:
 
 ```bash
-# Run webhook secret validation tests
-npm test -- webhookSecretValidation.test.ts
+# 1. Startup validation (enforcement of GITHUB_WEBHOOK_SECRET)
+npm --prefix backend test -- backend/test/webhookSecretValidation.test.ts
 
-# Run all tests
+# 2. Signature verification, algorithm negotiation & secret rotation
+npm --prefix backend test -- backend/test/webhookSignature.test.ts
+
+# 3. Comprehensive end-to-end webhook delivery & error handling
+npm --prefix backend test -- backend/test/webhooks.comprehensive.test.ts
+
+# Run all backend tests
 npm test
-
-# Run with coverage
-npm run test:coverage
 ```
+
+#### Key Implementation Modules
+- **Startup Guard:** `backend/src/validation/webhookSecretValidation.ts` (`validateGitHubWebhookSecret`)
+- **HMAC Verification & Rotation:** `backend/src/webhooks/signatureVerification.ts` (`verifyWebhookSignature`, `verifyGitHubWebhookSignatureWithNegotiation`, `verifyWithSecretRotation`)
+- **Delivery Deduplication:** `backend/src/webhooks/deliveryDedup.ts`
+- **PR Event Handler:** `backend/src/webhooks/githubPrHandler.ts`
 
 ## Monitoring and Alerts
 
