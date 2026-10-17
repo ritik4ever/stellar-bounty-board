@@ -176,11 +176,34 @@ export function validateRailwayToml(cwd = process.cwd()) {
   };
 }
 
+export function validateDockerfile(cwd = process.cwd()) {
+  const errors = [];
+  const dockerfilePath = join(cwd, 'Dockerfile');
+
+  if (!existsSync(dockerfilePath)) {
+    return { valid: false, errors: ['Dockerfile is missing (Issue #1414)'] };
+  }
+
+  const content = readFileSync(dockerfilePath, 'utf8');
+  if (!content.includes('AS builder')) {
+    errors.push('Dockerfile must define multi-stage build with builder stage');
+  }
+  if (!content.includes('HEALTHCHECK')) {
+    errors.push('Dockerfile must define container HEALTHCHECK probe');
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  };
+}
+
 export function determineDevopsOutcome(cwd = process.cwd()) {
   const env = validateEnvExample(cwd);
   const eslint = validateEslintConfig(cwd);
   const npmrc = validateNpmrc(cwd);
   const railway = validateRailwayToml(cwd);
+  const dockerfile = validateDockerfile(cwd);
   const pipeline = validatePipelineWiring(cwd);
 
   const allErrors = [
@@ -188,6 +211,7 @@ export function determineDevopsOutcome(cwd = process.cwd()) {
     ...eslint.errors,
     ...npmrc.errors,
     ...railway.errors,
+    ...dockerfile.errors,
     ...pipeline.errors,
   ];
 
