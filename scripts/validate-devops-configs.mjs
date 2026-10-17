@@ -198,12 +198,38 @@ export function validateDockerfile(cwd = process.cwd()) {
   };
 }
 
+export function validateDockerCompose(cwd = process.cwd()) {
+  const errors = [];
+  const composePath = join(cwd, 'docker-compose.yml');
+
+  if (!existsSync(composePath)) {
+    return { valid: false, errors: ['docker-compose.yml is missing (Issue #1411)'] };
+  }
+
+  const content = readFileSync(composePath, 'utf8');
+  if (!content.includes('services:')) {
+    errors.push('docker-compose.yml must define services');
+  }
+  if (!content.includes('backend:')) {
+    errors.push('docker-compose.yml must define backend service');
+  }
+  if (!content.includes('unless-stopped')) {
+    errors.push('docker-compose.yml must define restart policy');
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  };
+}
+
 export function determineDevopsOutcome(cwd = process.cwd()) {
   const env = validateEnvExample(cwd);
   const eslint = validateEslintConfig(cwd);
   const npmrc = validateNpmrc(cwd);
   const railway = validateRailwayToml(cwd);
   const dockerfile = validateDockerfile(cwd);
+  const compose = validateDockerCompose(cwd);
   const pipeline = validatePipelineWiring(cwd);
 
   const allErrors = [
@@ -212,6 +238,7 @@ export function determineDevopsOutcome(cwd = process.cwd()) {
     ...npmrc.errors,
     ...railway.errors,
     ...dockerfile.errors,
+    ...compose.errors,
     ...pipeline.errors,
   ];
 
