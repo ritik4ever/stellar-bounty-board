@@ -283,6 +283,23 @@ export function validateCiWorkflowDoc(cwd = process.cwd()) {
     }
   }
 
+  // Issue #1426: Non-obvious settings breakdown and template vs deliberately chosen classification
+  const requiredNonObvious = [
+    'Non-Obvious Settings Breakdown & Classification (Issue #1426)',
+    'Template Boiler',
+    'Deliberately Chosen',
+    'restore-keys',
+    'node-version',
+  ];
+
+  for (const item of requiredNonObvious) {
+    if (!content.includes(item)) {
+      errors.push(
+        `Missing non-obvious setting explanation for "${item}" in docs/CI_WORKFLOW.md (Issue #1426)`
+      );
+    }
+  }
+
   return {
     valid: errors.length === 0,
     errors,

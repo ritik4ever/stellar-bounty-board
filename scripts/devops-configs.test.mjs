@@ -31,6 +31,11 @@ test('ISSUE-1424: docs/CI_WORKFLOW.md documents deliberate deviations from tool 
   assert.equal(ciResult.valid, true, `CI doc errors: ${ciResult.errors.join('; ')}`);
 });
 
+test('ISSUE-1426: docs/CI_WORKFLOW.md classifies template vs deliberately chosen non-obvious settings', () => {
+  const ciResult = validateCiWorkflowDoc();
+  assert.equal(ciResult.valid, true, `CI doc errors: ${ciResult.errors.join('; ')}`);
+});
+
 test('ISSUE-1397, 1401, 1433: pipeline wiring enforces configuration validation', () => {
   const pipeline = validatePipelineWiring();
   assert.equal(pipeline.valid, true, `Pipeline errors: ${pipeline.errors.join('; ')}`);

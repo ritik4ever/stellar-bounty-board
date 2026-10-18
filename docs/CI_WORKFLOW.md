@@ -1,6 +1,6 @@
 # Continuous Integration Workflow Guide (`.github/workflows/ci.yml`)
 
-This document details the architectural rationale for configuration settings and job steps defined in `.github/workflows/ci.yml`, identifying and explaining deliberate deviations from standard tool and action defaults.
+This document details the architectural rationale for configuration settings and job steps defined in `.github/workflows/ci.yml`, identifying and explaining deliberate deviations from standard tool and action defaults, and providing a granular breakdown of non-obvious settings.
 
 ---
 
@@ -13,7 +13,7 @@ This document details the architectural rationale for configuration settings and
 
 ---
 
-## Matrix of Deviations from Framework & Action Defaults
+## Matrix of Deviations from Framework & Action Defaults (Issue #1424)
 
 | Setting / Action Step | Framework / Action Default | Deliberate Deviation in `ci.yml` | Rationale & Load-Bearing Context |
 | :--- | :--- | :--- | :--- |
@@ -27,8 +27,25 @@ This document details the architectural rationale for configuration settings and
 
 ---
 
-## Non-Obvious Settings & Contributor Guidance
+## Non-Obvious Settings Breakdown & Classification (Issue #1426)
 
-1. **Decoupled Monorepo Structure**: Never remove the `--prefix` flag from backend or frontend test steps. The monorepo uses independent package roots rather than npm workspaces to maintain strict separation of deployment concerns.
-2. **Deterministic Artifact Naming**: Artifact names `backend-coverage` and `contract-audit` are referenced by downstream deployment and compliance checkers. Do not rename them without updating dependent pipelines.
-3. **Rust Toolchain Versioning**: Soroban SDK releases are tightly coupled to specific Rust compiler editions and target intrinsics. Deviations in target configuration will cause contract deployment failures on testnet.
+To prevent future contributors from inadvertently modifying critical settings or retaining obsolete boilerplate out of caution, all values in `.github/workflows/ci.yml` are categorized below into **Template Boilers** (safe to adjust during upgrades) and **Deliberately Chosen Load-Bearing Values** (must not be altered without repo-wide testing):
+
+### 1. Template vs. Deliberately Chosen Settings
+
+| Setting Location | Config Value | Classification | Purpose & Impact if Modified |
+| :--- | :--- | :--- | :--- |
+| `jobs.*.runs-on` | `ubuntu-latest` | **Template Boiler** | Standard ephemeral GitHub-hosted Linux VM. Safe to change to specific Ubuntu LTS versions if runner deprecations require it. |
+| `jobs.backend/frontend.steps[setup-node].node-version` | `'20'` | **Deliberately Chosen** | Pinned to Node.js 20 LTS (Iron) to maintain exact parity with container images in `Dockerfile` and production runtime engines. Changing to latest or unpinned risks runtime syntax drift. |
+| `jobs.*.steps[cache].restore-keys` | `${{ runner.os }}-*-node-modules-` | **Deliberately Chosen** | Enables prefix-based cache restoration. If exact lockfile hash misses, runner restores previous build's `node_modules` and only downloads incremental delta. |
+| `jobs.contract.steps[install cargo-audit].run` | `cargo install cargo-audit --version "=0.21.2" --locked` | **Deliberately Chosen** | Strict exact version `=0.21.2` plus `--locked` prevents cargo from pulling transitive dependency updates in `cargo-audit` that broke advisory schema parsing in newer releases. |
+| `jobs.contract.steps[audit].run` | `cargo audit > ../contract-audit.log` | **Deliberately Chosen** | Piping stdout to a root log file decouples security report generation from the runner exit code, allowing `actions/upload-artifact` to capture the audit report for maintainer review. |
+| `jobs.*.steps[upload-artifact].if` | `always()` | **Deliberately Chosen** | By default, GitHub Actions cancels subsequent artifact uploads if earlier tests fail. `always()` guarantees that test reports and audit logs are available for failed PR triage. |
+
+---
+
+## Contributor Safety Checklist
+
+- [x] **Upgrading Node.js**: If updating `node-version` in `ci.yml`, you MUST simultaneously update the Dockerfile base image (`node:20-alpine`) and `package.json` `engines.node` block.
+- [x] **Subpackage Scripts**: Always use `--prefix backend` or `--prefix frontend` rather than `cd backend && npm test`. This ensures working directory context remains at repo root for artifact resolution.
+- [x] **Rust Toolchain**: Do NOT remove `target: wasm32-unknown-unknown`; Soroban contracts cannot build without this target.
