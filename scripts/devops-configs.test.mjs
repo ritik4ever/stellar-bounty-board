@@ -60,6 +60,11 @@ test('ISSUE-1429: docs/BINDINGS_DRIFT_WORKFLOW.md classifies non-obvious setting
   );
 });
 
+test('ISSUE-1430: .github/workflows/bindings-drift.yml is actively wired into pre-commit and CI enforcement', () => {
+  const pipeline = validatePipelineWiring();
+  assert.equal(pipeline.valid, true, `Pipeline errors: ${pipeline.errors.join('; ')}`);
+});
+
 test('ISSUE-1397, 1401, 1433: pipeline wiring enforces configuration validation', () => {
   const pipeline = validatePipelineWiring();
   assert.equal(pipeline.valid, true, `Pipeline errors: ${pipeline.errors.join('; ')}`);

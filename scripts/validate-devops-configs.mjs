@@ -244,6 +244,12 @@ export function validateLintstagedrc(cwd = process.cwd()) {
         '.lintstagedrc.json must enforce .github/workflows/ci.yml validation (Issue #1427)'
       );
     }
+    // Issue #1430: Enforce .github/workflows/bindings-drift.yml validation in pre-commit
+    if (!content['.github/workflows/bindings-drift.yml']) {
+      errors.push(
+        '.lintstagedrc.json must enforce .github/workflows/bindings-drift.yml validation (Issue #1430)'
+      );
+    }
   } catch (e) {
     errors.push(`.lintstagedrc.json contains invalid JSON: ${e.message}`);
   }
