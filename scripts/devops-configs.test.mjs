@@ -6,6 +6,7 @@ import {
   validateNpmrc,
   validatePipelineWiring,
   validateCiWorkflowDoc,
+  validateBindingsDriftDoc,
   determineDevopsOutcome,
 } from './validate-devops-configs.mjs';
 
@@ -39,6 +40,15 @@ test('ISSUE-1426: docs/CI_WORKFLOW.md classifies template vs deliberately chosen
 test('ISSUE-1427: .github/workflows/ci.yml is actively wired into pre-commit and CI enforcement', () => {
   const pipeline = validatePipelineWiring();
   assert.equal(pipeline.valid, true, `Pipeline errors: ${pipeline.errors.join('; ')}`);
+});
+
+test('ISSUE-1428: docs/BINDINGS_DRIFT_WORKFLOW.md confirms bindings-drift matches actual source usage', () => {
+  const bindingsResult = validateBindingsDriftDoc();
+  assert.equal(
+    bindingsResult.valid,
+    true,
+    `Bindings drift errors: ${bindingsResult.errors.join('; ')}`
+  );
 });
 
 test('ISSUE-1397, 1401, 1433: pipeline wiring enforces configuration validation', () => {

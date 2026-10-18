@@ -312,6 +312,38 @@ export function validateCiWorkflowDoc(cwd = process.cwd()) {
   };
 }
 
+export function validateBindingsDriftDoc(cwd = process.cwd()) {
+  const errors = [];
+  const docPath = join(cwd, 'docs', 'BINDINGS_DRIFT_WORKFLOW.md');
+
+  if (!existsSync(docPath)) {
+    return { valid: false, errors: ['docs/BINDINGS_DRIFT_WORKFLOW.md is missing (Issue #1428)'] };
+  }
+
+  const content = readFileSync(docPath, 'utf8');
+  const requiredMatches = [
+    'Comprehensive Entry-by-Entry Verification Against Actual Usage',
+    'scripts/install-stellar-cli.sh',
+    'npm run gen:bindings',
+    'frontend/src/generated',
+    'wasm32-unknown-unknown',
+    'VERIFIED MATCH',
+  ];
+
+  for (const item of requiredMatches) {
+    if (!content.includes(item)) {
+      errors.push(
+        `Missing verification entry "${item}" in docs/BINDINGS_DRIFT_WORKFLOW.md (Issue #1428)`
+      );
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  };
+}
+
 export function determineDevopsOutcome(cwd = process.cwd()) {
   const env = validateEnvExample(cwd);
   const eslint = validateEslintConfig(cwd);
@@ -321,6 +353,7 @@ export function determineDevopsOutcome(cwd = process.cwd()) {
   const compose = validateDockerCompose(cwd);
   const lintstaged = validateLintstagedrc(cwd);
   const ciDoc = validateCiWorkflowDoc(cwd);
+  const bindingsDoc = validateBindingsDriftDoc(cwd);
   const pipeline = validatePipelineWiring(cwd);
 
   const allErrors = [
@@ -332,6 +365,7 @@ export function determineDevopsOutcome(cwd = process.cwd()) {
     ...compose.errors,
     ...lintstaged.errors,
     ...ciDoc.errors,
+    ...bindingsDoc.errors,
     ...pipeline.errors,
   ];
 
