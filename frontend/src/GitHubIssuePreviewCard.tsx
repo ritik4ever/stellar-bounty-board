@@ -1,11 +1,15 @@
-import { ArrowUpRight, FolderGit2 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { ArrowUpRight, FolderGit2 } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
 
-import { fetchGithubIssue, type GithubIssueData, type GithubIssueLabel } from "./githubIssueApi";
+import { fetchGithubIssue, type GithubIssueData, type GithubIssueLabel } from './githubIssueApi';
 
 type Props = {
-  repo: string;
-  issueNumber: number;
+  repo?: string;
+  issueNumber?: number;
+  issue?: any;
+  loading?: boolean;
+  error?: boolean | string | null;
+  onRetry?: () => void;
 };
 
 function isValidRepo(value: string): boolean {
@@ -26,11 +30,11 @@ function useDarkText(hex: string): boolean {
 
 function formatIssueDate(isoDate: string): string {
   const date = new Date(isoDate);
-  if (Number.isNaN(date.getTime())) return "—";
+  if (Number.isNaN(date.getTime())) return '—';
   return date.toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
   });
 }
 
@@ -48,24 +52,20 @@ function IssueLabels({ labels }: { labels: GithubIssueLabel[] }) {
     <div className="chip-row" role="list" aria-label="Issue labels">
       {visibleLabels.map((label) => {
         const bg = `#${label.color}`;
-        const color = useDarkText(label.color) ? "#1a1a1a" : "#ffffff";
+        const color = useDarkText(label.color) ? '#1a1a1a' : '#ffffff';
         return (
           <span
             key={label.name}
             role="listitem"
             className="chip"
-            style={{ backgroundColor: bg, color, border: "none" }}
+            style={{ backgroundColor: bg, color, border: 'none' }}
           >
             {label.name}
           </span>
         );
       })}
       {overflowCount > 0 && (
-        <span
-          role="listitem"
-          className="chip"
-          aria-label={`${overflowCount} more labels`}
-        >
+        <span role="listitem" className="chip" aria-label={`${overflowCount} more labels`}>
           +{overflowCount} more
         </span>
       )}
@@ -114,7 +114,7 @@ function CardShell({ href, disabled, ariaLabel, children }: CardShellProps) {
         className="github-issue-card github-issue-card--disabled"
         aria-disabled="true"
         role="region"
-        aria-label={ariaLabel ?? "GitHub issue preview"}
+        aria-label={ariaLabel ?? 'GitHub issue preview'}
       >
         {children}
       </div>
@@ -134,17 +134,39 @@ function CardShell({ href, disabled, ariaLabel, children }: CardShellProps) {
   );
 }
 
-export default function GitHubIssuePreviewCard({ repo, issueNumber }: Props) {
+export default function GitHubIssuePreviewCard({
+  repo = '',
+  issueNumber = 0,
+  issue: directIssue,
+  loading: externalLoading,
+  error: externalError,
+  onRetry,
+}: Props) {
   const normalizedRepo = repo.trim();
   const canLink = isValidRepo(normalizedRepo) && Number.isFinite(issueNumber) && issueNumber > 0;
   const href = canLink ? `https://github.com/${normalizedRepo}/issues/${issueNumber}` : undefined;
 
   const [issue, setIssue] = useState<GithubIssueData | null>(null);
-  const [loading, setLoading] = useState(canLink);
+  const [loading, setLoading] = useState(canLink && !directIssue);
   const [error, setError] = useState(false);
   const [rateLimited, setRateLimited] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
+
+  const handleRetry = () => {
+    if (onRetry) {
+      onRetry();
+    } else {
+      setRetryKey((k) => k + 1);
+    }
+  };
 
   useEffect(() => {
+    if (directIssue) {
+      setLoading(false);
+      setError(false);
+      return;
+    }
+
     if (!canLink) {
       setLoading(false);
       setIssue(null);
@@ -176,40 +198,28 @@ export default function GitHubIssuePreviewCard({ repo, issueNumber }: Props) {
     return () => {
       active = false;
     };
-  }, [canLink, normalizedRepo, issueNumber]);
+  }, [canLink, normalizedRepo, issueNumber, directIssue, retryKey]);
 
-  if (!canLink) {
-    return (
-      <CardShell disabled ariaLabel="GitHub issue preview">
-        <div className="github-issue-card__top">
-          <div className="github-issue-card__heading">
-            <FolderGit2 size={16} aria-hidden="true" />
-            <span className="github-issue-card__repo">owner/repo</span>
-            <span className="github-issue-card__number">#—</span>
-          </div>
-        </div>
-        <strong className="github-issue-card__title">Issue title preview</strong>
-        <div className="github-issue-card__empty">Add labels to help contributors filter.</div>
-      </CardShell>
-    );
-  }
+  const effectiveLoading = externalLoading !== undefined ? externalLoading : loading;
+  const effectiveError = externalError !== undefined ? !!externalError : error;
+  const effectiveIssue = directIssue || issue;
 
-  if (loading) {
+  if (effectiveLoading) {
     return <GitHubIssuePreviewCardSkeleton />;
   }
 
-  if (error) {
+  if (effectiveError) {
     return (
       <div
         className="github-issue-card github-issue-card--error"
         role="region"
-        aria-label={`GitHub issue preview for ${normalizedRepo} #${issueNumber}`}
+        aria-label={`GitHub issue preview for ${normalizedRepo || 'issue'} #${issueNumber || ''}`}
       >
         <div className="github-issue-card__top">
           <div className="github-issue-card__heading">
             <FolderGit2 size={16} aria-hidden="true" />
-            <span className="github-issue-card__repo">{normalizedRepo}</span>
-            <span className="github-issue-card__number">#{issueNumber}</span>
+            <span className="github-issue-card__repo">{normalizedRepo || 'owner/repo'}</span>
+            <span className="github-issue-card__number">#{issueNumber || '—'}</span>
           </div>
         </div>
         <div className="github-issue-card__error" role="alert">
@@ -220,54 +230,97 @@ export default function GitHubIssuePreviewCard({ repo, issueNumber }: Props) {
               details.
             </p>
           ) : (
-            <p>The issue may be private or unavailable.</p>
+            <p>
+              {typeof externalError === 'string'
+                ? externalError
+                : 'The issue may be private or unavailable.'}
+            </p>
           )}
-          {href && (
-            <a
-              className="github-issue-card__error-link"
-              href={href}
-              target="_blank"
-              rel="noreferrer"
+          <div className="github-issue-card__error-actions">
+            <button
+              type="button"
+              className="github-issue-card__retry-btn primary-button"
+              onClick={handleRetry}
             >
-              View issue on GitHub <ArrowUpRight size={14} aria-hidden="true" />
-            </a>
-          )}
+              Retry
+            </button>
+            {href && (
+              <a
+                className="github-issue-card__error-link"
+                href={href}
+                target="_blank"
+                rel="noreferrer"
+              >
+                View issue on GitHub <ArrowUpRight size={14} aria-hidden="true" />
+              </a>
+            )}
+          </div>
         </div>
       </div>
     );
   }
 
-  const cardAriaLabel = `Issue #${issueNumber}: ${issue?.title ?? "preview"} on ${normalizedRepo}`;
+  if (!canLink && !directIssue) {
+    return (
+      <CardShell disabled ariaLabel="GitHub issue preview">
+        <div className="github-issue-card__top">
+          <div className="github-issue-card__heading">
+            <FolderGit2 size={16} aria-hidden="true" />
+            <span className="github-issue-card__repo">owner/repo</span>
+            <span className="github-issue-card__number">#—</span>
+          </div>
+        </div>
+        <strong className="github-issue-card__title">Issue title preview</strong>
+        <div className="github-issue-card__empty" role="status">
+          No issue data available. Add labels to help contributors filter.
+        </div>
+      </CardShell>
+    );
+  }
+
+  const cardAriaLabel = `Issue #${issueNumber}: ${effectiveIssue?.title ?? 'preview'} on ${normalizedRepo}`;
 
   return (
     <CardShell href={href} ariaLabel={cardAriaLabel}>
       <div className="github-issue-card__top">
         <div className="github-issue-card__heading">
           <FolderGit2 size={16} aria-hidden="true" />
-          <span className="github-issue-card__repo">{normalizedRepo}</span>
-          <span className="github-issue-card__number">#{issueNumber}</span>
-          {issue ? (
+          <span className="github-issue-card__repo">{normalizedRepo || 'owner/repo'}</span>
+          <span className="github-issue-card__number">#{issueNumber || '—'}</span>
+          {effectiveIssue?.state ? (
             <span
-              className={`github-issue-card__state github-issue-card__state--${issue.state}`}
+              className={`github-issue-card__state github-issue-card__state--${effectiveIssue.state}`}
             >
-              {issue.state}
+              {effectiveIssue.state}
             </span>
           ) : null}
+          {effectiveIssue?.impact ? (
+            <span className="github-issue-card__state">{effectiveIssue.impact}</span>
+          ) : null}
         </div>
-        <span className="github-issue-card__cta" aria-hidden="true">
-          View on GitHub <ArrowUpRight size={16} aria-hidden="true" />
-        </span>
+        {href && (
+          <span className="github-issue-card__cta" aria-hidden="true">
+            View on GitHub <ArrowUpRight size={16} aria-hidden="true" />
+          </span>
+        )}
       </div>
 
-      <strong className="github-issue-card__title">{issue?.title ?? "Issue title preview"}</strong>
+      <strong className="github-issue-card__title">
+        {effectiveIssue?.title ?? 'Issue title preview'}
+      </strong>
 
-      {issue ? (
+      {effectiveIssue?.summary && <p className="bounty-summary">{effectiveIssue.summary}</p>}
+
+      {effectiveIssue?.createdAt ? (
         <p className="github-issue-card__opened">
-          Opened <time dateTime={issue.createdAt}>{formatIssueDate(issue.createdAt)}</time>
+          Opened{' '}
+          <time dateTime={effectiveIssue.createdAt}>
+            {formatIssueDate(effectiveIssue.createdAt)}
+          </time>
         </p>
       ) : null}
 
-      <IssueLabels labels={issue?.labels ?? []} />
+      <IssueLabels labels={effectiveIssue?.labels ?? []} />
     </CardShell>
   );
 }
