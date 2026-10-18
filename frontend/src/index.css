@@ -2572,3 +2572,119 @@ select {
 .bulk-result--failure {
   color: var(--danger, #cf222e);
 }
+
+/* ── Small-viewport responsive layout (< 480px / 320px) — Issue #1295 ─────── */
+
+@media (max-width: 480px) {
+  /* 1. Prevent horizontal overflow at 320px-414px */
+  html,
+  body {
+    overflow-x: hidden;
+    max-width: 100vw;
+  }
+
+  .page-shell,
+  .dashboard,
+  .content-grid,
+  .hero,
+  .bounty-card,
+  .modal-dialog,
+  .submission-modal,
+  .disconnect-modal,
+  .bulk-toolbar,
+  .bulk-results {
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .page-shell {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  /* 2. Tap targets meet 44px minimum for touch accessibility */
+  .primary-button,
+  .secondary-button,
+  .ghost-button,
+  .danger-button,
+  .filter-chip,
+  .filter-btn,
+  .tab-item,
+  .pagination-btn,
+  .modal-close-btn,
+  .copy-meta-button,
+  .bounty-card__select,
+  .lo-button,
+  .btn,
+  button:not(.small-badge) {
+    min-height: 44px;
+    min-width: 44px;
+    box-sizing: border-box;
+  }
+
+  input[type="text"],
+  input[type="search"],
+  input[type="number"],
+  input[type="password"],
+  select,
+  textarea {
+    min-height: 44px;
+    box-sizing: border-box;
+    font-size: 16px; /* Prevents auto-zoom on mobile */
+  }
+
+  /* 3. Text truncation with full value available on demand */
+  .truncate-mobile,
+  .bounty-title,
+  .issue-summary,
+  .address-chip,
+  .stellar-address,
+  .meta-value {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .truncate-mobile:hover,
+  .truncate-mobile:focus-visible,
+  .bounty-title:hover,
+  .bounty-title:focus-visible,
+  .address-chip:hover,
+  .address-chip:focus-visible,
+  .stellar-address:hover,
+  .stellar-address:focus-visible {
+    white-space: normal;
+    word-break: break-all;
+    overflow-wrap: anywhere;
+  }
+
+  /* Stack actions vertically on small screens */
+  .bulk-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .bulk-toolbar button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 320px) {
+  /* Extra narrow viewport adjustments (320px) */
+  .page-shell {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  .hero h1,
+  .dashboard h1 {
+    font-size: 1.5rem;
+    line-height: 1.25;
+  }
+}
+
