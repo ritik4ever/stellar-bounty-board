@@ -19,6 +19,7 @@
 - [Automated Security Analysis](#automated-security-analysis)
 - [Scope](#scope)
 - [See Also / Related Documentation](#see-also--related-documentation)
+- [Wave & Backlog Alignment](#wave--backlog-alignment)
 
 ---
 
@@ -408,4 +409,34 @@ The following are **out of scope**:
 - [RUNBOOK.md](./RUNBOOK.md) — Operational runbooks including incident response procedures for compromised arbiter keys.
 - [CONTRIBUTING.md](./CONTRIBUTING.md) — Contribution guidelines and development workflow.
 
-_Last updated: 2026-05-28_
+
+## Wave & Backlog Alignment
+
+This security policy directly aligns with the project's phased delivery roadmap across waves 4, 5, and 6:
+
+- **Wave 4 ([docs/wave-4.md](docs/wave-4.md)) — Core Foundation & Schema Hardening:**
+  - Implements API input validation and automated contract verification.
+  - Aligns with GitHub PR webhook handlers for status transitions.
+- **Wave 5 ([docs/wave-5.md](docs/wave-5.md)) — Security, Observability & Polish:**
+  - Enforces `GITHUB_WEBHOOK_SECRET` validation on server startup (`WEBHOOK_SECRET_VALIDATION.md`).
+  - Implements structured security audit logging and timing-safe signature verification.
+- **Wave 6 ([docs/wave-6.md](docs/wave-6.md)) — Production Hardening & Integration:**
+  - Automated webhook synchronization with persistent audit storage.
+  - Secret rotation runbooks and multi-environment deployment gating.
+
+### Canonical Contribution Process
+
+When contributing security fixes, enhancements, or non-sensitive tooling updates, follow the single canonical workflow defined across the Wave backlogs ([docs/wave-4.md](docs/wave-4.md)) and [CONTRIBUTING.md](./CONTRIBUTING.md):
+1. **Browse Backlog Issues:** Check open issues tagged `wave-4`, `wave-5`, `wave-6`, or `Stellar Wave`.
+2. **Claim Prior to Work:** Comment on the issue you plan to claim to avoid duplicate effort.
+3. **Branching:** Create focused topic branches off `main` (`git checkout -b fix/security-...`, `docs/...`, or `feat/...`).
+4. **Conventional Commits & Verification:** Follow conventional commits (`fix(...)`, `docs(...)`, `feat(...)`) and run `npm test` and `npm run validate:configs` locally.
+5. **PR & Issue Linkage:** Open a PR referencing the issue number (`Closes #<issue>` or `Resolves #<issue>`).
+
+> [!IMPORTANT]
+> For reporting undisclosed or critical zero-day vulnerabilities, always use the private disclosure channels above ([Reporting a Vulnerability](#reporting-a-vulnerability)) rather than public GitHub issues or PRs.
+
+---
+
+_Last updated: October 18, 2026 (Reconciled with Wave 4/5/6 backlog structure, Issue #1380)_
+
