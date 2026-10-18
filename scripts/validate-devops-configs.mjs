@@ -258,6 +258,37 @@ export function validateLintstagedrc(cwd = process.cwd()) {
   };
 }
 
+export function validateCiWorkflow(cwd = process.cwd()) {
+  const errors = [];
+  const ciPath = join(cwd, '.github', 'workflows', 'ci.yml');
+
+  if (!existsSync(ciPath)) {
+    return { valid: false, errors: ['.github/workflows/ci.yml is missing (Issue #1424)'] };
+  }
+
+  const content = readFileSync(ciPath, 'utf8');
+  const requiredDeviations = [
+    'TOOL DEFAULT DEVIATIONS DOCUMENTATION (Issue #1424)',
+    'cache-dependency-path',
+    'wasm32-unknown-unknown',
+    'cargo install cargo-audit',
+    'if: always()',
+  ];
+
+  for (const item of requiredDeviations) {
+    if (!content.includes(item)) {
+      errors.push(
+        `Missing documentation of tool default deviation "${item}" in .github/workflows/ci.yml (Issue #1424)`
+      );
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  };
+}
+
 export function determineDevopsOutcome(cwd = process.cwd()) {
   const env = validateEnvExample(cwd);
   const eslint = validateEslintConfig(cwd);
@@ -266,6 +297,7 @@ export function determineDevopsOutcome(cwd = process.cwd()) {
   const dockerfile = validateDockerfile(cwd);
   const compose = validateDockerCompose(cwd);
   const lintstaged = validateLintstagedrc(cwd);
+  const ciWorkflow = validateCiWorkflow(cwd);
   const pipeline = validatePipelineWiring(cwd);
 
   const allErrors = [
@@ -276,6 +308,7 @@ export function determineDevopsOutcome(cwd = process.cwd()) {
     ...dockerfile.errors,
     ...compose.errors,
     ...lintstaged.errors,
+    ...ciWorkflow.errors,
     ...pipeline.errors,
   ];
 

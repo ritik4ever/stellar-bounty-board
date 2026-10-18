@@ -5,6 +5,7 @@ import {
   validateEslintConfig,
   validateNpmrc,
   validatePipelineWiring,
+  validateCiWorkflow,
   determineDevopsOutcome,
 } from './validate-devops-configs.mjs';
 
@@ -23,6 +24,11 @@ test('ISSUE-1399 & ISSUE-1401: .eslintrc.json non-obvious rules are documented a
 test('ISSUE-1433: .npmrc documents deliberate deviations from npm v7+ defaults', () => {
   const npmrcResult = validateNpmrc();
   assert.equal(npmrcResult.valid, true, `npmrc errors: ${npmrcResult.errors.join('; ')}`);
+});
+
+test('ISSUE-1424: .github/workflows/ci.yml documents deliberate deviations from tool defaults', () => {
+  const ciResult = validateCiWorkflow();
+  assert.equal(ciResult.valid, true, `CI errors: ${ciResult.errors.join('; ')}`);
 });
 
 test('ISSUE-1397, 1401, 1433: pipeline wiring enforces configuration validation', () => {

@@ -1,5 +1,47 @@
 name: CI
 
+# ==============================================================================
+# TOOL DEFAULT DEVIATIONS DOCUMENTATION (Issue #1424)
+# ==============================================================================
+# This workflow intentionally deviates from standard CI action and tool defaults
+# for performance, determinism, and monorepo compatibility:
+#
+# 1. actions/setup-node:
+#    - Tool Default: Checks only root package-lock.json for npm caching.
+#    - Deviation: Uses dual `cache-dependency-path` (root + subpackage lockfiles)
+#      because backend and frontend have decoupled lockfiles in this monorepo.
+#
+# 2. actions/cache for node_modules:
+#    - Tool Default: Caches ~/.npm global tarballs.
+#    - Deviation: Caches local `node_modules` and subpackage `node_modules` directly
+#      to bypass npm extraction overhead and accelerate runner boot times.
+#
+# 3. npm execution:
+#    - Tool Default: `npm install` for interactive environments.
+#    - Deviation: `npm ci` with `--prefix` to enforce strict lockfile fidelity and
+#      fail fast if dependencies deviate from committed locks.
+#
+# 4. actions/upload-artifact:
+#    - Tool Default: `if: success()` only uploads artifacts on clean exit.
+#    - Deviation: `if: always()` preserves coverage reports and audit logs even
+#      when tests or security audits fail, aiding post-mortem analysis.
+#
+# 5. actions-rust-lang/setup-rust-toolchain:
+#    - Tool Default: Native host architecture (x86_64-unknown-linux-gnu).
+#    - Deviation: Explicit `target: wasm32-unknown-unknown` required for Soroban
+#      smart contract compilation to Stellar WebAssembly bytecode.
+#
+# 6. cargo install cargo-audit:
+#    - Tool Default: Installs unpinned latest version from crates.io.
+#    - Deviation: Explicitly pinned to `--version "=0.21.2" --locked` to prevent
+#      upstream breaking changes or schema deprecations in advisory checks.
+#
+# 7. cargo build:
+#    - Tool Default: Unoptimized debug build without target flag.
+#    - Deviation: `cargo build --target wasm32-unknown-unknown --release` to ensure
+#      proper WASM optimization and gas meter conformance.
+# ==============================================================================
+
 on:
   pull_request:
     branches:
@@ -19,10 +61,12 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+          # Deviation from default: Track both root and backend lockfiles for monorepo cache invalidation
           cache-dependency-path: |
             package-lock.json
             backend/package-lock.json
 
+      # Deviation from default: Direct node_modules caching avoids npm extraction latency
       - name: Cache root and backend node_modules
         uses: actions/cache@v4
         with:
@@ -33,6 +77,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-backend-node-modules-
 
+      # Deviation from default: Use 'npm ci' instead of 'npm install' to ensure deterministic lockfile builds
       - name: Install root dependencies
         run: npm ci
 
@@ -51,6 +96,7 @@ jobs:
       - name: Run backend coverage
         run: npm --prefix backend run test:coverage
 
+      # Deviation from default: Upload even on failure (if: always()) to retain test diagnostics
       - name: Upload backend coverage report
         uses: actions/upload-artifact@v4
         if: always()
@@ -71,10 +117,12 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+          # Deviation from default: Track both root and frontend lockfiles for cache invalidation
           cache-dependency-path: |
             package-lock.json
             frontend/package-lock.json
 
+      # Deviation from default: Direct node_modules caching accelerates CI build times
       - name: Cache root and frontend node_modules
         uses: actions/cache@v4
         with:
@@ -85,6 +133,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-frontend-node-modules-
 
+      # Deviation from default: Strict npm ci for deterministic monorepo dependency trees
       - name: Install root dependencies
         run: npm ci
 
@@ -111,6 +160,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Deviation from default: Explicit wasm32-unknown-unknown target required for Soroban WASM output
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -127,12 +177,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      # Deviation from default: Pin cargo-audit to exact version =0.21.2 with --locked for determinism
       - name: Install cargo-audit
         run: cargo install cargo-audit --version "=0.21.2" --locked
 
       - name: Cargo audit contract
         run: cd contracts && cargo audit > ../contract-audit.log
 
+      # Deviation from default: Preserve audit log artifact regardless of job exit code
       - name: Upload contract audit artifact
         uses: actions/upload-artifact@v4
         if: always()
@@ -140,5 +192,6 @@ jobs:
           name: contract-audit
           path: contract-audit.log
 
+      # Deviation from default: Explicit --target wasm32-unknown-unknown --release for Soroban contract bytecode
       - name: Build Soroban contract
         run: cd contracts && cargo build --target wasm32-unknown-unknown --release
