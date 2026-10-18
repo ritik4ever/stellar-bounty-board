@@ -6,6 +6,7 @@ This project is intentionally scoped as an MVP with obvious upgrade paths.
 ## Table of Contents
 
 - [Run locally](#run-locally)
+- [How to Contribute (Canonical Process)](#how-to-contribute-canonical-process)
 - [Conventional Commits](#conventional-commits)
   - [Commit Format](#commit-format)
   - [Commit Types](#commit-types)
@@ -95,6 +96,34 @@ High-value contribution areas:
 - Soroban event indexing
 - Persistent relational storage
 - CI and integration tests.
+
+## How to Contribute (Canonical Process)
+
+To ensure seamless coordination and maintain zero-defect standards across the repository, all contributions follow this single canonical workflow (aligned with [Wave 4](docs/wave-4.md), [Wave 5](docs/wave-5.md), and [Wave 6](docs/wave-6.md) backlogs per Issue #1377):
+
+1. **Find an active issue**:
+   - Browse issues tagged with `Stellar Wave` or `wave-4` / `wave-5` / `wave-6`.
+   - Check the wave backlog roadmaps: [Wave 4](docs/wave-4.md), [Wave 5](docs/wave-5.md), and [Wave 6](docs/wave-6.md).
+2. **Claim before starting**:
+   - Comment on the issue to request assignment and prevent duplicate work.
+3. **Fork and branch**:
+   - Fork the repository: `gh repo fork ritik4ever/stellar-bounty-board --clone`
+   - Create a clean feature branch: `git checkout -b feat/your-feature-name`
+4. **Implement and verify locally**:
+   - Write your changes following existing repository patterns.
+   - Run the complete local test and validation suite:
+     ```bash
+     node --test scripts/*.test.mjs
+     npm run validate:configs
+     npm run format:check
+     ```
+5. **Commit cleanly**:
+   - Follow [Conventional Commits](#conventional-commits) guidelines (`feat: ...`, `fix: ...`, `docs: ...`, `test: ...`).
+   - Do NOT include Stellar public keys or wallet payout addresses in commit messages.
+6. **Submit pull request**:
+   - Open a pull request targeting `ritik4ever/stellar-bounty-board:main`.
+   - Reference the issue in the PR description: `Resolves #<issue-number>` (or `Closes #<issue-number>`).
+   - Verify automated CI checks pass.
 
 ## Conventional Commits
 
