@@ -386,3 +386,14 @@ export function updateProfileFromBounties(
 
   return updatedProfile;
 }
+
+/**
+ * Generate an accessible label describing the recommendation match details
+ * for screen readers and assistive technology (#1291).
+ */
+export function getAccessibleRecommendationLabel(recommendation: BountyRecommendation): string {
+  const matchPercent = Math.round(recommendation.score * 100);
+  const reasonsText =
+    recommendation.reasons.length > 0 ? ` Reasons: ${recommendation.reasons.join(', ')}.` : '';
+  return `${matchPercent}% match for bounty ${recommendation.bounty.title}.${reasonsText}`;
+}
