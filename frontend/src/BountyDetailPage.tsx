@@ -19,19 +19,42 @@ import { findSimilarBounties, type BountyRecommendation } from './recommendation
 
 type BountyAction = 'reserve' | 'submit' | 'release' | 'refund';
 
+const DEFAULT_STATUS_COPY: Record<BountyStatus, { label: string; description: string }> = {
+  open: { label: 'Open', description: 'Available for work' },
+  reserved: { label: 'Reserved', description: 'Claimed by contributor' },
+  submitted: { label: 'Submitted', description: 'Work submitted for review' },
+  released: { label: 'Released', description: 'Payment disbursed' },
+  refunded: { label: 'Refunded', description: 'Funds returned to creator' },
+  disputed: { label: 'Disputed', description: 'Under arbitration' },
+};
+
+const DEFAULT_ACTION_COPY: Record<
+  BountyStatus,
+  Array<{ action: BountyAction; label: string; title: string }>
+> = {
+  open: [{ action: 'reserve', label: 'Reserve', title: 'Reserve this bounty' }],
+  reserved: [{ action: 'submit', label: 'Submit Work', title: 'Submit work for review' }],
+  submitted: [{ action: 'release', label: 'Release Payment', title: 'Release bounty funds' }],
+  released: [],
+  refunded: [],
+  disputed: [],
+};
+
 type Props = {
   bounty: Bounty | null;
-  loading: boolean;
-  onBack: () => void;
-  owner: string;
-  avatarUrl: string;
-  statusCopy: Record<BountyStatus, { label: string; description: string }>;
-  actionCopy: Record<BountyStatus, Array<{ action: BountyAction; label: string; title: string }>>;
-  renderActionButton: (
+  loading?: boolean;
+  error?: string | null;
+  onRetry?: () => void;
+  onBack?: () => void;
+  owner?: string;
+  avatarUrl?: string;
+  statusCopy?: Record<BountyStatus, { label: string; description: string }>;
+  actionCopy?: Record<BountyStatus, Array<{ action: BountyAction; label: string; title: string }>>;
+  renderActionButton?: (
     bounty: Bounty,
     action: { action: BountyAction; label: string; title: string }
   ) => ReactNode;
-  formatTimestamp: (value?: number) => string;
+  formatTimestamp?: (value?: number) => string;
   bounties?: Bounty[];
 };
 
@@ -129,15 +152,17 @@ function BountyTimeline({
 
 export default function BountyDetailPage({
   bounty,
-  loading,
-  onBack,
-  owner,
-  avatarUrl,
-  statusCopy,
-  actionCopy,
-  renderActionButton,
-  formatTimestamp,
-  bounties,
+  loading = false,
+  error = null,
+  onRetry,
+  onBack = () => {},
+  owner = '',
+  avatarUrl = '',
+  statusCopy = DEFAULT_STATUS_COPY,
+  actionCopy = DEFAULT_ACTION_COPY,
+  renderActionButton = () => null,
+  formatTimestamp = (v) => (v ? new Date(v * 1000).toLocaleDateString() : ''),
+  bounties = [],
 }: Props) {
   const statusAnnouncement = useBountyStatusAnnouncement(bounty, statusCopy);
   const [copied, setCopied] = useState(false);
@@ -234,9 +259,42 @@ export default function BountyDetailPage({
         </div>
 
         {loading && !bounty ? (
-          <div className="empty-state">Loading bounty...</div>
+          <div
+            className="empty-state bounty-detail--loading"
+            role="status"
+            aria-busy="true"
+            data-testid="bounty-detail-loading"
+          >
+            <div className="loading-spinner" aria-hidden="true" />
+            <p>Loading bounty...</p>
+          </div>
+        ) : error ? (
+          <div
+            className="error-state bounty-detail--error"
+            role="alert"
+            data-testid="bounty-detail-error"
+          >
+            <AlertTriangle size={28} aria-hidden="true" />
+            <p className="bounty-detail__error-message">{error}</p>
+            {onRetry && (
+              <button
+                type="button"
+                className="secondary-button bounty-detail__retry-btn"
+                onClick={onRetry}
+                aria-label="Retry loading bounty"
+              >
+                Retry
+              </button>
+            )}
+          </div>
         ) : !bounty ? (
-          <div className="empty-state">Bounty not found.</div>
+          <div
+            className="empty-state bounty-detail--empty"
+            role="status"
+            data-testid="bounty-detail-empty"
+          >
+            <p>Bounty not found.</p>
+          </div>
         ) : (
           <div className="bounty-detail__content">
             <div className="bounty-detail__hero">

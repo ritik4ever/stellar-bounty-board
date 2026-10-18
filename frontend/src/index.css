@@ -550,7 +550,8 @@ textarea:focus {
 }
 
 .empty-state,
-.fetch-state--empty {
+.fetch-state--empty,
+.bounty-detail--empty {
   padding: 36px;
   border-radius: 22px;
   border: 1px dashed var(--line);
@@ -594,7 +595,8 @@ textarea:focus {
 
 /* ── Explicit Loading State (#1292) ────────────────────────────────────── */
 .loading-state,
-.fetch-state--loading {
+.fetch-state--loading,
+.bounty-detail--loading {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -638,7 +640,8 @@ textarea:focus {
 
 /* ── Explicit Error State with Retry Affordance (#1292) ─────────────────── */
 .error-state,
-.fetch-state--error {
+.fetch-state--error,
+.bounty-detail--error {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -649,8 +652,19 @@ textarea:focus {
   border: 1px solid rgba(184, 85, 75, 0.4);
   background: rgba(184, 85, 75, 0.06);
   text-align: center;
-  color: var(--ink);
+  color: var(--coral);
   min-height: 200px;
+}
+
+.bounty-detail__error-message {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--coral);
+  font-weight: 500;
+}
+
+.bounty-detail__retry-btn {
+  margin-top: 8px;
 }
 
 [data-theme='dark'] .error-state,
