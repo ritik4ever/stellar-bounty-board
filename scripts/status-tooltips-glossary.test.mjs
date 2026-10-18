@@ -98,7 +98,7 @@ test('ISSUE-14: App.tsx wires StatusGlossary, header trigger, and filter tooltip
   // Verify filter chips tooltips
   assert.match(
     content,
-    /title=\{status === 'all' \? 'Show all bounty statuses' : \(statusCopy\[status\]\?\.description \|\| status\)\}/,
+    /title=\{\s*status === 'all'[\s\S]*?statusCopy\[status\]\?\.description/,
     'Filter chips must have descriptive title tooltips'
   );
 

@@ -36,7 +36,7 @@ import {
 } from './api';
 import { useFreighter } from './hooks/useFreighter';
 import FreighterConnectButton from './components/FreighterConnectButton';
-import { statusCopy, actionCopy, readInitialFilters } from './constants';
+import { statusCopy, actionCopy, readInitialFilters, buildFilterQueryParams } from './constants';
 import { debounce, formatCurrencyInput, parseCurrencyInput } from './utils';
 import { type Bounty, type BountyStatus, type CreateBountyPayload, type OpenIssue } from './types';
 
@@ -330,17 +330,16 @@ function App() {
   useEffect(() => {
     if (pathname.startsWith('/bounties/') || pathname.startsWith('/repo/')) return;
 
-    const params = new URLSearchParams();
-    if (debouncedSearchQuery.trim() !== '') params.set('search', debouncedSearchQuery);
-    if (statusFilter !== 'all') params.set('status', statusFilter);
-    if (minReward !== '') params.set('minReward', minReward);
-    if (maxReward !== '') params.set('maxReward', maxReward);
-    if (repoFilter !== '') params.set('repo', repoFilter);
-    if (tokenFilter !== '') params.set('tokenSymbol', tokenFilter);
-    if (sortOption !== 'newest') params.set('sort', sortOption);
-    if (sortDirection !== 'desc') params.set('direction', sortDirection);
-
-    const nextSearch = params.toString();
+    const nextSearch = buildFilterQueryParams({
+      searchQuery: debouncedSearchQuery,
+      statusFilter,
+      minReward,
+      maxReward,
+      repoFilter,
+      tokenFilter,
+      sortOption,
+      sortDirection,
+    });
     const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`;
     window.history.replaceState(null, '', nextUrl);
   }, [
