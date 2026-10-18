@@ -258,6 +258,37 @@ export function validateLintstagedrc(cwd = process.cwd()) {
   };
 }
 
+export function validateCiWorkflowDoc(cwd = process.cwd()) {
+  const errors = [];
+  const docPath = join(cwd, 'docs', 'CI_WORKFLOW.md');
+
+  if (!existsSync(docPath)) {
+    return { valid: false, errors: ['docs/CI_WORKFLOW.md is missing (Issue #1424)'] };
+  }
+
+  const content = readFileSync(docPath, 'utf8');
+  const requiredDeviations = [
+    'cache-dependency-path',
+    'wasm32-unknown-unknown',
+    'cargo-audit',
+    'if: always()',
+    'Matrix of Deviations from Framework & Action Defaults',
+  ];
+
+  for (const item of requiredDeviations) {
+    if (!content.includes(item)) {
+      errors.push(
+        `Missing documentation of tool default deviation "${item}" in docs/CI_WORKFLOW.md (Issue #1424)`
+      );
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  };
+}
+
 export function determineDevopsOutcome(cwd = process.cwd()) {
   const env = validateEnvExample(cwd);
   const eslint = validateEslintConfig(cwd);
@@ -266,6 +297,7 @@ export function determineDevopsOutcome(cwd = process.cwd()) {
   const dockerfile = validateDockerfile(cwd);
   const compose = validateDockerCompose(cwd);
   const lintstaged = validateLintstagedrc(cwd);
+  const ciDoc = validateCiWorkflowDoc(cwd);
   const pipeline = validatePipelineWiring(cwd);
 
   const allErrors = [
@@ -276,6 +308,7 @@ export function determineDevopsOutcome(cwd = process.cwd()) {
     ...dockerfile.errors,
     ...compose.errors,
     ...lintstaged.errors,
+    ...ciDoc.errors,
     ...pipeline.errors,
   ];
 
