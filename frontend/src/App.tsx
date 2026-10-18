@@ -17,7 +17,9 @@ import {
   Search,
   Sun,
   Bell,
+  HelpCircle,
 } from 'lucide-react';
+import StatusGlossary from './StatusGlossary';
 import { toast } from 'sonner';
 import {
   createBounty,
@@ -204,6 +206,7 @@ function App() {
   const [sortOption, setSortOption] = useState(initialFilters.sortOption);
   const [sortDirection, setSortDirection] = useState(initialFilters.sortDirection);
   const [pathname, setPathname] = useState(window.location.pathname);
+  const [showGlossary, setShowGlossary] = useState(false);
 
   useEffect(() => {
     setPage(1);
@@ -643,6 +646,8 @@ function App() {
           type="button"
           className={action.action === 'refund' ? 'ghost-button' : 'secondary-button'}
           title={action.title}
+          aria-label={`${action.label}: ${action.title}`}
+          data-testid={`action-button-${action.action}`}
           onClick={onClick}
         >
           {action.label}
@@ -824,6 +829,16 @@ function App() {
               data-testid="header-notification-preferences-btn"
             >
               <Bell size={18} />
+            </button>
+            <button
+              type="button"
+              className="icon-button"
+              title="Bounty Status & Actions Guide"
+              aria-label="Bounty Status & Actions Guide"
+              onClick={() => setShowGlossary(true)}
+              data-testid="header-status-glossary-btn"
+            >
+              <HelpCircle size={18} />
             </button>
             <LanguageSwitcher />
             <FreighterConnectButton freighter={freighter} compact />
@@ -1076,6 +1091,16 @@ function App() {
                     <button
                       key={status}
                       className={`filter-chip ${statusFilter === status ? 'active' : ''}`}
+                      title={
+                        status === 'all'
+                          ? 'Show all bounty statuses'
+                          : statusCopy[status]?.description || status
+                      }
+                      aria-label={
+                        status === 'all'
+                          ? 'Show all bounty statuses'
+                          : `Filter by ${statusCopy[status]?.label || status}: ${statusCopy[status]?.description || ''}`
+                      }
                       onClick={() => {
                         setPage(1);
                         setStatusFilter(status);
@@ -1084,6 +1109,16 @@ function App() {
                       {status}
                     </button>
                   ))}
+                  <button
+                    type="button"
+                    className="filter-chip glossary-trigger-chip"
+                    onClick={() => setShowGlossary(true)}
+                    title="View bounty status glossary and lifecycle explanations"
+                    data-testid="status-glossary-toggle"
+                  >
+                    <HelpCircle size={13} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+                    Status Guide
+                  </button>
                 </div>
               </div>
 
@@ -1176,6 +1211,8 @@ function App() {
         isOpen={showShortcutsOverlay}
         onClose={() => setShowShortcutsOverlay(false)}
       />
+
+      <StatusGlossary isOpen={showGlossary} onClose={() => setShowGlossary(false)} />
     </div>
   );
 }

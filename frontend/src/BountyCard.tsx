@@ -1,8 +1,8 @@
-import React, { memo, useEffect, useRef, useState, type ReactNode } from "react";
-import { statusCopy, actionCopy } from "./constants";
-import { type Bounty } from "./types";
-import BountyCountdown from "./BountyCountdown";
-import { xlmToUsd } from "./utils";
+import React, { memo, useEffect, useRef, useState, type ReactNode } from 'react';
+import { statusCopy, actionCopy } from './constants';
+import { type Bounty } from './types';
+import BountyCountdown from './BountyCountdown';
+import { xlmToUsd } from './utils';
 
 /** Props for the BountyAmount sub-component. */
 interface BountyAmountProps {
@@ -19,10 +19,10 @@ const BountyAmount = memo(function BountyAmount({ bounty }: BountyAmountProps) {
   useEffect(() => {
     let active = true;
 
-    if (bounty.tokenSymbol.toUpperCase() === "USDC") {
-      const formatted = new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency: "USD",
+    if (bounty.tokenSymbol.toUpperCase() === 'USDC') {
+      const formatted = new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }).format(bounty.amount);
@@ -32,7 +32,7 @@ const BountyAmount = memo(function BountyAmount({ bounty }: BountyAmountProps) {
       };
     }
 
-    if (bounty.tokenSymbol.toUpperCase() !== "XLM") {
+    if (bounty.tokenSymbol.toUpperCase() !== 'XLM') {
       setUsdAmount(null);
       return () => {
         active = false;
@@ -75,7 +75,7 @@ export interface BountyCardProps {
   renderActionButton: (
     bounty: Bounty,
     action: {
-      action: "reserve" | "submit" | "release" | "refund";
+      action: 'reserve' | 'submit' | 'release' | 'refund';
       label: string;
       title: string;
     }
@@ -114,9 +114,7 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
   return (
     target instanceof HTMLElement &&
     Boolean(
-      target.closest(
-        'a, button, input, select, textarea, summary, [role="button"], [role="link"]'
-      )
+      target.closest('a, button, input, select, textarea, summary, [role="button"], [role="link"]')
     )
   );
 }
@@ -160,7 +158,7 @@ const BountyCard = memo(function BountyCard({
           onLoadMoreRef.current();
         }
       },
-      { rootMargin: "200px", threshold: 0.1 }
+      { rootMargin: '200px', threshold: 0.1 }
     );
 
     observer.observe(node);
@@ -181,7 +179,7 @@ const BountyCard = memo(function BountyCard({
       }}
       onKeyDown={(event) => {
         if (isInteractiveTarget(event.target) && event.target !== event.currentTarget) return;
-        if (event.key === "Enter" || event.key === " ") {
+        if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
           openCard();
         }
@@ -190,10 +188,7 @@ const BountyCard = memo(function BountyCard({
       <div className="bounty-card__top">
         <div>
           {selection && (
-            <label
-              className="bounty-card__select"
-              onClick={(event) => event.stopPropagation()}
-            >
+            <label className="bounty-card__select" onClick={(event) => event.stopPropagation()}>
               <input
                 type="checkbox"
                 checked={selection.selected}
@@ -204,9 +199,11 @@ const BountyCard = memo(function BountyCard({
           )}
           <span
             className={`status-pill status-pill--${bounty.status}`}
-            title={statusCopy[bounty.status].label}
+            title={`${statusCopy[bounty.status]?.label}: ${statusCopy[bounty.status]?.description}`}
+            aria-label={`Status: ${statusCopy[bounty.status]?.label}. ${statusCopy[bounty.status]?.description}`}
+            data-testid="bounty-card-status-pill"
           >
-            {statusCopy[bounty.status].label}
+            {statusCopy[bounty.status]?.label ?? bounty.status}
           </span>
           <h3>{bounty.title}</h3>
         </div>
@@ -241,7 +238,7 @@ const BountyCard = memo(function BountyCard({
         </div>
         <div>
           <span className="meta-label">Contributor</span>
-          <strong>{bounty.contributor ? shortAddress(bounty.contributor) : "Open"}</strong>
+          <strong>{bounty.contributor ? shortAddress(bounty.contributor) : 'Open'}</strong>
         </div>
       </div>
 
