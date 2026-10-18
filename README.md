@@ -97,6 +97,16 @@ If any component is `"down"`, the endpoint returns HTTP 503. Set `MAINTAINER_PUB
 
 The arbiter address is immutable after `initialize` is called on the contract — rotate it only by redeploying the contract.
 
+### Dispute UI Surface
+
+Maintainers and arbiters interact directly with the arbitration flow through the Bounty Detail page (`/bounties/:id`):
+
+- **Maintainer Review & Dispute Action:** When a bounty is in `submitted` status and within the review deadline window, maintainers can click **Raise Dispute** to open the dispute form, provide the dispute rationale (up to 500 characters), and submit the request to transition the escrow into the `disputed` state.
+- **Arbiter Resolution Panel:** For bounties in `disputed` status, authorized arbiters see a scoped dispute resolution panel displaying the dispute timestamp, rationale, contributor, and maintainer addresses. The arbiter can enter their public key, optional on-chain transaction hash, and execute either:
+  - **Release to Contributor:** Releases escrowed funds to the contributor.
+  - **Refund to Maintainer:** Refunds escrowed funds back to the creator.
+  - Both actions call the backend API (`resolveDisputeBounty` / `POST /api/bounties/:id/resolve-dispute`) and contract endpoints, ensuring authenticated state transitions and on-chain auditability.
+
 ## Notifications & State Change Hooks
 
 Stellar Bounty Board provides an opt-in notification system to notify maintainers and contributors across all bounty lifecycle transitions:

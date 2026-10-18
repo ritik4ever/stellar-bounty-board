@@ -17,6 +17,7 @@ import CopyIcon from './CopyIcons';
 import { extendDeadline } from './api';
 import { findSimilarBounties, type BountyRecommendation } from './recommendations';
 import { useI18n } from './i18n/I18nContext';
+import DisputePanel from './DisputePanel';
 
 type BountyAction = 'reserve' | 'submit' | 'release' | 'refund';
 
@@ -57,6 +58,7 @@ type Props = {
   ) => ReactNode;
   formatTimestamp?: (value?: number) => string;
   bounties?: Bounty[];
+  onBountyUpdated?: (bounty: Bounty) => void;
 };
 
 function useBountyStatusAnnouncement(
@@ -164,6 +166,7 @@ export default function BountyDetailPage({
   renderActionButton = () => null,
   formatTimestamp = (v) => (v ? new Date(v * 1000).toLocaleDateString() : ''),
   bounties = [],
+  onBountyUpdated,
 }: Props) {
   const { t } = useI18n();
   const statusAnnouncement = useBountyStatusAnnouncement(bounty, statusCopy);
@@ -532,6 +535,12 @@ export default function BountyDetailPage({
             {!['released', 'refunded'].includes(bounty.status) && (
               <ExtendDeadlineControl bounty={bounty} formatTimestamp={formatTimestamp} />
             )}
+
+            <DisputePanel
+              bounty={bounty}
+              onBountyUpdated={onBountyUpdated}
+              formatTimestamp={formatTimestamp}
+            />
 
             {bounty.events && bounty.events.length > 0 && (
               <BountyTimeline events={bounty.events} formatTimestamp={formatTimestamp} />

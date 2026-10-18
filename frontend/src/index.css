@@ -3284,3 +3284,212 @@ select {
   gap: 8px;
   flex-wrap: wrap;
 }
+
+/* Dispute Panel (Issue #1453) */
+.dispute-panel {
+  margin-top: 24px;
+  padding: 20px;
+  background: var(--bg-surface-secondary, #fafbfa);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 12px;
+}
+
+.dispute-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.dispute-panel__title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dispute-panel__icon {
+  color: var(--amber-dark, #b45309);
+  flex-shrink: 0;
+}
+
+.dispute-panel__title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-primary, #111827);
+}
+
+.dispute-panel__alert {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 0.9rem;
+}
+
+.dispute-panel__alert--error {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid #ef4444;
+  color: #b91c1c;
+}
+
+.dispute-panel__alert--success {
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid #22c55e;
+  color: #15803d;
+}
+
+.dispute-panel__description {
+  margin: 0 0 14px;
+  font-size: 0.92rem;
+  color: var(--text-secondary, #4b5563);
+  line-height: 1.5;
+}
+
+.dispute-panel__window-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  font-size: 0.88rem;
+}
+
+.dispute-panel__window-active {
+  color: #15803d;
+  font-weight: 500;
+}
+
+.dispute-panel__window-expired {
+  color: #b91c1c;
+  font-weight: 500;
+}
+
+.dispute-panel__actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.dispute-panel__raise-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+}
+
+.dispute-panel__form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.dispute-panel__textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.92rem;
+  resize: vertical;
+  background: var(--bg-surface, #ffffff);
+  color: var(--text-primary, #111827);
+}
+
+.dispute-panel__textarea:focus {
+  outline: 2px solid var(--primary, #0d4736);
+  outline-offset: 1px;
+}
+
+.dispute-panel__form-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.dispute-panel__submit-btn {
+  min-height: 44px;
+}
+
+.dispute-panel__disputed-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+  padding: 14px;
+  background: var(--bg-surface, #ffffff);
+  border-radius: 8px;
+  border: 1px solid var(--border-color, #e5e7eb);
+}
+
+.dispute-panel__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 0.9rem;
+}
+
+.dispute-panel__quote {
+  margin: 0;
+  padding-left: 10px;
+  border-left: 3px solid var(--amber-dark, #b45309);
+  color: var(--text-secondary, #374151);
+  font-style: italic;
+}
+
+.dispute-panel__resolution-box {
+  margin-top: 14px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--border-color, #e5e7eb);
+}
+
+.dispute-panel__subheading {
+  margin: 0 0 6px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary, #111827);
+}
+
+.dispute-panel__subtext {
+  margin: 0 0 14px;
+  font-size: 0.88rem;
+  color: var(--text-secondary, #4b5563);
+}
+
+.dispute-panel__input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: 8px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.88rem;
+  background: var(--bg-surface, #ffffff);
+  color: var(--text-primary, #111827);
+  box-sizing: border-box;
+}
+
+.dispute-panel__input:focus {
+  outline: 2px solid var(--primary, #0d4736);
+  outline-offset: 1px;
+}
+
+.dispute-panel__resolution-buttons {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.dispute-panel__resolve-release,
+.dispute-panel__resolve-refund {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  cursor: pointer;
+}
