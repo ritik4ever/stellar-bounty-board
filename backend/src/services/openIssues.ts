@@ -15,6 +15,7 @@ export interface OpenIssue {
 }
 
 import { getServicesConfig } from "./config";
+import { wrapServiceError } from "./errors";
 
 type FeedStatus = "up" | "rate-limited" | "stale";
 
@@ -127,7 +128,13 @@ export async function listOpenIssues(): Promise<OpenIssue[]> {
         lastStatus = "stale";
         return fromCache;
       }
-      throw new Error(`GitHub API returned ${res.status}`);
+      throw wrapServiceError(
+        "open_issues.fetch_github",
+        "github-api",
+        new Error(`GitHub API returned HTTP ${res.status}`),
+        "Failed to fetch open issues from GitHub API.",
+        res.status >= 500 ? 502 : 500,
+      );
     }
 
     const json = await res.json();
@@ -141,7 +148,13 @@ export async function listOpenIssues(): Promise<OpenIssue[]> {
       lastStatus = "stale";
       return fromCache;
     }
-    throw err;
+    throw wrapServiceError(
+      "open_issues.fetch_github",
+      "github-api",
+      err,
+      "Failed to fetch open issues from GitHub API.",
+      502,
+    );
   }
 }
 

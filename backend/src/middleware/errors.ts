@@ -91,6 +91,8 @@ function exposedClientError(err: unknown): { status: number; message: string } |
  * If headers were already sent, the error is delegated to Express so it can
  * close the connection.
  */
+import { ServiceDependencyError } from "../services/errors";
+
 export function createTerminalErrorHandler(): ErrorRequestHandler {
   return (err, req, res, next) => {
     if (res.headersSent) {
@@ -111,6 +113,21 @@ export function createTerminalErrorHandler(): ErrorRequestHandler {
           requestId,
         },
         "middleware_dependency_failure",
+      );
+      res.status(err.statusCode).json({ error: err.publicMessage, requestId });
+      return;
+    }
+
+    if (err instanceof ServiceDependencyError) {
+      log.error(
+        {
+          err: err.cause,
+          operation: err.operation,
+          dependency: err.dependency,
+          statusCode: err.statusCode,
+          requestId,
+        },
+        "service_dependency_failure",
       );
       res.status(err.statusCode).json({ error: err.publicMessage, requestId });
       return;

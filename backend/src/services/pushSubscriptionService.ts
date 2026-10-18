@@ -42,10 +42,16 @@ function loadSubscriptions(storePath?: string): PushSubscription[] {
   return [];
 }
 
+import { wrapServiceError } from "./errors";
+
 function saveSubscriptions(subscriptions: PushSubscription[], storePath?: string): void {
-  const store = storePath ?? resolvePushStorePath();
-  fs.mkdirSync(path.dirname(store), { recursive: true });
-  fs.writeFileSync(store, JSON.stringify(subscriptions, null, 2), "utf8");
+  try {
+    const store = storePath ?? resolvePushStorePath();
+    fs.mkdirSync(path.dirname(store), { recursive: true });
+    fs.writeFileSync(store, JSON.stringify(subscriptions, null, 2), "utf8");
+  } catch (err) {
+    throw wrapServiceError("push_subscriptions.write_store", "json-store", err);
+  }
 }
 
 /**

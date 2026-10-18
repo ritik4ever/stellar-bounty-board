@@ -87,20 +87,30 @@ function getStorePath(): string {
   return path.resolve(__dirname, "../../data/bounties.json");
 }
 
+import { wrapServiceError } from "./errors";
+
 function readBounties(): BountyRecord[] {
-  const storePath = getStorePath();
-  if (!fs.existsSync(storePath)) return [];
+  try {
+    const storePath = getStorePath();
+    if (!fs.existsSync(storePath)) return [];
 
-  const raw = fs.readFileSync(storePath, "utf8").trim();
-  if (!raw) return [];
+    const raw = fs.readFileSync(storePath, "utf8").trim();
+    if (!raw) return [];
 
-  return JSON.parse(raw) as BountyRecord[];
+    return JSON.parse(raw) as BountyRecord[];
+  } catch (err) {
+    throw wrapServiceError("dispute_alert_job.read_store", "json-store", err);
+  }
 }
 
 function writeBounties(records: BountyRecord[]): void {
-  const storePath = getStorePath();
-  fs.mkdirSync(path.dirname(storePath), { recursive: true });
-  fs.writeFileSync(storePath, JSON.stringify(records, null, 2));
+  try {
+    const storePath = getStorePath();
+    fs.mkdirSync(path.dirname(storePath), { recursive: true });
+    fs.writeFileSync(storePath, JSON.stringify(records, null, 2));
+  } catch (err) {
+    throw wrapServiceError("dispute_alert_job.write_store", "json-store", err);
+  }
 }
 
 // ─── Core logic ───────────────────────────────────────────────────────────────

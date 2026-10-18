@@ -8,6 +8,7 @@ import {
 import { logStructured } from "../logger";
 import { getCache, type CacheAdapter } from "./cache";
 import { getServicesConfig } from "./config";
+import { wrapServiceError } from "./errors";
 import { bountiesCreatedTotal, bountiesReleasedTotal } from "../metrics";
 import { validateGithubPrUrlForRepo } from "../validation/prUrl";
 import { resolveTokenAddress } from "../utils";
@@ -326,24 +327,40 @@ function ensureAuditStore(): void {
 }
 
 function readStore(): BountyRecord[] {
-  ensureStore();
-  const storePath = getStorePath();
-  return JSON.parse(fs.readFileSync(storePath, "utf8")) as BountyRecord[];
+  try {
+    ensureStore();
+    const storePath = getStorePath();
+    return JSON.parse(fs.readFileSync(storePath, "utf8")) as BountyRecord[];
+  } catch (err) {
+    throw wrapServiceError("bounty_store.read_store", "json-store", err);
+  }
 }
 
 function writeStore(records: BountyRecord[]): void {
-  fs.writeFileSync(getStorePath(), JSON.stringify(records, null, 2));
+  try {
+    fs.writeFileSync(getStorePath(), JSON.stringify(records, null, 2));
+  } catch (err) {
+    throw wrapServiceError("bounty_store.write_store", "json-store", err);
+  }
 }
 
 function readAuditStore(): BountyAuditLogRecord[] {
-  ensureAuditStore();
-  return JSON.parse(
-    fs.readFileSync(getAuditStorePath(), "utf8"),
-  ) as BountyAuditLogRecord[];
+  try {
+    ensureAuditStore();
+    return JSON.parse(
+      fs.readFileSync(getAuditStorePath(), "utf8"),
+    ) as BountyAuditLogRecord[];
+  } catch (err) {
+    throw wrapServiceError("bounty_store.read_audit_store", "json-store", err);
+  }
 }
 
 function writeAuditStore(records: BountyAuditLogRecord[]): void {
-  fs.writeFileSync(getAuditStorePath(), JSON.stringify(records, null, 2));
+  try {
+    fs.writeFileSync(getAuditStorePath(), JSON.stringify(records, null, 2));
+  } catch (err) {
+    throw wrapServiceError("bounty_store.write_audit_store", "json-store", err);
+  }
 }
 
 function nextAuditId(records: BountyAuditLogRecord[]): string {
@@ -674,17 +691,33 @@ export async function invalidateBountyCache(cache: CacheAdapter = getCache()): P
  */
 async function withStoreLock<T>(fn: () => T | Promise<T>): Promise<T> {
   const storePath = getStorePath();
-  const timeout = getLockTimeoutMs();
-  const release = await lockfile.lock(storePath, {
-    stale: 10000,
-    update: 5000,
-    retries: 0, // Fail fast - concurrent requests get immediate error
-  });
+  let release: () => Promise<void>;
+  try {
+    release = await lockfile.lock(storePath, {
+      stale: 10000,
+      update: 5000,
+      retries: 0, // Fail fast - concurrent requests get immediate error
+    });
+  } catch (err) {
+    throw wrapServiceError(
+      "bounty_store.lock",
+      "file-lock",
+      err,
+      "Data store lock could not be acquired.",
+      503,
+    );
+  }
 
   try {
     return await fn();
   } finally {
-    await release();
+    try {
+      await release();
+    } catch (releaseErr) {
+      logStructured("warn", "bounty_store_lock_release_failed", {
+        message: releaseErr instanceof Error ? releaseErr.message : String(releaseErr),
+      });
+    }
   }
 }
 

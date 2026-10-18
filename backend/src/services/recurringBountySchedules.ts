@@ -33,15 +33,25 @@ function schedulePath(): string {
   return path.resolve(__dirname, "../../data/recurring-bounty-schedules.json");
 }
 
+import { wrapServiceError } from "./errors";
+
 function read(): RecurringBountySchedule[] {
-  const file = schedulePath();
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  if (!fs.existsSync(file) || !fs.readFileSync(file, "utf8").trim()) fs.writeFileSync(file, "[]");
-  return JSON.parse(fs.readFileSync(file, "utf8")) as RecurringBountySchedule[];
+  try {
+    const file = schedulePath();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    if (!fs.existsSync(file) || !fs.readFileSync(file, "utf8").trim()) fs.writeFileSync(file, "[]");
+    return JSON.parse(fs.readFileSync(file, "utf8")) as RecurringBountySchedule[];
+  } catch (err) {
+    throw wrapServiceError("recurring_schedules.read_store", "json-store", err);
+  }
 }
 
 function write(records: RecurringBountySchedule[]): void {
-  fs.writeFileSync(schedulePath(), JSON.stringify(records, null, 2));
+  try {
+    fs.writeFileSync(schedulePath(), JSON.stringify(records, null, 2));
+  } catch (err) {
+    throw wrapServiceError("recurring_schedules.write_store", "json-store", err);
+  }
 }
 
 export function listRecurringSchedules(): RecurringBountySchedule[] {
