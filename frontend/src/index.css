@@ -2853,6 +2853,11 @@ select {
   .content-grid,
   .hero,
   .bounty-card,
+  .recommendations-panel,
+  .bounty-card--recommended,
+  .tag-filter-row,
+  .recommendation-reasons,
+  .recommendation-footer,
   .modal-dialog,
   .submission-modal,
   .disconnect-modal,
@@ -2877,6 +2882,8 @@ select {
   .danger-button,
   .filter-chip,
   .filter-btn,
+  .connect-wallet-btn,
+  .secondary-link,
   .tab-item,
   .pagination-btn,
   .modal-close-btn,
@@ -2904,7 +2911,10 @@ select {
   /* 3. Text truncation with full value available on demand */
   .truncate-mobile,
   .bounty-title,
+  .bounty-card--recommended h3,
   .issue-summary,
+  .reason-tag,
+  .recommendation-explanation,
   .address-chip,
   .stellar-address,
   .meta-value {
@@ -2918,6 +2928,10 @@ select {
   .truncate-mobile:focus-visible,
   .bounty-title:hover,
   .bounty-title:focus-visible,
+  .bounty-card--recommended h3:hover,
+  .bounty-card--recommended h3:focus-visible,
+  .reason-tag:hover,
+  .reason-tag:focus-visible,
   .address-chip:hover,
   .address-chip:focus-visible,
   .stellar-address:hover,
@@ -2950,5 +2964,36 @@ select {
   .dashboard h1 {
     font-size: 1.5rem;
     line-height: 1.25;
+  }
+
+  /* Recommendations panel 320px small-viewport adjustments (#1288) */
+  .recommendations-panel {
+    padding-left: 8px;
+    padding-right: 8px;
+    overflow-x: hidden;
+  }
+
+  .tag-filter-row {
+    gap: 4px;
+  }
+
+  .filter-chip {
+    padding: 8px 10px;
+    font-size: 0.8rem;
+  }
+
+  .bounty-card--recommended {
+    padding: 12px;
+  }
+
+  .recommendation-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .recommendation-footer .secondary-link {
+    width: 100%;
+    justify-content: center;
   }
 }
