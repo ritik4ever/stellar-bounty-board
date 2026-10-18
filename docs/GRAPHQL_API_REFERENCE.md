@@ -1,226 +1,235 @@
-# GraphQL API Reference (Proposed — Not Yet Implemented)
+# GraphQL API Reference
 
-> **Status: Design proposal.** As of this writing, the backend exposes only a REST API (see `backend/src/app.ts` and `/api/docs` for the live OpenAPI/Swagger spec). No GraphQL server, schema, or resolvers currently exist in this repository. This document proposes a GraphQL schema that mirrors the REST API's existing capabilities, to be implemented and validated once GraphQL support lands. Example queries below are illustrative and have **not** been executed against a live endpoint.
+> **Status: Active & Implemented (#789).** The backend exposes a GraphQL API layer alongside the REST API, mounted at the `/graphql` route. Resolvers delegate directly to the existing backend service layer (`bountyStore`, `notificationService`) without duplicating business logic, and request complexity is enforced via query depth and selection complexity limiting.
+
+---
 
 ## Overview
 
-The REST API is organized around a single core resource, the **Bounty**, plus supporting read endpoints for leaderboards, metrics, and audit logs. This proposal maps those same capabilities onto a GraphQL schema.
+The GraphQL endpoint allows clients to query bounties, disputes, maintainer metrics/profiles, contributor profiles, and global escrow statistics in a single round-trip.
 
-## Proposed Schema
+- **Route:** `POST /graphql` and `GET /graphql`
+- **Content-Type:** `application/json`
+- **Query Complexity Protection:**
+  - Maximum query depth: `5`
+  - Maximum query complexity: `100`
+  - Overly deep or complex queries are rejected with HTTP 400 and descriptive GraphQL error objects before execution.
+
+---
+
+## GraphQL Schema
 
 ```graphql
 type Bounty {
   id: ID!
   repo: String!
   issueNumber: Int!
-  status: BountyStatus!
-  amount: Float!
-  tokenSymbol: String!
+  title: String!
+  summary: String!
+  maintainer: String!
   contributor: String
-  maintainer: String
-  deadline: Int
-  createdAt: Int
-  releasedAt: Int
-  version: Int
+  tokenSymbol: String!
+  tokenAddress: String!
+  amount: Float!
+  labels: [String!]!
+  status: String!
+  createdAt: Float!
+  deadlineAt: Float!
+  reservedAt: Float
+  submittedAt: Float
+  releasedAt: Float
+  refundedAt: Float
+  submissionUrl: String
   notes: String
+  disputedAt: Float
+  disputeReason: String
+  prMerged: Boolean
+  prMergedAt: Float
+  version: Int
 }
 
-enum BountyStatus {
-  OPEN
-  RESERVED
-  SUBMITTED
-  RELEASED
-  REFUNDED
-  CANCELED
-  DISPUTED
+type Dispute {
+  bountyId: ID!
+  reason: String!
+  status: String!
+  disputedAt: Float!
+  maintainer: String!
+  contributor: String
 }
 
-type BountyEvent {
-  type: String!
-  timestamp: Int!
-  actor: String
-}
-
-type AuditLogEntry {
-  actor: String!
-  transition: String!
-  fromStatus: BountyStatus
-  toStatus: BountyStatus
-  timestamp: Int!
-}
-
-type LeaderboardEntry {
-  contributor: String!
+type MaintainerMetrics {
+  totalBounties: Int!
+  openCount: Int!
+  reservedCount: Int!
+  submittedCount: Int!
+  releasedCount: Int!
+  refundedCount: Int!
+  expiredCount: Int!
+  totalFunded: Float!
   totalReleased: Float!
-  bountyCount: Int!
+  averageRewardAmount: Float!
+}
+
+type MaintainerProfile {
+  address: String!
+  metrics: MaintainerMetrics!
+  bounties: [Bounty!]!
+}
+
+type ContributorProfile {
+  address: String!
+  reservedCount: Int!
+  submittedCount: Int!
+  completedCount: Int!
+  totalEarned: Float!
+  bounties: [Bounty!]!
+}
+
+type GlobalMetrics {
+  totalBounties: Int!
+  openBounties: Int!
+  totalFundedXlm: Float!
+  totalPaidOutXlm: Float!
+  activeContributorsCount: Int!
 }
 
 type Query {
-  """
-  Mirrors GET /api/bounties — filterable, paginated bounty listing.
-  """
-  bounties(
-    q: String
-    contributor: String
-    maintainer: String
-    status: BountyStatus
-    tokenSymbol: String
-    deadlineBefore: String
-    deadlineAfter: String
-    sort: String
-    order: String
-    page: Int
-    pageSize: Int
-  ): BountyConnection!
-
-  """
-  Mirrors GET /api/bounties/:id
-  """
   bounty(id: ID!): Bounty
-
-  """
-  Mirrors GET /api/bounties/by-issue
-  """
-  bountyByIssue(repo: String!, issue: Int!): Bounty
-
-  """
-  Mirrors GET /api/bounties/:id/events
-  """
-  bountyEvents(id: ID!): [BountyEvent!]!
-
-  """
-  Mirrors GET /api/bounties/:id/audit-logs
-  """
-  bountyAuditLogs(id: ID!, limit: Int, offset: Int): [AuditLogEntry!]!
-
-  """
-  Mirrors GET /api/leaderboard
-  """
-  leaderboard(limit: Int): [LeaderboardEntry!]!
-}
-
-type BountyConnection {
-  data: [Bounty!]!
-  total: Int!
-  page: Int!
-  pageSize: Int!
-  hasMore: Boolean!
-}
-
-type Mutation {
-  """
-  Mirrors POST /api/bounties — requires signature auth per REST implementation.
-  """
-  createBounty(
-    repo: String!
-    issueNumber: Int!
-    amount: Float!
-    tokenSymbol: String!
-    deadline: Int
-  ): Bounty!
-
-  """
-  Mirrors POST /api/bounties/:id/reserve
-  """
-  reserveBounty(id: ID!, contributor: String!, expectedVersion: Int): Bounty!
-
-  """
-  Mirrors POST /api/bounties/:id/submit
-  """
-  submitBounty(id: ID!, contributor: String!, submissionUrl: String!, notes: String): Bounty!
-
-  """
-  Mirrors POST /api/bounties/:id/release — maintainer-signed action.
-  """
-  releaseBounty(id: ID!, maintainer: String!, transactionHash: String!): Bounty!
-
-  """
-  Mirrors POST /api/bounties/:id/refund — maintainer-signed action.
-  """
-  refundBounty(id: ID!, maintainer: String!, transactionHash: String!): Bounty!
-
-  """
-  Mirrors POST /api/bounties/:id/cancel — maintainer-signed action.
-  """
-  cancelBounty(id: ID!, maintainer: String!, transactionHash: String!): Bounty!
-
-  """
-  Mirrors POST /api/bounties/:id/dispute
-  """
-  disputeBounty(id: ID!, contributor: String!, reason: String!): Bounty!
-
-  """
-  Mirrors PATCH /api/bounties/:id/notes — maintainer-signed action.
-  """
-  updateBountyNotes(id: ID!, maintainer: String!, notes: String!): Bounty!
-
-  """
-  Mirrors POST /api/bounties/:id/extend-deadline — maintainer-signed action.
-  """
-  extendDeadline(id: ID!, maintainer: String!, newDeadline: Int!): Bounty!
+  bounties(status: String, maintainer: String, contributor: String, limit: Int): [Bounty!]!
+  disputes(status: String): [Dispute!]!
+  maintainerProfile(address: String!): MaintainerProfile
+  contributorProfile(address: String!): ContributorProfile
+  metrics: GlobalMetrics!
 }
 ```
 
-## Example Queries (Illustrative — Untested)
+---
+
+## Example Queries
+
+### 1. Query a Bounty by ID
 
 ```graphql
-# List open bounties, mirrors GET /api/bounties?status=open
-query OpenBounties {
-  bounties(status: OPEN, page: 1, pageSize: 20) {
-    data {
-      id
-      repo
-      issueNumber
-      amount
-      tokenSymbol
-      status
-    }
-    total
-    hasMore
-  }
-}
-
-# Create a bounty, mirrors POST /api/bounties
-mutation CreateBounty {
-  createBounty(
-    repo: "ritik4ever/stellar-bounty-board"
-    issueNumber: 881
-    amount: 100
-    tokenSymbol: "XLM"
-  ) {
+query GetBounty($id: ID!) {
+  bounty(id: $id) {
     id
+    repo
+    issueNumber
+    title
+    amount
+    tokenSymbol
     status
-  }
-}
-
-# Resolve a dispute, mirrors POST /api/bounties/:id/dispute
-mutation DisputeBounty {
-  disputeBounty(
-    id: "abc-123"
-    contributor: "GABC...XYZ"
-    reason: "Submission was rejected without review."
-  ) {
-    id
-    status
+    maintainer
+    contributor
   }
 }
 ```
 
-## Known REST-Only Capabilities (Not Yet Mapped to GraphQL Proposal)
+**Variables:**
 
-The following existing REST endpoints have no GraphQL equivalent proposed above yet, and would need further design work:
+```json
+{
+  "id": "BNT-0001"
+}
+```
 
-- `GET /api/bounties/released/export.csv` — CSV export is a REST-specific/file-download concept; GraphQL would need a different pattern (e.g., a mutation returning a signed URL, or leaving this as a REST-only endpoint).
-- `GET /api/audit-log` (global, admin-only) — admin-gated cross-bounty audit log; would need equivalent auth-aware resolver design.
-- `GET /api/metrics`, `/api/global-metrics`, `/api/stats`, `/api/maintainers/:maintainer/metrics` — Prometheus-format metrics and aggregate stats; only `leaderboard` has been mapped so far.
-- `POST /api/webhooks/github` — webhook ingestion is inherently a REST/HTTP callback pattern, not naturally suited to GraphQL.
-- Idempotency-key behavior on mutation endpoints (via `idempotencyMiddleware`) is not yet reflected in the mutation signatures above.
+### 2. Query Bounties Filtered by Status
 
-## Local Development
+```graphql
+query ListOpenBounties {
+  bounties(status: "open", limit: 10) {
+    id
+    repo
+    issueNumber
+    title
+    amount
+    tokenSymbol
+  }
+}
+```
 
-There is currently no GraphQL playground or endpoint to link, since GraphQL is not implemented. Once implemented, this section should include:
+### 3. Query Maintainer Profile and Metrics
 
-- The local dev GraphQL endpoint URL (e.g., `http://localhost:PORT/graphql`)
-- Playground/introspection tooling instructions
+```graphql
+query GetMaintainer($address: String!) {
+  maintainerProfile(address: $address) {
+    address
+    metrics {
+      totalBounties
+      totalFunded
+      totalReleased
+      averageRewardAmount
+    }
+    bounties {
+      id
+      title
+      status
+      amount
+    }
+  }
+}
+```
 
-For the existing REST API, local docs and an interactive explorer are available at `/api/docs` (Swagger UI), generated via `backend/src/docs/openapi.ts`.
+### 4. Query Contributor Profile
+
+```graphql
+query GetContributor($address: String!) {
+  contributorProfile(address: $address) {
+    address
+    completedCount
+    totalEarned
+    bounties {
+      id
+      title
+      status
+    }
+  }
+}
+```
+
+### 5. Query Active Disputes
+
+```graphql
+query GetDisputes {
+  disputes(status: "disputed") {
+    bountyId
+    reason
+    status
+    disputedAt
+    maintainer
+    contributor
+  }
+}
+```
+
+### 6. Query Global Escrow Metrics
+
+```graphql
+query GetGlobalMetrics {
+  metrics {
+    totalBounties
+    openBounties
+    totalFundedXlm
+    totalPaidOutXlm
+    activeContributorsCount
+  }
+}
+```
+
+---
+
+## Query Complexity & Depth Limiting
+
+To prevent Denial-of-Service and recursive nested query abuse, all incoming GraphQL operations are inspected before execution:
+
+- Queries with selection nesting exceeding **5 levels** are rejected:
+  ```json
+  {
+    "errors": [
+      {
+        "message": "Query depth limit exceeded: depth of 6 exceeds maximum allowed depth of 5."
+      }
+    ]
+  }
+  ```
+- Queries exceeding maximum total complexity (default 100) are rejected with a corresponding HTTP 400 error.

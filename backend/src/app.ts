@@ -96,6 +96,7 @@ import {
   listRecurringSchedules,
   type ScheduleCadence,
 } from './services/recurringBountySchedules';
+import { createGraphQLRouter } from './graphql';
 
 const INCOMING_REQUEST_ID = /^[a-zA-Z0-9-]{1,128}$/;
 
@@ -228,6 +229,7 @@ app.use(readLimiter);
 
 const swaggerDoc = generateOpenApiDocument();
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerDoc));
+app.use('/graphql', createGraphQLRouter());
 
 function parseId(raw: string | string[] | undefined): string {
   return bountyIdSchema.parse(Array.isArray(raw) ? raw[0] : raw);
