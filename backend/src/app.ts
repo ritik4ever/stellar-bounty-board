@@ -94,7 +94,7 @@ import {
 
 const INCOMING_REQUEST_ID = /^[a-zA-Z0-9-]{1,128}$/;
 
-function resolveRequestId(req: Request): string {
+export function resolveRequestId(req: Request): string {
   const raw = req.headers['x-request-id'];
 
   if (typeof raw === 'string') {
@@ -230,7 +230,7 @@ function parseId(raw: string | string[] | undefined): string {
   return bountyIdSchema.parse(Array.isArray(raw) ? raw[0] : raw);
 }
 
-function parsePaginationValue(
+export function parsePaginationValue(
   raw: unknown,
   field: string,
   defaultValue: number,
@@ -264,11 +264,11 @@ function parsePaginationValue(
   return parsed;
 }
 
-function jsonError(res: Response, req: Request, statusCode: number, message: string): void {
+export function jsonError(res: Response, req: Request, statusCode: number, message: string): void {
   res.status(statusCode).json({ error: message, requestId: req.requestId });
 }
 
-function escapeCsv(value: unknown): string {
+export function escapeCsv(value: unknown): string {
   if (value === null || value === undefined) {
     return '';
   }
@@ -307,7 +307,7 @@ function containsRawLeak(message: string): boolean {
   return RAW_LEAK_PATTERNS.some((pattern) => pattern.test(message));
 }
 
-function sendError(res: Response, req: Request, error: unknown, statusCode = 400): void {
+export function sendError(res: Response, req: Request, error: unknown, statusCode = 400): void {
   const log = req.log ?? logger;
   const requestId = req.requestId;
 
@@ -360,7 +360,7 @@ function sendError(res: Response, req: Request, error: unknown, statusCode = 400
   jsonError(res, req, statusCode, rawMessage);
 }
 
-function validateBountyAmount(amount: number): string | null {
+export function validateBountyAmount(amount: number): string | null {
   if (!Number.isFinite(amount)) {
     return 'Amount must be a valid number.';
   }
