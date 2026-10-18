@@ -696,7 +696,19 @@ function App() {
     };
   }, [detailId]);
 
-  const filteredBounties = bounties;
+  const filteredBounties = useMemo(() => {
+    return bounties.filter((bounty) => {
+      if (minReward !== '') {
+        const min = parseFloat(minReward);
+        if (!isNaN(min) && bounty.amount < min) return false;
+      }
+      if (maxReward !== '') {
+        const max = parseFloat(maxReward);
+        if (!isNaN(max) && bounty.amount > max) return false;
+      }
+      return true;
+    });
+  }, [bounties, minReward, maxReward]);
 
   const groupedBounties = useMemo(() => {
     if (repoRoute) {
@@ -724,11 +736,17 @@ function App() {
         emptyStateMessage: 'Try a different search term or clear filters.',
       };
     }
+    if (minReward !== '' || maxReward !== '') {
+      return {
+        emptyStateHeading: 'No bounties match this reward range',
+        emptyStateMessage: `Try expanding the range (${minReward || '0'} – ${maxReward || '∞'} XLM) or clearing filters.`,
+      };
+    }
     return {
       emptyStateHeading: 'No bounties yet',
       emptyStateMessage: 'Be the first to create one!',
     };
-  }, [debouncedSearchQuery]);
+  }, [debouncedSearchQuery, minReward, maxReward]);
 
   if (detailId) {
     const owner = detailBounty ? repoOwner(detailBounty.repo) : '';
@@ -1119,6 +1137,94 @@ function App() {
                     Status Guide
                   </button>
                 </div>
+
+                <div
+                  className="reward-range-filter"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    marginTop: '8px',
+                    flexWrap: 'wrap',
+                  }}
+                  data-testid="reward-range-filter"
+                >
+                  <span className="meta-label" style={{ fontSize: '12px', fontWeight: 600 }}>
+                    Reward Range:
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="Min XLM"
+                      value={minReward}
+                      aria-label="Minimum reward amount"
+                      data-testid="min-reward-filter"
+                      style={{
+                        width: '90px',
+                        padding: '4px 8px',
+                        fontSize: '13px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border)',
+                      }}
+                      onChange={(e) => {
+                        setPage(1);
+                        setMinReward(e.target.value);
+                      }}
+                    />
+                    <span>–</span>
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="Max XLM"
+                      value={maxReward}
+                      aria-label="Maximum reward amount"
+                      data-testid="max-reward-filter"
+                      style={{
+                        width: '90px',
+                        padding: '4px 8px',
+                        fontSize: '13px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border)',
+                      }}
+                      onChange={(e) => {
+                        setPage(1);
+                        setMaxReward(e.target.value);
+                      }}
+                    />
+                  </div>
+                  {(minReward !== '' || maxReward !== '') && (
+                    <span
+                      className="active-range-badge"
+                      data-testid="active-reward-range-badge"
+                      style={{
+                        fontSize: '11px',
+                        padding: '2px 8px',
+                        borderRadius: '12px',
+                        background: 'rgba(30,189,147,0.1)',
+                        color: '#1ebd93',
+                        fontWeight: 600,
+                      }}
+                    >
+                      Active: {minReward || '0'} – {maxReward || '∞'} XLM
+                    </span>
+                  )}
+                  {(minReward !== '' || maxReward !== '') && (
+                    <button
+                      type="button"
+                      className="text-button"
+                      onClick={() => {
+                        setPage(1);
+                        setMinReward('');
+                        setMaxReward('');
+                      }}
+                      data-testid="clear-reward-filter-btn"
+                      style={{ fontSize: '12px', padding: '2px 6px', color: 'var(--muted)' }}
+                    >
+                      Clear Range
+                    </button>
+                  )}
+                </div>
               </div>
 
               {loading ? (
@@ -1165,6 +1271,8 @@ function App() {
                   onClearFilters={() => {
                     setSearchQuery('');
                     setStatusFilter('all');
+                    setMinReward('');
+                    setMaxReward('');
                   }}
                 />
               )}
