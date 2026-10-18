@@ -36,6 +36,7 @@ import { ShortcutsHelpOverlay } from './ShortcutsHelpOverlay';
 import BountyDetailPage from './BountyDetailPage';
 import ContributorProfilePage from './ContributorProfilePage';
 import ContributorDashboard from './ContributorDashboard';
+import MaintainerDashboard from './MaintainerDashboard';
 import ErrorBoundary from './ErrorBoundary';
 import SubmissionChecklistModal, { type SubmissionFormData } from './SubmissionChecklistModal';
 import { useI18n, LanguageSwitcher } from './i18n/I18nContext';
@@ -125,6 +126,7 @@ function App() {
   const [submitting, setSubmitting] = useState(false);
   const [showShortcutsOverlay, setShowShortcutsOverlay] = useState(false);
   const [isFormDirty, setIsFormDirty] = useState(false);
+  const [viewMode, setViewMode] = useState<'browse' | 'maintainer'>('browse');
 
   useBeforeUnload(isFormDirty);
 
@@ -168,7 +170,17 @@ function App() {
 
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearchQuery, statusFilter, minReward, maxReward, repoFilter, tokenFilter, sortOption, sortDirection, pathname]);
+  }, [
+    debouncedSearchQuery,
+    statusFilter,
+    minReward,
+    maxReward,
+    repoFilter,
+    tokenFilter,
+    sortOption,
+    sortDirection,
+    pathname,
+  ]);
 
   const detailId = useMemo(() => {
     const match = pathname.match(/^\/bounties\/([^/]+)$/);
@@ -197,36 +209,53 @@ function App() {
     );
   }, []);
 
-  const refresh = useCallback(async (signal?: AbortSignal) => {
-    const repoRouteMatch = pathname.match(/^\/repo\/([^/]+)\/([^/]+)$/);
-    const effectiveRepo = repoRouteMatch
-      ? `${decodeURIComponent(repoRouteMatch[1] ?? '')}/${decodeURIComponent(repoRouteMatch[2] ?? '')}`
-      : repoFilter;
-    const apiSort = sortOption.startsWith('reward-')
-      ? 'amount'
-      : sortOption.startsWith('deadline-')
-        ? 'deadline'
-        : 'createdAt';
-    const [bountyData, issueData] = await Promise.all([
-      listBounties({
-        page,
-        limit: BOUNTIES_PER_PAGE,
-        q: debouncedSearchQuery.trim() || undefined,
-        repo: effectiveRepo || undefined,
-        minReward: minReward || undefined,
-        maxReward: maxReward || undefined,
-        status: statusFilter === 'all' ? undefined : statusFilter,
-        tokenSymbol: tokenFilter || undefined,
-        sort: apiSort,
-        order: sortDirection,
-      }, signal),
-      listOpenIssues(signal),
-    ]);
-    setBounties(bountyData.data);
-    setTotalBounties(bountyData.total);
-    setHasMoreBounties(bountyData.hasMore);
-    setIssues(issueData);
-  }, [page, debouncedSearchQuery, repoFilter, minReward, maxReward, statusFilter, tokenFilter, sortOption, sortDirection, pathname]);
+  const refresh = useCallback(
+    async (signal?: AbortSignal) => {
+      const repoRouteMatch = pathname.match(/^\/repo\/([^/]+)\/([^/]+)$/);
+      const effectiveRepo = repoRouteMatch
+        ? `${decodeURIComponent(repoRouteMatch[1] ?? '')}/${decodeURIComponent(repoRouteMatch[2] ?? '')}`
+        : repoFilter;
+      const apiSort = sortOption.startsWith('reward-')
+        ? 'amount'
+        : sortOption.startsWith('deadline-')
+          ? 'deadline'
+          : 'createdAt';
+      const [bountyData, issueData] = await Promise.all([
+        listBounties(
+          {
+            page,
+            limit: BOUNTIES_PER_PAGE,
+            q: debouncedSearchQuery.trim() || undefined,
+            repo: effectiveRepo || undefined,
+            minReward: minReward || undefined,
+            maxReward: maxReward || undefined,
+            status: statusFilter === 'all' ? undefined : statusFilter,
+            tokenSymbol: tokenFilter || undefined,
+            sort: apiSort,
+            order: sortDirection,
+          },
+          signal
+        ),
+        listOpenIssues(signal),
+      ]);
+      setBounties(bountyData.data);
+      setTotalBounties(bountyData.total);
+      setHasMoreBounties(bountyData.hasMore);
+      setIssues(issueData);
+    },
+    [
+      page,
+      debouncedSearchQuery,
+      repoFilter,
+      minReward,
+      maxReward,
+      statusFilter,
+      tokenFilter,
+      sortOption,
+      sortDirection,
+      pathname,
+    ]
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -737,7 +766,11 @@ function App() {
           <div className="header-actions">
             <LanguageSwitcher />
             <FreighterConnectButton freighter={freighter} compact />
-            <button className="theme-toggle" aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'} onClick={toggleDark}>
+            <button
+              className="theme-toggle"
+              aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'}
+              onClick={toggleDark}
+            >
               {dark ? <Sun size={20} /> : <Moon size={20} />}
             </button>
           </div>
@@ -841,175 +874,228 @@ function App() {
           </div>
         </section>
 
-        <ContributorDashboard bounties={bounties} loading={loading} />
+        <nav className="dashboard-view-switcher" role="tablist" aria-label="Dashboard views">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={viewMode === 'browse'}
+            className={`view-tab-btn ${viewMode === 'browse' ? 'view-tab-btn--active' : ''}`}
+            onClick={() => setViewMode('browse')}
+          >
+            Public Browse
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={viewMode === 'maintainer'}
+            className={`view-tab-btn ${viewMode === 'maintainer' ? 'view-tab-btn--active' : ''}`}
+            onClick={() => setViewMode('maintainer')}
+          >
+            Maintainer Dashboard
+          </button>
+        </nav>
 
-        <section className="board-section">
-          {(selectedBountyIds.length > 0 || bulkResults) && (
-            <div
-              className="bulk-toolbar"
-              role="toolbar"
-              aria-label="Bulk actions for selected bounties"
-            >
-              {selectedBountyIds.length > 0 ? (
-                <>
-                  <span className="bulk-toolbar__count" aria-live="polite">
-                    {selectedBountyIds.length} selected
-                  </span>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    disabled={bulkRunning}
-                    onClick={() => void handleBulkAction('release')}
-                  >
-                    {bulkRunning ? 'Processing...' : 'Release selected'}
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost-button"
-                    disabled={bulkRunning}
-                    onClick={() => void handleBulkAction('refund')}
-                  >
-                    {bulkRunning ? 'Processing...' : 'Refund selected'}
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost-button"
-                    disabled={bulkRunning}
-                    onClick={() => setSelectedBountyIds([])}
-                  >
-                    Clear selection
-                  </button>
-                </>
-              ) : (
-                <span className="bulk-toolbar__count">
-                  No bounties selected — tick checkboxes on bounty cards to select.
-                </span>
-              )}
+        {viewMode === 'maintainer' ? (
+          <MaintainerDashboard
+            bounties={bounties}
+            maintainerAddress={freighter.publicKey || ''}
+            loading={loading}
+            onSelectBounty={(id) => setDetailId(id)}
+            onRelease={(b) => void handleRelease(b)}
+            onRefund={(b) => void handleRefund(b)}
+          />
+        ) : (
+          <>
+            <ContributorDashboard bounties={bounties} loading={loading} />
 
-              {selectedBountyIds.length > 0 && (
-                <div className="export-toolbar" aria-label="Export bounties">
-                  <button
-                    type="button"
-                    className={
-                      isExporting
-                        ? 'secondary-button secondary-button--loading'
-                        : 'secondary-button'
-                    }
-                    disabled={isExporting}
-                    onClick={handleExportCsv}
-                  >
-                    {isExporting ? <span className="spinner" aria-hidden="true" /> : 'Export CSV'}
-                  </button>
-                </div>
-              )}
-
-              {bulkResults && bulkResults.length > 0 && (
-                <div className="bulk-results" aria-live="polite">
-                  <h4>Last bulk action results</h4>
-                  <ul>
-                    {bulkResults.map((result) => (
-                      <li
-                        key={result.bountyId}
-                        className={result.success ? 'bulk-result--success' : 'bulk-result--failure'}
-                      >
-                        <strong>{result.bountyId}</strong>:{' '}
-                        {result.success
-                          ? `Success (${result.status ?? 'updated'})`
-                          : `Failed — ${result.error ?? 'Unknown error'}`}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-
-          <div className="board-filters">
-            <div className="search-box">
-              <Search size={18} />
-              <input
-                ref={searchInputRef}
-                placeholder="Search by repo, title, or label..."
-                value={searchQuery}
-                onChange={(e) => {
-                  setPage(1);
-                  setSearchQuery(e.target.value);
-                }}
-              />
-            </div>
-            <div className="filter-chips">
-              {contributorStatuses.map((status) => (
-                <button
-                  key={status}
-                  className={`filter-chip ${statusFilter === status ? 'active' : ''}`}
-                  onClick={() => {
-                    setPage(1);
-                    setStatusFilter(status);
-                  }}
+            <section className="board-section">
+              {(selectedBountyIds.length > 0 || bulkResults) && (
+                <div
+                  className="bulk-toolbar"
+                  role="toolbar"
+                  aria-label="Bulk actions for selected bounties"
                 >
-                  {status}
-                </button>
-              ))}
-            </div>
-          </div>
+                  {selectedBountyIds.length > 0 ? (
+                    <>
+                      <span className="bulk-toolbar__count" aria-live="polite">
+                        {selectedBountyIds.length} selected
+                      </span>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={bulkRunning}
+                        onClick={() => void handleBulkAction('release')}
+                      >
+                        {bulkRunning ? 'Processing...' : 'Release selected'}
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        disabled={bulkRunning}
+                        onClick={() => void handleBulkAction('refund')}
+                      >
+                        {bulkRunning ? 'Processing...' : 'Refund selected'}
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        disabled={bulkRunning}
+                        onClick={() => setSelectedBountyIds([])}
+                      >
+                        Clear selection
+                      </button>
+                    </>
+                  ) : (
+                    <span className="bulk-toolbar__count">
+                      No bounties selected — tick checkboxes on bounty cards to select.
+                    </span>
+                  )}
 
-          {loading ? (
-            <div className="board-grid">
-              {[1, 2, 3].map((i) => (
-                <SkeletonBountyCard key={i} />
-              ))}
-            </div>
-          ) : Object.keys(groupedBounties).length > 0 ? (
-            <div className="board-groups">
-              {Object.entries(groupedBounties).map(([repo, repoBounties]) => (
-                <div key={repo} className="repo-group">
-                  <h3 className="repo-heading">
-                    <FolderGit2 size={18} /> {repo}
-                  </h3>
-                  <div className="board-grid">
-                    {repoBounties.map((bounty) => (
-                      <BountyCard
-                        key={bounty.id}
-                        bounty={bounty}
-                        onOpen={handleOpenBounty}
-                        renderActionButton={renderActionButton}
-                        selection={
-                          freighter.isConnected && freighter.publicKey
-                            ? bounty.status !== 'released' && bounty.status !== 'refunded'
-                              ? {
-                                  selected: selectedBountyIds.includes(bounty.id),
-                                  onToggle: () => toggleBountySelection(bounty.id),
-                                }
-                              : undefined
-                            : undefined
+                  {selectedBountyIds.length > 0 && (
+                    <div className="export-toolbar" aria-label="Export bounties">
+                      <button
+                        type="button"
+                        className={
+                          isExporting
+                            ? 'secondary-button secondary-button--loading'
+                            : 'secondary-button'
                         }
-                      />
-                    ))}
-                  </div>
+                        disabled={isExporting}
+                        onClick={handleExportCsv}
+                      >
+                        {isExporting ? (
+                          <span className="spinner" aria-hidden="true" />
+                        ) : (
+                          'Export CSV'
+                        )}
+                      </button>
+                    </div>
+                  )}
+
+                  {bulkResults && bulkResults.length > 0 && (
+                    <div className="bulk-results" aria-live="polite">
+                      <h4>Last bulk action results</h4>
+                      <ul>
+                        {bulkResults.map((result) => (
+                          <li
+                            key={result.bountyId}
+                            className={
+                              result.success ? 'bulk-result--success' : 'bulk-result--failure'
+                            }
+                          >
+                            <strong>{result.bountyId}</strong>:{' '}
+                            {result.success
+                              ? `Success (${result.status ?? 'updated'})`
+                              : `Failed — ${result.error ?? 'Unknown error'}`}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
-              ))}
-            </div>
-          ) : (
-            <EmptyState
-              heading={emptyStateHeading}
-              message={emptyStateMessage}
-              hasFilters={hasActiveFilters}
-              onClearFilters={() => {
-                setSearchQuery('');
-                setStatusFilter('all');
-              }}
-            />
-          )}
-          <nav className="pagination-controls" aria-label="Bounty pages">
-            <button type="button" aria-label="Previous page" disabled={page === 1} onClick={() => setPage((current) => current - 1)}>
-              <ChevronLeft size={18} />
-            </button>
-            <span>Page {page} of {Math.max(1, Math.ceil(totalBounties / BOUNTIES_PER_PAGE))} · {totalBounties} bounties</span>
-            <button type="button" aria-label="Next page" disabled={!hasMoreBounties} onClick={() => setPage((current) => current + 1)}>
-              <ChevronRight size={18} />
-            </button>
-          </nav>
-        </section>
+              )}
+
+              <div className="board-filters">
+                <div className="search-box">
+                  <Search size={18} />
+                  <input
+                    ref={searchInputRef}
+                    placeholder="Search by repo, title, or label..."
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setPage(1);
+                      setSearchQuery(e.target.value);
+                    }}
+                  />
+                </div>
+                <div className="filter-chips">
+                  {contributorStatuses.map((status) => (
+                    <button
+                      key={status}
+                      className={`filter-chip ${statusFilter === status ? 'active' : ''}`}
+                      onClick={() => {
+                        setPage(1);
+                        setStatusFilter(status);
+                      }}
+                    >
+                      {status}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {loading ? (
+                <div className="board-grid">
+                  {[1, 2, 3].map((i) => (
+                    <SkeletonBountyCard key={i} />
+                  ))}
+                </div>
+              ) : Object.keys(groupedBounties).length > 0 ? (
+                <div className="board-groups">
+                  {Object.entries(groupedBounties).map(([repo, repoBounties]) => (
+                    <div key={repo} className="repo-group">
+                      <h3 className="repo-heading">
+                        <FolderGit2 size={18} /> {repo}
+                      </h3>
+                      <div className="board-grid">
+                        {repoBounties.map((bounty) => (
+                          <BountyCard
+                            key={bounty.id}
+                            bounty={bounty}
+                            onOpen={handleOpenBounty}
+                            renderActionButton={renderActionButton}
+                            selection={
+                              freighter.isConnected && freighter.publicKey
+                                ? bounty.status !== 'released' && bounty.status !== 'refunded'
+                                  ? {
+                                      selected: selectedBountyIds.includes(bounty.id),
+                                      onToggle: () => toggleBountySelection(bounty.id),
+                                    }
+                                  : undefined
+                                : undefined
+                            }
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState
+                  heading={emptyStateHeading}
+                  message={emptyStateMessage}
+                  hasFilters={hasActiveFilters}
+                  onClearFilters={() => {
+                    setSearchQuery('');
+                    setStatusFilter('all');
+                  }}
+                />
+              )}
+              <nav className="pagination-controls" aria-label="Bounty pages">
+                <button
+                  type="button"
+                  aria-label="Previous page"
+                  disabled={page === 1}
+                  onClick={() => setPage((current) => current - 1)}
+                >
+                  <ChevronLeft size={18} />
+                </button>
+                <span>
+                  Page {page} of {Math.max(1, Math.ceil(totalBounties / BOUNTIES_PER_PAGE))} ·{' '}
+                  {totalBounties} bounties
+                </span>
+                <button
+                  type="button"
+                  aria-label="Next page"
+                  disabled={!hasMoreBounties}
+                  onClick={() => setPage((current) => current + 1)}
+                >
+                  <ChevronRight size={18} />
+                </button>
+              </nav>
+            </section>
+          </>
+        )}
       </main>
 
       {submissionModalBounty && (
