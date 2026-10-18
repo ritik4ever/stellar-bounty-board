@@ -36,6 +36,11 @@ test('ISSUE-1426: docs/CI_WORKFLOW.md classifies template vs deliberately chosen
   assert.equal(ciResult.valid, true, `CI doc errors: ${ciResult.errors.join('; ')}`);
 });
 
+test('ISSUE-1427: .github/workflows/ci.yml is actively wired into pre-commit and CI enforcement', () => {
+  const pipeline = validatePipelineWiring();
+  assert.equal(pipeline.valid, true, `Pipeline errors: ${pipeline.errors.join('; ')}`);
+});
+
 test('ISSUE-1397, 1401, 1433: pipeline wiring enforces configuration validation', () => {
   const pipeline = validatePipelineWiring();
   assert.equal(pipeline.valid, true, `Pipeline errors: ${pipeline.errors.join('; ')}`);

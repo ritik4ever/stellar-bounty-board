@@ -9,6 +9,7 @@
   "railway.toml": ["node scripts/validate-devops-configs.mjs"],
   "Dockerfile*": ["node scripts/validate-devops-configs.mjs"],
   "docker-compose.yml": ["node scripts/validate-devops-configs.mjs"],
+  ".github/workflows/ci.yml": ["node scripts/validate-devops-configs.mjs"],
   "*.sol": ["forge fmt"],
   "*.rs": ["rustfmt"]
 }

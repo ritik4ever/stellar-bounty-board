@@ -238,6 +238,12 @@ export function validateLintstagedrc(cwd = process.cwd()) {
         '.lintstagedrc.json must define self-validation rule in .lintstagedrc.json (Issue #1404)'
       );
     }
+    // Issue #1427: Enforce .github/workflows/ci.yml validation in pre-commit
+    if (!content['.github/workflows/ci.yml']) {
+      errors.push(
+        '.lintstagedrc.json must enforce .github/workflows/ci.yml validation (Issue #1427)'
+      );
+    }
   } catch (e) {
     errors.push(`.lintstagedrc.json contains invalid JSON: ${e.message}`);
   }
