@@ -94,6 +94,10 @@ enum DataKey {
     ArbiterStake(Address),
     /// The WASM hash this contract was last upgraded to, if ever.
     WasmHash,
+    /// Multi-arbiter committee membership for dispute resolution.
+    ArbiterCommittee,
+    /// Recorded votes cast by committee members per disputed bounty.
+    DisputeVotes(u64),
 }
 
 #[contracttype]
@@ -315,6 +319,39 @@ pub struct ContractUpgraded {
     pub previous_wasm_hash: BytesN<32>,
 }
 
+/// Arbiter committee holding up to three arbiter addresses for dispute resolution.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ArbiterCommittee {
+    pub members: Vec<Address>,
+}
+
+/// A recorded vote cast by a committee member on a dispute.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DisputeVote {
+    pub arbiter: Address,
+    pub decision: bool,
+}
+
+/// Emitted when a committee member casts a vote on a dispute.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DisputeVoteCast {
+    pub bounty_id: u64,
+    pub arbiter: Address,
+    pub decision: bool,
+}
+
+/// Emitted once 2-of-3 quorum is reached and the dispute is resolved by the committee.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DisputeResolved {
+    pub bounty_id: u64,
+    pub decision: bool,
+}
+
+
 // ─── Constants & Error Envelope ────────────────────────────────────────────
 
 /// Maximum allowed bounty amount, enforced to prevent accidental
@@ -372,6 +409,16 @@ pub enum ContractError {
     NoArbiterStake,
     /// The requested slash is larger than the bond held.
     SlashExceedsStake,
+    /// Caller is not a registered arbiter committee member.
+    NotCommitteeMember,
+    /// Committee member has already voted on this dispute.
+    DuplicateCommitteeVote,
+    /// Committee exceeds maximum allowed members (3).
+    CommitteeSizeExceeded,
+    /// Committee contains duplicate member addresses.
+    DuplicateCommitteeMember,
+    /// Committee is not configured in contract storage.
+    CommitteeNotConfigured,
 }
 
 fn panic_error(e: ContractError) -> ! {
@@ -1951,6 +1998,207 @@ impl StellarBountyBoardContract {
                 previous_wasm_hash,
             },
         );
+    }
+
+    // ─── Multi-Arbiter Committee Voting (Issue #727) ─────────────────────────
+
+    /// Configures the multi-arbiter dispute committee members (up to 3 addresses).
+    ///
+    /// Requires authorization from the contract admin.
+    /// Rejects more than 3 members or duplicate addresses.
+    pub fn set_arbiter_committee(env: Env, arbiters: Vec<Address>) {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_error(ContractError::NotAdmin));
+        admin.require_auth();
+
+        if arbiters.len() > 3 {
+            panic_error(ContractError::CommitteeSizeExceeded);
+        }
+
+        // Ensure all member addresses are distinct
+        for i in 0..arbiters.len() {
+            for j in (i + 1)..arbiters.len() {
+                if arbiters.get(i).unwrap() == arbiters.get(j).unwrap() {
+                    panic_error(ContractError::DuplicateCommitteeMember);
+                }
+            }
+        }
+
+        let committee = ArbiterCommittee { members: arbiters };
+        env.storage()
+            .persistent()
+            .set(&DataKey::ArbiterCommittee, &committee);
+    }
+
+    /// Returns the registered dispute committee members.
+    pub fn get_arbiter_committee(env: Env) -> Vec<Address> {
+        env.storage()
+            .persistent()
+            .get::<_, ArbiterCommittee>(&DataKey::ArbiterCommittee)
+            .map(|c| c.members)
+            .unwrap_or_else(|| Vec::new(&env))
+    }
+
+    /// Returns all votes cast so far on a disputed bounty.
+    pub fn get_dispute_votes(env: Env, bounty_id: u64) -> Vec<DisputeVote> {
+        env.storage()
+            .persistent()
+            .get::<_, Vec<DisputeVote>>(&DataKey::DisputeVotes(bounty_id))
+            .unwrap_or_else(|| Vec::new(&env))
+    }
+
+    /// Casts a vote by a committee arbiter on a disputed bounty.
+    ///
+    /// # Parameters
+    /// * `bounty_id` - The ID of the disputed bounty.
+    /// * `arbiter` - The committee arbiter casting the vote.
+    /// * `decision` - `true` to release funds to the contributor, `false` to refund to maintainer.
+    ///
+    /// # Rules & Guarantees
+    /// * Requires authentication from `arbiter` (`arbiter.require_auth()`).
+    /// * Arbiter must be in the registered `ArbiterCommittee`.
+    /// * Rejects duplicate votes from the same committee member.
+    /// * Emits a `DisputeVoteCast` event for every recorded vote.
+    /// * Tallies votes; once 2 matching votes are recorded (2-of-3 quorum):
+    ///   - Executes token transfer:
+    ///     - If release (`true`): net amount to contributor, protocol fee to fee recipient, updates FeeStats.
+    ///     - If refund (`false`): full amount to maintainer.
+    ///   - Sets status to `Released` or `Refunded`.
+    ///   - Emits a `DisputeResolved` event.
+    ///   - Returns `true`.
+    /// * If quorum is not yet reached (e.g. 1st vote or 1-1 split):
+    ///   - Funds remain in escrow, status remains `Disputed`.
+    ///   - Returns `false`.
+    pub fn vote_resolve_dispute(
+        env: Env,
+        bounty_id: u64,
+        arbiter: Address,
+        decision: bool,
+    ) -> bool {
+        let committee: ArbiterCommittee = env
+            .storage()
+            .persistent()
+            .get(&DataKey::ArbiterCommittee)
+            .unwrap_or_else(|| panic_error(ContractError::CommitteeNotConfigured));
+
+        if !committee.members.contains(&arbiter) {
+            panic_error(ContractError::NotCommitteeMember);
+        }
+
+        arbiter.require_auth();
+
+        let mut bounty = read_bounty(&env, bounty_id);
+        if bounty.status != BountyStatus::Disputed {
+            panic!("bounty not disputed");
+        }
+
+        let mut votes: Vec<DisputeVote> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::DisputeVotes(bounty_id))
+            .unwrap_or_else(|| Vec::new(&env));
+
+        // Check for duplicate vote
+        for v in votes.iter() {
+            if v.arbiter == arbiter {
+                panic_error(ContractError::DuplicateCommitteeVote);
+            }
+        }
+
+        votes.push_back(DisputeVote {
+            arbiter: arbiter.clone(),
+            decision,
+        });
+        env.storage()
+            .persistent()
+            .set(&DataKey::DisputeVotes(bounty_id), &votes);
+
+        // Emit DisputeVoteCast
+        env.events().publish(
+            (symbol_short!("Dispute"), symbol_short!("Vote")),
+            DisputeVoteCast {
+                bounty_id,
+                arbiter,
+                decision,
+            },
+        );
+
+        // Tally votes
+        let mut release_votes = 0u32;
+        let mut refund_votes = 0u32;
+        for v in votes.iter() {
+            if v.decision {
+                release_votes += 1;
+            } else {
+                refund_votes += 1;
+            }
+        }
+
+        if release_votes >= 2 {
+            let contributor = bounty
+                .contributor
+                .clone()
+                .unwrap_or_else(|| panic_error(ContractError::MissingContributor));
+
+            let fee_amount: i128 = if bounty.protocol_fee_bps == 0 {
+                0
+            } else {
+                (bounty.amount * bounty.protocol_fee_bps as i128) / 10_000
+            };
+            let net_payout = bounty.amount - fee_amount;
+
+            let token_client = TokenClient::new(&env, &bounty.token);
+            let contract_address = env.current_contract_address();
+
+            token_client.transfer(&contract_address, &contributor, &net_payout);
+
+            if fee_amount > 0 {
+                let fee_recipient: Address = env
+                    .storage()
+                    .persistent()
+                    .get(&DataKey::FeeRecipient)
+                    .unwrap_or_else(|| panic_error(ContractError::FeeRecipientNotSet));
+                token_client.transfer(&contract_address, &fee_recipient, &fee_amount);
+            }
+
+            accumulate_fee_stats(&env, fee_amount);
+
+            bounty.status = BountyStatus::Released;
+            write_bounty(&env, bounty_id, &bounty);
+
+            env.events().publish(
+                (symbol_short!("Dispute"), symbol_short!("Reslvd")),
+                DisputeResolved {
+                    bounty_id,
+                    decision: true,
+                },
+            );
+
+            true
+        } else if refund_votes >= 2 {
+            let token_client = TokenClient::new(&env, &bounty.token);
+            let contract_address = env.current_contract_address();
+
+            token_client.transfer(&contract_address, &bounty.maintainer, &bounty.amount);
+
+            bounty.status = BountyStatus::Refunded;
+            write_bounty(&env, bounty_id, &bounty);
+
+            env.events().publish(
+                (symbol_short!("Dispute"), symbol_short!("Reslvd")),
+                DisputeResolved {
+                    bounty_id,
+                    decision: false,
+                },
+            );
+
+            true
+        } else {
+            false
+        }
     }
 }
 
