@@ -294,6 +294,22 @@ node scripts/test-webhook-signature.js
 
 ---
 
+## PR Merge State Sync & Confirmation Flow
+
+When a pull request linked to a bounty is merged on GitHub, the `pull_request` webhook (`action: closed`, `merged: true`) triggers automatic state synchronization:
+
+1. **State Transition on Merge:** The webhook handler matches the pull request's `html_url` against submitted bounties. Upon matching, it records the merge transition:
+   - Sets `prMerged: true`
+   - Records `prMergedAt` timestamp
+   - Emits a `pr_merged` lifecycle event
+   - Records an immutable audit log entry
+
+2. **Maintainer Confirmation vs. Auto-Release:**
+   - **Confirmation Mode:** When `WEBHOOK_REQUIRE_MAINTAINER_CONFIRMATION=true` (or `WEBHOOK_AUTO_RELEASE=false`), the bounty transitions state to show PR merge confirmation, but funds remain safely in escrow until the maintainer explicitly approves release via the dashboard or API (`POST /api/bounties/:id/release`).
+   - **Direct Auto-Release Mode:** When `WEBHOOK_REQUIRE_MAINTAINER_CONFIRMATION=false`, the webhook directly executes `releaseBounty` to disburse funds upon PR merge.
+
+---
+
 ## For future integrations
 
 - Reuse `createWebhookSignatureMiddleware(...)` for any provider that signs requests with an HMAC header.

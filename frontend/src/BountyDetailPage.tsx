@@ -107,6 +107,7 @@ const EVENT_LABELS: Record<string, string> = {
   refunded: 'Bounty refunded',
   expired: 'Bounty expired',
   disputed: 'Dispute raised',
+  pr_merged: 'Pull request merged',
 };
 
 export function getAccessibleBountyDetailLabel(bounty: Bounty): string {
@@ -342,6 +343,15 @@ export default function BountyDetailPage({
                       ).toUpperCase()}
                     </span>
                   )}
+                  {bounty.prMerged && (
+                    <span
+                      className="status-pill status-pill--released"
+                      data-testid="bounty-pr-merged-status"
+                      title="Pull Request merged on GitHub"
+                    >
+                      PR Merged
+                    </span>
+                  )}
                 </div>
                 <p className="bounty-summary">{bounty.summary}</p>
               </div>
@@ -451,6 +461,12 @@ export default function BountyDetailPage({
                 <div>
                   <span className="meta-label">Submitted</span>
                   <strong>{formatTimestamp(bounty.submittedAt)}</strong>
+                </div>
+              )}
+              {bounty.prMergedAt && (
+                <div>
+                  <span className="meta-label">PR Merged</span>
+                  <strong>{formatTimestamp(bounty.prMergedAt)}</strong>
                 </div>
               )}
               {bounty.releasedAt && (

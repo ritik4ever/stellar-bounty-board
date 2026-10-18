@@ -18,7 +18,8 @@ export type EventType =
   | 'released'
   | 'refunded'
   | 'expired'
-  | 'disputed';
+  | 'disputed'
+  | 'pr_merged';
 
 export interface BountyEvent {
   type: EventType;
@@ -57,6 +58,8 @@ export interface Bounty {
   refundedTxHash?: string;
   disputedAt?: number;
   disputeReason?: string;
+  prMerged?: boolean;
+  prMergedAt?: number;
   submissionUrl?: string;
   notes?: string;
   version: number;

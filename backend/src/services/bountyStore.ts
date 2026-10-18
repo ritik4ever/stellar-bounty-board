@@ -57,14 +57,15 @@ export type BountyTransitionType =
   | 'dispute'
   | 'resolve_dispute'
   | 'update_notes'
-  | 'extend_deadline';
+  | 'extend_deadline'
+  | 'pr_merged';
 
 /**
  * Represents a historical event in the lifecycle of a bounty.
  */
 export interface BountyEvent {
   /** The type of event (usually matches the resulting status or "created"). */
-  type: BountyStatus | 'created' | 'notes_updated' | 'deadline_extended' | 'archived';
+  type: BountyStatus | 'created' | 'notes_updated' | 'deadline_extended' | 'archived' | 'pr_merged';
   /** Unix timestamp in seconds when the event occurred. */
   timestamp: number;
   /** Stellar public key of the actor who triggered the event. */
@@ -155,6 +156,10 @@ export interface BountyRecord {
   disputeReason?: string;
   /** Unix timestamp in seconds of the last admin alert sent for this stuck dispute. */
   lastDisputeAlertAt?: number;
+  /** Whether the linked pull request has been confirmed merged via webhook. */
+  prMerged?: boolean;
+  /** Unix timestamp in seconds of when the linked PR was merged. */
+  prMergedAt?: number;
   // Race condition prevention
   /** Version number of the record used for optimistic locking. */
   version: number;
@@ -1430,6 +1435,57 @@ export async function updateBountyNotes(
         transition: 'update_notes',
         actor: maintainer,
         metadata: { notes },
+      },
+    ]);
+    await invalidateBountyCache();
+
+    return persisted;
+  });
+}
+
+/**
+ * Mark a bounty's linked pull request as confirmed merged via GitHub webhook (Issue #1449).
+ *
+ * Transitions the bounty state toward release by setting `prMerged: true`,
+ * recording `prMergedAt` timestamp, logging a `pr_merged` event, and appending
+ * an audit entry. Does not automatically release funds if maintainer confirmation
+ * is required.
+ *
+ * @param {string} id - The bounty ID to update
+ * @param {string} prUrl - The merged PR HTML URL
+ * @returns {Promise<BountyRecord>} The updated bounty record
+ */
+export async function markBountyPrMerged(id: string, prUrl: string): Promise<BountyRecord> {
+  return withStoreLock(async () => {
+    const records = listBounties();
+    const bounty = findBounty(records, id);
+
+    const now = nowInSeconds();
+    const updated: BountyRecord = {
+      ...bounty,
+      prMerged: true,
+      prMergedAt: now,
+      version: bounty.version + 1,
+      events: [
+        ...bounty.events,
+        {
+          type: 'pr_merged',
+          timestamp: now,
+          actor: 'github-webhook',
+          details: { prUrl, merged: true },
+        },
+      ],
+    };
+
+    const persisted = persistUpdated(records, updated);
+    appendAuditLogs([
+      {
+        bountyId: id,
+        fromStatus: bounty.status,
+        toStatus: bounty.status,
+        transition: 'pr_merged',
+        actor: 'github-webhook',
+        metadata: { prUrl },
       },
     ]);
     await invalidateBountyCache();

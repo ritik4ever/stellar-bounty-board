@@ -1,6 +1,6 @@
-import { listBounties, releaseBounty } from "../services/bountyStore";
-import { logStructured } from "../logger";
-import { hasBeenProcessed, markAsProcessed } from "./deliveryDedup";
+import { listBounties, releaseBounty, markBountyPrMerged } from '../services/bountyStore';
+import { logStructured } from '../logger';
+import { hasBeenProcessed, markAsProcessed } from './deliveryDedup';
 
 /**
  * Shape of a GitHub pull_request webhook payload (the fields we care about).
@@ -17,10 +17,10 @@ interface GitHubPrPayload {
 
 function isPrPayload(body: unknown): body is GitHubPrPayload {
   return (
-    typeof body === "object" &&
+    typeof body === 'object' &&
     body !== null &&
-    "action" in body &&
-    typeof (body as Record<string, unknown>).action === "string"
+    'action' in body &&
+    typeof (body as Record<string, unknown>).action === 'string'
   );
 }
 
@@ -90,14 +90,17 @@ function isPrPayload(body: unknown): body is GitHubPrPayload {
  * });
  * ```
  */
-export async function handleGitHubPrEvent(body: unknown, deliveryId?: string): Promise<{ duplicate: boolean }> {
+export async function handleGitHubPrEvent(
+  body: unknown,
+  deliveryId?: string
+): Promise<{ duplicate: boolean }> {
   // Deduplication: if we have already processed this delivery ID, return early
   // without re-running any side-effects to prevent double-releases.
   if (deliveryId) {
     if (hasBeenProcessed(deliveryId)) {
-      logStructured("info", "github_webhook_duplicate_delivery", {
+      logStructured('info', 'github_webhook_duplicate_delivery', {
         deliveryId,
-        reason: "delivery ID already processed within TTL window",
+        reason: 'delivery ID already processed within TTL window',
       });
       return { duplicate: true };
     }
@@ -112,11 +115,11 @@ export async function handleGitHubPrEvent(body: unknown, deliveryId?: string): P
   const { action, pull_request } = body;
 
   // Only process closed + merged events
-  if (action !== "closed" || !pull_request?.merged) {
-    logStructured("info", "github_webhook_pr_skipped", {
+  if (action !== 'closed' || !pull_request?.merged) {
+    logStructured('info', 'github_webhook_pr_skipped', {
       action,
       merged: pull_request?.merged ?? false,
-      reason: action !== "closed" ? "not_closed" : "not_merged",
+      reason: action !== 'closed' ? 'not_closed' : 'not_merged',
     });
     if (deliveryId) markAsProcessed(deliveryId);
     return { duplicate: false };
@@ -124,8 +127,8 @@ export async function handleGitHubPrEvent(body: unknown, deliveryId?: string): P
 
   const prUrl = pull_request.html_url;
   if (!prUrl) {
-    logStructured("warn", "github_webhook_pr_missing_url", {
-      reason: "pull_request.html_url is empty",
+    logStructured('warn', 'github_webhook_pr_missing_url', {
+      reason: 'pull_request.html_url is empty',
     });
     if (deliveryId) markAsProcessed(deliveryId);
     return { duplicate: false };
@@ -133,32 +136,74 @@ export async function handleGitHubPrEvent(body: unknown, deliveryId?: string): P
 
   // Find a submitted bounty whose submissionUrl exactly matches the merged PR URL
   const bounties = listBounties();
-  const matching = bounties.find(
-    (b) => b.status === "submitted" && b.submissionUrl === prUrl,
-  );
+  const matching = bounties.find((b) => b.status === 'submitted' && b.submissionUrl === prUrl);
 
   if (!matching) {
-    logStructured("info", "github_webhook_pr_no_matching_bounty", {
+    logStructured('info', 'github_webhook_pr_no_matching_bounty', {
       prUrl,
-      reason: "no submitted bounty with matching submissionUrl",
+      reason: 'no submitted bounty with matching submissionUrl',
     });
     if (deliveryId) markAsProcessed(deliveryId);
     return { duplicate: false };
   }
 
-  logStructured("info", "github_webhook_pr_auto_releasing", {
-    bountyId: matching.id,
-    prUrl,
-    maintainer: matching.maintainer,
-  });
+  // 1. Record PR merge state transition on the bounty (Issue #1449)
+  await markBountyPrMerged(matching.id, prUrl);
 
-  await releaseBounty(matching.id, matching.maintainer);
+  const requireMaintainerConfirmation =
+    process.env.WEBHOOK_REQUIRE_MAINTAINER_CONFIRMATION === 'true' ||
+    process.env.WEBHOOK_AUTO_RELEASE === 'false';
 
-  logStructured("info", "github_webhook_pr_auto_released", {
-    bountyId: matching.id,
-    prUrl,
-  });
+  if (requireMaintainerConfirmation) {
+    logStructured('info', 'github_webhook_pr_merged_pending_confirmation', {
+      bountyId: matching.id,
+      prUrl,
+      maintainer: matching.maintainer,
+      message:
+        'PR merged confirmed via webhook; pending maintainer final confirmation to release funds',
+    });
+  } else {
+    logStructured('info', 'github_webhook_pr_auto_releasing', {
+      bountyId: matching.id,
+      prUrl,
+      maintainer: matching.maintainer,
+    });
+
+    await releaseBounty(matching.id, matching.maintainer);
+
+    logStructured('info', 'github_webhook_pr_auto_released', {
+      bountyId: matching.id,
+      prUrl,
+    });
+  }
 
   if (deliveryId) markAsProcessed(deliveryId);
   return { duplicate: false };
+}
+
+/**
+ * Direct sync helper to update PR merge state for a bounty (Issue #1449).
+ *
+ * @param bountyId - The ID of the bounty to sync.
+ * @param prUrl - The URL of the merged pull request.
+ * @param autoRelease - Whether to immediately disburse funds or await maintainer confirmation.
+ */
+export async function syncPrMergeState(
+  bountyId: string,
+  prUrl: string,
+  autoRelease = false
+): Promise<{ bountyId: string; prMerged: boolean; released: boolean }> {
+  const bounty = await markBountyPrMerged(bountyId, prUrl);
+  let released = false;
+
+  if (autoRelease && bounty.status === 'submitted') {
+    await releaseBounty(bounty.id, bounty.maintainer);
+    released = true;
+  }
+
+  return {
+    bountyId,
+    prMerged: true,
+    released,
+  };
 }

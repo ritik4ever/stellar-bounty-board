@@ -28,6 +28,14 @@ export interface WebhookConfig {
    * Default: `60000` (1 minute)
    */
   dedupCleanupIntervalMs: number;
+  /**
+   * Whether maintainer confirmation is required before final funds release on PR merge.
+   * When true, PR merge events transition the bounty to PR-merged state without auto-releasing funds.
+   *
+   * Source: `WEBHOOK_REQUIRE_MAINTAINER_CONFIRMATION`
+   * Default: `false`
+   */
+  requireMaintainerConfirmation: boolean;
 }
 
 /**
@@ -80,7 +88,7 @@ export function getWebhookConfig(): WebhookConfig {
     if (!Number.isFinite(parsed) || parsed <= 0) {
       logger.warn(
         { value: raw },
-        'WEBHOOK_PR_CACHE_TTL_SECONDS must be a positive number; using default 300 seconds',
+        'WEBHOOK_PR_CACHE_TTL_SECONDS must be a positive number; using default 300 seconds'
       );
       return 300;
     }
@@ -94,7 +102,7 @@ export function getWebhookConfig(): WebhookConfig {
     if (!Number.isFinite(parsed) || parsed <= 0) {
       logger.warn(
         { value: raw },
-        'WEBHOOK_DEDUP_TTL_MS must be a positive number; using default 600000 milliseconds',
+        'WEBHOOK_DEDUP_TTL_MS must be a positive number; using default 600000 milliseconds'
       );
       return 10 * 60 * 1000;
     }
@@ -108,21 +116,29 @@ export function getWebhookConfig(): WebhookConfig {
     if (!Number.isFinite(parsed) || parsed <= 0) {
       logger.warn(
         { value: raw },
-        'WEBHOOK_DEDUP_CLEANUP_INTERVAL_MS must be a positive number; using default 60000 milliseconds',
+        'WEBHOOK_DEDUP_CLEANUP_INTERVAL_MS must be a positive number; using default 60000 milliseconds'
       );
       return 60000;
     }
     return Math.floor(parsed);
   })();
 
+  const requireMaintainerConfirmation =
+    process.env.WEBHOOK_REQUIRE_MAINTAINER_CONFIRMATION === 'true' ||
+    process.env.WEBHOOK_AUTO_RELEASE === 'false';
+
   const config: WebhookConfig = {
     prCacheTtlSeconds,
     dedupTtlMs,
     dedupCleanupIntervalMs,
+    requireMaintainerConfirmation,
   };
 
   // Log effective values at startup for operator visibility
-  logger.info(config, 'Webhook configuration loaded (WEBHOOK_PR_CACHE_TTL_SECONDS, WEBHOOK_DEDUP_TTL_MS, WEBHOOK_DEDUP_CLEANUP_INTERVAL_MS)');
+  logger.info(
+    config,
+    'Webhook configuration loaded (WEBHOOK_PR_CACHE_TTL_SECONDS, WEBHOOK_DEDUP_TTL_MS, WEBHOOK_DEDUP_CLEANUP_INTERVAL_MS, WEBHOOK_REQUIRE_MAINTAINER_CONFIRMATION)'
+  );
 
   return config;
 }
