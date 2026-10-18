@@ -2858,6 +2858,7 @@ select {
   .tag-filter-row,
   .recommendation-reasons,
   .recommendation-footer,
+  .github-issue-card,
   .modal-dialog,
   .submission-modal,
   .disconnect-modal,
@@ -2884,6 +2885,8 @@ select {
   .filter-btn,
   .connect-wallet-btn,
   .secondary-link,
+  .github-issue-card__retry-btn,
+  .github-issue-card__error-link,
   .tab-item,
   .pagination-btn,
   .modal-close-btn,
@@ -2912,6 +2915,8 @@ select {
   .truncate-mobile,
   .bounty-title,
   .bounty-card--recommended h3,
+  .github-issue-card__title,
+  .github-issue-card__repo,
   .issue-summary,
   .reason-tag,
   .recommendation-explanation,
@@ -2930,6 +2935,10 @@ select {
   .bounty-title:focus-visible,
   .bounty-card--recommended h3:hover,
   .bounty-card--recommended h3:focus-visible,
+  .github-issue-card__title:hover,
+  .github-issue-card__title:focus-visible,
+  .github-issue-card__repo:hover,
+  .github-issue-card__repo:focus-visible,
   .reason-tag:hover,
   .reason-tag:focus-visible,
   .address-chip:hover,
@@ -2993,6 +3002,31 @@ select {
   }
 
   .recommendation-footer .secondary-link {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* GitHub issue card 320px small-viewport adjustments (#1285) */
+  .github-issue-card {
+    padding: 12px;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .github-issue-card__top {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .github-issue-card__error-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .github-issue-card__retry-btn {
     width: 100%;
     justify-content: center;
   }
