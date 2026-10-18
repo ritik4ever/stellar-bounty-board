@@ -361,6 +361,23 @@ export function validateBindingsDriftDoc(cwd = process.cwd()) {
     }
   }
 
+  // Issue #1431: Matrix of Deviations from Tool & Action Framework Defaults
+  const requiredDeviations = [
+    'Matrix of Deviations from Tool & Action Framework Defaults (Issue #1431)',
+    'prebuilt release tarball',
+    'gen-bindings.sh',
+    'wasm32-unknown-unknown',
+    'frontend/package-lock.json',
+  ];
+
+  for (const item of requiredDeviations) {
+    if (!content.includes(item)) {
+      errors.push(
+        `Missing tool default deviation explanation for "${item}" in docs/BINDINGS_DRIFT_WORKFLOW.md (Issue #1431)`
+      );
+    }
+  }
+
   return {
     valid: errors.length === 0,
     errors,

@@ -65,6 +65,15 @@ test('ISSUE-1430: .github/workflows/bindings-drift.yml is actively wired into pr
   assert.equal(pipeline.valid, true, `Pipeline errors: ${pipeline.errors.join('; ')}`);
 });
 
+test('ISSUE-1431: docs/BINDINGS_DRIFT_WORKFLOW.md documents deliberate deviations from tool defaults', () => {
+  const bindingsResult = validateBindingsDriftDoc();
+  assert.equal(
+    bindingsResult.valid,
+    true,
+    `Bindings drift errors: ${bindingsResult.errors.join('; ')}`
+  );
+});
+
 test('ISSUE-1397, 1401, 1433: pipeline wiring enforces configuration validation', () => {
   const pipeline = validatePipelineWiring();
   assert.equal(pipeline.valid, true, `Pipeline errors: ${pipeline.errors.join('; ')}`);

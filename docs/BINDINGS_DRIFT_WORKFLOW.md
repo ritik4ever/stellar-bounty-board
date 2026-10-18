@@ -1,6 +1,6 @@
 # Contract Bindings Drift Workflow Guide (`.github/workflows/bindings-drift.yml`)
 
-This document verifies and details the operational alignment between `.github/workflows/bindings-drift.yml` and the actual build, scripting, and runtime requirements of the application (Issue #1428), and provides an architectural breakdown of non-obvious workflow settings (Issue #1429).
+This document verifies and details the operational alignment between `.github/workflows/bindings-drift.yml` and the actual build, scripting, and runtime requirements of the application (Issue #1428), provides an architectural breakdown of non-obvious workflow settings (Issue #1429), and documents deliberate deviations from standard tool and action defaults (Issue #1431).
 
 ---
 
@@ -40,6 +40,19 @@ To ensure contributors understand the intent of each configuration value and avo
 | `jobs.bindings-drift.steps[Regenerate].run` | `export PATH="$HOME/.local/bin:$PATH"` | **Deliberately Chosen** | Prepends local user bin to PATH. Essential because standard GitHub Actions runners do not include `$HOME/.local/bin` in default runner PATH. |
 | `jobs.bindings-drift.steps[Diff].run` | `git diff --exit-code frontend/src/generated` | **Deliberately Chosen** | Standard `git diff` exits with 0 even when differences exist. The non-obvious `--exit-code` flag forces non-zero exit code if bindings drifted. |
 | `jobs.bindings-drift.steps[Diff].run` | `echo "::error::..."` | **Deliberately Chosen** | Emits GitHub Actions workflow command syntax to highlight error inline on the PR files changed view with actionable remediation guidance. |
+
+---
+
+## Matrix of Deviations from Tool & Action Framework Defaults (Issue #1431)
+
+| Setting / Action Step | Framework / Action Default | Deliberate Deviation in `bindings-drift.yml` | Rationale & Load-Bearing Context |
+| :--- | :--- | :--- | :--- |
+| **`actions/setup-node` `cache-dependency-path`** | Looks only for root `package-lock.json` | Explicitly lists both root `package-lock.json` and `frontend/package-lock.json` | Since TypeScript bindings and frontend consumers exist in `frontend/`, tracking both lockfiles prevents stale node cache hits when frontend dependencies change. |
+| **Cargo Dependency Caching (`actions/cache`)** | Caches entire target root or host binaries | Selectively caches `~/.cargo/registry`, `~/.cargo/git`, and `contracts/target` | Isolates Soroban smart contract dependencies from extraneous monorepo build artifacts, preserving CI cache bandwidth and avoiding quota eviction. |
+| **Rust Toolchain Target (`setup-rust-toolchain`)** | Compiles to native host runner architecture (`x86_64-unknown-linux-gnu`) | Explicit `target: wasm32-unknown-unknown` | Soroban smart contracts execute in the Stellar WebAssembly runtime. Compiling without `wasm32-unknown-unknown` yields invalid host binaries unusable for TypeScript bindings generation. |
+| **Stellar CLI Installation Mechanism** | `cargo install --locked stellar-cli` (compiles from source on crates.io, taking ~12 minutes in CI) | Downloads prebuilt release tarball via `scripts/install-stellar-cli.sh` in < 4 seconds | Compiling Stellar CLI from source causes severe CI latency and timeout bottlenecks. Using official prebuilt GitHub release archives drastically speeds up CI pipelines. |
+| **Bindings Generator Invocation** | Inlines raw CLI commands into GitHub Actions YAML | Invokes canonical `npm run gen:bindings` wrapper script (`scripts/gen-bindings.sh`) | Guarantees identical execution semantics, flags, and contract WASM compilation paths between local developer environments and remote CI runners. |
+| **Git Diff Drift Assertion** | `git diff` returns exit status 0 regardless of working tree modifications | `git diff --exit-code frontend/src/generated` with error annotation fallback | Default `git diff` silently succeeds even when drift occurs. The `--exit-code` parameter forces non-zero exit code if generated bindings diverge from committed code. |
 
 ---
 
