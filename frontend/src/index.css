@@ -2859,6 +2859,7 @@ select {
   .recommendation-reasons,
   .recommendation-footer,
   .github-issue-card,
+  .bounty-detail,
   .modal-dialog,
   .submission-modal,
   .disconnect-modal,
@@ -2887,6 +2888,7 @@ select {
   .secondary-link,
   .github-issue-card__retry-btn,
   .github-issue-card__error-link,
+  .copy-button,
   .tab-item,
   .pagination-btn,
   .modal-close-btn,
@@ -2917,6 +2919,7 @@ select {
   .bounty-card--recommended h3,
   .github-issue-card__title,
   .github-issue-card__repo,
+  .meta-grid--detail .copy-row,
   .issue-summary,
   .reason-tag,
   .recommendation-explanation,
@@ -2939,6 +2942,8 @@ select {
   .github-issue-card__title:focus-visible,
   .github-issue-card__repo:hover,
   .github-issue-card__repo:focus-visible,
+  .meta-grid--detail .copy-row:hover,
+  .meta-grid--detail .copy-row:focus-visible,
   .reason-tag:hover,
   .reason-tag:focus-visible,
   .address-chip:hover,
@@ -3029,5 +3034,40 @@ select {
   .github-issue-card__retry-btn {
     width: 100%;
     justify-content: center;
+  }
+
+  /* Bounty detail page 320px small-viewport adjustments (#1279) */
+  .bounty-detail {
+    padding: 12px;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .bounty-detail .panel-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .bounty-detail .panel-header__actions {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    gap: 8px;
+  }
+
+  .bounty-detail .panel-header__actions button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .bounty-detail__hero {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .meta-grid--detail {
+    grid-template-columns: 1fr;
+    gap: 12px;
   }
 }
