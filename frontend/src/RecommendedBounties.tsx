@@ -7,6 +7,8 @@ import UsdAmount from './UsdAmount';
 interface RecommendedBountiesProps {
   recommendations: BountyRecommendation[];
   loading?: boolean;
+  error?: string | Error | null;
+  onRetry?: () => void;
   walletConnected?: boolean;
   onConnectWallet?: () => void;
 }
@@ -139,6 +141,8 @@ function BountyRecommendationCard({ recommendation }: { recommendation: BountyRe
 export default function RecommendedBounties({
   recommendations,
   loading,
+  error,
+  onRetry,
   walletConnected = true,
   onConnectWallet,
 }: RecommendedBountiesProps) {
@@ -168,6 +172,36 @@ export default function RecommendedBounties({
           {onConnectWallet && (
             <button type="button" className="connect-wallet-btn" onClick={onConnectWallet}>
               Connect wallet
+            </button>
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  if (error) {
+    const errorMessage = typeof error === 'string' ? error : error.message;
+    return (
+      <section
+        className="panel recommendations-panel"
+        role="region"
+        aria-label="Recommended bounties error"
+      >
+        <div className="panel-header">
+          <div>
+            <span className="panel-kicker">Personalized for you</span>
+            <h2>Recommended bounties</h2>
+          </div>
+          <Star size={18} aria-hidden="true" />
+        </div>
+        <div className="error-state" role="alert">
+          <h3 className="error-state__heading">Unable to load recommendations</h3>
+          <p className="error-state__message">
+            {errorMessage || 'An error occurred while fetching personalized recommendations.'}
+          </p>
+          {onRetry && (
+            <button type="button" className="error-state__retry retry-button" onClick={onRetry}>
+              Retry loading recommendations
             </button>
           )}
         </div>

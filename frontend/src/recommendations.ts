@@ -17,6 +17,15 @@ export interface ContributorProfile {
   skills: string[];
 }
 
+export type RecommendationStatus = 'idle' | 'loading' | 'empty' | 'error' | 'success';
+
+export interface RecommendationFetchState {
+  status: RecommendationStatus;
+  data: BountyRecommendation[];
+  error?: string | null;
+  onRetry?: () => void;
+}
+
 /**
  * Score how well a bounty matches a contributor's declared skill tags.
  * Compares the contributor's skills against the bounty's labels and (optionally) tags.
