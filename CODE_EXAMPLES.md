@@ -21,6 +21,7 @@
 - [10. Monitoring and Logging](#10-monitoring-and-logging)
 - [Summary](#summary)
 - [See Also / Related Documentation](#see-also--related-documentation)
+- [Wave & Backlog Alignment](#wave--backlog-alignment)
 
 ---
 
@@ -747,4 +748,30 @@ This implementation provides:
 - [CONTRIBUTING.md](./CONTRIBUTING.md) — Contributor checklist, testing guidelines, and conventional commits.
 
 
-<!-- Verified: 2026-10-01 — all referenced files exist (per issue #1368) -->
+## Wave & Backlog Alignment
+
+The code examples in this guide directly reflect the architectural standards across waves 4, 5, and 6:
+
+- **Wave 4 ([docs/wave-4.md](docs/wave-4.md)) — Core Foundation & Schema Hardening:**
+  - Standardizes payload schemas and runtime type validation for webhooks.
+  - Documents expected event payload signatures for automated testing.
+- **Wave 5 ([docs/wave-5.md](docs/wave-5.md)) — Security, Observability & Polish:**
+  - Implements startup validation for `GITHUB_WEBHOOK_SECRET` ([Example 1 & 2](#7-usage-examples)).
+  - Provides structured logging patterns for security telemetry ([Section 10](#10-monitoring-and-logging)).
+- **Wave 6 ([docs/wave-6.md](docs/wave-6.md)) — Production Hardening & Integration:**
+  - Hardens production Docker deployments with environment isolation ([Example 4](#example-4-docker-deployment)).
+  - End-to-end delivery simulation and automated verification.
+
+### Canonical Contribution Process
+
+When contributing code examples, tests, or webhook handler enhancements, follow the single canonical contribution workflow defined across the Wave backlogs ([docs/wave-4.md](docs/wave-4.md)) and [CONTRIBUTING.md](./CONTRIBUTING.md):
+1. **Browse Backlog Issues:** Check open issues tagged `wave-4`, `wave-5`, `wave-6`, or `Stellar Wave`.
+2. **Claim Prior to Work:** Comment on the target issue to claim priority and prevent duplicate effort.
+3. **Branching:** Create a focused feature branch off `main` (`git checkout -b feat/...`, `fix/...`, or `docs/...`).
+4. **Conventional Commits & Verification:** Format commit messages according to conventional commits and verify all checks locally (`npm test`, `npm run validate:configs`, `npm run format:check`).
+5. **PR & Issue Linkage:** Open a PR referencing the issue (`Resolves #<issue>` or `Closes #<issue>`).
+
+---
+
+<!-- Verified: October 18, 2026 — reconciled with wave backlog structure and canonical contribution process (per issue #1367) -->
+
