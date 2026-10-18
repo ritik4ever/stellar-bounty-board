@@ -383,6 +383,18 @@ This worked example demonstrates how to execute the test suite for `validateGitH
 - [CONTRIBUTING.md](./CONTRIBUTING.md) — Contributor checklist, testing guidelines, and conventional commits.
 
 
+## Wave & Backlog Alignment
+
+This implementation summary and its contribution instructions are aligned with the active Stellar Wave backlog structure:
+- [Wave 4 Backlog](docs/wave-4.md)
+- [Wave 5 Backlog](docs/wave-5.md)
+- [Wave 6 Backlog](docs/wave-6.md)
+
+### Canonical Contribution Process
+
+All contributions, documentation improvements, and bug fixes must follow the single canonical contribution workflow outlined in [CONTRIBUTING.md](./CONTRIBUTING.md) (reconciled per Issue #1374). Pull requests must target the active wave issues, include automated test coverage, and adhere to conventional commit conventions.
+
+
 ## References
 
 - [GitHub Webhook Security](https://docs.github.com/en/developers/webhooks-and-events/webhooks/securing-your-webhooks)
