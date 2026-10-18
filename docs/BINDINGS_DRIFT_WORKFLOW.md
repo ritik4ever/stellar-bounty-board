@@ -1,6 +1,6 @@
 # Contract Bindings Drift Workflow Guide (`.github/workflows/bindings-drift.yml`)
 
-This document verifies and details the operational alignment between `.github/workflows/bindings-drift.yml` and the actual build, scripting, and runtime requirements of the application (Issue #1428).
+This document verifies and details the operational alignment between `.github/workflows/bindings-drift.yml` and the actual build, scripting, and runtime requirements of the application (Issue #1428), and provides an architectural breakdown of non-obvious workflow settings (Issue #1429).
 
 ---
 
@@ -10,7 +10,7 @@ The `bindings-drift.yml` workflow guarantees that the generated TypeScript contr
 
 ---
 
-## Comprehensive Entry-by-Entry Verification Against Actual Usage
+## Comprehensive Entry-by-Entry Verification Against Actual Usage (Issue #1428)
 
 Every directive and step in `.github/workflows/bindings-drift.yml` has been verified against the underlying source code and package scripts:
 
@@ -28,7 +28,24 @@ Every directive and step in `.github/workflows/bindings-drift.yml` has been veri
 
 ---
 
-## Intentional Differences from Default Action Scaffolds
+## Non-Obvious Settings Breakdown & Classification (Issue #1429)
 
-1. **Dual Lockfile Caching**: Unlike generic single-package templates, `cache-dependency-path` explicitly tracks `frontend/package-lock.json` in addition to `package-lock.json` because frontend dependencies govern the TypeScript compiler and bindings consumers.
-2. **Deterministic PATH Resolution**: The workflow explicitly prepends `$HOME/.local/bin` to `PATH` before invoking `npm run gen:bindings`, guaranteeing that the newly installed Stellar CLI binary takes precedence over any stale system binaries.
+To ensure contributors understand the intent of each configuration value and avoid breaking load-bearing mechanics, settings are categorized into **Template Boilers** and **Deliberately Chosen Load-Bearing Values**:
+
+| Setting Location | Config Value | Classification | Purpose & Impact if Modified |
+| :--- | :--- | :--- | :--- |
+| `name` | `Contract Bindings Drift` | **Template Boiler** | Human-readable workflow display name in GitHub Actions UI. Safe to rephrase. |
+| `on` | `pull_request` & `push` on `main` | **Deliberately Chosen** | Dual event trigger ensures PRs are validated pre-merge and post-merge pushes to `main` are checked in case direct merges bypassed branch protection. |
+| `jobs.bindings-drift.steps[Rust].target` | `wasm32-unknown-unknown` | **Deliberately Chosen** | Non-obvious compiler target; native host targets (`x86_64`) will cause `stellar contract bindings typescript` to fail with invalid ELF format errors. |
+| `jobs.bindings-drift.steps[Regenerate].run` | `export PATH="$HOME/.local/bin:$PATH"` | **Deliberately Chosen** | Prepends local user bin to PATH. Essential because standard GitHub Actions runners do not include `$HOME/.local/bin` in default runner PATH. |
+| `jobs.bindings-drift.steps[Diff].run` | `git diff --exit-code frontend/src/generated` | **Deliberately Chosen** | Standard `git diff` exits with 0 even when differences exist. The non-obvious `--exit-code` flag forces non-zero exit code if bindings drifted. |
+| `jobs.bindings-drift.steps[Diff].run` | `echo "::error::..."` | **Deliberately Chosen** | Emits GitHub Actions workflow command syntax to highlight error inline on the PR files changed view with actionable remediation guidance. |
+
+---
+
+## Contributor Remediation Protocol
+
+If the `Contract Bindings Drift` check fails on your PR:
+1. Ensure your local branch is rebased on latest `main`.
+2. Run `npm run gen:bindings` locally from repo root.
+3. Commit the updated files in `frontend/src/generated/` and push to your PR branch.

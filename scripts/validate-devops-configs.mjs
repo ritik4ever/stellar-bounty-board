@@ -338,6 +338,23 @@ export function validateBindingsDriftDoc(cwd = process.cwd()) {
     }
   }
 
+  // Issue #1429: Non-obvious settings breakdown and template vs deliberately chosen classification
+  const requiredNonObvious = [
+    'Non-Obvious Settings Breakdown & Classification (Issue #1429)',
+    'Template Boiler',
+    'Deliberately Chosen',
+    '--exit-code',
+    'export PATH',
+  ];
+
+  for (const item of requiredNonObvious) {
+    if (!content.includes(item)) {
+      errors.push(
+        `Missing non-obvious setting explanation for "${item}" in docs/BINDINGS_DRIFT_WORKFLOW.md (Issue #1429)`
+      );
+    }
+  }
+
   return {
     valid: errors.length === 0,
     errors,

@@ -51,6 +51,15 @@ test('ISSUE-1428: docs/BINDINGS_DRIFT_WORKFLOW.md confirms bindings-drift matche
   );
 });
 
+test('ISSUE-1429: docs/BINDINGS_DRIFT_WORKFLOW.md classifies non-obvious settings and template values', () => {
+  const bindingsResult = validateBindingsDriftDoc();
+  assert.equal(
+    bindingsResult.valid,
+    true,
+    `Bindings drift errors: ${bindingsResult.errors.join('; ')}`
+  );
+});
+
 test('ISSUE-1397, 1401, 1433: pipeline wiring enforces configuration validation', () => {
   const pipeline = validatePipelineWiring();
   assert.equal(pipeline.valid, true, `Pipeline errors: ${pipeline.errors.join('; ')}`);
