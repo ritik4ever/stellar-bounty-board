@@ -1,7 +1,9 @@
 import type { NextFunction, Request, Response } from 'express';
+import { getMiddlewareConfig } from './config';
 
-const IDEMPOTENCY_TTL_MS = 10 * 60 * 1000;
-const CLEANUP_INTERVAL_MS = 60_000;
+const config = getMiddlewareConfig();
+export const IDEMPOTENCY_TTL_MS = config.idempotencyTtlMs;
+export const CLEANUP_INTERVAL_MS = config.idempotencyCleanupIntervalMs;
 
 interface IdempotencyEntry {
   statusCode: number;

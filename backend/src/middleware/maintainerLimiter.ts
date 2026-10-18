@@ -4,9 +4,11 @@ import path from "path";
 import lockfile from "proper-lockfile";
 import { logger } from "../logger";
 import { MiddlewareDependencyError } from "./errors";
+import { getMiddlewareConfig } from "./config";
 
-const LIMIT = Number(process.env.MAINTAINER_BOUNTY_RATE_LIMIT ?? 10);
-const WINDOW_MS = Number(process.env.MAINTAINER_BOUNTY_RATE_WINDOW_MS ?? 3600_000);
+const config = getMiddlewareConfig();
+const LIMIT = config.maintainerRateLimit;
+const WINDOW_MS = config.maintainerRateWindowMs;
 
 interface RateLimitRecord {
   timestamps: number[];
@@ -112,8 +114,12 @@ export const maintainerLimiter: RequestHandler = async (req: Request, res: Respo
   let release: () => Promise<void>;
   try {
     release = await lockfile.lock(storePath, {
-      retries: { retries: 5, minTimeout: 10, maxTimeout: 50 },
-      stale: 5000,
+      retries: {
+        retries: config.maintainerLockRetries,
+        minTimeout: config.maintainerLockMinTimeoutMs,
+        maxTimeout: config.maintainerLockMaxTimeoutMs,
+      },
+      stale: config.maintainerLockStaleMs,
     });
   } catch (err) {
     next(

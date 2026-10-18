@@ -26,5 +26,8 @@ export function enforceBodyLimit(limit: string) {
   };
 }
 
-export const DEFAULT_BODY_LIMIT = '32kb';
-export const LARGE_BODY_LIMIT = '256kb';
+import { getMiddlewareConfig } from './config';
+
+export const DEFAULT_BODY_LIMIT = getMiddlewareConfig().defaultBodyLimit;
+export const LARGE_BODY_LIMIT = getMiddlewareConfig().largeBodyLimit;
+

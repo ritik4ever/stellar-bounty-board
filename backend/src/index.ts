@@ -15,6 +15,7 @@ import {
   stopRecurringBountyScheduler,
 } from "./services/recurringBountySchedules";
 import { getOperationalConfig } from "./config";
+import { getMiddlewareConfig } from "./middleware/config";
 
 const port = Number(process.env.PORT ?? 3001);
 const keepAliveTimeout = Number(process.env.KEEP_ALIVE_TIMEOUT ?? 65000);
@@ -22,11 +23,13 @@ const headersTimeout = Number(process.env.HEADERS_TIMEOUT ?? 66000);
 
 // Log effective operational configuration at startup for operator visibility
 const operationalConfig = getOperationalConfig();
+const middlewareConfig = getMiddlewareConfig();
 logStructured("info", "operational_config", {
   rateLimitWindowMs: operationalConfig.rateLimitWindowMs,
   rateLimitReadMax: operationalConfig.rateLimitReadMax,
   rateLimitMutationMax: operationalConfig.rateLimitMutationMax,
 });
+logStructured("info", "middleware_config", middlewareConfig);
 
 const server = app.listen(port, () => {
   logStructured("info", "server_listen", { port, keepAliveTimeout, headersTimeout });
