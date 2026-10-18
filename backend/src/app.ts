@@ -56,6 +56,7 @@ import {
 import { validateBody } from './middleware/validateBody';
 import { isValidStellarAddress } from './utils';
 import { getPublicConfig } from './config';
+import { getAppConfig } from './appConfig';
 
 import {
   captureRawBody,
@@ -127,12 +128,12 @@ function requestContextMiddleware(req: Request, res: Response, next: NextFunctio
 }
 
 export const app = express();
+const appConfig = getAppConfig();
 
-// Per-IP rate limiting (Wave 4 #81)
-// Dual-tier: 120 reads/min, 10 mutations/min
+// Per-IP rate limiting (Wave 4 #81, #1298)
 const readLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 120, // 120 GET requests per minute per IP
+  windowMs: appConfig.rateLimitWindowMs,
+  max: appConfig.rateLimitReadMax,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many read requests, please slow down." },
@@ -140,8 +141,8 @@ const readLimiter = rateLimit({
 });
 
 const mutationLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 10, // 10 state-changing requests per minute per IP
+  windowMs: appConfig.rateLimitWindowMs,
+  max: appConfig.rateLimitMutationMax,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many mutations, please slow down." },
@@ -168,7 +169,7 @@ app.use(cors(buildCorsOptions()));
 app.use(
   express.json({
     verify: captureRawBody,
-    limit: '256kb',
+    limit: appConfig.rawBodyLimit,
   })
 );
 
@@ -443,7 +444,7 @@ app.post(
   '/api/bounties/import',
   mutationLimiter,
   adminAuth,
-  express.text({ type: ['text/csv', 'application/csv'], limit: '1mb' }),
+  express.text({ type: ['text/csv', 'application/csv'], limit: appConfig.csvUploadLimit }),
   async (req: Request, res: Response) => {
     if (typeof req.body !== 'string') {
       jsonError(res, req, 415, 'Content-Type must be text/csv or application/csv.');
@@ -1107,7 +1108,7 @@ app.post(
 app.get('/api/open-issues', async (req: Request, res: Response) => {
   try {
     const data = await listOpenIssues();
-    res.set('Cache-Control', 'max-age=600');
+    res.set('Cache-Control', `max-age=${appConfig.openIssuesCacheSeconds}`);
     res.json({ data });
   } catch (error) {
     sendError(res, req, error, 502);
@@ -1134,7 +1135,7 @@ app.get('/api/bounties/:id', (req: Request, res: Response) => {
       return;
     }
 
-    res.setHeader('Cache-Control', 'max-age=5');
+    res.setHeader('Cache-Control', `max-age=${appConfig.bountiesListCacheSeconds}`);
 
     if (bounty.version !== undefined) {
       const etag = `"${bounty.version}"`;
@@ -1213,7 +1214,10 @@ app.get('/api/stats', async (_req: Request, res: Response) => {
 app.get('/api/config', (_req: Request, res: Response) => {
   try {
     const config = getPublicConfig();
-    res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=60');
+    res.setHeader(
+      'Cache-Control',
+      `public, max-age=${appConfig.configCacheSeconds}, stale-while-revalidate=${appConfig.configStaleWhileRevalidateSeconds}`
+    );
     res.json({ data: config });
   } catch (error) {
     sendError(res, _req, error, 500);

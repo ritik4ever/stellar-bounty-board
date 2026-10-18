@@ -17,6 +17,7 @@ import {
 import { getOperationalConfig } from "./config";
 import { getMiddlewareConfig } from "./middleware/config";
 import { getServicesConfig } from "./services/config";
+import { getAppConfig } from "./appConfig";
 
 const port = Number(process.env.PORT ?? 3001);
 const keepAliveTimeout = Number(process.env.KEEP_ALIVE_TIMEOUT ?? 65000);
@@ -26,6 +27,7 @@ const headersTimeout = Number(process.env.HEADERS_TIMEOUT ?? 66000);
 const operationalConfig = getOperationalConfig();
 const middlewareConfig = getMiddlewareConfig();
 const servicesConfig = getServicesConfig();
+const appConfig = getAppConfig();
 logStructured("info", "operational_config", {
   rateLimitWindowMs: operationalConfig.rateLimitWindowMs,
   rateLimitReadMax: operationalConfig.rateLimitReadMax,
@@ -33,6 +35,7 @@ logStructured("info", "operational_config", {
 });
 logStructured("info", "middleware_config", middlewareConfig);
 logStructured("info", "services_config", servicesConfig);
+logStructured("info", "app_config", appConfig);
 
 const server = app.listen(port, () => {
   logStructured("info", "server_listen", { port, keepAliveTimeout, headersTimeout });
