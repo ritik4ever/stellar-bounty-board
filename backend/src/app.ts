@@ -72,14 +72,19 @@ import { enforceBodyLimit, DEFAULT_BODY_LIMIT } from './middleware/bodyLimit';
 import { readLimiter, mutationLimiter } from './utils';
 import { maintainerLimiter } from './middleware/maintainerLimiter';
 import { logger } from './logger';
+import rateLimit from 'express-rate-limit';
 import { createAdminApiKeyAuthMiddleware } from './middleware/adminAuth';
-import { createTerminalErrorHandler } from './middleware/errors';
+import {
+  createTerminalErrorHandler,
+  MiddlewareDependencyError,
+  INTERNAL_ERROR_MESSAGE,
+} from './middleware/errors';
+import { ServiceDependencyError, wrapServiceError } from './services/errors';
 import { handleGitHubPrEvent } from './webhooks/githubPrHandler';
 import { draining } from './shutdown';
 import { applyBountyTemplate, listBountyTemplates } from './services/bountyTemplates';
 import { csvRowToBounty, parseBountyCsv } from './services/csvImport';
 import {
-import rateLimit from "express-rate-limit";
   cancelRecurringSchedule,
   createRecurringSchedule,
   listRecurringSchedules,
@@ -277,9 +282,82 @@ function escapeCsv(value: unknown): string {
   return raw;
 }
 
+const RAW_LEAK_PATTERNS = [
+  /ENOENT/i,
+  /EACCES/i,
+  /EPERM/i,
+  /ECONNREFUSED/i,
+  /ETIMEDOUT/i,
+  /ENOTFOUND/i,
+  /socket hang up/i,
+  /ELOCKED/i,
+  /fetch failed/i,
+  /SQLITE_/i,
+  /PG::/i,
+  /node:/i,
+  /\bat\b.*\(.*:\d+:\d+\)/,
+  /[A-Z]:\\[^ \n\r\t]+/i,
+  /\/home\/[^ \n\r\t]+/i,
+  /\/var\/[^ \n\r\t]+/i,
+  /\/usr\/[^ \n\r\t]+/i,
+  /\/etc\/[^ \n\r\t]+/i,
+];
+
+function containsRawLeak(message: string): boolean {
+  return RAW_LEAK_PATTERNS.some((pattern) => pattern.test(message));
+}
+
 function sendError(res: Response, req: Request, error: unknown, statusCode = 400): void {
-  const message = error instanceof Error ? error.message : 'Unexpected error';
-  jsonError(res, req, statusCode, message);
+  const log = req.log ?? logger;
+  const requestId = req.requestId;
+
+  if (error instanceof ServiceDependencyError) {
+    log.error(
+      {
+        err: error.cause,
+        operation: error.operation,
+        dependency: error.dependency,
+        statusCode: error.statusCode,
+        requestId,
+      },
+      'service_dependency_failure'
+    );
+    jsonError(res, req, error.statusCode, error.publicMessage);
+    return;
+  }
+
+  if (error instanceof MiddlewareDependencyError) {
+    log.error(
+      {
+        err: error.cause,
+        operation: error.operation,
+        dependency: error.dependency,
+        statusCode: error.statusCode,
+        requestId,
+      },
+      'middleware_dependency_failure'
+    );
+    jsonError(res, req, error.statusCode, error.publicMessage);
+    return;
+  }
+
+  const rawMessage = error instanceof Error ? error.message : String(error);
+
+  if (statusCode >= 500 || containsRawLeak(rawMessage)) {
+    log.error(
+      {
+        err: error,
+        rawMessage,
+        statusCode: statusCode >= 500 ? statusCode : 500,
+        requestId,
+      },
+      'unhandled_route_dependency_failure'
+    );
+    jsonError(res, req, statusCode >= 500 ? statusCode : 500, INTERNAL_ERROR_MESSAGE);
+    return;
+  }
+
+  jsonError(res, req, statusCode, rawMessage);
 }
 
 function validateBountyAmount(amount: number): string | null {
