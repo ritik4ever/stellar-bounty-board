@@ -109,8 +109,10 @@ export async function runDueRecurringSchedules(now = Math.floor(Date.now() / 100
   }
 }
 
+import { getServicesConfig } from "./config";
+
 let timer: ReturnType<typeof setInterval> | null = null;
-export function startRecurringBountyScheduler(intervalMs = 60_000): void {
+export function startRecurringBountyScheduler(intervalMs = getServicesConfig().recurringSchedulerIntervalMs): void {
   if (timer) return;
   void runDueRecurringSchedules();
   timer = setInterval(() => void runDueRecurringSchedules(), intervalMs);

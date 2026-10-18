@@ -118,9 +118,14 @@ export function expireStaleReservations(ttlSeconds?: number): ExpirationResult {
   };
 }
 
+import { getServicesConfig } from './config';
+
 let expirationTimer: ReturnType<typeof setInterval> | null = null;
 
-export function startExpirationJob(intervalMs = 3_600_000, ttlSeconds?: number): void {
+export function startExpirationJob(
+  intervalMs = getServicesConfig().expirationJobIntervalMs,
+  ttlSeconds?: number
+): void {
   if (expirationTimer) {
     logger.warn('[ExpirationJob] Already running — ignoring duplicate start');
     return;

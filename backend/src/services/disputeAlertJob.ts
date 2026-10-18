@@ -195,14 +195,16 @@ export function scanAndAlertStuckDisputes(): DisputeAlertResult {
 
 // ─── Scheduler ────────────────────────────────────────────────────────────────
 
+import { getServicesConfig } from "./config";
+
 let disputeAlertTimer: ReturnType<typeof setInterval> | null = null;
 
 /**
  * Start the periodic dispute-alert scanner.
  *
- * @param intervalMs  How often to scan (default: every hour = 3 600 000 ms).
+ * @param intervalMs  How often to scan (default: every hour = 3 600 000 ms).
  */
-export function startDisputeAlertJob(intervalMs = 3_600_000): void {
+export function startDisputeAlertJob(intervalMs = getServicesConfig().disputeAlertIntervalMs): void {
   if (disputeAlertTimer) {
     logStructured("warn", "dispute_alert_already_running", {});
     return;

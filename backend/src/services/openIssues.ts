@@ -14,10 +14,13 @@ export interface OpenIssue {
   impact: "starter" | "core" | "advanced";
 }
 
+import { getServicesConfig } from "./config";
+
 type FeedStatus = "up" | "rate-limited" | "stale";
 
-const DEFAULT_REPO = "ritik4ever/stellar-bounty-board";
-const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const servicesConfig = getServicesConfig();
+const DEFAULT_REPO = servicesConfig.openIssuesDefaultRepo;
+const CACHE_TTL_MS = servicesConfig.openIssuesCacheTtlMs;
 
 class LRUCache<K, V> {
   private max: number;

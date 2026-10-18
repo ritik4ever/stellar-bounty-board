@@ -7,6 +7,7 @@ import {
 } from "./notificationService";
 import { logStructured } from "../logger";
 import { getCache, type CacheAdapter } from "./cache";
+import { getServicesConfig } from "./config";
 import { bountiesCreatedTotal, bountiesReleasedTotal } from "../metrics";
 import { validateGithubPrUrlForRepo } from "../validation/prUrl";
 import { resolveTokenAddress } from "../utils";
@@ -594,7 +595,7 @@ function sortBounties(
 // ── Cached list for the public board (#361) ──────────────────────────────────
 
 const BOUNTY_LIST_CACHE_KEY = "bounties:list";
-const BOUNTY_LIST_TTL_SECONDS = 5;
+const BOUNTY_LIST_TTL_SECONDS = getServicesConfig().bountyListCacheTtlSeconds;
 
 /**
  * Cache-backed variant of {@link listBounties} for the hot `/api/bounties` read
@@ -1685,7 +1686,7 @@ export function getGlobalMetrics(): GlobalMetrics {
 }
 
 const GLOBAL_METRICS_CACHE_KEY = "stats:global";
-const GLOBAL_METRICS_TTL_SECONDS = 30;
+const GLOBAL_METRICS_TTL_SECONDS = getServicesConfig().globalMetricsCacheTtlSeconds;
 
 /**
  * Cache-backed variant of {@link getGlobalMetrics} with a 30-second TTL.
