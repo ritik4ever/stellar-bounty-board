@@ -22,6 +22,7 @@ Current MVP behavior:
 - Reserve a bounty as a contributor
 - Attach a PR submission link
 - Release payout or refund escrow
+- Opt-in notifications (webhook & email) on state changes (reserve, submit, release, refund, dispute)
 - Surface contribution-ready follow-up issues in the UI and docs
 
 ## Project Structure
@@ -54,11 +55,11 @@ Stellar Bounty Board uses an on-chain arbiter to resolve disputes fairly without
 
 ### Roles
 
-| Role | Description |
-|---|---|
-| **Maintainer** | Creates and funds the bounty escrow. |
-| **Contributor** | Reserves the bounty and submits a pull request for review. |
-| **Arbiter** | A trusted third-party address that resolves disputes. Configured once at contract initialisation. |
+| Role            | Description                                                                                       |
+| --------------- | ------------------------------------------------------------------------------------------------- |
+| **Maintainer**  | Creates and funds the bounty escrow.                                                              |
+| **Contributor** | Reserves the bounty and submits a pull request for review.                                        |
+| **Arbiter**     | A trusted third-party address that resolves disputes. Configured once at contract initialisation. |
 
 ### Configuration
 
@@ -95,6 +96,22 @@ If any component is `"down"`, the endpoint returns HTTP 503. Set `MAINTAINER_PUB
 4. **Funds are released** — the contract releases the escrowed tokens to either the contributor (work accepted) or the maintainer (work rejected / refund).
 
 The arbiter address is immutable after `initialize` is called on the contract — rotate it only by redeploying the contract.
+
+## Notifications & State Change Hooks
+
+Stellar Bounty Board provides an opt-in notification system to notify maintainers and contributors across all bounty lifecycle transitions:
+
+- `bounty_reserved`: Notifies the maintainer when a contributor reserves work.
+- `bounty_submitted`: Notifies the maintainer when a solution PR is submitted.
+- `bounty_released`: Notifies the contributor when their reward is released.
+- `bounty_refunded`: Notifies parties when a bounty is refunded or canceled.
+- `bounty_disputed`: Notifies parties when a dispute is opened or resolved.
+
+### Delivery Channels
+
+- **Webhook:** POSTs signed JSON payloads (`X-Bounty-Signature: sha256=...`) to `NOTIFICATION_WEBHOOK_URL`.
+- **Email:** Delivers templated alerts via SendGrid when `SENDGRID_API_KEY` and `NOTIFICATION_CHANNEL=EMAIL` are configured.
+- **Opt-In Preferences:** Users opt in or out via `POST /api/notifications/opt-in` and check status via `GET /api/notifications/opt-in/:address`.
 
 ## Deployment Guide
 
@@ -384,12 +401,12 @@ npm run load:test
 
 Configurable via CLI flags:
 
-| Flag            | Default | Description                        |
-|-----------------|---------|------------------------------------|
-| `--connections` | `20`    | Number of concurrent connections   |
-| `--duration`    | `30`    | Duration in seconds                |
-| `--bounties`    | `20`    | Number of seed bounties            |
-| `--url`         | `http://localhost:3001` | Backend base URL    |
+| Flag            | Default                 | Description                      |
+| --------------- | ----------------------- | -------------------------------- |
+| `--connections` | `20`                    | Number of concurrent connections |
+| `--duration`    | `30`                    | Duration in seconds              |
+| `--bounties`    | `20`                    | Number of seed bounties          |
+| `--url`         | `http://localhost:3001` | Backend base URL                 |
 
 Example with custom options:
 
@@ -442,11 +459,11 @@ The `bindings-drift.yml` workflow regenerates bindings on every PR and push to `
 
 The Soroban contract uses a named error enum (`Error`) for recoverable failures:
 
-| Code | Variant            | Description                                            |
-|------|--------------------|--------------------------------------------------------|
-| 1    | `BountyNotOpen`    | Bounty reservation failed because the bounty is not in `Open` status (already reserved, expired, etc.) |
-| 2    | `BountyNotFound`   | The specified bounty ID does not exist                 |
-| 3    | `BountyAlreadyReserved` | The bounty is already reserved by another contributor |
+| Code | Variant                 | Description                                                                                            |
+| ---- | ----------------------- | ------------------------------------------------------------------------------------------------------ |
+| 1    | `BountyNotOpen`         | Bounty reservation failed because the bounty is not in `Open` status (already reserved, expired, etc.) |
+| 2    | `BountyNotFound`        | The specified bounty ID does not exist                                                                 |
+| 3    | `BountyAlreadyReserved` | The bounty is already reserved by another contributor                                                  |
 
 These errors are invoked via `panic_with_error!` and surface as `Error(Contract, #N)` in test expectations.
 
@@ -454,18 +471,18 @@ These errors are invoked via `panic_with_error!` and surface as `Error(Contract,
 
 For common issues, troubleshooting steps, wallet setup, testnet funding, transaction errors, and bounty workflow explanations, see:
 
-* [FAQ Guide](./docs/FAQ.md)
+- [FAQ Guide](./docs/FAQ.md)
 
 ## Maintainers
 
 Interested in helping maintain the project? See [docs/MAINTAINERS.md](docs/MAINTAINERS.md) for the roles, expectations, and how to get involved.
-
 
 ## Contribution Hooks
 
 Contribution-ready issue drafts live in `docs/issues`.
 
 See the wave backlog documents for organized issue sets:
+
 - [Wave 4](docs/wave-4.md) — 60 issues across frontend, backend, contracts, docs, and DevOps
 - [Wave 5](docs/wave-5.md) — 40 issues focusing on security, observability, and polish
 - [Wave 6](docs/wave-6.md) — 7 issues for production readiness: database migration, wallet auth, and GitHub integration

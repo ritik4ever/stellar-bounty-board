@@ -39,6 +39,12 @@ import {
   registerPushSubscription,
   unregisterPushSubscription,
 } from './services/pushSubscriptionService';
+import {
+  setNotificationOptIn,
+  getNotificationOptIn,
+  isNotificationOptedIn,
+  NOTIFICATION_LIFECYCLE_TRANSITIONS,
+} from './services/notificationService';
 
 import {
   bountyIdSchema,
@@ -91,7 +97,6 @@ import {
   type ScheduleCadence,
 } from './services/recurringBountySchedules';
 
-
 const INCOMING_REQUEST_ID = /^[a-zA-Z0-9-]{1,128}$/;
 
 export function resolveRequestId(req: Request): string {
@@ -141,8 +146,8 @@ const readLimiter = rateLimit({
   max: appConfig.rateLimitReadMax,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Too many read requests, please slow down." },
-  keyGenerator: (req: any) => req.ip || req.socket.remoteAddress || "unknown",
+  message: { error: 'Too many read requests, please slow down.' },
+  keyGenerator: (req: any) => req.ip || req.socket.remoteAddress || 'unknown',
 });
 
 const mutationLimiter = rateLimit({
@@ -150,8 +155,8 @@ const mutationLimiter = rateLimit({
   max: appConfig.rateLimitMutationMax,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Too many mutations, please slow down." },
-  keyGenerator: (req: any) => req.ip || req.socket.remoteAddress || "unknown",
+  message: { error: 'Too many mutations, please slow down.' },
+  keyGenerator: (req: any) => req.ip || req.socket.remoteAddress || 'unknown',
 });
 
 // Apply read limiter to all GET requests
@@ -162,12 +167,10 @@ app.use((req: any, res: any, next: any) => {
 
 // Apply mutation limiter to POST/PUT/PATCH/DELETE
 app.use((req: any, res: any, next: any) => {
-  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return mutationLimiter(req, res, next);
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method))
+    return mutationLimiter(req, res, next);
   next();
 });
-
-
-
 
 app.use(cors(buildCorsOptions()));
 
@@ -466,16 +469,16 @@ app.get('/api/bounties/search', (req: Request, res: Response) => {
   try {
     const query = typeof req.query.q === 'string' ? req.query.q.trim().toLowerCase() : '';
     const page = parsePaginationValue(req.query.page, 'page', 1, 1);
-    const pageSize = req.query.limit !== undefined
-      ? parsePaginationValue(req.query.limit, 'limit', 20, 1, 100)
-      : parsePaginationValue(req.query.pageSize, 'pageSize', 20, 1, 100);
-    const repo = typeof req.query.repo === 'string' && req.query.repo.trim() ? req.query.repo.trim() : undefined;
-    const minReward = req.query.minReward === undefined
-      ? undefined
-      : Number(req.query.minReward);
-    const maxReward = req.query.maxReward === undefined
-      ? undefined
-      : Number(req.query.maxReward);
+    const pageSize =
+      req.query.limit !== undefined
+        ? parsePaginationValue(req.query.limit, 'limit', 20, 1, 100)
+        : parsePaginationValue(req.query.pageSize, 'pageSize', 20, 1, 100);
+    const repo =
+      typeof req.query.repo === 'string' && req.query.repo.trim()
+        ? req.query.repo.trim()
+        : undefined;
+    const minReward = req.query.minReward === undefined ? undefined : Number(req.query.minReward);
+    const maxReward = req.query.maxReward === undefined ? undefined : Number(req.query.maxReward);
 
     if (minReward !== undefined && (!Number.isFinite(minReward) || minReward < 0)) {
       throw new Error('minReward must be a non-negative number.');
@@ -496,7 +499,13 @@ app.get('/api/bounties/search', (req: Request, res: Response) => {
         const title = bounty.title.toLowerCase();
         const summary = bounty.summary.toLowerCase();
         const repo = bounty.repo.toLowerCase();
-        const score = title.includes(query) ? 3 : repo.includes(query) ? 2 : summary.includes(query) ? 1 : 0;
+        const score = title.includes(query)
+          ? 3
+          : repo.includes(query)
+            ? 2
+            : summary.includes(query)
+              ? 1
+              : 0;
         return { bounty, score };
       })
       .filter(({ score }) => score > 0)
@@ -540,7 +549,10 @@ app.post(
         const candidate = applyBountyTemplate(csvRowToBounty(rows[index]));
         const parsed = createBountySchema.safeParse(candidate);
         if (!parsed.success) {
-          results.push({ row: index + 2, errors: parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`) });
+          results.push({
+            row: index + 2,
+            errors: parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`),
+          });
           continue;
         }
         const amountError = validateBountyAmount(parsed.data.amount);
@@ -552,11 +564,16 @@ app.post(
           const bounty = await createBounty(parsed.data);
           results.push({ row: index + 2, id: bounty.id });
         } catch (error) {
-          results.push({ row: index + 2, errors: [error instanceof Error ? error.message : 'Unexpected error'] });
+          results.push({
+            row: index + 2,
+            errors: [error instanceof Error ? error.message : 'Unexpected error'],
+          });
         }
       }
       const created = results.filter((result) => result.id).length;
-      res.status(201).json({ data: results, created, failed: results.length - created, total: results.length });
+      res
+        .status(201)
+        .json({ data: results, created, failed: results.length - created, total: results.length });
     } catch (error) {
       sendError(res, req, error);
     }
@@ -566,7 +583,10 @@ app.post(
 const recurringScheduleSchema = z.object({
   cadence: z.enum(['daily', 'weekly', 'monthly']),
   templateId: z.string().trim().min(1),
-  targetRepo: z.string().trim().regex(/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/),
+  targetRepo: z
+    .string()
+    .trim()
+    .regex(/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/),
   bounty: z.record(z.unknown()),
   startAt: z.number().int().positive().optional(),
 });
@@ -575,35 +595,53 @@ app.get('/api/recurring-bounty-schedules', adminAuth, (_req: Request, res: Respo
   res.json({ data: listRecurringSchedules() });
 });
 
-app.post('/api/recurring-bounty-schedules', mutationLimiter, requireJsonContentType, adminAuth, async (req: Request, res: Response) => {
-  try {
-    const request = recurringScheduleSchema.parse(req.body);
-    const merged = createBountySchema.parse(applyBountyTemplate({
-      templateId: request.templateId,
-      ...request.bounty,
-      repo: request.targetRepo,
-    }));
-    const { repo: _repo, ...bounty } = merged;
-    const schedule = createRecurringSchedule({
-      cadence: request.cadence as ScheduleCadence,
-      templateId: request.templateId,
-      targetRepo: request.targetRepo,
-      bounty,
-      startAt: request.startAt,
-    });
-    res.status(201).json({ data: schedule });
-  } catch (error) {
-    sendError(res, req, error);
+app.post(
+  '/api/recurring-bounty-schedules',
+  mutationLimiter,
+  requireJsonContentType,
+  adminAuth,
+  async (req: Request, res: Response) => {
+    try {
+      const request = recurringScheduleSchema.parse(req.body);
+      const merged = createBountySchema.parse(
+        applyBountyTemplate({
+          templateId: request.templateId,
+          ...request.bounty,
+          repo: request.targetRepo,
+        })
+      );
+      const { repo: _repo, ...bounty } = merged;
+      const schedule = createRecurringSchedule({
+        cadence: request.cadence as ScheduleCadence,
+        templateId: request.templateId,
+        targetRepo: request.targetRepo,
+        bounty,
+        startAt: request.startAt,
+      });
+      res.status(201).json({ data: schedule });
+    } catch (error) {
+      sendError(res, req, error);
+    }
   }
-});
+);
 
-app.delete('/api/recurring-bounty-schedules/:id', mutationLimiter, adminAuth, (req: Request, res: Response) => {
-  try {
-    res.json({ data: cancelRecurringSchedule(parseId(req.params.id)) });
-  } catch (error) {
-    sendError(res, req, error, error instanceof Error && error.message.includes('not found') ? 404 : 400);
+app.delete(
+  '/api/recurring-bounty-schedules/:id',
+  mutationLimiter,
+  adminAuth,
+  (req: Request, res: Response) => {
+    try {
+      res.json({ data: cancelRecurringSchedule(parseId(req.params.id)) });
+    } catch (error) {
+      sendError(
+        res,
+        req,
+        error,
+        error instanceof Error && error.message.includes('not found') ? 404 : 400
+      );
+    }
   }
-});
+);
 
 app.get('/api/bounties', async (req: Request, res: Response) => {
   try {
@@ -616,13 +654,22 @@ app.get('/api/bounties', async (req: Request, res: Response) => {
       typeof req.query.maintainer === 'string' && req.query.maintainer.trim()
         ? req.query.maintainer.trim()
         : undefined;
-    const status = typeof req.query.status === 'string' && req.query.status.trim() ? req.query.status.trim() : undefined;
+    const status =
+      typeof req.query.status === 'string' && req.query.status.trim()
+        ? req.query.status.trim()
+        : undefined;
     const tokenSymbol =
       typeof req.query.tokenSymbol === 'string' && req.query.tokenSymbol.trim()
         ? req.query.tokenSymbol.trim()
         : undefined;
-        const sort = typeof req.query.sort === 'string' && req.query.sort.trim() ? req.query.sort.trim() : 'createdAt';
-    const order = typeof req.query.order === 'string' && req.query.order.trim() ? req.query.order.trim() : 'desc';
+    const sort =
+      typeof req.query.sort === 'string' && req.query.sort.trim()
+        ? req.query.sort.trim()
+        : 'createdAt';
+    const order =
+      typeof req.query.order === 'string' && req.query.order.trim()
+        ? req.query.order.trim()
+        : 'desc';
 
     const repo =
       typeof req.query.repo === 'string' && req.query.repo.trim()
@@ -884,34 +931,49 @@ app.post(
   }
 );
 
-app.post('/api/bounties/:id/reserve', mutationLimiter, enforceBodyLimit(DEFAULT_BODY_LIMIT), requireJsonContentType, idempotencyMiddleware, validateBody(reserveBountySchema), async (req: Request, res: Response) => {
-  try {
-    const bounty = await reserveBounty(
-      parseId(req.params.id),
-      req.body.contributor,
-      req.body.expectedVersion
-    );
+app.post(
+  '/api/bounties/:id/reserve',
+  mutationLimiter,
+  enforceBodyLimit(DEFAULT_BODY_LIMIT),
+  requireJsonContentType,
+  idempotencyMiddleware,
+  validateBody(reserveBountySchema),
+  async (req: Request, res: Response) => {
+    try {
+      const bounty = await reserveBounty(
+        parseId(req.params.id),
+        req.body.contributor,
+        req.body.expectedVersion
+      );
 
-    res.json({ data: bounty });
-  } catch (error) {
-    sendError(res, req, error);
+      res.json({ data: bounty });
+    } catch (error) {
+      sendError(res, req, error);
+    }
   }
-});
+);
 
-app.post('/api/bounties/:id/submit', mutationLimiter, requireJsonContentType, idempotencyMiddleware, validateBody(submitBountySchema), async (req: Request, res: Response) => {
-  try {
-    const bounty = await submitBounty(
-      parseId(req.params.id),
-      req.body.contributor,
-      req.body.submissionUrl,
-      req.body.notes
-    );
+app.post(
+  '/api/bounties/:id/submit',
+  mutationLimiter,
+  requireJsonContentType,
+  idempotencyMiddleware,
+  validateBody(submitBountySchema),
+  async (req: Request, res: Response) => {
+    try {
+      const bounty = await submitBounty(
+        parseId(req.params.id),
+        req.body.contributor,
+        req.body.submissionUrl,
+        req.body.notes
+      );
 
-    res.json({ data: bounty });
-  } catch (error) {
-    sendError(res, req, error);
+      res.json({ data: bounty });
+    } catch (error) {
+      sendError(res, req, error);
+    }
   }
-});
+);
 
 app.post(
   '/api/bounties/:id/release',
@@ -1309,35 +1371,31 @@ app.get('/api/config', (_req: Request, res: Response) => {
  * across every bounty.  Requires a valid `x-admin-api-key` header whose value
  * matches the bcrypt hash stored in `ADMIN_API_KEY_HASH`.
  */
-app.get(
-  "/api/audit-log",
-  createAdminApiKeyAuthMiddleware(),
-  (req: Request, res: Response) => {
-    try {
-      const limit = parsePaginationValue(req.query.limit, "limit", 50, 1, 200);
-      const offset = parsePaginationValue(req.query.offset, "offset", 0, 0);
-      
-      const actor = typeof req.query.actor === "string" ? req.query.actor : undefined;
-      const transition = typeof req.query.transition === "string" ? req.query.transition : undefined;
-      const bountyId = typeof req.query.bountyId === "string" ? req.query.bountyId : undefined;
-      const fromStatus = typeof req.query.fromStatus === "string" ? req.query.fromStatus : undefined;
-      const toStatus = typeof req.query.toStatus === "string" ? req.query.toStatus : undefined;
-      
-      const page = listAllAuditLogs({ 
-        limit, 
-        offset, 
-        actor, 
-        transition, 
-        bountyId, 
-        fromStatus, 
-        toStatus 
-      });
-      res.json(page);
-    } catch (error) {
-      sendError(res, req, error);
-    }
-  },
-);
+app.get('/api/audit-log', createAdminApiKeyAuthMiddleware(), (req: Request, res: Response) => {
+  try {
+    const limit = parsePaginationValue(req.query.limit, 'limit', 50, 1, 200);
+    const offset = parsePaginationValue(req.query.offset, 'offset', 0, 0);
+
+    const actor = typeof req.query.actor === 'string' ? req.query.actor : undefined;
+    const transition = typeof req.query.transition === 'string' ? req.query.transition : undefined;
+    const bountyId = typeof req.query.bountyId === 'string' ? req.query.bountyId : undefined;
+    const fromStatus = typeof req.query.fromStatus === 'string' ? req.query.fromStatus : undefined;
+    const toStatus = typeof req.query.toStatus === 'string' ? req.query.toStatus : undefined;
+
+    const page = listAllAuditLogs({
+      limit,
+      offset,
+      actor,
+      transition,
+      bountyId,
+      fromStatus,
+      toStatus,
+    });
+    res.json(page);
+  } catch (error) {
+    sendError(res, req, error);
+  }
+});
 
 // ─── Browser push notification preferences ─────────────────────────────────
 
@@ -1398,12 +1456,61 @@ app.delete(
   }
 );
 
+// ─── Bounty lifecycle notification opt-in preferences ───────────────────────
+
+app.post(
+  '/api/notifications/opt-in',
+  mutationLimiter,
+  requireJsonContentType,
+  (req: Request, res: Response) => {
+    try {
+      const { address, optIn, email, webhookUrl } = req.body ?? {};
+
+      if (!address || typeof address !== 'string') {
+        jsonError(res, req, 400, 'address is required.');
+        return;
+      }
+
+      if (typeof optIn !== 'boolean') {
+        jsonError(res, req, 400, 'optIn must be a boolean.');
+        return;
+      }
+
+      const pref = setNotificationOptIn(address, optIn, { email, webhookUrl });
+      res.json({ data: pref });
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  }
+);
+
+app.get('/api/notifications/opt-in/:address', (req: Request, res: Response) => {
+  try {
+    const { address } = req.params;
+    const pref = getNotificationOptIn(address);
+    res.json({
+      data: {
+        address,
+        optedIn: isNotificationOptedIn(address),
+        preference: pref,
+        supportedTransitions: NOTIFICATION_LIFECYCLE_TRANSITIONS,
+      },
+    });
+  } catch (error) {
+    sendError(res, req, error);
+  }
+});
+
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   if ((err as any).type === 'entity.too.large') {
     res.status(413).json({ error: 'Payload too large', maxBytes: 32768 });
     return;
   }
-  if (err instanceof SyntaxError && (err as any).type === 'entity.parse.failed' && (err as any).body) {
+  if (
+    err instanceof SyntaxError &&
+    (err as any).type === 'entity.parse.failed' &&
+    (err as any).body
+  ) {
     res.status(400).json({ error: 'Invalid JSON' });
     return;
   }
