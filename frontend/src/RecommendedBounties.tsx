@@ -263,6 +263,12 @@ export default function RecommendedBounties({
         <Star size={18} aria-hidden="true" />
       </div>
 
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {activeTag === 'All'
+          ? `Showing all ${recommendations.length} recommendations`
+          : `Filtered by ${activeTag} tag: ${filteredRecommendations.length} recommendations available`}
+      </div>
+
       <div className="tag-filter-row" role="group" aria-label="Filter recommendations by skill tag">
         {['All', ...KNOWN_TAGS].map((tag) => (
           <button
