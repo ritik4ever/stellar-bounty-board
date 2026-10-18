@@ -359,3 +359,39 @@ export function getAccessibleBountySummary(bounty: Bounty): string {
     bounty.tokenSymbol
   )}, status ${bounty.status}`;
 }
+
+/**
+ * Visual fetch status types for asynchronous data flows (#1273).
+ */
+export type AsyncFetchStatus = 'idle' | 'loading' | 'empty' | 'error' | 'success';
+
+/**
+ * Structured fetch state container with data, error, and retry affordance (#1273).
+ */
+export interface AsyncFetchState<T> {
+  status: AsyncFetchStatus;
+  data?: T;
+  error?: string | null;
+  onRetry?: () => void;
+}
+
+/**
+ * Determines the visual fetch state given loading flags, error details, and records (#1273).
+ */
+export function resolveFetchState<T>(
+  data: T[] | null | undefined,
+  loading: boolean,
+  error?: string | null,
+  onRetry?: () => void
+): AsyncFetchState<T[]> {
+  if (loading) {
+    return { status: 'loading', data: data ?? undefined, error: null, onRetry };
+  }
+  if (error) {
+    return { status: 'error', data: data ?? undefined, error, onRetry };
+  }
+  if (!data || data.length === 0) {
+    return { status: 'empty', data: [], error: null, onRetry };
+  }
+  return { status: 'success', data, error: null, onRetry };
+}
