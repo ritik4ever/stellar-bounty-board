@@ -12,6 +12,11 @@ import { wrapServiceError } from "./errors";
 import { bountiesCreatedTotal, bountiesReleasedTotal } from "../metrics";
 import { validateGithubPrUrlForRepo } from "../validation/prUrl";
 import { resolveTokenAddress } from "../utils";
+import {
+  recordPostgresAuditEvent,
+  backfillAuditLogsFromLegacyStore,
+  getPostgresAuditLogs,
+} from "./postgresAuditLog";
 
 
 /**
@@ -397,6 +402,8 @@ function appendAuditLogs(inputs: CreateAuditLogInput[]): void {
   const next = [...existing];
 
   for (const input of inputs) {
+    const timestamp = input.timestamp ?? nowInSeconds();
+    const metadata = cleanAuditMetadata(input.metadata);
     next.push({
       id: nextAuditId(next),
       bountyId: input.bountyId,
@@ -404,8 +411,28 @@ function appendAuditLogs(inputs: CreateAuditLogInput[]): void {
       toStatus: input.toStatus,
       transition: input.transition,
       actor: input.actor,
-      timestamp: input.timestamp ?? nowInSeconds(),
-      metadata: cleanAuditMetadata(input.metadata),
+      timestamp,
+      metadata,
+    });
+
+    // Dual-write: record to Postgres audit log alongside JSON store during migration
+    recordPostgresAuditEvent({
+      entityType: "bounty",
+      entityId: input.bountyId,
+      action: input.transition,
+      actor: input.actor,
+      details: {
+        fromStatus: input.fromStatus,
+        toStatus: input.toStatus,
+        ...(metadata ? { metadata } : {}),
+      },
+      createdAt: timestamp,
+    }).catch((err) => {
+      logStructured("warn", "postgres_audit_log_dual_write_failed", {
+        bountyId: input.bountyId,
+        transition: input.transition,
+        error: err instanceof Error ? err.message : String(err),
+      });
     });
   }
 
@@ -1795,3 +1822,17 @@ export function getLeaderboard(limit = 10): LeaderboardEntry[] {
     )
     .slice(0, limit);
 }
+
+/**
+ * Backfills existing JSON-era history into the Postgres audit log.
+ * Ensures audit history from the JSON era is not silently lost during migration.
+ */
+export async function backfillBountiesToPostgresAuditLog(): Promise<{
+  backfilledCount: number;
+}> {
+  const records = readStore();
+  const result = await backfillAuditLogsFromLegacyStore(records);
+  return { backfilledCount: result.backfilledCount };
+}
+
+export { getPostgresAuditLogs };

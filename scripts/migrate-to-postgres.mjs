@@ -15,7 +15,13 @@ import { join } from 'node:path';
  *   --help      Show usage guide
  */
 
-const DEFAULT_JSON_PATH = join(process.cwd(), 'backend', 'data', 'bounties.json');
+export const DEFAULT_JSON_PATH = join(process.cwd(), 'backend', 'data', 'bounties.json');
+export const DEFAULT_AUDIT_JSON_PATH = join(
+  process.cwd(),
+  'backend',
+  'data',
+  'bounties.audit.json'
+);
 
 export const SCHEMA_DDL = `
 -- Core Bounties Table
@@ -98,6 +104,38 @@ export function validateBountyRecord(bounty) {
   return true;
 }
 
+export function validateAuditLogRecord(record) {
+  if (!record || typeof record !== 'object') {
+    throw new Error('Invalid audit record: must be an object');
+  }
+  const entityId = record.bountyId || record.entityId;
+  if (!entityId || typeof entityId !== 'string') {
+    throw new Error('Invalid audit record: missing bountyId / entityId');
+  }
+  const action = record.transition || record.action;
+  if (!action || typeof action !== 'string') {
+    throw new Error('Invalid audit record: missing transition / action');
+  }
+  if (!record.actor || typeof record.actor !== 'string') {
+    throw new Error('Invalid audit record: missing actor');
+  }
+  const ts = record.timestamp ?? record.createdAt ?? record.metadata?.deadlineAt;
+  if (ts !== undefined && (typeof ts !== 'number' || !Number.isFinite(ts))) {
+    throw new Error('Invalid audit record: timestamp must be numeric');
+  }
+  return true;
+}
+
+export function extractAuditRecordsFromJSON(auditPath = DEFAULT_AUDIT_JSON_PATH) {
+  if (!existsSync(auditPath)) {
+    return [];
+  }
+  const raw = readFileSync(auditPath, 'utf8').trim();
+  if (!raw) return [];
+  const parsed = JSON.parse(raw);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
 export function parseMigrationArgs(args) {
   return {
     dryRun: args.includes('--dry-run'),
@@ -109,6 +147,7 @@ export function parseMigrationArgs(args) {
 
 export function runMigration(options = {}) {
   const jsonPath = options.jsonPath || DEFAULT_JSON_PATH;
+  const auditPath = options.auditJsonPath || DEFAULT_AUDIT_JSON_PATH;
   const isDryRun = options.dryRun ?? false;
   const shouldBackup = options.backup ?? true;
   const shouldRollback = options.rollback ?? false;
@@ -157,15 +196,26 @@ export function runMigration(options = {}) {
   }
   console.log(`[validate] Successfully validated ${validCount} records.`);
 
+  // Audit log migration: preserve JSON-era audit history
+  let auditRecords = [];
+  if (existsSync(auditPath)) {
+    auditRecords = extractAuditRecordsFromJSON(auditPath);
+    console.log(`[audit] Found ${auditRecords.length} audit records in ${auditPath}`);
+    for (const record of auditRecords) {
+      validateAuditLogRecord(record);
+    }
+    console.log(`[audit] Successfully validated ${auditRecords.length} audit records.`);
+  }
+
   if (isDryRun) {
     console.log('[dry-run] Dry-run mode enabled. No changes committed to database.');
     console.log('[dry-run] Schema DDL verified successfully:');
     console.log(SCHEMA_DDL.trim());
-    return { success: true, action: 'dry-run', count: validCount };
+    return { success: true, action: 'dry-run', count: validCount, auditCount: auditRecords.length };
   }
 
   console.log('[execute] Applying PostgreSQL DDL and migrating rows...');
-  return { success: true, action: 'migrated', count: validCount };
+  return { success: true, action: 'migrated', count: validCount, auditCount: auditRecords.length };
 }
 
 // CLI execution
