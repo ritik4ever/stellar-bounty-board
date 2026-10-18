@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  calculateRecommendationScore,
   countLabelOverlap,
   createDefaultProfile,
+  findSimilarBounties,
   generateRecommendations,
   getFallbackRecommendations,
   scoreMatch,
@@ -12,7 +14,9 @@ import type { Bounty } from './types';
 
 const CONTRIBUTOR = 'GCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC';
 
-function makeBounty(overrides: Partial<Bounty> & Pick<Bounty, 'id' | 'title' | 'amount' | 'labels'>): Bounty {
+function makeBounty(
+  overrides: Partial<Bounty> & Pick<Bounty, 'id' | 'title' | 'amount' | 'labels'>
+): Bounty {
   return {
     repo: 'ritik4ever/stellar-bounty-board',
     issueNumber: 1,
@@ -32,7 +36,10 @@ const completedReactBounty = makeBounty({
   id: 'BNTY-DONE',
   title: 'Ship React filters',
   amount: 100,
-  labels: [{ name: 'react', color: '61dafb' }, { name: 'frontend', color: '0075ca' }],
+  labels: [
+    { name: 'react', color: '61dafb' },
+    { name: 'frontend', color: '0075ca' },
+  ],
   status: 'released',
   contributor: CONTRIBUTOR,
 });
@@ -57,7 +64,10 @@ describe('countLabelOverlap', () => {
       id: 'BNTY-1',
       title: 'React task',
       amount: 50,
-      labels: [{ name: 'React', color: '111111' }, { name: 'docs', color: '222222' }],
+      labels: [
+        { name: 'React', color: '111111' },
+        { name: 'docs', color: '222222' },
+      ],
     });
 
     expect(countLabelOverlap(bounty, ['react', 'typescript'])).toBe(1);
@@ -159,5 +169,113 @@ describe('generateRecommendations', () => {
     const recommendations = generateRecommendations(bounties, createDefaultProfile(), 3);
 
     expect(recommendations).toHaveLength(3);
+  });
+});
+
+describe('calculateRecommendationScore branches', () => {
+  it('covers preferred repo, reward range, and good first issue branches', () => {
+    const bounty = makeBounty({
+      id: 'bounty-full',
+      repo: 'stellar/soroban-examples',
+      title: 'First issue',
+      amount: 250,
+      labels: [{ name: 'good first issue', color: '111' }],
+      status: 'open',
+    });
+
+    const profile: any = {
+      completedLabels: [],
+      preferredRepos: ['stellar/soroban-examples'],
+      averageRewardRange: { min: 100, max: 500 },
+      skills: ['soroban'],
+    };
+
+    const result = calculateRecommendationScore(bounty, profile);
+    expect(result.score).toBeGreaterThan(0);
+    expect(result.reasons).toContain('Great for getting started');
+    expect(result.reasons).toContain("You're familiar with stellar/soroban-examples");
+    expect(result.reasons).toContain('Reward matches your typical range');
+  });
+
+  it('assigns zero score to non-open bounties', () => {
+    const bounty = makeBounty({
+      id: 'bounty-closed',
+      title: 'Closed issue',
+      amount: 100,
+      labels: [{ name: 'documentation', color: '111' }],
+      status: 'released',
+    });
+
+    const profile: any = {
+      completedLabels: ['documentation'],
+      preferredRepos: [],
+      averageRewardRange: { min: 0, max: 1000 },
+      skills: [],
+    };
+
+    const result = calculateRecommendationScore(bounty, profile);
+    expect(result.score).toBe(0);
+  });
+});
+
+describe('findSimilarBounties', () => {
+  it('finds similar bounties excluding the target and sorting by score', () => {
+    const target = makeBounty({
+      id: 'target-bounty',
+      title: 'React components',
+      amount: 100,
+      labels: [{ name: 'React', color: '111' }],
+    });
+
+    const candidates = [
+      target,
+      makeBounty({
+        id: 'candidate-1',
+        title: 'React navigation',
+        amount: 120,
+        labels: [{ name: 'React', color: '111' }],
+        status: 'open',
+      }),
+      makeBounty({
+        id: 'candidate-closed',
+        title: 'React forms',
+        amount: 150,
+        labels: [{ name: 'React', color: '111' }],
+        status: 'released',
+      }),
+    ];
+
+    const similar = findSimilarBounties(target, candidates, 2);
+    expect(similar.some((s) => s.bounty.id === 'target-bounty')).toBe(false);
+    expect(similar.some((s) => s.bounty.id === 'candidate-closed')).toBe(false);
+    expect(similar[0]?.bounty.id).toBe('candidate-1');
+  });
+});
+
+describe('updateProfileFromBounties skills inference', () => {
+  it('infers Docs, Node.js, and other skills from released bounties', () => {
+    const defaultProfile = createDefaultProfile();
+    const bounties = [
+      makeBounty({
+        id: 'b-1',
+        title: 'Docs update',
+        amount: 50,
+        labels: [{ name: 'docs', color: '111' }],
+        status: 'released',
+      }),
+      makeBounty({
+        id: 'b-2',
+        title: 'Node server',
+        amount: 300,
+        labels: [{ name: 'node.js', color: '222' }],
+        status: 'released',
+      }),
+    ];
+
+    const updated = updateProfileFromBounties(defaultProfile, bounties);
+    expect(updated.skills).toContain('Docs');
+    expect(updated.skills).toContain('Node.js');
+    expect(updated.averageRewardRange.min).toBe(50);
+    expect(updated.averageRewardRange.max).toBe(300);
   });
 });
