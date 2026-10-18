@@ -395,3 +395,30 @@ export function resolveFetchState<T>(
   }
   return { status: 'success', data, error: null, onRetry };
 }
+
+/**
+ * Formats a raw number or string with thousands separators (commas) while preserving decimal values (#855).
+ */
+export function formatCurrencyInput(value: number | string): string {
+  if (value === '' || value === null || value === undefined) return '';
+  const str = String(value).replace(/[^0-9.]/g, '');
+  if (!str) return '';
+  const parts = str.split('.');
+  const integerPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return parts.length > 1 ? `${integerPart}.${parts[1]}` : integerPart;
+}
+
+/**
+ * Strips formatting, currency symbols ($ , XLM, etc.), and extracts clean numeric value (#855).
+ */
+export function parseCurrencyInput(value: string | number): number {
+  if (typeof value === 'number') return isNaN(value) ? 0 : value;
+  if (!value || typeof value !== 'string') return 0;
+  const cleaned = value.replace(/[^0-9.]/g, '');
+  if (!cleaned) return 0;
+  const parts = cleaned.split('.');
+  const integerPart = parts[0] || '0';
+  const decimalPart = parts.length > 1 ? `.${parts[1]}` : '';
+  const num = Number(`${integerPart}${decimalPart}`);
+  return isNaN(num) ? 0 : num;
+}

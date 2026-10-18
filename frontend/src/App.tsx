@@ -35,7 +35,7 @@ import {
 import { useFreighter } from './hooks/useFreighter';
 import FreighterConnectButton from './components/FreighterConnectButton';
 import { statusCopy, actionCopy, readInitialFilters } from './constants';
-import { debounce } from './utils';
+import { debounce, formatCurrencyInput, parseCurrencyInput } from './utils';
 import { type Bounty, type BountyStatus, type CreateBountyPayload, type OpenIssue } from './types';
 
 import BountyCard from './BountyCard';
@@ -126,6 +126,33 @@ function App() {
   const freighter = useFreighter();
   const initialFilters = useMemo(() => readInitialFilters(), []);
   const [form, setForm] = useState<CreateBountyPayload>(initialForm);
+  const [displayAmount, setDisplayAmount] = useState<string>(() =>
+    formatCurrencyInput(initialForm.amount)
+  );
+
+  const handleAmountChange = useCallback((rawVal: string) => {
+    setIsFormDirty(true);
+    const cleaned = rawVal.replace(/[^0-9.]/g, '');
+    if (!cleaned) {
+      setDisplayAmount('');
+      setForm((prev) => ({ ...prev, amount: 0 }));
+      return;
+    }
+    const formatted = formatCurrencyInput(cleaned);
+    setDisplayAmount(formatted);
+    const num = parseCurrencyInput(cleaned);
+    setForm((prev) => ({ ...prev, amount: num }));
+  }, []);
+
+  const handleAmountPaste = useCallback(
+    (e: React.ClipboardEvent<HTMLInputElement>) => {
+      e.preventDefault();
+      const pastedText = e.clipboardData.getData('text');
+      handleAmountChange(pastedText);
+    },
+    [handleAmountChange]
+  );
+
   const [bounties, setBounties] = useState<Bounty[]>([]);
   const [totalBounties, setTotalBounties] = useState(0);
   const [hasMoreBounties, setHasMoreBounties] = useState(false);
@@ -768,6 +795,7 @@ function App() {
         labels: form.labels.filter(Boolean),
       });
       setForm({ ...initialForm, issueNumber: form.issueNumber + 1 });
+      setDisplayAmount(formatCurrencyInput(initialForm.amount));
       setIsFormDirty(false);
       await refresh();
       toast.success('Bounty created successfully!');
@@ -863,12 +891,13 @@ function App() {
                   <label>
                     Reward
                     <input
-                      type="number"
-                      value={form.amount}
-                      onChange={(e) => {
-                        setForm({ ...form, amount: Number(e.target.value) });
-                        setIsFormDirty(true);
-                      }}
+                      type="text"
+                      inputMode="decimal"
+                      data-testid="bounty-reward-input"
+                      placeholder="e.g. 1,500"
+                      value={displayAmount}
+                      onChange={(e) => handleAmountChange(e.target.value)}
+                      onPaste={handleAmountPaste}
                     />
                   </label>
                   <label>
@@ -895,6 +924,7 @@ function App() {
                       className="ghost-button"
                       onClick={() => {
                         setForm(initialForm);
+                        setDisplayAmount(formatCurrencyInput(initialForm.amount));
                         setIsFormDirty(false);
                       }}
                     >
