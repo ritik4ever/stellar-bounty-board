@@ -114,3 +114,21 @@ export interface GlobalMetrics {
   uniqueMaintainers: number;
   uniqueContributors: number;
 }
+
+export interface NotificationPreferences {
+  address: string;
+  optedIn: boolean;
+  channels: {
+    email: boolean;
+    webhook: boolean;
+    push: boolean;
+  };
+  events: Record<string, boolean>;
+  preference?: {
+    address: string;
+    optIn: boolean;
+    email?: string;
+    webhookUrl?: string;
+  };
+  supportedTransitions: string[];
+}

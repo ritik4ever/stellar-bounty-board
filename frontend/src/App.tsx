@@ -8,7 +8,16 @@ import React, {
   type FormEvent,
 } from 'react';
 import { useBeforeUnload } from './useBeforeUnload';
-import { ChevronLeft, ChevronRight, FolderGit2, Moon, Rocket, Search, Sun } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  FolderGit2,
+  Moon,
+  Rocket,
+  Search,
+  Sun,
+  Bell,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import {
   createBounty,
@@ -37,6 +46,7 @@ import BountyDetailPage from './BountyDetailPage';
 import ContributorProfilePage from './ContributorProfilePage';
 import ContributorDashboard from './ContributorDashboard';
 import MaintainerDashboard from './MaintainerDashboard';
+import NotificationSettingsPage from './NotificationSettingsPage';
 import ErrorBoundary from './ErrorBoundary';
 import SubmissionChecklistModal, { type SubmissionFormData } from './SubmissionChecklistModal';
 import { useI18n, LanguageSwitcher } from './i18n/I18nContext';
@@ -721,6 +731,15 @@ function App() {
     );
   }
 
+  if (pathname === '/settings/notifications') {
+    return (
+      <NotificationSettingsPage
+        address={freighter.publicKey ?? form.maintainer}
+        onBack={() => navigate('/')}
+      />
+    );
+  }
+
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
@@ -768,6 +787,16 @@ function App() {
             <h1>{t('app.title', 'Stellar Bounty Board')}</h1>
           </div>
           <div className="header-actions">
+            <button
+              type="button"
+              className="icon-button"
+              title="Notification Preferences"
+              aria-label="Notification Preferences"
+              onClick={() => navigate('/settings/notifications')}
+              data-testid="header-notification-preferences-btn"
+            >
+              <Bell size={18} />
+            </button>
             <LanguageSwitcher />
             <FreighterConnectButton freighter={freighter} compact />
             <button

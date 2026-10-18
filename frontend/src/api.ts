@@ -5,6 +5,7 @@ import type {
   GlobalMetrics,
   MaintainerMetrics,
   OpenIssue,
+  NotificationPreferences,
 } from './types';
 import {
   BountyStatus as ContractBountyStatus,
@@ -254,7 +255,18 @@ export async function listBounties(
   signal?: AbortSignal
 ): Promise<PaginatedBountyList> {
   const params = new URLSearchParams({ page: String(options.page), limit: String(options.limit) });
-  for (const key of ['q', 'repo', 'contributor', 'maintainer', 'minReward', 'maxReward', 'status', 'tokenSymbol', 'sort', 'order'] as const) {
+  for (const key of [
+    'q',
+    'repo',
+    'contributor',
+    'maintainer',
+    'minReward',
+    'maxReward',
+    'status',
+    'tokenSymbol',
+    'sort',
+    'order',
+  ] as const) {
     const value = options[key];
     if (value) params.set(key, value);
   }
@@ -577,5 +589,39 @@ export function getContractErrorLabel(error: ContractError): string {
  * Stellar test network configuration for Freighter.
  */
 export const STELLAR_NETWORK_PASSPHRASE =
-  import.meta.env.VITE_STELLAR_NETWORK_PASSPHRASE ??
-  'Test SDF Network ; September 2015';
+  import.meta.env.VITE_STELLAR_NETWORK_PASSPHRASE ?? 'Test SDF Network ; September 2015';
+
+export async function getNotificationPreferences(
+  address: string
+): Promise<NotificationPreferences> {
+  const body = await requestJson<{ data: NotificationPreferences }>(
+    `/notification-preferences/${encodeURIComponent(address)}`,
+    {
+      retry: true,
+      retryLabel: 'Loading notification preferences',
+    }
+  );
+
+  return body.data;
+}
+
+export async function updateNotificationPreferences(
+  address: string,
+  payload: Partial<NotificationPreferences> & {
+    email?: string;
+    webhookUrl?: string;
+    optIn?: boolean;
+  }
+): Promise<NotificationPreferences> {
+  const body = await requestJson<{ data: NotificationPreferences }>(
+    `/notification-preferences/${encodeURIComponent(address)}`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address, ...payload }),
+      retry: false,
+    }
+  );
+
+  return body.data;
+}

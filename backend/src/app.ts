@@ -1501,6 +1501,120 @@ app.get('/api/notifications/opt-in/:address', (req: Request, res: Response) => {
   }
 });
 
+app.get('/api/notification-preferences/:address', (req: Request, res: Response) => {
+  try {
+    const { address } = req.params;
+    const pref = getNotificationOptIn(address);
+    res.json({
+      data: {
+        address,
+        optedIn: isNotificationOptedIn(address),
+        channels: {
+          email: Boolean(pref?.email),
+          webhook: Boolean(pref?.webhookUrl),
+          push: true,
+        },
+        events: NOTIFICATION_LIFECYCLE_TRANSITIONS.reduce(
+          (acc, t) => {
+            acc[t] = isNotificationOptedIn(address);
+            return acc;
+          },
+          {} as Record<string, boolean>
+        ),
+        preference: pref,
+        supportedTransitions: NOTIFICATION_LIFECYCLE_TRANSITIONS,
+      },
+    });
+  } catch (error) {
+    sendError(res, req, error);
+  }
+});
+
+app.put(
+  '/api/notification-preferences/:address',
+  mutationLimiter,
+  requireJsonContentType,
+  (req: Request, res: Response) => {
+    try {
+      const { address } = req.params;
+      const { optIn = true, email, webhookUrl, channels, events } = req.body ?? {};
+
+      if (!address || typeof address !== 'string') {
+        jsonError(res, req, 400, 'address is required.');
+        return;
+      }
+
+      const pref = setNotificationOptIn(address, Boolean(optIn), { email, webhookUrl });
+      res.json({
+        data: {
+          address,
+          optedIn: pref.optIn,
+          channels: channels ?? {
+            email: Boolean(pref.email),
+            webhook: Boolean(pref.webhookUrl),
+            push: true,
+          },
+          events:
+            events ??
+            NOTIFICATION_LIFECYCLE_TRANSITIONS.reduce(
+              (acc, t) => {
+                acc[t] = pref.optIn;
+                return acc;
+              },
+              {} as Record<string, boolean>
+            ),
+          preference: pref,
+          supportedTransitions: NOTIFICATION_LIFECYCLE_TRANSITIONS,
+        },
+      });
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  }
+);
+
+app.put(
+  '/api/notification-preferences',
+  mutationLimiter,
+  requireJsonContentType,
+  (req: Request, res: Response) => {
+    try {
+      const { address, optIn = true, email, webhookUrl, channels, events } = req.body ?? {};
+
+      if (!address || typeof address !== 'string') {
+        jsonError(res, req, 400, 'address is required.');
+        return;
+      }
+
+      const pref = setNotificationOptIn(address, Boolean(optIn), { email, webhookUrl });
+      res.json({
+        data: {
+          address,
+          optedIn: pref.optIn,
+          channels: channels ?? {
+            email: Boolean(pref.email),
+            webhook: Boolean(pref.webhookUrl),
+            push: true,
+          },
+          events:
+            events ??
+            NOTIFICATION_LIFECYCLE_TRANSITIONS.reduce(
+              (acc, t) => {
+                acc[t] = pref.optIn;
+                return acc;
+              },
+              {} as Record<string, boolean>
+            ),
+          preference: pref,
+          supportedTransitions: NOTIFICATION_LIFECYCLE_TRANSITIONS,
+        },
+      });
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  }
+);
+
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   if ((err as any).type === 'entity.too.large') {
     res.status(413).json({ error: 'Payload too large', maxBytes: 32768 });
