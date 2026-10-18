@@ -38,6 +38,7 @@ import ContributorProfilePage from './ContributorProfilePage';
 import ContributorDashboard from './ContributorDashboard';
 import ErrorBoundary from './ErrorBoundary';
 import SubmissionChecklistModal, { type SubmissionFormData } from './SubmissionChecklistModal';
+import { useI18n, LanguageSwitcher } from './i18n/I18nContext';
 
 const DARK_MODE_KEY = 'stellar-bounty-board-theme';
 const BOUNTIES_PER_PAGE = 10;
@@ -109,6 +110,7 @@ function repoOwner(repo: string): string {
 }
 
 function App() {
+  const { t } = useI18n();
   const { dark, toggle: toggleDark } = useDarkMode();
   const freighter = useFreighter();
   const initialFilters = useMemo(() => readInitialFilters(), []);
@@ -730,9 +732,10 @@ function App() {
         <div className="header-content">
           <div className="logo" onClick={() => navigate('/')}>
             <Rocket className="logo-icon" />
-            <h1>Stellar Bounty Board</h1>
+            <h1>{t('app.title', 'Stellar Bounty Board')}</h1>
           </div>
           <div className="header-actions">
+            <LanguageSwitcher />
             <FreighterConnectButton freighter={freighter} compact />
             <button className="theme-toggle" aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'} onClick={toggleDark}>
               {dark ? <Sun size={20} /> : <Moon size={20} />}
@@ -745,10 +748,12 @@ function App() {
         <section className="dashboard-hero">
           <div className="hero-grid">
             <div className="hero-main">
-              <h2>Fund GitHub issues with on-chain escrow</h2>
+              <h2>{t('app.hero.title', 'Fund GitHub issues with on-chain escrow')}</h2>
               <p>
-                A decentralized bounty platform powered by Stellar. Reserve tasks, submit solutions,
-                and get paid instantly.
+                {t(
+                  'app.hero.subtitle',
+                  'A decentralized bounty platform powered by Stellar. Reserve tasks, submit solutions, and get paid instantly.'
+                )}
               </p>
               <form className="bounty-form" onSubmit={handleCreate}>
                 <div className="form-row">

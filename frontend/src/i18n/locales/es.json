@@ -1,0 +1,19 @@
+{
+  "app.title": "Tablero de Recompensas Stellar",
+  "app.hero.title": "Financie issues de GitHub con custodia en cadena",
+  "app.hero.subtitle": "Una plataforma de recompensas descentralizada impulsada por Stellar. Reserve tareas, envíe soluciones y reciba pagos al instante.",
+  "common.back": "Volver",
+  "common.share": "Compartir",
+  "common.copied": "¡Copiado!",
+  "common.print": "Imprimir / Exportar PDF",
+  "common.retry": "Reintentar",
+  "common.loading": "Cargando...",
+  "bounty.kicker": "Recompensa",
+  "bounty.defaultTitle": "Recompensa",
+  "bounty.loading": "Cargando recompensa...",
+  "bounty.notFound": "Recompensa no encontrada.",
+  "bounty.details": "Detalles de la recompensa",
+  "language.select": "Idioma",
+  "language.en": "English",
+  "language.es": "Español"
+}

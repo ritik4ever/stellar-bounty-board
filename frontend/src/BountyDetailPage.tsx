@@ -16,6 +16,7 @@ import { updateSocialMetaTags } from './metaTags';
 import CopyIcon from './CopyIcons';
 import { extendDeadline } from './api';
 import { findSimilarBounties, type BountyRecommendation } from './recommendations';
+import { useI18n } from './i18n/I18nContext';
 
 type BountyAction = 'reserve' | 'submit' | 'release' | 'refund';
 
@@ -164,6 +165,7 @@ export default function BountyDetailPage({
   formatTimestamp = (v) => (v ? new Date(v * 1000).toLocaleDateString() : ''),
   bounties = [],
 }: Props) {
+  const { t } = useI18n();
   const statusAnnouncement = useBountyStatusAnnouncement(bounty, statusCopy);
   const [copied, setCopied] = useState(false);
 
@@ -213,8 +215,8 @@ export default function BountyDetailPage({
       >
         <div className="panel-header">
           <div>
-            <span className="panel-kicker">Bounty</span>
-            <h2>{bounty ? bounty.title : 'Bounty'}</h2>
+            <span className="panel-kicker">{t('bounty.kicker', 'Bounty')}</span>
+            <h2>{bounty ? bounty.title : t('bounty.defaultTitle', 'Bounty')}</h2>
           </div>
           <div className="panel-header__actions">
             <button
@@ -227,11 +229,11 @@ export default function BountyDetailPage({
             >
               {copied ? (
                 <>
-                  <Check size={16} aria-hidden="true" /> Copied!
+                  <Check size={16} aria-hidden="true" /> {t('common.copied', 'Copied!')}
                 </>
               ) : (
                 <>
-                  <Share2 size={16} aria-hidden="true" /> Share
+                  <Share2 size={16} aria-hidden="true" /> {t('common.share', 'Share')}
                 </>
               )}
             </button>
@@ -244,7 +246,7 @@ export default function BountyDetailPage({
               title="Print or Export PDF"
             >
               <Printer size={16} aria-hidden="true" />
-              Print / Export PDF
+              {t('common.print', 'Print / Export PDF')}
             </button>
             <button
               type="button"
@@ -253,7 +255,7 @@ export default function BountyDetailPage({
               disabled={loading}
               aria-label="Go back to bounties list"
             >
-              Back
+              {t('common.back', 'Back')}
             </button>
           </div>
         </div>
@@ -266,7 +268,7 @@ export default function BountyDetailPage({
             data-testid="bounty-detail-loading"
           >
             <div className="loading-spinner" aria-hidden="true" />
-            <p>Loading bounty...</p>
+            <p>{t('bounty.loading', 'Loading bounty...')}</p>
           </div>
         ) : error ? (
           <div
@@ -283,7 +285,7 @@ export default function BountyDetailPage({
                 onClick={onRetry}
                 aria-label="Retry loading bounty"
               >
-                Retry
+                {t('common.retry', 'Retry')}
               </button>
             )}
           </div>
@@ -293,7 +295,7 @@ export default function BountyDetailPage({
             role="status"
             data-testid="bounty-detail-empty"
           >
-            <p>Bounty not found.</p>
+            <p>{t('bounty.notFound', 'Bounty not found.')}</p>
           </div>
         ) : (
           <div className="bounty-detail__content">
