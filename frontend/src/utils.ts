@@ -178,7 +178,7 @@ export function sortBounties(bounties: Bounty[], sort: SortState): Bounty[] {
 export function getActiveRewardLabel(
   minReward: string,
   maxReward: string,
-  bounds: { lowest: number; highest: number },
+  bounds: { lowest: number; highest: number }
 ): string {
   const min = minReward === '' ? bounds.lowest : Number(minReward);
   const max = maxReward === '' ? bounds.highest : Number(maxReward);
@@ -264,7 +264,9 @@ export function getContributorMetrics(bounties: Bounty[], contributorAddress?: s
     };
   }
 
-  const contributorBounties = bounties.filter((bounty) => bounty.contributor === contributorAddress);
+  const contributorBounties = bounties.filter(
+    (bounty) => bounty.contributor === contributorAddress
+  );
   const countsByStatus = new Map<BountyStatus, number>();
   const releasedTotalsByAsset = new Map<string, number>();
 
@@ -323,4 +325,37 @@ export async function getXlmRate(): Promise<number | null> {
   })();
 
   return pendingRequest;
+}
+
+/**
+ * Generates an accessible, screen-reader friendly announcement string for filter query changes (#1275).
+ */
+export function getAccessibleFilterAnnouncement(filters: FilterState, matchCount: number): string {
+  const parts: string[] = [];
+  if (filters.statusFilter && filters.statusFilter !== 'all') {
+    parts.push(`status ${filters.statusFilter}`);
+  }
+  if (filters.repoFilter && filters.repoFilter.trim() !== '') {
+    parts.push(`repository ${filters.repoFilter}`);
+  }
+  if (filters.tokenFilter && filters.tokenFilter.trim() !== '') {
+    parts.push(`token ${filters.tokenFilter}`);
+  }
+  if (filters.searchQuery && filters.searchQuery.trim() !== '') {
+    parts.push(`query "${filters.searchQuery}"`);
+  }
+
+  const criteria = parts.length > 0 ? ` for ${parts.join(', ')}` : '';
+  const itemWord = matchCount === 1 ? 'bounty' : 'bounties';
+  return `${matchCount} ${itemWord} found${criteria}.`;
+}
+
+/**
+ * Returns an accessible summary description for a bounty card or item (#1275).
+ */
+export function getAccessibleBountySummary(bounty: Bounty): string {
+  return `Bounty #${bounty.issueNumber}: ${bounty.title}, reward ${formatAmount(
+    bounty.amount,
+    bounty.tokenSymbol
+  )}, status ${bounty.status}`;
 }
