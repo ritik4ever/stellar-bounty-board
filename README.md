@@ -22,6 +22,7 @@ Current MVP behavior:
 - Reserve a bounty as a contributor
 - Attach a PR submission link
 - Release payout or refund escrow
+- Opt-in notifications (webhook & email) on state changes (reserve, submit, release, refund, dispute)
 - Surface contribution-ready follow-up issues in the UI and docs
 
 ## Project Structure
@@ -54,11 +55,11 @@ Stellar Bounty Board uses an on-chain arbiter to resolve disputes fairly without
 
 ### Roles
 
-| Role | Description |
-|---|---|
-| **Maintainer** | Creates and funds the bounty escrow. |
-| **Contributor** | Reserves the bounty and submits a pull request for review. |
-| **Arbiter** | A trusted third-party address that resolves disputes. Configured once at contract initialisation. |
+| Role            | Description                                                                                       |
+| --------------- | ------------------------------------------------------------------------------------------------- |
+| **Maintainer**  | Creates and funds the bounty escrow.                                                              |
+| **Contributor** | Reserves the bounty and submits a pull request for review.                                        |
+| **Arbiter**     | A trusted third-party address that resolves disputes. Configured once at contract initialisation. |
 
 ### Configuration
 
@@ -96,6 +97,32 @@ If any component is `"down"`, the endpoint returns HTTP 503. Set `MAINTAINER_PUB
 
 The arbiter address is immutable after `initialize` is called on the contract — rotate it only by redeploying the contract.
 
+### Dispute UI Surface
+
+Maintainers and arbiters interact directly with the arbitration flow through the Bounty Detail page (`/bounties/:id`):
+
+- **Maintainer Review & Dispute Action:** When a bounty is in `submitted` status and within the review deadline window, maintainers can click **Raise Dispute** to open the dispute form, provide the dispute rationale (up to 500 characters), and submit the request to transition the escrow into the `disputed` state.
+- **Arbiter Resolution Panel:** For bounties in `disputed` status, authorized arbiters see a scoped dispute resolution panel displaying the dispute timestamp, rationale, contributor, and maintainer addresses. The arbiter can enter their public key, optional on-chain transaction hash, and execute either:
+  - **Release to Contributor:** Releases escrowed funds to the contributor.
+  - **Refund to Maintainer:** Refunds escrowed funds back to the creator.
+  - Both actions call the backend API (`resolveDisputeBounty` / `POST /api/bounties/:id/resolve-dispute`) and contract endpoints, ensuring authenticated state transitions and on-chain auditability.
+
+## Notifications & State Change Hooks
+
+Stellar Bounty Board provides an opt-in notification system to notify maintainers and contributors across all bounty lifecycle transitions:
+
+- `bounty_reserved`: Notifies the maintainer when a contributor reserves work.
+- `bounty_submitted`: Notifies the maintainer when a solution PR is submitted.
+- `bounty_released`: Notifies the contributor when their reward is released.
+- `bounty_refunded`: Notifies parties when a bounty is refunded or canceled.
+- `bounty_disputed`: Notifies parties when a dispute is opened or resolved.
+
+### Delivery Channels
+
+- **Webhook:** POSTs signed JSON payloads (`X-Bounty-Signature: sha256=...`) to `NOTIFICATION_WEBHOOK_URL`.
+- **Email:** Delivers templated alerts via SendGrid when `SENDGRID_API_KEY` and `NOTIFICATION_CHANNEL=EMAIL` are configured.
+- **Opt-In Preferences:** Users opt in or out via `POST /api/notifications/opt-in` and check status via `GET /api/notifications/opt-in/:address`.
+
 ## Deployment Guide
 
 See [docs/deployment.md](docs/deployment.md) for step-by-step instructions to deploy the backend on Render and the frontend on Vercel, including required environment variables, health check paths, and troubleshooting tips.
@@ -119,15 +146,217 @@ Base URL:
 
 Routes:
 
-- `GET /api/health`
-- `GET /api/health/deep` — dependency-aware readiness check (returns 503 if any component is down)
-- `GET /api/bounties`
-- `POST /api/bounties`
-- `POST /api/bounties/:id/reserve`
-- `POST /api/bounties/:id/submit`
-- `POST /api/bounties/:id/release`
+- `GET /api/health` — liveness check
+  - **Request**: No request body or query parameters required.
+  - **Response 200 OK**:
+    ```json
+    {
+      "service": "stellar-bounty-board-api",
+      "status": "ok",
+      "timestamp": "2026-09-27T15:30:00.000Z"
+    }
+    ```
+  - **Error Responses**: Rate limit exceeded returns HTTP `429 Too Many Requests` (via global rate limiter).
+- `GET /api/health/deep` — dependency-aware readiness check
+  - **Request**: No request body or query parameters required.
+  - **Response 200 OK** (all components healthy):
+    ```json
+    {
+      "overall": "up",
+      "components": {
+        "store": "up",
+        "soroban": "up",
+        "contract": "up",
+        "auth": "up"
+      },
+      "timestamp": "2026-09-28T01:00:00.000Z"
+    }
+    ```
+  - **Response 503 Service Unavailable** (one or more components degraded):
+    ```json
+    {
+      "overall": "down",
+      "components": {
+        "store": "down",
+        "soroban": "up",
+        "contract": "up",
+        "auth": "up"
+      },
+      "timestamp": "2026-09-28T01:00:00.000Z"
+    }
+    ```
+  - **Error Responses**:
+    - `429 Too Many Requests` — rate limit exceeded.
+- `GET /api/bounties` — list and filter bounties
+  - **Query Parameters**:
+    - `q` (optional): Free-text search keyword.
+    - `contributor` (optional): Filter by contributor Stellar public key.
+    - `maintainer` (optional): Filter by maintainer Stellar public key.
+    - `status` (optional): Filter by status (`open`, `reserved`, `submitted`, `released`, `refunded`, `disputed`).
+    - `tokenSymbol` (optional): Filter by token symbol (e.g. `USDC`, `XLM`).
+    - `sort` (optional): Sort field (`amount`, `deadline`, `createdAt`, `status`). Default: `createdAt`.
+    - `order` (optional): Sort direction (`asc`, `desc`). Default: `desc`.
+    - `page` (optional): Page number (min: 1). Default: 1.
+    - `pageSize` (optional): Items per page (1-100). Default: 20.
+    - `deadlineBefore` / `deadlineAfter` (optional): ISO 8601 date strings.
+  - **Response 200 OK**:
+    ```json
+    {
+      "data": [
+        {
+          "id": 1,
+          "title": "Build integration tests",
+          "amount": "1000000000",
+          "token": "C...",
+          "status": "open",
+          "maintainer": "G...",
+          "contributor": null,
+          "deadline": 1750000000,
+          "createdAt": 1740000000
+        }
+      ],
+      "total": 1,
+      "page": 1,
+      "pageSize": 20,
+      "hasMore": false
+    }
+    ```
+  - **Error Responses**:
+    - `400 Bad Request` — invalid query parameters, invalid date strings, or invalid Stellar public keys.
+    - `304 Not Modified` — returned when `If-None-Match` header matches resource ETag.
+    - `429 Too Many Requests` — rate limit exceeded.
+- `POST /api/bounties` — create and fund a new bounty
+  - **Request Body**:
+    ```json
+    {
+      "repo": "owner/repo",
+      "issueNumber": 42,
+      "title": "Fix login redirect bug",
+      "description": "Detailed task description",
+      "amount": "1000000000",
+      "token": "C...",
+      "deadline": 1750000000,
+      "maintainer": "G...",
+      "template": "standard"
+    }
+    ```
+  - **Response 201 Created**:
+    ```json
+    {
+      "data": {
+        "id": 1,
+        "title": "Fix login redirect bug",
+        "description": "Detailed task description",
+        "amount": "1000000000",
+        "token": "C...",
+        "status": "open",
+        "maintainer": "G...",
+        "contributor": null,
+        "deadline": 1750000000,
+        "createdAt": 1740000000
+      }
+    }
+    ```
+  - **Error Responses**:
+    - `400 Bad Request` — invalid request payload (`INVALID_BODY`) or invalid amount.
+    - `401 Unauthorized` — missing or invalid Stellar signature authorization header.
+    - `429 Too Many Requests` — rate limit exceeded.
+- `POST /api/bounties/:id/reserve` — reserve an open bounty
+  - **Request Body**:
+    ```json
+    {
+      "contributor": "G...",
+      "expectedVersion": 1
+    }
+    ```
+  - **Response 200 OK**:
+    ```json
+    {
+      "data": {
+        "id": 1,
+        "status": "reserved",
+        "contributor": "G...",
+        "reservedAt": "2026-09-27T16:00:00.000Z",
+        "version": 2
+      }
+    }
+    ```
+  - **Error Responses**:
+    - `400 Bad Request` — invalid request payload (`INVALID_BODY`).
+    - `404 Not Found` — bounty ID not found (`BOUNTY_NOT_FOUND`).
+    - `409 Conflict` — bounty is already reserved/released, or version mismatch.
+    - `429 Too Many Requests` — rate limit exceeded.
+- `POST /api/bounties/:id/submit` — submit work for a reserved bounty
+  - **Request Body**:
+    ```json
+    {
+      "contributor": "G...",
+      "submissionUrl": "https://github.com/owner/repo/pull/123",
+      "notes": "Optional notes on implementation"
+    }
+    ```
+  - **Response 200 OK**:
+    ```json
+    {
+      "data": {
+        "id": 1,
+        "status": "submitted",
+        "contributor": "G...",
+        "submissionUrl": "https://github.com/owner/repo/pull/123",
+        "notes": "Optional notes on implementation"
+      }
+    }
+    ```
+  - **Error Responses**:
+    - `400 Bad Request` — invalid request payload or validation failure (`INVALID_BODY`).
+    - `404 Not Found` — bounty ID not found (`BOUNTY_NOT_FOUND`).
+    - `409 Conflict` — bounty is not in reserved state or contributor mismatch.
+    - `429 Too Many Requests` — rate limit exceeded.
+- `POST /api/bounties/:id/release` — release escrowed payout to contributor
+  - **Request Body**:
+    ```json
+    {
+      "maintainer": "G...",
+      "transactionHash": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+    ```
+  - **Response 200 OK**:
+    ```json
+    {
+      "data": {
+        "id": 1,
+        "status": "released",
+        "maintainer": "G...",
+        "releasedAt": "2026-09-27T15:35:00.000Z"
+      }
+    }
+    ```
+  - **Error Responses**:
+    - `400 Bad Request` — invalid request payload (`INVALID_BODY`).
+    - `401 Unauthorized` — missing or invalid Stellar signature headers.
+    - `404 Not Found` — bounty ID not found (`BOUNTY_NOT_FOUND`).
+    - `409 Conflict` — bounty is not in submitted state or maintainer mismatch.
+    - `429 Too Many Requests` — rate limit exceeded.
 - `POST /api/bounties/:id/refund`
-- `GET /api/open-issues`
+- `GET /api/open-issues` — fetch available candidate GitHub issues for bounties
+  - **Request**: No request body or query parameters required.
+  - **Response 200 OK**: Cached for 10 minutes (`Cache-Control: max-age=600`).
+    ```json
+    {
+      "data": [
+        {
+          "id": "GH-42",
+          "title": "Fix login redirect bug",
+          "labels": ["bug", "good first issue"],
+          "summary": "First paragraph summary of the GitHub issue body.",
+          "impact": "starter"
+        }
+      ]
+    }
+    ```
+  - **Error Responses**:
+    - `502 Bad Gateway` — upstream GitHub API unreachable or returned failure.
+    - `429 Too Many Requests` — rate limit exceeded.
 
 ## Run Locally
 
@@ -182,12 +411,12 @@ npm run load:test
 
 Configurable via CLI flags:
 
-| Flag            | Default | Description                        |
-|-----------------|---------|------------------------------------|
-| `--connections` | `20`    | Number of concurrent connections   |
-| `--duration`    | `30`    | Duration in seconds                |
-| `--bounties`    | `20`    | Number of seed bounties            |
-| `--url`         | `http://localhost:3001` | Backend base URL    |
+| Flag            | Default                 | Description                      |
+| --------------- | ----------------------- | -------------------------------- |
+| `--connections` | `20`                    | Number of concurrent connections |
+| `--duration`    | `30`                    | Duration in seconds              |
+| `--bounties`    | `20`                    | Number of seed bounties          |
+| `--url`         | `http://localhost:3001` | Backend base URL                 |
 
 Example with custom options:
 
@@ -240,11 +469,11 @@ The `bindings-drift.yml` workflow regenerates bindings on every PR and push to `
 
 The Soroban contract uses a named error enum (`Error`) for recoverable failures:
 
-| Code | Variant            | Description                                            |
-|------|--------------------|--------------------------------------------------------|
-| 1    | `BountyNotOpen`    | Bounty reservation failed because the bounty is not in `Open` status (already reserved, expired, etc.) |
-| 2    | `BountyNotFound`   | The specified bounty ID does not exist                 |
-| 3    | `BountyAlreadyReserved` | The bounty is already reserved by another contributor |
+| Code | Variant                 | Description                                                                                            |
+| ---- | ----------------------- | ------------------------------------------------------------------------------------------------------ |
+| 1    | `BountyNotOpen`         | Bounty reservation failed because the bounty is not in `Open` status (already reserved, expired, etc.) |
+| 2    | `BountyNotFound`        | The specified bounty ID does not exist                                                                 |
+| 3    | `BountyAlreadyReserved` | The bounty is already reserved by another contributor                                                  |
 
 These errors are invoked via `panic_with_error!` and surface as `Error(Contract, #N)` in test expectations.
 
@@ -252,14 +481,18 @@ These errors are invoked via `panic_with_error!` and surface as `Error(Contract,
 
 For common issues, troubleshooting steps, wallet setup, testnet funding, transaction errors, and bounty workflow explanations, see:
 
-* [FAQ Guide](./docs/FAQ.md)
+- [FAQ Guide](./docs/FAQ.md)
 
+## Maintainers
+
+Interested in helping maintain the project? See [docs/MAINTAINERS.md](docs/MAINTAINERS.md) for the roles, expectations, and how to get involved.
 
 ## Contribution Hooks
 
 Contribution-ready issue drafts live in `docs/issues`.
 
 See the wave backlog documents for organized issue sets:
+
 - [Wave 4](docs/wave-4.md) — 60 issues across frontend, backend, contracts, docs, and DevOps
 - [Wave 5](docs/wave-5.md) — 40 issues focusing on security, observability, and polish
 - [Wave 6](docs/wave-6.md) — 7 issues for production readiness: database migration, wallet auth, and GitHub integration

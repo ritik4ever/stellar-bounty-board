@@ -1,10 +1,39 @@
 # Security Policy
 
+
+## Table of Contents
+
+- [Content Security Policy (CSP)](#content-security-policy-csp)
+  - [Current policy](#current-policy)
+  - [Report-only mode](#report-only-mode)
+  - [Updating the policy](#updating-the-policy)
+  - [Worked Example: Verifying CSP Report-Only Mode Locally](#worked-example-verifying-csp-report-only-mode-locally)
+- [Supported Versions](#supported-versions)
+- [Reporting a Vulnerability](#reporting-a-vulnerability)
+- [Responsible Disclosure Timeline](#responsible-disclosure-timeline)
+- [Our Commitments](#our-commitments)
+- [Credits](#credits)
+- [Logging best practices](#logging-best-practices)
+- [Authentication Architecture](#authentication-architecture)
+- [Contract Security Review: Arbiter Trust Assumptions](#contract-security-review-arbiter-trust-assumptions)
+- [Automated Security Analysis](#automated-security-analysis)
+- [Scope](#scope)
+- [See Also / Related Documentation](#see-also--related-documentation)
+- [Wave & Backlog Alignment](#wave--backlog-alignment)
+
+---
+
+
 ## Content Security Policy (CSP)
 
-The frontend build injects a `Content-Security-Policy-Report-Only` meta tag via `frontend/vite.config.ts`.
+> ⚠️ **Documentation drift (corrected in this commit):** this section previously
+> described a `cspDirectives` array and `cspPlugin()` in `frontend/vite.config.ts`.
+> As of the current codebase, that plugin is **not present** in `frontend/vite.config.ts`
+> (the file imports only `react()` + `VitePWA()` plugins). The CSP policy documented
+> here is the **intended** policy; it must be re-implemented in the frontend build
+> before it actually takes effect. Tracking issue: #1381.
 
-### Current policy
+### Intended policy (not yet wired into the build)
 
 ```
 default-src 'self';
@@ -18,17 +47,13 @@ base-uri    'self';
 form-action 'self';
 ```
 
-### Report-only mode
+### Re-implementing the policy
 
-The policy is currently deployed in **report-only mode** (`Content-Security-Policy-Report-Only`).
-Violations are logged to the browser console but do **not** block any functionality.
-Once no violations are observed in staging, the meta tag should be upgraded to
-`Content-Security-Policy` to enforce the policy.
-
-### Updating the policy
-
-Edit the `cspDirectives` array in `frontend/vite.config.ts` → `cspPlugin()`.
-After any change, verify there are no new console violations before promoting to production.
+When CSP is re-wired into the build, the `cspDirectives` array should live in
+`frontend/vite.config.ts` (the most natural place for Vite build-time meta tag
+injection). Until then, **no `Content-Security-Policy-Report-Only` meta tag is
+emitted by the frontend build** — the policy is documented for future
+implementation only.
 
 ---
 
@@ -158,9 +183,9 @@ The Stellar Bounty Board contract (`contracts/src/lib.rs`) currently places **si
 
 3. **No Time Constraints on Resolution**: While there is a dispute window that must pass before resolution, once the window expires, the arbiter can resolve at any time without additional constraints.
 
-4. **Single Point of Control**: The arbiter address is set once during contract initialization and cannot be changed without redeploying the entire contract.
+4. **Timelocked Rotation**: The arbiter address is rotatable through `set_arbiter` / `confirm_arbiter`, which require the admin's authorization and a two-day timelock, so a rotation cannot be smuggled through unnoticed.
 
-5. **No Oversight Mechanisms**: There are no committee voting, multi-signature requirements, or slashing/bonding mechanisms to constrain arbiter behavior.
+5. **Bonded Arbiter, No Committee**: There is no committee voting and no multi-signature requirement. Since the arbiter-bond change, the role is bonded instead: a candidate must post at least `MinArbiterStake` in a single token via `bond_arbiter_stake` before `set_arbiter` will accept them, the tokens are escrowed in the contract, and the admin can forfeit part of the bond to the treasury with `slash_arbiter` when a ruling was bad. A bond gives a bad ruling a price and caps the damage an arbiter can do; it does not add a second level of review, so the ruling itself remains final.
 
 ### Failure Modes
 
@@ -373,4 +398,45 @@ The following are **out of scope**:
 
 ---
 
-_Last updated: 2026-05-28_
+
+---
+
+## See Also / Related Documentation
+
+- [SECURITY_CHECKLIST.md](./SECURITY_CHECKLIST.md) — Pre-PR security verification checklist covering input validation, auth, and secret rotation.
+- [WEBHOOK_SECURITY_GUIDE.md](./WEBHOOK_SECURITY_GUIDE.md) — Detailed guide on GitHub webhook HMAC-SHA256 signature verification.
+- [WEBHOOK_SECRET_VALIDATION.md](./WEBHOOK_SECRET_VALIDATION.md) — Server startup validation and enforcement of webhook secrets.
+- [RUNBOOK.md](./RUNBOOK.md) — Operational runbooks including incident response procedures for compromised arbiter keys.
+- [CONTRIBUTING.md](./CONTRIBUTING.md) — Contribution guidelines and development workflow.
+
+
+## Wave & Backlog Alignment
+
+This security policy directly aligns with the project's phased delivery roadmap across waves 4, 5, and 6:
+
+- **Wave 4 ([docs/wave-4.md](docs/wave-4.md)) — Core Foundation & Schema Hardening:**
+  - Implements API input validation and automated contract verification.
+  - Aligns with GitHub PR webhook handlers for status transitions.
+- **Wave 5 ([docs/wave-5.md](docs/wave-5.md)) — Security, Observability & Polish:**
+  - Enforces `GITHUB_WEBHOOK_SECRET` validation on server startup (`WEBHOOK_SECRET_VALIDATION.md`).
+  - Implements structured security audit logging and timing-safe signature verification.
+- **Wave 6 ([docs/wave-6.md](docs/wave-6.md)) — Production Hardening & Integration:**
+  - Automated webhook synchronization with persistent audit storage.
+  - Secret rotation runbooks and multi-environment deployment gating.
+
+### Canonical Contribution Process
+
+When contributing security fixes, enhancements, or non-sensitive tooling updates, follow the single canonical workflow defined across the Wave backlogs ([docs/wave-4.md](docs/wave-4.md)) and [CONTRIBUTING.md](./CONTRIBUTING.md):
+1. **Browse Backlog Issues:** Check open issues tagged `wave-4`, `wave-5`, `wave-6`, or `Stellar Wave`.
+2. **Claim Prior to Work:** Comment on the issue you plan to claim to avoid duplicate effort.
+3. **Branching:** Create focused topic branches off `main` (`git checkout -b fix/security-...`, `docs/...`, or `feat/...`).
+4. **Conventional Commits & Verification:** Follow conventional commits (`fix(...)`, `docs(...)`, `feat(...)`) and run `npm test` and `npm run validate:configs` locally.
+5. **PR & Issue Linkage:** Open a PR referencing the issue number (`Closes #<issue>` or `Resolves #<issue>`).
+
+> [!IMPORTANT]
+> For reporting undisclosed or critical zero-day vulnerabilities, always use the private disclosure channels above ([Reporting a Vulnerability](#reporting-a-vulnerability)) rather than public GitHub issues or PRs.
+
+---
+
+_Last updated: October 18, 2026 (Reconciled with Wave 4/5/6 backlog structure, Issue #1380)_
+

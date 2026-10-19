@@ -3,6 +3,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import { randomUUID, createHash } from 'node:crypto';
 import swaggerUi from 'swagger-ui-express';
 import pinoHttp from 'pino-http';
+import { z } from 'zod';
 
 import { generateOpenApiDocument } from './docs/openapi';
 import { getMetrics, httpRequestDuration } from './metrics';
@@ -34,6 +35,16 @@ import {
 } from './services/bountyStore';
 
 import { listOpenIssues } from './services/openIssues';
+import {
+  registerPushSubscription,
+  unregisterPushSubscription,
+} from './services/pushSubscriptionService';
+import {
+  setNotificationOptIn,
+  getNotificationOptIn,
+  isNotificationOptedIn,
+  NOTIFICATION_LIFECYCLE_TRANSITIONS,
+} from './services/notificationService';
 
 import {
   bountyIdSchema,
@@ -42,6 +53,7 @@ import {
   extendDeadlineSchema,
   resolveDisputeBountySchema,
   maintainerActionSchema,
+  bulkActionSchema,
   reserveBountySchema,
   submitBountySchema,
   updateNotesSchema,
@@ -50,6 +62,7 @@ import {
 import { validateBody } from './middleware/validateBody';
 import { isValidStellarAddress } from './utils';
 import { getPublicConfig } from './config';
+import { getAppConfig } from './appConfig';
 
 import {
   captureRawBody,
@@ -61,17 +74,33 @@ import {
 } from './middleware/auth';
 import { idempotencyMiddleware } from './middleware/idempotency';
 import { requireJsonContentType } from './middleware/contentType';
+import { enforceBodyLimit, DEFAULT_BODY_LIMIT } from './middleware/bodyLimit';
 import { readLimiter, mutationLimiter } from './utils';
 import { maintainerLimiter } from './middleware/maintainerLimiter';
 import { logger } from './logger';
+import rateLimit from 'express-rate-limit';
 import { createAdminApiKeyAuthMiddleware } from './middleware/adminAuth';
+import {
+  createTerminalErrorHandler,
+  MiddlewareDependencyError,
+  INTERNAL_ERROR_MESSAGE,
+} from './middleware/errors';
+import { ServiceDependencyError, wrapServiceError } from './services/errors';
 import { handleGitHubPrEvent } from './webhooks/githubPrHandler';
 import { draining } from './shutdown';
-
+import { applyBountyTemplate, listBountyTemplates } from './services/bountyTemplates';
+import { csvRowToBounty, parseBountyCsv } from './services/csvImport';
+import {
+  cancelRecurringSchedule,
+  createRecurringSchedule,
+  listRecurringSchedules,
+  type ScheduleCadence,
+} from './services/recurringBountySchedules';
+import { createGraphQLRouter } from './graphql';
 
 const INCOMING_REQUEST_ID = /^[a-zA-Z0-9-]{1,128}$/;
 
-function resolveRequestId(req: Request): string {
+export function resolveRequestId(req: Request): string {
   const raw = req.headers['x-request-id'];
 
   if (typeof raw === 'string') {
@@ -110,15 +139,46 @@ function requestContextMiddleware(req: Request, res: Response, next: NextFunctio
 }
 
 export const app = express();
+const appConfig = getAppConfig();
 
+// Per-IP rate limiting (Wave 4 #81, #1298)
+const readLimiter = rateLimit({
+  windowMs: appConfig.rateLimitWindowMs,
+  max: appConfig.rateLimitReadMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many read requests, please slow down.' },
+  keyGenerator: (req: any) => req.ip || req.socket.remoteAddress || 'unknown',
+});
 
+const mutationLimiter = rateLimit({
+  windowMs: appConfig.rateLimitWindowMs,
+  max: appConfig.rateLimitMutationMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many mutations, please slow down.' },
+  keyGenerator: (req: any) => req.ip || req.socket.remoteAddress || 'unknown',
+});
+
+// Apply read limiter to all GET requests
+app.use((req: any, res: any, next: any) => {
+  if (req.method === 'GET') return readLimiter(req, res, next);
+  next();
+});
+
+// Apply mutation limiter to POST/PUT/PATCH/DELETE
+app.use((req: any, res: any, next: any) => {
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method))
+    return mutationLimiter(req, res, next);
+  next();
+});
 
 app.use(cors(buildCorsOptions()));
 
 app.use(
   express.json({
     verify: captureRawBody,
-    limit: '32kb',
+    limit: appConfig.rawBodyLimit,
   })
 );
 
@@ -169,12 +229,13 @@ app.use(readLimiter);
 
 const swaggerDoc = generateOpenApiDocument();
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerDoc));
+app.use('/graphql', createGraphQLRouter());
 
 function parseId(raw: string | string[] | undefined): string {
   return bountyIdSchema.parse(Array.isArray(raw) ? raw[0] : raw);
 }
 
-function parsePaginationValue(
+export function parsePaginationValue(
   raw: unknown,
   field: string,
   defaultValue: number,
@@ -208,11 +269,11 @@ function parsePaginationValue(
   return parsed;
 }
 
-function jsonError(res: Response, req: Request, statusCode: number, message: string): void {
+export function jsonError(res: Response, req: Request, statusCode: number, message: string): void {
   res.status(statusCode).json({ error: message, requestId: req.requestId });
 }
 
-function escapeCsv(value: unknown): string {
+export function escapeCsv(value: unknown): string {
   if (value === null || value === undefined) {
     return '';
   }
@@ -226,12 +287,85 @@ function escapeCsv(value: unknown): string {
   return raw;
 }
 
-function sendError(res: Response, req: Request, error: unknown, statusCode = 400): void {
-  const message = error instanceof Error ? error.message : 'Unexpected error';
-  jsonError(res, req, statusCode, message);
+const RAW_LEAK_PATTERNS = [
+  /ENOENT/i,
+  /EACCES/i,
+  /EPERM/i,
+  /ECONNREFUSED/i,
+  /ETIMEDOUT/i,
+  /ENOTFOUND/i,
+  /socket hang up/i,
+  /ELOCKED/i,
+  /fetch failed/i,
+  /SQLITE_/i,
+  /PG::/i,
+  /node:/i,
+  /\bat\b.*\(.*:\d+:\d+\)/,
+  /[A-Z]:\\[^ \n\r\t]+/i,
+  /\/home\/[^ \n\r\t]+/i,
+  /\/var\/[^ \n\r\t]+/i,
+  /\/usr\/[^ \n\r\t]+/i,
+  /\/etc\/[^ \n\r\t]+/i,
+];
+
+function containsRawLeak(message: string): boolean {
+  return RAW_LEAK_PATTERNS.some((pattern) => pattern.test(message));
 }
 
-function validateBountyAmount(amount: number): string | null {
+export function sendError(res: Response, req: Request, error: unknown, statusCode = 400): void {
+  const log = req.log ?? logger;
+  const requestId = req.requestId;
+
+  if (error instanceof ServiceDependencyError) {
+    log.error(
+      {
+        err: error.cause,
+        operation: error.operation,
+        dependency: error.dependency,
+        statusCode: error.statusCode,
+        requestId,
+      },
+      'service_dependency_failure'
+    );
+    jsonError(res, req, error.statusCode, error.publicMessage);
+    return;
+  }
+
+  if (error instanceof MiddlewareDependencyError) {
+    log.error(
+      {
+        err: error.cause,
+        operation: error.operation,
+        dependency: error.dependency,
+        statusCode: error.statusCode,
+        requestId,
+      },
+      'middleware_dependency_failure'
+    );
+    jsonError(res, req, error.statusCode, error.publicMessage);
+    return;
+  }
+
+  const rawMessage = error instanceof Error ? error.message : String(error);
+
+  if (statusCode >= 500 || containsRawLeak(rawMessage)) {
+    log.error(
+      {
+        err: error,
+        rawMessage,
+        statusCode: statusCode >= 500 ? statusCode : 500,
+        requestId,
+      },
+      'unhandled_route_dependency_failure'
+    );
+    jsonError(res, req, statusCode >= 500 ? statusCode : 500, INTERNAL_ERROR_MESSAGE);
+    return;
+  }
+
+  jsonError(res, req, statusCode, rawMessage);
+}
+
+export function validateBountyAmount(amount: number): string | null {
   if (!Number.isFinite(amount)) {
     return 'Amount must be a valid number.';
   }
@@ -333,6 +467,184 @@ app.get('/api/bounties/by-issue', (req: Request, res: Response) => {
   return res.json({ data: found });
 });
 
+app.get('/api/bounties/search', (req: Request, res: Response) => {
+  try {
+    const query = typeof req.query.q === 'string' ? req.query.q.trim().toLowerCase() : '';
+    const page = parsePaginationValue(req.query.page, 'page', 1, 1);
+    const pageSize =
+      req.query.limit !== undefined
+        ? parsePaginationValue(req.query.limit, 'limit', 20, 1, 100)
+        : parsePaginationValue(req.query.pageSize, 'pageSize', 20, 1, 100);
+    const repo =
+      typeof req.query.repo === 'string' && req.query.repo.trim()
+        ? req.query.repo.trim()
+        : undefined;
+    const minReward = req.query.minReward === undefined ? undefined : Number(req.query.minReward);
+    const maxReward = req.query.maxReward === undefined ? undefined : Number(req.query.maxReward);
+
+    if (minReward !== undefined && (!Number.isFinite(minReward) || minReward < 0)) {
+      throw new Error('minReward must be a non-negative number.');
+    }
+    if (maxReward !== undefined && (!Number.isFinite(maxReward) || maxReward < 0)) {
+      throw new Error('maxReward must be a non-negative number.');
+    }
+    if (minReward !== undefined && maxReward !== undefined && minReward > maxReward) {
+      throw new Error('minReward must not exceed maxReward.');
+    }
+    if (!query) {
+      res.json({ data: [], total: 0, page, pageSize, hasMore: false });
+      return;
+    }
+
+    const ranked = listBounties()
+      .map((bounty) => {
+        const title = bounty.title.toLowerCase();
+        const summary = bounty.summary.toLowerCase();
+        const repo = bounty.repo.toLowerCase();
+        const score = title.includes(query)
+          ? 3
+          : repo.includes(query)
+            ? 2
+            : summary.includes(query)
+              ? 1
+              : 0;
+        return { bounty, score };
+      })
+      .filter(({ score }) => score > 0)
+      .sort((a, b) => b.score - a.score || b.bounty.createdAt - a.bounty.createdAt)
+      .map(({ bounty }) => bounty);
+    const total = ranked.length;
+    const start = (page - 1) * pageSize;
+    const data = ranked.slice(start, start + pageSize);
+    res.setHeader('X-Total-Count', String(total));
+    res.json({ data, total, page, pageSize, hasMore: start + data.length < total });
+  } catch (error) {
+    sendError(res, req, error);
+  }
+});
+
+app.get('/api/bounty-templates', (_req: Request, res: Response) => {
+  res.json({ data: listBountyTemplates() });
+});
+
+const adminAuth = createAdminApiKeyAuthMiddleware();
+
+app.post(
+  '/api/bounties/import',
+  mutationLimiter,
+  adminAuth,
+  express.text({ type: ['text/csv', 'application/csv'], limit: appConfig.csvUploadLimit }),
+  async (req: Request, res: Response) => {
+    if (typeof req.body !== 'string') {
+      jsonError(res, req, 415, 'Content-Type must be text/csv or application/csv.');
+      return;
+    }
+    try {
+      const rows = parseBountyCsv(req.body);
+      const results: Array<{ row: number; id?: string; errors?: string[] }> = [];
+      for (let index = 0; index < rows.length; index += 1) {
+        const csvError = rows[index].__csvError;
+        if (csvError) {
+          results.push({ row: index + 2, errors: [csvError] });
+          continue;
+        }
+        const candidate = applyBountyTemplate(csvRowToBounty(rows[index]));
+        const parsed = createBountySchema.safeParse(candidate);
+        if (!parsed.success) {
+          results.push({
+            row: index + 2,
+            errors: parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`),
+          });
+          continue;
+        }
+        const amountError = validateBountyAmount(parsed.data.amount);
+        if (amountError) {
+          results.push({ row: index + 2, errors: [amountError] });
+          continue;
+        }
+        try {
+          const bounty = await createBounty(parsed.data);
+          results.push({ row: index + 2, id: bounty.id });
+        } catch (error) {
+          results.push({
+            row: index + 2,
+            errors: [error instanceof Error ? error.message : 'Unexpected error'],
+          });
+        }
+      }
+      const created = results.filter((result) => result.id).length;
+      res
+        .status(201)
+        .json({ data: results, created, failed: results.length - created, total: results.length });
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  }
+);
+
+const recurringScheduleSchema = z.object({
+  cadence: z.enum(['daily', 'weekly', 'monthly']),
+  templateId: z.string().trim().min(1),
+  targetRepo: z
+    .string()
+    .trim()
+    .regex(/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/),
+  bounty: z.record(z.unknown()),
+  startAt: z.number().int().positive().optional(),
+});
+
+app.get('/api/recurring-bounty-schedules', adminAuth, (_req: Request, res: Response) => {
+  res.json({ data: listRecurringSchedules() });
+});
+
+app.post(
+  '/api/recurring-bounty-schedules',
+  mutationLimiter,
+  requireJsonContentType,
+  adminAuth,
+  async (req: Request, res: Response) => {
+    try {
+      const request = recurringScheduleSchema.parse(req.body);
+      const merged = createBountySchema.parse(
+        applyBountyTemplate({
+          templateId: request.templateId,
+          ...request.bounty,
+          repo: request.targetRepo,
+        })
+      );
+      const { repo: _repo, ...bounty } = merged;
+      const schedule = createRecurringSchedule({
+        cadence: request.cadence as ScheduleCadence,
+        templateId: request.templateId,
+        targetRepo: request.targetRepo,
+        bounty,
+        startAt: request.startAt,
+      });
+      res.status(201).json({ data: schedule });
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  }
+);
+
+app.delete(
+  '/api/recurring-bounty-schedules/:id',
+  mutationLimiter,
+  adminAuth,
+  (req: Request, res: Response) => {
+    try {
+      res.json({ data: cancelRecurringSchedule(parseId(req.params.id)) });
+    } catch (error) {
+      sendError(
+        res,
+        req,
+        error,
+        error instanceof Error && error.message.includes('not found') ? 404 : 400
+      );
+    }
+  }
+);
+
 app.get('/api/bounties', async (req: Request, res: Response) => {
   try {
     const q = typeof req.query.q === 'string' ? req.query.q : undefined;
@@ -344,15 +656,48 @@ app.get('/api/bounties', async (req: Request, res: Response) => {
       typeof req.query.maintainer === 'string' && req.query.maintainer.trim()
         ? req.query.maintainer.trim()
         : undefined;
-    const status = typeof req.query.status === 'string' && req.query.status.trim() ? req.query.status.trim() : undefined;
+    const status =
+      typeof req.query.status === 'string' && req.query.status.trim()
+        ? req.query.status.trim()
+        : undefined;
     const tokenSymbol =
       typeof req.query.tokenSymbol === 'string' && req.query.tokenSymbol.trim()
         ? req.query.tokenSymbol.trim()
         : undefined;
-    const sort = typeof req.query.sort === 'string' && req.query.sort.trim() ? req.query.sort.trim() : 'createdAt';
-    const order = typeof req.query.order === 'string' && req.query.order.trim() ? req.query.order.trim() : 'desc';
+    const sort =
+      typeof req.query.sort === 'string' && req.query.sort.trim()
+        ? req.query.sort.trim()
+        : 'createdAt';
+    const order =
+      typeof req.query.order === 'string' && req.query.order.trim()
+        ? req.query.order.trim()
+        : 'desc';
+
+    const repo =
+      typeof req.query.repo === 'string' && req.query.repo.trim()
+        ? req.query.repo.trim()
+        : undefined;
+
+    const parseReward = (value: unknown, name: string): number | undefined => {
+      if (typeof value !== 'string' || !value.trim()) return undefined;
+      const n = Number(value);
+      if (!Number.isFinite(n) || n < 0) {
+        throw new Error(`${name} must be a non-negative number`);
+      }
+      return n;
+    };
+    const minReward = parseReward(req.query.minReward, 'minReward');
+    const maxReward = parseReward(req.query.maxReward, 'maxReward');
+    if (minReward !== undefined && maxReward !== undefined && minReward > maxReward) {
+      throw new Error('minReward must be less than or equal to maxReward');
+    }
+
+    // `limit` is the primary page-size param; `pageSize` is a legacy alias.
     const page = parsePaginationValue(req.query.page, 'page', 1, 1);
-    const pageSize = parsePaginationValue(req.query.pageSize, 'pageSize', 20, 1, 100);
+    const pageSize =
+      req.query.limit !== undefined
+        ? parsePaginationValue(req.query.limit, 'limit', 20, 1, 100)
+        : parsePaginationValue(req.query.pageSize, 'pageSize', 20, 1, 100);
 
     let deadlineBefore: number | undefined;
     if (typeof req.query.deadlineBefore === 'string') {
@@ -387,6 +732,9 @@ app.get('/api/bounties', async (req: Request, res: Response) => {
 
     const all = await listBountiesCached({
       q,
+      repo,
+      minReward,
+      maxReward,
       contributor,
       maintainer,
       status: status as never,
@@ -555,9 +903,18 @@ app.get('/api/bounties/released/export.csv', (req: Request, res: Response) => {
 app.post(
   '/api/bounties',
   mutationLimiter,
+  enforceBodyLimit(DEFAULT_BODY_LIMIT),
   requireJsonContentType,
   maintainerLimiter,
   createBountyCreationSignatureMiddleware(),
+  (req: Request, res: Response, next: NextFunction) => {
+    try {
+      req.body = applyBountyTemplate(req.body);
+      next();
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  },
   validateBody(createBountySchema),
   async (req: Request, res: Response) => {
     const amountError = validateBountyAmount(req.body.amount);
@@ -576,38 +933,54 @@ app.post(
   }
 );
 
-app.post('/api/bounties/:id/reserve', mutationLimiter, requireJsonContentType, idempotencyMiddleware, validateBody(reserveBountySchema), async (req: Request, res: Response) => {
-  try {
-    const bounty = await reserveBounty(
-      parseId(req.params.id),
-      req.body.contributor,
-      req.body.expectedVersion
-    );
+app.post(
+  '/api/bounties/:id/reserve',
+  mutationLimiter,
+  enforceBodyLimit(DEFAULT_BODY_LIMIT),
+  requireJsonContentType,
+  idempotencyMiddleware,
+  validateBody(reserveBountySchema),
+  async (req: Request, res: Response) => {
+    try {
+      const bounty = await reserveBounty(
+        parseId(req.params.id),
+        req.body.contributor,
+        req.body.expectedVersion
+      );
 
-    res.json({ data: bounty });
-  } catch (error) {
-    sendError(res, req, error);
+      res.json({ data: bounty });
+    } catch (error) {
+      sendError(res, req, error);
+    }
   }
-});
+);
 
-app.post('/api/bounties/:id/submit', mutationLimiter, requireJsonContentType, idempotencyMiddleware, validateBody(submitBountySchema), async (req: Request, res: Response) => {
-  try {
-    const bounty = await submitBounty(
-      parseId(req.params.id),
-      req.body.contributor,
-      req.body.submissionUrl,
-      req.body.notes
-    );
+app.post(
+  '/api/bounties/:id/submit',
+  mutationLimiter,
+  requireJsonContentType,
+  idempotencyMiddleware,
+  validateBody(submitBountySchema),
+  async (req: Request, res: Response) => {
+    try {
+      const bounty = await submitBounty(
+        parseId(req.params.id),
+        req.body.contributor,
+        req.body.submissionUrl,
+        req.body.notes
+      );
 
-    res.json({ data: bounty });
-  } catch (error) {
-    sendError(res, req, error);
+      res.json({ data: bounty });
+    } catch (error) {
+      sendError(res, req, error);
+    }
   }
-});
+);
 
 app.post(
   '/api/bounties/:id/release',
   mutationLimiter,
+  enforceBodyLimit(DEFAULT_BODY_LIMIT),
   requireJsonContentType,
   idempotencyMiddleware,
   createStellarSignatureAuthMiddleware(),
@@ -630,6 +1003,7 @@ app.post(
 app.post(
   '/api/bounties/:id/refund',
   mutationLimiter,
+  enforceBodyLimit(DEFAULT_BODY_LIMIT),
   idempotencyMiddleware,
   createStellarSignatureAuthMiddleware(),
   validateBody(maintainerActionSchema),
@@ -648,9 +1022,76 @@ app.post(
   }
 );
 
+/**
+ * POST /api/bounties/bulk-action  (#829)
+ *
+ * Admin-only endpoint that applies a single maintainer transition
+ * (`release` or `refund`) to a list of bounty IDs in one request.
+ *
+ * Each bounty is processed independently: a failure on one item (unknown ID,
+ * wrong maintainer, already finalized, invalid status, ...) is recorded per
+ * item and does NOT abort the remaining items. The response always contains a
+ * per-item `results` array so callers can surface partial success/failure.
+ *
+ * Requires the admin API key (`x-admin-api-key` header) just like the
+ * audit-log endpoint; the admin key replaces the per-item Stellar signature
+ * required by the single-bounty endpoints.
+ */
+app.post(
+  '/api/bounties/bulk-action',
+  mutationLimiter,
+  requireJsonContentType,
+  createAdminApiKeyAuthMiddleware(),
+  validateBody(bulkActionSchema),
+  async (req: Request, res: Response) => {
+    const { action, bountyIds, maintainer, transactionHash } = req.body as {
+      action: 'release' | 'refund';
+      bountyIds: string[];
+      maintainer: string;
+      transactionHash?: string;
+    };
+
+    const results: Array<{
+      bountyId: string;
+      success: boolean;
+      status?: string;
+      error?: string;
+    }> = [];
+
+    for (const bountyId of bountyIds) {
+      try {
+        const bounty =
+          action === 'release'
+            ? await releaseBounty(bountyId, maintainer, transactionHash)
+            : await refundBounty(bountyId, maintainer, transactionHash);
+
+        results.push({ bountyId, success: true, status: bounty.status });
+      } catch (error) {
+        results.push({
+          bountyId,
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error.',
+        });
+      }
+    }
+
+    const succeeded = results.filter((result) => result.success).length;
+
+    res.json({
+      data: {
+        action,
+        results,
+        succeeded,
+        failed: results.length - succeeded,
+      },
+    });
+  }
+);
+
 app.post(
   '/api/bounties/:id/cancel',
   mutationLimiter,
+  enforceBodyLimit(DEFAULT_BODY_LIMIT),
   idempotencyMiddleware,
   createStellarSignatureAuthMiddleware(),
   async (req: Request, res: Response) => {
@@ -678,6 +1119,7 @@ app.post(
 app.post(
   '/api/bounties/:id/dispute',
   mutationLimiter,
+  enforceBodyLimit(DEFAULT_BODY_LIMIT),
   createStellarSignatureAuthMiddleware(),
   validateBody(disputeBountySchema),
   async (req: Request, res: Response) => {
@@ -698,6 +1140,7 @@ app.post(
 app.post(
   '/api/bounties/:id/resolve-dispute',
   mutationLimiter,
+  enforceBodyLimit(DEFAULT_BODY_LIMIT),
   validateBody(resolveDisputeBountySchema),
   async (req: Request, res: Response) => {
     try {
@@ -739,6 +1182,7 @@ app.patch(
 app.post(
   '/api/bounties/:id/extend-deadline',
   mutationLimiter,
+  enforceBodyLimit(DEFAULT_BODY_LIMIT),
   idempotencyMiddleware,
   createStellarSignatureAuthMiddleware(),
   async (req: Request, res: Response) => {
@@ -806,7 +1250,7 @@ app.post(
 app.get('/api/open-issues', async (req: Request, res: Response) => {
   try {
     const data = await listOpenIssues();
-    res.set('Cache-Control', 'max-age=600');
+    res.set('Cache-Control', `max-age=${appConfig.openIssuesCacheSeconds}`);
     res.json({ data });
   } catch (error) {
     sendError(res, req, error, 502);
@@ -833,7 +1277,7 @@ app.get('/api/bounties/:id', (req: Request, res: Response) => {
       return;
     }
 
-    res.setHeader('Cache-Control', 'max-age=5');
+    res.setHeader('Cache-Control', `max-age=${appConfig.bountiesListCacheSeconds}`);
 
     if (bounty.version !== undefined) {
       const etag = `"${bounty.version}"`;
@@ -912,7 +1356,10 @@ app.get('/api/stats', async (_req: Request, res: Response) => {
 app.get('/api/config', (_req: Request, res: Response) => {
   try {
     const config = getPublicConfig();
-    res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=60');
+    res.setHeader(
+      'Cache-Control',
+      `public, max-age=${appConfig.configCacheSeconds}, stale-while-revalidate=${appConfig.configStaleWhileRevalidateSeconds}`
+    );
     res.json({ data: config });
   } catch (error) {
     sendError(res, _req, error, 500);
@@ -926,34 +1373,248 @@ app.get('/api/config', (_req: Request, res: Response) => {
  * across every bounty.  Requires a valid `x-admin-api-key` header whose value
  * matches the bcrypt hash stored in `ADMIN_API_KEY_HASH`.
  */
-app.get(
-  "/api/audit-log",
-  createAdminApiKeyAuthMiddleware(),
+app.get('/api/audit-log', createAdminApiKeyAuthMiddleware(), (req: Request, res: Response) => {
+  try {
+    const limit = parsePaginationValue(req.query.limit, 'limit', 50, 1, 200);
+    const offset = parsePaginationValue(req.query.offset, 'offset', 0, 0);
+
+    const actor = typeof req.query.actor === 'string' ? req.query.actor : undefined;
+    const transition = typeof req.query.transition === 'string' ? req.query.transition : undefined;
+    const bountyId = typeof req.query.bountyId === 'string' ? req.query.bountyId : undefined;
+    const fromStatus = typeof req.query.fromStatus === 'string' ? req.query.fromStatus : undefined;
+    const toStatus = typeof req.query.toStatus === 'string' ? req.query.toStatus : undefined;
+
+    const page = listAllAuditLogs({
+      limit,
+      offset,
+      actor,
+      transition,
+      bountyId,
+      fromStatus,
+      toStatus,
+    });
+    res.json(page);
+  } catch (error) {
+    sendError(res, req, error);
+  }
+});
+
+// ─── Browser push notification preferences ─────────────────────────────────
+
+app.post(
+  '/api/notification-preferences/push',
+  mutationLimiter,
+  requireJsonContentType,
   (req: Request, res: Response) => {
     try {
-      const limit = parsePaginationValue(req.query.limit, "limit", 50, 1, 200);
-      const offset = parsePaginationValue(req.query.offset, "offset", 0, 0);
-      
-      const actor = typeof req.query.actor === "string" ? req.query.actor : undefined;
-      const transition = typeof req.query.transition === "string" ? req.query.transition : undefined;
-      const bountyId = typeof req.query.bountyId === "string" ? req.query.bountyId : undefined;
-      const fromStatus = typeof req.query.fromStatus === "string" ? req.query.fromStatus : undefined;
-      const toStatus = typeof req.query.toStatus === "string" ? req.query.toStatus : undefined;
-      
-      const page = listAllAuditLogs({ 
-        limit, 
-        offset, 
-        actor, 
-        transition, 
-        bountyId, 
-        fromStatus, 
-        toStatus 
+      const { endpoint, keys } = req.body ?? {};
+
+      if (typeof endpoint !== 'string' || !endpoint.startsWith('https://')) {
+        jsonError(res, req, 400, 'endpoint must be a valid https URL.');
+        return;
+      }
+
+      if (
+        !keys ||
+        typeof keys !== 'object' ||
+        typeof keys.p256dh !== 'string' ||
+        typeof keys.auth !== 'string'
+      ) {
+        jsonError(res, req, 400, 'keys.p256dh and keys.auth are required.');
+        return;
+      }
+
+      const subscription = registerPushSubscription({
+        endpoint,
+        keys: { p256dh: keys.p256dh, auth: keys.auth },
+        createdAt: Date.now(),
       });
-      res.json(page);
+
+      res.status(201).json({ data: subscription });
     } catch (error) {
       sendError(res, req, error);
     }
-  },
+  }
+);
+
+app.delete(
+  '/api/notification-preferences/push',
+  mutationLimiter,
+  requireJsonContentType,
+  (req: Request, res: Response) => {
+    try {
+      const { endpoint } = req.body ?? {};
+
+      if (typeof endpoint !== 'string' || !endpoint.startsWith('https://')) {
+        jsonError(res, req, 400, 'endpoint must be a valid https URL.');
+        return;
+      }
+
+      const removed = unregisterPushSubscription(endpoint);
+      res.json({ data: { removed } });
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  }
+);
+
+// ─── Bounty lifecycle notification opt-in preferences ───────────────────────
+
+app.post(
+  '/api/notifications/opt-in',
+  mutationLimiter,
+  requireJsonContentType,
+  (req: Request, res: Response) => {
+    try {
+      const { address, optIn, email, webhookUrl } = req.body ?? {};
+
+      if (!address || typeof address !== 'string') {
+        jsonError(res, req, 400, 'address is required.');
+        return;
+      }
+
+      if (typeof optIn !== 'boolean') {
+        jsonError(res, req, 400, 'optIn must be a boolean.');
+        return;
+      }
+
+      const pref = setNotificationOptIn(address, optIn, { email, webhookUrl });
+      res.json({ data: pref });
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  }
+);
+
+app.get('/api/notifications/opt-in/:address', (req: Request, res: Response) => {
+  try {
+    const { address } = req.params;
+    const pref = getNotificationOptIn(address);
+    res.json({
+      data: {
+        address,
+        optedIn: isNotificationOptedIn(address),
+        preference: pref,
+        supportedTransitions: NOTIFICATION_LIFECYCLE_TRANSITIONS,
+      },
+    });
+  } catch (error) {
+    sendError(res, req, error);
+  }
+});
+
+app.get('/api/notification-preferences/:address', (req: Request, res: Response) => {
+  try {
+    const { address } = req.params;
+    const pref = getNotificationOptIn(address);
+    res.json({
+      data: {
+        address,
+        optedIn: isNotificationOptedIn(address),
+        channels: {
+          email: Boolean(pref?.email),
+          webhook: Boolean(pref?.webhookUrl),
+          push: true,
+        },
+        events: NOTIFICATION_LIFECYCLE_TRANSITIONS.reduce(
+          (acc, t) => {
+            acc[t] = isNotificationOptedIn(address);
+            return acc;
+          },
+          {} as Record<string, boolean>
+        ),
+        preference: pref,
+        supportedTransitions: NOTIFICATION_LIFECYCLE_TRANSITIONS,
+      },
+    });
+  } catch (error) {
+    sendError(res, req, error);
+  }
+});
+
+app.put(
+  '/api/notification-preferences/:address',
+  mutationLimiter,
+  requireJsonContentType,
+  (req: Request, res: Response) => {
+    try {
+      const { address } = req.params;
+      const { optIn = true, email, webhookUrl, channels, events } = req.body ?? {};
+
+      if (!address || typeof address !== 'string') {
+        jsonError(res, req, 400, 'address is required.');
+        return;
+      }
+
+      const pref = setNotificationOptIn(address, Boolean(optIn), { email, webhookUrl });
+      res.json({
+        data: {
+          address,
+          optedIn: pref.optIn,
+          channels: channels ?? {
+            email: Boolean(pref.email),
+            webhook: Boolean(pref.webhookUrl),
+            push: true,
+          },
+          events:
+            events ??
+            NOTIFICATION_LIFECYCLE_TRANSITIONS.reduce(
+              (acc, t) => {
+                acc[t] = pref.optIn;
+                return acc;
+              },
+              {} as Record<string, boolean>
+            ),
+          preference: pref,
+          supportedTransitions: NOTIFICATION_LIFECYCLE_TRANSITIONS,
+        },
+      });
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  }
+);
+
+app.put(
+  '/api/notification-preferences',
+  mutationLimiter,
+  requireJsonContentType,
+  (req: Request, res: Response) => {
+    try {
+      const { address, optIn = true, email, webhookUrl, channels, events } = req.body ?? {};
+
+      if (!address || typeof address !== 'string') {
+        jsonError(res, req, 400, 'address is required.');
+        return;
+      }
+
+      const pref = setNotificationOptIn(address, Boolean(optIn), { email, webhookUrl });
+      res.json({
+        data: {
+          address,
+          optedIn: pref.optIn,
+          channels: channels ?? {
+            email: Boolean(pref.email),
+            webhook: Boolean(pref.webhookUrl),
+            push: true,
+          },
+          events:
+            events ??
+            NOTIFICATION_LIFECYCLE_TRANSITIONS.reduce(
+              (acc, t) => {
+                acc[t] = pref.optIn;
+                return acc;
+              },
+              {} as Record<string, boolean>
+            ),
+          preference: pref,
+          supportedTransitions: NOTIFICATION_LIFECYCLE_TRANSITIONS,
+        },
+      });
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  }
 );
 
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
@@ -961,9 +1622,17 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
     res.status(413).json({ error: 'Payload too large', maxBytes: 32768 });
     return;
   }
-  if (err instanceof SyntaxError && (err as any).type === 'entity.parse.failed' && (err as any).body) {
+  if (
+    err instanceof SyntaxError &&
+    (err as any).type === 'entity.parse.failed' &&
+    (err as any).body
+  ) {
     res.status(400).json({ error: 'Invalid JSON' });
     return;
   }
   next(err);
 });
+
+// Must stay last: renders typed middleware errors and turns anything else into
+// a generic 500 so no raw dependency error or stack trace reaches a client.
+app.use(createTerminalErrorHandler());

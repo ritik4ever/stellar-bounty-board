@@ -106,6 +106,18 @@ describe("GET /api/bounties — pagination", () => {
     expect(res.body.hasMore).toBe(true);
   });
 
+  it("accepts limit as the page size parameter", async () => {
+    const app = await getApp();
+    await seedBounties(app, 10);
+
+    const res = await request(app).get("/api/bounties?page=2&limit=4").expect(200);
+
+    expect(res.body.data).toHaveLength(4);
+    expect(res.body.page).toBe(2);
+    expect(res.body.pageSize).toBe(4);
+    expect(res.body.total).toBe(10);
+  });
+
   it("combines ?q filter with pagination", async () => {
     const app = await getApp();
     await seedBounties(app, 5);

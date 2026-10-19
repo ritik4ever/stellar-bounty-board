@@ -1,47 +1,90 @@
-# Dependencies
+# ==============================================================================
+# Prettier Ignore Configuration
+# ==============================================================================
+# This file defines directories and patterns that Prettier should not format.
+# Non-obvious and deliberately chosen settings are annotated below to distinguish
+# custom repository architecture requirements from standard template defaults.
+
+# ------------------------------------------------------------------------------
+# Dependencies & Package Managers
+# ------------------------------------------------------------------------------
+# Third-party code should never be reformatted. Lockfiles are maintained by package
+# managers (npm/yarn/pnpm) and reformatting them invalidates structural checksums.
 node_modules
 package-lock.json
 yarn.lock
 pnpm-lock.yaml
 
-# Build outputs
+# ------------------------------------------------------------------------------
+# Build Outputs & Generated Artifacts (Deliberately chosen)
+# ------------------------------------------------------------------------------
+# dist & build contain compiler output from TypeScript/Vite/tsc.
 dist
 build
+# .next & out are reserved for static/hybrid Next.js exports if deployed.
 .next
 out
+# coverage reports contain machine-generated HTML/JSON test metrics from Vitest/c8.
 coverage
 
-# Environment files
+# Auto-generated Soroban smart contract TypeScript bindings (Deliberately chosen):
+# Produced by `bash scripts/gen-bindings.sh`. Reformatting generated files causes
+# `npm run check:bindings` to fail in CI due to git diff discrepancies.
+frontend/src/generated
+
+# Cargo compiler artifacts for Soroban contracts (Deliberately chosen):
+contracts/target
+target
+
+# Snapshot test fixtures (Deliberately chosen):
+# Soroban test snapshot files contain verbatim JSON state captures that must not be altered.
+contracts/test_snapshots
+contracts/**/test_snapshots
+*.zip
+
+# ------------------------------------------------------------------------------
+# Runtime Data Stores (Deliberately chosen)
+# ------------------------------------------------------------------------------
+# Local file-based database JSON records mutated at runtime by the backend store
+data/*.json
+backend/data/*.json
+
+# ------------------------------------------------------------------------------
+# Environment & Secrets (Security Sensitive)
+# ------------------------------------------------------------------------------
+# Local environment overrides should never be staged, modified, or reformatted.
 .env
 .env.local
 .env.*.local
 
-# IDE
+# ------------------------------------------------------------------------------
+# Editor & OS Artifacts (Standard Template)
+# ------------------------------------------------------------------------------
 .vscode
 .idea
 *.swp
 *.swo
-
-# OS
 .DS_Store
 Thumbs.db
 
-# Logs
+# ------------------------------------------------------------------------------
+# Runtime Logs & Debugging Output (Standard Template)
+# ------------------------------------------------------------------------------
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Lock files
-package-lock.json
-yarn.lock
-pnpm-lock.yaml
-
-# Test files
-coverage
+# ------------------------------------------------------------------------------
+# Test & Coverage Caches (Deliberately chosen)
+# ------------------------------------------------------------------------------
+# nyc/Istanbul instrumented coverage outputs.
 .nyc_output
 
-# Misc
+# ------------------------------------------------------------------------------
+# Temporary Caches & Build Intermediates (Deliberately chosen)
+# ------------------------------------------------------------------------------
+# .cache holds compiler cache (e.g. Vite/Babel/Rust bindings cache).
 .cache
 .temp
 tmp

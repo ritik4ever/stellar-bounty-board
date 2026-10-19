@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-crate-type = ["cdylib"]
+# Both: the wasm artifact CI uploads is a cdylib, and the integration tests
+# under tests/ link the contract as a normal Rust library (which needs an rlib).
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 soroban-sdk = "27.0.2"

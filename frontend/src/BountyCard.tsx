@@ -1,8 +1,8 @@
-import React, { memo, useEffect, useState, type ReactNode } from "react";
-import { statusCopy, actionCopy } from "./constants";
-import { type Bounty } from "./types";
-import BountyCountdown from "./BountyCountdown";
-import { xlmToUsd } from "./utils";
+import React, { memo, useEffect, useRef, useState, type ReactNode } from 'react';
+import { statusCopy, actionCopy } from './constants';
+import { type Bounty } from './types';
+import BountyCountdown from './BountyCountdown';
+import { xlmToUsd } from './utils';
 
 /** Props for the BountyAmount sub-component. */
 interface BountyAmountProps {
@@ -19,10 +19,10 @@ const BountyAmount = memo(function BountyAmount({ bounty }: BountyAmountProps) {
   useEffect(() => {
     let active = true;
 
-    if (bounty.tokenSymbol.toUpperCase() === "USDC") {
-      const formatted = new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency: "USD",
+    if (bounty.tokenSymbol.toUpperCase() === 'USDC') {
+      const formatted = new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }).format(bounty.amount);
@@ -32,7 +32,7 @@ const BountyAmount = memo(function BountyAmount({ bounty }: BountyAmountProps) {
       };
     }
 
-    if (bounty.tokenSymbol.toUpperCase() !== "XLM") {
+    if (bounty.tokenSymbol.toUpperCase() !== 'XLM') {
       setUsdAmount(null);
       return () => {
         active = false;
@@ -75,11 +75,28 @@ export interface BountyCardProps {
   renderActionButton: (
     bounty: Bounty,
     action: {
-      action: "reserve" | "submit" | "release" | "refund";
+      action: 'reserve' | 'submit' | 'release' | 'refund';
       label: string;
       title: string;
     }
   ) => ReactNode;
+  /** If true, this card is the last item in the current list. */
+  isLast?: boolean;
+  /** If true, more bounties are available to load. */
+  hasMore?: boolean;
+  /** If true, a request to load more bounties is in progress. */
+  isLoadingMore?: boolean;
+  /** Called when the user scrolls near the end of the list. */
+  onLoadMore?: () => void;
+  /**
+   * Optional multi-select control (#829). When provided, a checkbox is
+   * rendered on the card so the maintainer can select several bounties and
+   * run a bulk release/refund from the toolbar.
+   */
+  selection?: {
+    selected: boolean;
+    onToggle: () => void;
+  };
 }
 
 /** Truncate a Stellar public key to a short display form. */
@@ -97,15 +114,13 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
   return (
     target instanceof HTMLElement &&
     Boolean(
-      target.closest(
-        'a, button, input, select, textarea, summary, [role="button"], [role="link"]'
-      )
+      target.closest('a, button, input, select, textarea, summary, [role="button"], [role="link"]')
     )
   );
 }
 
 /**
- * A card that displays a single bounty's summary.
+ * A CountyCard that displays a single bounty's summary.
  *
  * Shows the bounty status, title, reward amount, meta information
  * (issue link, deadline, maintainer, contributor), labels, and
@@ -115,13 +130,48 @@ const BountyCard = memo(function BountyCard({
   bounty,
   onOpen,
   renderActionButton,
+  isLast = false,
+  hasMore = false,
+  isLoadingMore = false,
+  onLoadMore,
+  selection,
 }: BountyCardProps) {
+  const cardRef = useRef<HTMLElement | null>(null);
+  const isLoadingMoreRef = useRef(isLoadingMore);
+  const onLoadMoreRef = useRef(onLoadMore);
+
+  useEffect(() => {
+    isLoadingMoreRef.current = isLoadingMore;
+  }, [isLoadingMore]);
+
+  useEffect(() => {
+    onLoadMoreRef.current = onLoadMore;
+  }, [onLoadMore]);
+
+  useEffect(() => {
+    const node = cardRef.current;
+    if (!node || !isLast || !hasMore || !onLoadMoreRef.current) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !isLoadingMoreRef.current && onLoadMoreRef.current) {
+          onLoadMoreRef.current();
+        }
+      },
+      { rootMargin: '200px', threshold: 0.1 }
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [isLast, hasMore]);
+
   const openCard = () => onOpen(bounty.id);
 
   return (
     <article
       className="bounty-card"
       tabIndex={0}
+      ref={cardRef}
       aria-label={`Bounty: ${bounty.title}. Press Enter or Space to open details.`}
       onClick={(event) => {
         if (isInteractiveTarget(event.target) && event.target !== event.currentTarget) return;
@@ -129,7 +179,7 @@ const BountyCard = memo(function BountyCard({
       }}
       onKeyDown={(event) => {
         if (isInteractiveTarget(event.target) && event.target !== event.currentTarget) return;
-        if (event.key === "Enter" || event.key === " ") {
+        if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
           openCard();
         }
@@ -137,11 +187,23 @@ const BountyCard = memo(function BountyCard({
     >
       <div className="bounty-card__top">
         <div>
+          {selection && (
+            <label className="bounty-card__select" onClick={(event) => event.stopPropagation()}>
+              <input
+                type="checkbox"
+                checked={selection.selected}
+                onChange={selection.onToggle}
+                aria-label={`Select ${bounty.id} for bulk action`}
+              />
+            </label>
+          )}
           <span
             className={`status-pill status-pill--${bounty.status}`}
-            title={statusCopy[bounty.status].label}
+            title={`${statusCopy[bounty.status]?.label}: ${statusCopy[bounty.status]?.description}`}
+            aria-label={`Status: ${statusCopy[bounty.status]?.label}. ${statusCopy[bounty.status]?.description}`}
+            data-testid="bounty-card-status-pill"
           >
-            {statusCopy[bounty.status].label}
+            {statusCopy[bounty.status]?.label ?? bounty.status}
           </span>
           <h3>{bounty.title}</h3>
         </div>
@@ -176,7 +238,7 @@ const BountyCard = memo(function BountyCard({
         </div>
         <div>
           <span className="meta-label">Contributor</span>
-          <strong>{bounty.contributor ? shortAddress(bounty.contributor) : "Open"}</strong>
+          <strong>{bounty.contributor ? shortAddress(bounty.contributor) : 'Open'}</strong>
         </div>
       </div>
 
@@ -191,6 +253,13 @@ const BountyCard = memo(function BountyCard({
       <div className="action-row">
         {(actionCopy[bounty.status] ?? []).map((action) => renderActionButton(bounty, action))}
       </div>
+
+      {isLast && isLoadingMore && (
+        <div className="loading-indicator" role="status">
+          <span className="spinner" aria-hidden="true" />
+          Loading more...
+        </div>
+      )}
     </article>
   );
 });

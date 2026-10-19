@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import { listBounties } from './api';
+import { listAllBounties } from './api';
 import RecommendedBounties from './RecommendedBounties';
 import {
   createDefaultProfile,
@@ -38,7 +38,7 @@ export default function ContributorDashboard({
     let active = true;
     setFetchLoading(true);
 
-    void listBounties()
+    void listAllBounties()
       .then((data) => {
         if (active) {
           setFetchedBounties(data);

@@ -6,7 +6,17 @@ import { logStructured } from "../logger";
  * In production, a missing secret is a critical security issue and the app will not start.
  * In development, a warning is logged but the app continues (for local testing without webhooks).
  *
- * @throws {Error} In production if GITHUB_WEBHOOK_SECRET is missing or empty
+ * A secret made only of whitespace counts as missing. `NODE_ENV` defaults to
+ * `development` when unset, so only `NODE_ENV=production` fails. It does not
+ * check the secret's strength or length.
+ *
+ * Reads the environment on every call and has no other state, so it is safe
+ * to call more than once. Call it before the server starts accepting requests.
+ *
+ * @returns Nothing. Outside production a missing secret logs a
+ *   `startup_validation_warning` and returns normally.
+ * @throws {Error} In production if GITHUB_WEBHOOK_SECRET is missing or empty.
+ *   A `startup_validation_failed` error line is logged first.
  */
 export function validateGitHubWebhookSecret(): void {
   const secret = process.env.GITHUB_WEBHOOK_SECRET;

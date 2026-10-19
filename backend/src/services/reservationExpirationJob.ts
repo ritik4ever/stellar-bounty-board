@@ -32,26 +32,36 @@ function getStorePath(): string {
   return path.resolve(__dirname, '../../data/bounties.json');
 }
 
+import { wrapServiceError } from './errors';
+
 function readBounties(): BountyRecord[] {
-  const storePath = getStorePath();
+  try {
+    const storePath = getStorePath();
 
-  if (!fs.existsSync(storePath)) {
-    return [];
+    if (!fs.existsSync(storePath)) {
+      return [];
+    }
+
+    const raw = fs.readFileSync(storePath, 'utf8').trim();
+
+    if (!raw) {
+      return [];
+    }
+
+    return JSON.parse(raw) as BountyRecord[];
+  } catch (err) {
+    throw wrapServiceError('reservation_expiration_job.read_store', 'json-store', err);
   }
-
-  const raw = fs.readFileSync(storePath, 'utf8').trim();
-
-  if (!raw) {
-    return [];
-  }
-
-  return JSON.parse(raw) as BountyRecord[];
 }
 
 function writeBounties(records: BountyRecord[]): void {
-  const storePath = getStorePath();
-  fs.mkdirSync(path.dirname(storePath), { recursive: true });
-  fs.writeFileSync(storePath, JSON.stringify(records, null, 2));
+  try {
+    const storePath = getStorePath();
+    fs.mkdirSync(path.dirname(storePath), { recursive: true });
+    fs.writeFileSync(storePath, JSON.stringify(records, null, 2));
+  } catch (err) {
+    throw wrapServiceError('reservation_expiration_job.write_store', 'json-store', err);
+  }
 }
 
 function expireReservation(
@@ -118,9 +128,14 @@ export function expireStaleReservations(ttlSeconds?: number): ExpirationResult {
   };
 }
 
+import { getServicesConfig } from './config';
+
 let expirationTimer: ReturnType<typeof setInterval> | null = null;
 
-export function startExpirationJob(intervalMs = 3_600_000, ttlSeconds?: number): void {
+export function startExpirationJob(
+  intervalMs = getServicesConfig().expirationJobIntervalMs,
+  ttlSeconds?: number
+): void {
   if (expirationTimer) {
     logger.warn('[ExpirationJob] Already running — ignoring duplicate start');
     return;

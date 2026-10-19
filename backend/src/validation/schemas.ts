@@ -4,11 +4,26 @@ import { z } from 'zod';
 import { isValidStellarAddress, getTokenAddressMap } from '../utils';
 import { githubPrUrlSchema } from './prUrl';
 
+// Side effect: importing this module adds `.openapi()` to every zod schema.
 extendZodWithOpenApi(z);
 
 const REPO_REGEX = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 const TOKEN_REGEX = /^[A-Za-z0-9]{1,12}$/;
 
+/**
+ * Token symbols accepted for `tokenSymbol` when creating a bounty.
+ *
+ * Uses `ALLOWED_TOKEN_SYMBOLS` (comma-separated, trimmed, upper-cased, empty
+ * entries dropped) when it yields at least one symbol. Otherwise it falls back
+ * to the keys of `getTokenAddressMap()`: `XLM` and `USDC`, plus any symbols
+ * configured through `TOKEN_ADDRESS_MAP` / `TOKEN_ADDR_*` / `TOKEN_ADDRESS_*`.
+ *
+ * Reads the environment on every call; nothing is cached. Never throws. A
+ * malformed `TOKEN_ADDRESS_MAP` is logged by `getTokenAddressMap()` and
+ * ignored.
+ *
+ * @returns Upper-case symbols in configuration order, never empty.
+ */
 export function getAllowedTokenSymbols(): string[] {
   const configured = process.env.ALLOWED_TOKEN_SYMBOLS?.split(',')
     .map((symbol) => symbol.trim().toUpperCase())
@@ -24,6 +39,7 @@ export function getAllowedTokenSymbols(): string[] {
 const STELLAR_EXAMPLE = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
 const TX_HASH_REGEX = /^[0-9a-fA-F]{64}$/;
 
+/** Non-empty bounty id after trimming. The format (e.g. `BNT-0001`) is not checked. */
 export const bountyIdSchema = z
   .string()
   .trim()
@@ -41,6 +57,18 @@ const stellarAccountSchema = z
     description: 'A valid Stellar public key (starts with G, 56 characters, checksum verified).',
   });
 
+/**
+ * Request body for `POST /api/bounties`.
+ *
+ * `issueNumber`, `amount` and `deadlineDays` are coerced with `Number()`, so
+ * numeric strings are accepted. `""` and `null` coerce to `0` and then fail
+ * the positive/min checks. `tokenSymbol` is upper-cased and checked against
+ * {@link getAllowedTokenSymbols} **at parse time**, so allowlist changes in the
+ * environment apply without a restart. `labels` defaults to `[]`, and unknown
+ * keys are stripped.
+ *
+ * Amount limits and decimal precision are enforced by the route, not here.
+ */
 export const createBountySchema = z
   .object({
     repo: z
@@ -114,6 +142,11 @@ export const createBountySchema = z
   })
   .openapi('CreateBountyRequest');
 
+/**
+ * Request body for reserving a bounty. `expectedVersion`, when given, enables
+ * optimistic concurrency: the store rejects the reservation if the bounty's
+ * version has changed. This schema only checks that it is an integer.
+ */
 export const reserveBountySchema = z
   .object({
     contributor: stellarAccountSchema.openapi({
@@ -127,9 +160,21 @@ export const reserveBountySchema = z
   })
   .openapi('ReserveBountyRequest');
 
+/**
+ * Exact-match pattern for `https://github.com/<owner>/<repo>/pull/<number>`.
+ * Same pattern as the one {@link githubPrUrlSchema} uses internally. Test it
+ * against a trimmed string; it does not trim.
+ */
 export const GITHUB_PR_URL_REGEX =
   /^https:\/\/github\.com\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+\/pull\/\d+$/;
 
+/**
+ * Request body for submitting work on a reserved bounty.
+ *
+ * `submissionUrl` is only checked to be a URL here. GitHub-specific checks
+ * (format, repository match, PR existence, issue reference) happen later, in
+ * `validateGithubPrUrlForRepo` in the store.
+ */
 export const submitBountySchema = z
   .object({
     contributor: stellarAccountSchema.openapi({
@@ -153,6 +198,7 @@ export const submitBountySchema = z
   })
   .openapi('SubmitBountyRequest');
 
+/** Request body for a contributor disputing a bounty; `reason` is 1–500 chars after trimming. */
 export const disputeBountySchema = z
   .object({
     contributor: stellarAccountSchema.openapi({
@@ -170,6 +216,10 @@ export const disputeBountySchema = z
   })
   .openapi('DisputeBountyRequest');
 
+/**
+ * Request body for an arbiter resolving a dispute. `release: true` pays the
+ * contributor; `false` resolves in the maintainer's favour.
+ */
 export const resolveDisputeBountySchema = z
   .object({
     arbiter: stellarAccountSchema.openapi({
@@ -193,6 +243,10 @@ export const resolveDisputeBountySchema = z
   })
   .openapi('ResolveDisputeBountyRequest');
 
+/**
+ * Request body for single-bounty maintainer actions (release, refund, cancel).
+ * The maintainer must also match the bounty record; the store checks that.
+ */
 export const maintainerActionSchema = z
   .object({
     maintainer: stellarAccountSchema.openapi({
@@ -210,6 +264,7 @@ export const maintainerActionSchema = z
   })
   .openapi('MaintainerActionRequest');
 
+/** Request body for updating maintainer notes (0–2000 chars after trimming; an empty string is allowed). */
 export const updateNotesSchema = z
   .object({
     maintainer: stellarAccountSchema.openapi({
@@ -226,6 +281,12 @@ export const updateNotesSchema = z
   })
   .openapi('UpdateNotesRequest');
 
+/**
+ * Request body for extending a bounty deadline. Only checks for a positive
+ * integer (Unix seconds). The route or store checks that it is in the future
+ * and later than the current deadline. It is **not** coerced, so a numeric
+ * string is rejected.
+ */
 export const extendDeadlineSchema = z
   .object({
     maintainer: stellarAccountSchema.openapi({
@@ -247,12 +308,14 @@ export const extendDeadlineSchema = z
 // Shared response schemas
 // ---------------------------------------------------------------------------
 
+/** Shape of error responses, used for OpenAPI documentation. */
 export const errorResponseSchema = z
   .object({
     error: z.string().openapi({ example: 'Bounty not found.' }),
   })
   .openapi('ErrorResponse');
 
+/** One entry in a bounty's `events` history. `timestamp` is Unix seconds. */
 export const bountyEventSchema = z.object({
   type: z.enum(['created', 'reserved', 'submitted', 'released', 'refunded', 'expired', 'disputed']),
   timestamp: z.number(),
@@ -260,6 +323,10 @@ export const bountyEventSchema = z.object({
   details: z.record(z.any()).optional(),
 });
 
+/**
+ * A bounty as returned by the API. Used for OpenAPI docs and contract tests,
+ * not to validate input. Timestamps are Unix seconds.
+ */
 export const bountyRecordSchema = z
   .object({
     id: z.string().openapi({ example: 'BNT-0001' }),
@@ -321,6 +388,7 @@ export const bountyRecordSchema = z
   })
   .openapi('BountyRecord');
 
+/** A curated open issue returned by `GET /api/open-issues` (response schema). */
 export const openIssueSchema = z
   .object({
     id: z.string().openapi({ example: 'SBB-101' }),
@@ -337,6 +405,10 @@ export const openIssueSchema = z
 
 const auditLogMetadataValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 
+/**
+ * One status-transition audit record (response schema). `metadata` values are
+ * restricted to primitives so logs stay flat and serialisable.
+ */
 export const bountyAuditLogSchema = z
   .object({
     id: z.string().openapi({ example: 'AUD-000001' }),
@@ -364,6 +436,7 @@ export const bountyAuditLogSchema = z
   })
   .openapi('BountyAuditLogRecord');
 
+/** Offset pagination block for audit log responses. `nextOffset` is `null` on the last page. */
 export const bountyAuditLogPaginationSchema = z
   .object({
     limit: z.number().int().min(1).max(100).openapi({ example: 20 }),
@@ -374,6 +447,7 @@ export const bountyAuditLogPaginationSchema = z
   })
   .openapi('BountyAuditLogPagination');
 
+/** Paged audit log response (`page` is 1-based, `pageSize` 1–100). */
 export const bountyAuditLogListResponseSchema = z
   .object({
     data: z.array(bountyAuditLogSchema),
@@ -383,6 +457,7 @@ export const bountyAuditLogListResponseSchema = z
   })
   .openapi('BountyAuditLogListResponse');
 
+/** Response of the shallow health check. `timestamp` is an ISO-8601 string. */
 export const healthResponseSchema = z
   .object({
     service: z.string().openapi({ example: 'stellar-bounty-board-backend' }),
@@ -391,8 +466,13 @@ export const healthResponseSchema = z
   })
   .openapi('HealthResponse');
 
+/** Status of one dependency in the deep health check. */
 export const componentStatusSchema = z.enum(['up', 'down']);
 
+/**
+ * Response of the deep health check. `overall` is `down` if any component is
+ * `down`.
+ */
 export const deepHealthResponseSchema = z
   .object({
     overall: componentStatusSchema,
@@ -406,6 +486,48 @@ export const deepHealthResponseSchema = z
   })
   .openapi('DeepHealthResponse');
 
+/**
+ * Maintainer bulk-action payload (#829).
+ *
+ * Processes the same release/refund transitions as the single-bounty
+ * endpoints, but for many bounties in one admin-authenticated request.
+ * Per-item failures are reported individually instead of failing the
+ * whole batch, so partial success is always visible.
+ */
+export const bulkActionSchema = z
+  .object({
+    action: z.enum(['release', 'refund']).openapi({
+      example: 'release',
+      description: 'The maintainer transition to apply to every listed bounty.',
+    }),
+    bountyIds: z
+      .array(bountyIdSchema)
+      .min(1, 'At least one bounty ID is required.')
+      .max(100, 'A bulk action may target at most 100 bounties.')
+      .openapi({ example: ['BNT-0001', 'BNT-0002'] }),
+    maintainer: stellarAccountSchema,
+    transactionHash: z
+      .string()
+      .trim()
+      .regex(TX_HASH_REGEX, 'Transaction hash must be 64 hexadecimal characters.')
+      .optional()
+      .openapi({ example: 'a'.repeat(64), description: 'Optional Stellar transaction hash.' }),
+  })
+  .openapi('BulkAction');
+
+/**
+ * Flattens a `ZodError` into one human-readable line for API error responses,
+ * e.g. `"repo: Repo must look like owner/repository.; amount: Number must be greater than 0"`.
+ *
+ * Each issue becomes `<dotted.path>: <message>`. Issues with an empty path
+ * (the whole body failed, e.g. it was not an object) use `body` as the path.
+ * Issues are joined with `"; "` in Zod's order.
+ *
+ * Pure and stateless. Never throws. An error with no issues returns `""`.
+ *
+ * @param error - The error from a failed `parse`/`safeParse`.
+ * @returns A single-line summary suitable for a client response.
+ */
 export function zodErrorMessage(error: z.ZodError): string {
   return error.issues
     .map((issue) => `${issue.path.join('.') || 'body'}: ${issue.message}`)

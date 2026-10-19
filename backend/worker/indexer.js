@@ -4,6 +4,7 @@
 import axios from "axios";
 import fs from "fs";
 import path from "path";
+import { loadIndexerConfig } from "./indexerConfig.js";
 let parentPort;
 try {
   // worker_threads parentPort is available when running as a Worker
@@ -16,11 +17,15 @@ try {
 // CONFIGURATION
 const CONTRACT_ID = process.env.SOROBAN_CONTRACT_ID || ""; // Set in env
 const SOROBAN_RPC_URL = process.env.SOROBAN_RPC_URL || "https://rpc-futurenet.stellar.org";
-const POLL_INTERVAL_MS = 10000; // 10 seconds
 const INDEX_FILE = path.join(__dirname, "indexed-events.json");
 
-const MAX_RETRIES = 5;
-const INITIAL_BACKOFF_MS = 1000;
+// Operational settings are env-driven (see indexerConfig.js for the variables
+// and their defaults, which match the values previously hardcoded here).
+const {
+  pollIntervalMs: POLL_INTERVAL_MS,
+  maxRetries: MAX_RETRIES,
+  initialBackoffMs: INITIAL_BACKOFF_MS,
+} = loadIndexerConfig();
 
 // Retry wrapper with exponential backoff
 async function retryWithBackoff(fn, maxRetries = MAX_RETRIES) {
@@ -109,6 +114,11 @@ async function pollEvents() {
 
 function startWorker() {
   console.log("[Indexer] Starting Soroban contract event indexer...");
+  // Deliberately omits SOROBAN_RPC_URL: some RPC providers embed an API key in it.
+  console.log(
+    `[Indexer] Effective config: pollIntervalMs=${POLL_INTERVAL_MS} ` +
+      `maxRetries=${MAX_RETRIES} initialBackoffMs=${INITIAL_BACKOFF_MS}`,
+  );
   setInterval(pollEvents, POLL_INTERVAL_MS);
 }
 

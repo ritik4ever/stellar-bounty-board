@@ -1,10 +1,13 @@
 ---
 title: 0001 - JSON file persistence
 date: 2026-05-29
-status: accepted
+status: superseded
+superseded_by: 0004-postgres-persistence.md
 ---
 
 # ADR 0001: Choose JSON file persistence for the backend
+
+> **Status:** Superseded by [ADR 0004: Move from JSON file storage to PostgreSQL persistence](0004-postgres-persistence.md).
 
 ## Context / Problem
 
