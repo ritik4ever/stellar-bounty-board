@@ -2157,3 +2157,77 @@ fn test_upgrade_event_topic_symbols() {
     assert_eq!(s2, s2);
     let _ = (t1, t2); // keep variable use for future expansion
 }
+use proptest::prelude::*;
+use soroban_sdk::{testutils::Address as _, Address, Env};
+
+// Boundary values are mixed in so they are always exercised, not left to chance.
+fn amount_strategy() -> impl Strategy<Value = i128> {
+    prop_oneof![
+        Just(0i128),
+        Just(1i128),
+        Just(-1i128),
+        Just(i128::MAX),
+        Just(i128::MIN),
+        Just(i128::MAX - 1),
+        any::<i128>(),
+        -1_000_000i128..1_000_000_000_000i128,
+    ]
+}
+
+fn deadline_strategy() -> impl Strategy<Value = u64> {
+    prop_oneof![
+        Just(0u64),
+        Just(1u64),
+        Just(u64::MAX),
+        Just(u64::MAX - 1),
+        any::<u64>(),
+        0u64..10_000_000_000u64,
+    ]
+}
+
+proptest! {
+    // Bounded so it fits CI. Raise locally with PROPTEST_CASES=2000.
+    #![proptest_config(ProptestConfig { cases: 64, max_shrink_iters: 200, .. ProptestConfig::default() })]
+
+    #[test]
+    fn create_bounty_numeric_inputs_never_panic_or_corrupt(
+        amount in amount_strategy(),
+        deadline in deadline_strategy(),
+    ) {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        // MATCH: use the same setup helper your existing tests use
+        // (register contract, create token, mint balance to the maintainer).
+        let contract_id = env.register(BountyContract, ());           // MATCH: contract type name
+        let client = BountyContractClient::new(&env, &contract_id);   // MATCH: client name
+        let maintainer = Address::generate(&env);
+        let token = Address::generate(&env);                          // MATCH: real token if the contract transfers funds
+
+        let result = client.try_create_bounty(&maintainer, &token, &amount, &deadline); // MATCH: arguments
+
+        match result {
+            // Success: the stored state must match the inputs.
+            Ok(Ok(id)) => {
+                let b = client.get_bounty(&id);                       // MATCH: getter name
+                prop_assert_eq!(b.amount, amount);                    // MATCH: field names
+                prop_assert_eq!(b.deadline, deadline);
+                prop_assert!(amount > 0);                             // a non-positive amount must never succeed
+            }
+            // Documented error variant: allowed.
+            Err(Ok(e)) => {
+                prop_assert!(matches!(
+                    e,
+                    Error::InvalidAmount | Error::InvalidDeadline    // MATCH: list every documented variant
+                ));
+            }
+            // Host panic or overflow trap: not a documented error, so fail.
+            Err(Err(e)) => {
+                prop_assert!(false, "undocumented failure: {:?}", e);
+            }
+            Ok(Err(e)) => {
+                prop_assert!(false, "conversion failure: {:?}", e);
+            }
+        }
+    }
+                                               }
