@@ -1247,7 +1247,29 @@ app.post(
   }
 );
 
+/**
+ * Zod schema for GET /api/open-issues.
+ *
+ * This route accepts no query parameters, path params, or request body.
+ * The schema enforces that contract explicitly so that any unrecognised
+ * input is rejected with a 400 before the service / GitHub API is touched.
+ */
+const openIssuesQuerySchema = z.object({}).strict();
+
 app.get('/api/open-issues', async (req: Request, res: Response) => {
+  // Validate query params — must be empty; any unknown key is a 400.
+  const queryResult = openIssuesQuerySchema.safeParse(req.query);
+  if (!queryResult.success) {
+    jsonError(res, req, 400, `INVALID_QUERY: ${zodErrorMessage(queryResult.error)}`);
+    return;
+  }
+
+  // Reject any accidental request body.
+  if (req.body && Object.keys(req.body).length > 0) {
+    jsonError(res, req, 400, 'INVALID_BODY: GET /api/open-issues does not accept a request body.');
+    return;
+  }
+
   try {
     const data = await listOpenIssues();
     res.set('Cache-Control', `max-age=${appConfig.openIssuesCacheSeconds}`);
