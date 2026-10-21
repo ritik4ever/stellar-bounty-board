@@ -50,6 +50,10 @@ jobs:
       - name: Show Rust version
         run: rustc --version
 
+      - name: Run bounded reserve bounty numeric tests
+        working-directory: contracts
+        run: cargo test --locked --test reserve_bounty_numeric
+
       - name: Run cargo clippy
         working-directory: contracts
         run: cargo clippy --all-targets -- -D warnings
