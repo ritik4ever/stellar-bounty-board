@@ -2157,3 +2157,71 @@ fn test_upgrade_event_topic_symbols() {
     assert_eq!(s2, s2);
     let _ = (t1, t2); // keep variable use for future expansion
 }
+
+use soroban_sdk::{
+    testutils::{Address as _, MockAuth, MockAuthInvoke},
+    Address, Env, IntoVal,
+};
+
+// MATCH: reuse the setup helper your existing tests use. It should return the
+// client, the correct role (the one get_bounty requires), two other roles,
+// a stranger, and an existing bounty id.
+fn auth_setup(env: &Env) -> (BountyContractClient<'_>, Address, Address, Address, Address, u64) {
+    // MATCH: register the contract, create a bounty, return the addresses
+    unimplemented!()
+}
+
+fn auth_for<'a>(env: &Env, who: &'a Address, client: &'a BountyContractClient, id: u64) -> MockAuth<'a> {
+    MockAuth {
+        address: who,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "get_bounty",          // MATCH: exact function name
+            args: (id,).into_val(env),      // MATCH: real arguments
+            sub_invokes: &[],
+        },
+    }
+}
+
+// Correct caller succeeds
+#[test]
+fn get_bounty_allows_authorised_caller() {
+    let env = Env::default();
+    let (client, authorised, _a, _b, _stranger, id) = auth_setup(&env);
+    env.mock_auths(&[auth_for(&env, &authorised, &client, id)]);
+    let bounty = client.get_bounty(&id);
+    assert_eq!(bounty.id, id); // MATCH: field name
+}
+
+// Wrong signer: a real, different address signs, one test per other role
+#[test]
+fn get_bounty_rejects_wrong_signer_role_a() {
+    let env = Env::default();
+    let (client, _authorised, other_a, _b, _stranger, id) = auth_setup(&env);
+    env.mock_auths(&[auth_for(&env, &other_a, &client, id)]);
+    assert!(client.try_get_bounty(&id).is_err());
+}
+
+#[test]
+fn get_bounty_rejects_wrong_signer_role_b() {
+    let env = Env::default();
+    let (client, _authorised, _a, other_b, _stranger, id) = auth_setup(&env);
+    env.mock_auths(&[auth_for(&env, &other_b, &client, id)]);
+    assert!(client.try_get_bounty(&id).is_err());
+}
+
+#[test]
+fn get_bounty_rejects_stranger() {
+    let env = Env::default();
+    let (client, _authorised, _a, _b, stranger, id) = auth_setup(&env);
+    env.mock_auths(&[auth_for(&env, &stranger, &client, id)]);
+    assert!(client.try_get_bounty(&id).is_err());
+}
+
+// Missing signer: no auth provided at all
+#[test]
+fn get_bounty_rejects_missing_signer() {
+    let env = Env::default(); // no mock_auths
+    let (client, _authorised, _a, _b, _stranger, id) = auth_setup(&env);
+    assert!(client.try_get_bounty(&id).is_err());
+    }
