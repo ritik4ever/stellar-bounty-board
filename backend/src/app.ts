@@ -75,7 +75,6 @@ import {
 import { idempotencyMiddleware } from './middleware/idempotency';
 import { requireJsonContentType } from './middleware/contentType';
 import { enforceBodyLimit, DEFAULT_BODY_LIMIT } from './middleware/bodyLimit';
-import { readLimiter, mutationLimiter } from './utils';
 import { maintainerLimiter } from './middleware/maintainerLimiter';
 import { logger } from './logger';
 import rateLimit from 'express-rate-limit';
@@ -148,7 +147,7 @@ const readLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many read requests, please slow down.' },
-  keyGenerator: (req: any) => req.ip || req.socket.remoteAddress || 'unknown',
+  skip: () => process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true',
 });
 
 const mutationLimiter = rateLimit({
@@ -157,7 +156,45 @@ const mutationLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many mutations, please slow down.' },
-  keyGenerator: (req: any) => req.ip || req.socket.remoteAddress || 'unknown',
+  skip: (req: Request) =>
+    (process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true') ||
+    Boolean(req.path && req.path.endsWith('/refund')),
+});
+
+/**
+ * Route-specific explicit rate limiter for POST /api/bounties/:id/refund (#1213).
+ *
+ * Cost justification:
+ * Refunding a bounty is a high-cost escrow reversal operation that:
+ * 1. Cryptographically validates maintainer authorization and Ed25519 signatures.
+ * 2. Verifies deadline expiration, dispute resolution status, and cancellation rules.
+ * 3. Triggers on-chain Stellar Soroban smart contract refund interactions to return locked escrow tokens.
+ * 4. Modifies persistent state (`open`/`disputed` -> `refunded`), records immutable audit log entries,
+ *    and invalidates platform-wide cached bounty lists and financial metrics.
+ * 5. Dispatches notifications and event webhooks informing participants of the refund.
+ *
+ * Legitimate maintainers initiate refunds infrequently (only when bounties expire unclaimed or
+ * dispute resolutions dictate returning funds). An explicit ceiling of 10 requests per minute
+ * (configurable via RATE_LIMIT_REFUND_MAX and RATE_LIMIT_REFUND_WINDOW_MS) protects the route
+ * against automated transaction flooding, abuse, and RPC queue saturation.
+ *
+ * When the limit is exceeded, HTTP 429 is returned with an explicit Retry-After header.
+ */
+export const refundLimiter = rateLimit({
+  windowMs: appConfig.rateLimitRefundWindowMs,
+  max: appConfig.rateLimitRefundMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true',
+  handler: (req: Request, res: Response) => {
+    const retryAfter = Math.ceil(appConfig.rateLimitRefundWindowMs / 1000);
+    res.setHeader('Retry-After', String(retryAfter));
+    res.status(429).json({
+      error: 'Too many bounty refund attempts. Please try again later.',
+      retryAfter,
+      requestId: req.requestId,
+    });
+  },
 });
 
 // Apply read limiter to all GET requests
@@ -1002,7 +1039,7 @@ app.post(
 
 app.post(
   '/api/bounties/:id/refund',
-  mutationLimiter,
+  refundLimiter,
   enforceBodyLimit(DEFAULT_BODY_LIMIT),
   idempotencyMiddleware,
   createStellarSignatureAuthMiddleware(),
