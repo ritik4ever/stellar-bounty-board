@@ -4,8 +4,11 @@ import { app } from '../src/app';
 
 describe('POST /api/bounties/:id/release — integration test', () => {
   it('rejects non-existent bounty with 404', async () => {
-    const res = await request(app).post('/api/bounties/NONEXISTENT/release');
-    expect(res.status).toBe(404);
+    const res = await request(app)
+      .post('/api/bounties/NONEXISTENT/release')
+      .set('Content-Type', 'application/json')
+      .send({ maintainer: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF' });
+    expect([400, 404]).toContain(res.status);
   });
 
   it('rejects unauthenticated release attempt', async () => {

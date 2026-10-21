@@ -158,39 +158,37 @@ const mutationLimiter = rateLimit({
   message: { error: 'Too many mutations, please slow down.' },
   skip: (req: Request) =>
     (process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true') ||
-    Boolean(req.path && req.path.endsWith('/refund')),
+    Boolean(req.path && req.path.endsWith('/release')),
 });
 
 /**
- * Route-specific explicit rate limiter for POST /api/bounties/:id/refund (#1213).
+ * Route-specific explicit rate limiter for POST /api/bounties/:id/release (#1209).
  *
  * Cost justification:
- * Refunding a bounty is a high-cost escrow reversal operation that:
- * 1. Cryptographically validates maintainer authorization and Ed25519 signatures.
- * 2. Verifies deadline expiration, dispute resolution status, and cancellation rules.
- * 3. Triggers on-chain Stellar Soroban smart contract refund interactions to return locked escrow tokens.
- * 4. Modifies persistent state (`open`/`disputed` -> `refunded`), records immutable audit log entries,
- *    and invalidates platform-wide cached bounty lists and financial metrics.
- * 5. Dispatches notifications and event webhooks informing participants of the refund.
+ * Releasing a bounty is a high-cost, critical financial operation that:
+ * 1. Cryptographically verifies maintainer Ed25519 signatures and public key authorization.
+ * 2. Interacts with the Stellar blockchain / Soroban RPC to release or verify escrow disbursement.
+ * 3. Modifies persistent state ('submitted' -> 'released'), writes audit records, and invalidates caches.
+ * 4. Triggers asynchronous push notifications and lifecycle transition webhooks.
  *
- * Legitimate maintainers initiate refunds infrequently (only when bounties expire unclaimed or
- * dispute resolutions dictate returning funds). An explicit ceiling of 10 requests per minute
- * (configurable via RATE_LIMIT_REFUND_MAX and RATE_LIMIT_REFUND_WINDOW_MS) protects the route
- * against automated transaction flooding, abuse, and RPC queue saturation.
+ * Maintainers execute releases intentionally after milestone or pull request review approval;
+ * legitimate callers do not invoke this endpoint in high-frequency bursts. An explicit ceiling
+ * of 10 requests per minute (configurable via RATE_LIMIT_RELEASE_MAX and RATE_LIMIT_RELEASE_WINDOW_MS)
+ * prevents transaction spam, mitigates replay attacks, and protects downstream RPC infrastructure.
  *
  * When the limit is exceeded, HTTP 429 is returned with an explicit Retry-After header.
  */
-export const refundLimiter = rateLimit({
-  windowMs: appConfig.rateLimitRefundWindowMs,
-  max: appConfig.rateLimitRefundMax,
+export const releaseLimiter = rateLimit({
+  windowMs: appConfig.rateLimitReleaseWindowMs,
+  max: appConfig.rateLimitReleaseMax,
   standardHeaders: true,
   legacyHeaders: false,
   skip: () => process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true',
   handler: (req: Request, res: Response) => {
-    const retryAfter = Math.ceil(appConfig.rateLimitRefundWindowMs / 1000);
+    const retryAfter = Math.ceil(appConfig.rateLimitReleaseWindowMs / 1000);
     res.setHeader('Retry-After', String(retryAfter));
     res.status(429).json({
-      error: 'Too many bounty refund attempts. Please try again later.',
+      error: 'Too many bounty release attempts. Please try again later.',
       retryAfter,
       requestId: req.requestId,
     });
@@ -1016,7 +1014,7 @@ app.post(
 
 app.post(
   '/api/bounties/:id/release',
-  mutationLimiter,
+  releaseLimiter,
   enforceBodyLimit(DEFAULT_BODY_LIMIT),
   requireJsonContentType,
   idempotencyMiddleware,
