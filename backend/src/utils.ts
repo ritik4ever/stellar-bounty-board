@@ -23,7 +23,9 @@ const WINDOW_MS = config.rateLimitWindowMs;
 const READ_MAX = config.rateLimitReadMax;
 const MUTATION_MAX = config.rateLimitMutationMax;
 
-const isTest = process.env.NODE_ENV === "test";
+function shouldSkipRateLimits(): boolean {
+  return process.env.NODE_ENV === "test" && process.env.RATE_LIMIT_TEST_MODE !== "true";
+}
 
 const HEALTH_PATHS = new Set(["/api/health", "/api/health/deep", "/worker/health"]);
 
@@ -35,7 +37,7 @@ function isHealthPath(req: Request): boolean {
 const passthrough: RequestHandler = (_req, _res, next) => next();
 
 function makeLimiter(limit: number, options: { getOnly?: boolean } = {}): RequestHandler {
-  if (isTest) {
+  if (shouldSkipRateLimits()) {
     return passthrough;
   }
   return rateLimit({
