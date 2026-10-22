@@ -1,10 +1,9 @@
-import { ReactNode, useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { ReactNode, useState, useEffect, useRef, useMemo } from 'react';
 import {
   AlertTriangle,
   ArrowUpRight,
   Check,
   Clock,
-  Copy,
   Share2,
   Printer,
   Star,
@@ -15,7 +14,7 @@ import UsdAmount from './UsdAmount';
 import { updateSocialMetaTags } from './metaTags';
 import CopyIcon from './CopyIcons';
 import { extendDeadline } from './api';
-import { findSimilarBounties, type BountyRecommendation } from './recommendations';
+import { findSimilarBounties } from './recommendations';
 import { useI18n } from './i18n/I18nContext';
 import DisputePanel from './DisputePanel';
 

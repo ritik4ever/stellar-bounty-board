@@ -29,9 +29,9 @@
 # ------------------------------------------------------------------------------
 # 1. Build Stage
 # ------------------------------------------------------------------------------
-# node:18-alpine is chosen for minimal image footprint (~170MB vs 1GB Debian)
+# node:20-alpine is chosen for minimal image footprint (~170MB vs 1GB Debian)
 # and deterministic Alpine-based security patching.
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Copy root manifests first to leverage Docker layer caching.
@@ -50,7 +50,7 @@ RUN npm ci --legacy-peer-deps && npm run build
 # ------------------------------------------------------------------------------
 # 2. Production Runtime Stage
 # ------------------------------------------------------------------------------
-FROM node:18-alpine
+FROM node:20-alpine
 WORKDIR /app
 
 # Selectively copy only compiled build artifacts and production modules.

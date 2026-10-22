@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi } from 'vitest';
 
 import RecommendedBounties from './RecommendedBounties';
-import type { BountyRecommendation } from './recommendations';
 
 describe('RecommendedBounties.tsx loading and error states (#1283)', () => {
   it('renders visually distinct loading state with skeleton cards and aria-busy', () => {

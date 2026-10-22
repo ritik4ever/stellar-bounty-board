@@ -7,7 +7,6 @@ import {
   Smartphone,
   ArrowLeft,
   Save,
-  CheckCircle2,
   AlertCircle,
 } from 'lucide-react';
 import { getNotificationPreferences, updateNotificationPreferences } from './api';

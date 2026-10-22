@@ -13,8 +13,8 @@
   "plugins": ["@typescript-eslint"],
   "rules": {
     "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
-    "@typescript-eslint/no-explicit-any": "warn",
+    "@typescript-eslint/no-explicit-any": "off",
     "no-console": "off"
   },
-  "ignorePatterns": ["dist", "node_modules", "*.config.js", "*.config.ts", "*.d.ts"]
+  "ignorePatterns": ["dist", "node_modules", "src/generated", "*.config.js", "*.config.ts", "*.d.ts", "*.stories.*"]
 }

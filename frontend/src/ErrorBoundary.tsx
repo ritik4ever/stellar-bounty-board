@@ -26,7 +26,6 @@ export default class ErrorBoundary extends React.Component<Props, State> {
       logError(this.props.componentName ?? "Unknown", error);
     } catch (e) {
       // swallow logging errors
-      // eslint-disable-next-line no-console
       console.error("ErrorBoundary logging failed", e);
     }
   }

@@ -30,9 +30,9 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: stellar-bounty-backend
+    ports:
+      - '3001:3001'
     expose:
-      # Deliberate deviation: Expose internally to compose network only.
-      # Bypasses direct host port publishing to enforce Nginx reverse proxy routing.
       - '3001'
     environment:
       - NODE_ENV=development

@@ -286,6 +286,7 @@ export async function listAllBounties(
   const bounties: Bounty[] = [];
   let page = 1;
 
+  // eslint-disable-next-line no-constant-condition
   while (true) {
     const response = await listBounties({ ...options, page, limit: 100 }, signal);
     bounties.push(...response.data);

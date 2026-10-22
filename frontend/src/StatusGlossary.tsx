@@ -9,7 +9,7 @@ import {
   DollarSign,
   Scale,
 } from 'lucide-react';
-import { statusCopy, actionCopy } from './constants';
+import { statusCopy } from './constants';
 import { BountyStatus } from './types';
 
 interface StatusGlossaryProps {

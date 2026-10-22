@@ -1,5 +1,4 @@
-import React from 'react';
-import { render, screen, act, renderHook } from '@testing-library/react';
+import { render, act, renderHook } from '@testing-library/react';
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 

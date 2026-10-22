@@ -1,5 +1,4 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render } from '@testing-library/react';
 
 // Import App — if it fails, the test catches it
 import App from './App';

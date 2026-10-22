@@ -87,7 +87,7 @@ describe('usePolling', () => {
 
   it('should pause polling when the browser tab is not visible', () => {
     const fetchFn = vi.fn();
-    const { unmount } = renderHook(() => usePolling(fetchFn, 5000));
+    renderHook(() => usePolling(fetchFn, 5000));
 
     // First interval works
     vi.advanceTimersByTime(5000);

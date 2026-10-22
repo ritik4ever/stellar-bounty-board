@@ -1,8 +1,7 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { axe } from 'jest-axe';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 import RecommendedBounties from './RecommendedBounties';
 import { getAccessibleRecommendationLabel, type BountyRecommendation } from './recommendations';
