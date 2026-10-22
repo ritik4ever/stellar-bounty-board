@@ -60,9 +60,16 @@ smart contracts, docs, and DevOps.
 | 30  | Add PR-merged webhook → auto-release bounty handler                    | `backend/src/webhooks/`   |
 | 31  | Add retry with exponential backoff for failed Soroban event indexing   | `backend/worker/`         |
 | 32  | Add worker health-check endpoint at `/worker/health`                   | `backend/worker/`         |
-| 33  | Migrate from JSON file persistence to SQLite via Drizzle ORM           | `backend/data/`           |
+| 33  | Migrate from JSON file persistence to PostgreSQL (SQLite/Drizzle variant retired) | `backend/data/`   |
 | 34  | Add integration tests for concurrent reservation race condition        | `backend/test/`           |
 | 35  | Add Stellar/Soroban address format validation utility                  | `backend/src/utils.ts`    |
+
+> **Persistence target reconciled (Issue #1169).** Item 33 originally proposed SQLite via
+> Drizzle ORM, which conflicted with Wave 6 item 1 (PostgreSQL). [ADR 0004](adr/0004-postgres-persistence.md)
+> is the accepted decision: **PostgreSQL is the only migration target.** The SQLite/Drizzle
+> variant is retired rather than tracked in parallel. The backfill tooling is
+> `scripts/migrate-to-postgres.mjs`; the rehearsal procedure is documented in
+> [postgres-migration.md](postgres-migration.md).
 
 ---
 
