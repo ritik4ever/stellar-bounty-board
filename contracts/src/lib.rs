@@ -144,6 +144,33 @@ pub struct BountyReleased {
     pub fee_amount: i128, // how much went to fee recipient
 }
 
+/// Payload for the `(Bounty, RelEvent)` event emitted by `release_bounty`.
+///
+/// This event is scoped specifically to the `release_bounty` transition so
+/// that the indexer worker can react without polling the whole contract
+/// state. The payload carries every field the worker needs to update its
+/// view of the bounty without a follow-up contract read:
+/// - `bounty_id`: which bounty was released.
+/// - `maintainer`: who authorized the release.
+/// - `contributor`: who received the net payout.
+/// - `token`: the token the bounty was escrowed in.
+/// - `amount`: the net payout to the contributor (after fee).
+/// - `fee_amount`: the protocol fee transferred to the fee recipient.
+/// - `protocol_fee_bps`: the fee rate locked in at creation time.
+/// - `released_at`: the ledger timestamp at which the release occurred.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BountyReleasedEvent {
+    pub bounty_id: u64,
+    pub maintainer: Address,
+    pub contributor: Address,
+    pub token: Address,
+    pub amount: i128,
+    pub fee_amount: i128,
+    pub protocol_fee_bps: u32,
+    pub released_at: u64,
+}
+
 /// Payload for the `(Bounty, Refund)` event emitted when escrow is refunded.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -942,6 +969,24 @@ impl StellarBountyBoardContract {
                 contributor,
                 amount: net_payout, // net amount after fee
                 fee_amount,
+            },
+        );
+
+        // Structured, self-contained event scoped to `release_bounty`.
+        // Topic: `(symbol_short!("Bounty"), symbol_short!("RelEvent"))`.
+        // Payload: `BountyReleasedEvent` — sufficient for the indexer worker
+        // to update its view of this bounty without a follow-up contract read.
+        env.events().publish(
+            (symbol_short!("Bounty"), symbol_short!("RelEvent")),
+            BountyReleasedEvent {
+                bounty_id,
+                maintainer: bounty.maintainer.clone(),
+                contributor: bounty.contributor.clone().unwrap(),
+                token: bounty.token.clone(),
+                amount: net_payout,
+                fee_amount,
+                protocol_fee_bps: bounty.protocol_fee_bps,
+                released_at: env.ledger().timestamp(),
             },
         );
     }

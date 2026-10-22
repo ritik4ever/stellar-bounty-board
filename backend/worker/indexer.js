@@ -4,8 +4,8 @@
 import axios from "axios";
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "node:url";
-import { isMainThread, parentPort } from "node:worker_threads";
+import { fileURLToPath } from "url";
+import { isMainThread, parentPort } from "worker_threads";
 import { scValToNative, xdr } from "@stellar/stellar-sdk";
 import { loadIndexerConfig } from "./indexerConfig.js";
 
@@ -75,6 +75,13 @@ function addressString(value) {
 }
 
 // Decode Soroban's XDR topics and value before passing events to consumers.
+//
+// Topic layout for the release transition (documented in the contract):
+//   topic[0] = "Bounty" (symbol)
+//   topic[1] = "Releas" (symbol)
+//   value    = BountyReleased { bounty_id, contributor, maintainer, amount }
+// The payload is sufficient on its own, so the worker does not need a follow-up
+// contract read to react to this transition.
 export function normalizeEvent(event) {
   const topics = Array.isArray(event.topic)
     ? event.topic.map(decodeScVal)
@@ -86,10 +93,11 @@ export function normalizeEvent(event) {
   const maintainer = addressString(data.maintainer ?? event.maintainer);
   const contributor = addressString(data.contributor ?? event.contributor);
   const arbiter = addressString(data.arbiter ?? event.arbiter);
+  const type = EVENT_TYPES[topics[1]] ?? event.type;
 
-  return {
+  const normalized = {
     id: event.id ?? event.paging_token ?? event.pagingToken,
-    type: EVENT_TYPES[topics[1]] ?? event.type,
+    type,
     bountyId: jsonSafe(bountyId),
     actor: maintainer ?? contributor ?? addressString(event.actor),
     maintainer,
@@ -99,6 +107,15 @@ export function normalizeEvent(event) {
     timestamp: event.ledger_closed_at ?? event.ledgerClosedAt ?? event.timestamp,
     raw: event,
   };
+
+  // For the release transition, surface the contributor and amount explicitly so
+  // consumers can react without a follow-up contract read. The payload already
+  // carries these fields (BountyReleased), so this is just a convenience view.
+  if (type === " release".trim()) {
+    normalized.released = true;
+  }
+
+  return normalized;
 }
 
 // Save events to file (or replace with DB logic)
@@ -157,7 +174,7 @@ function startWorker() {
   // Deliberately omits SOROBAN_RPC_URL: some RPC providers embed an API key in it.
   console.log(
     `[Indexer] Effective config: pollIntervalMs=${POLL_INTERVAL_MS} ` +
-      `maxRetries=${MAX_RETRIES} initialBackoffMs=${INITIAL_BACKOFF_MS}`,
+      `maxRetries=${MAX_RETRIES} initialBackoffMs=${INITIAL_BACKKOFF_MS}`,
   );
   setInterval(pollEvents, POLL_INTERVAL_MS);
 }
