@@ -846,13 +846,20 @@ function App() {
   }
 
   return (
-    <div className="app-container">
-      <header className="main-header">
+    <div className="app-container" data-testid="app-container">
+      <header className="main-header" data-testid="main-header">
         <div className="header-content">
-          <div className="logo" onClick={() => navigate('/')}>
-            <Rocket className="logo-icon" />
+          {/* Logo as a button so it is keyboard-operable and has a proper role */}
+          <button
+            type="button"
+            className="logo"
+            aria-label="Go to Stellar Bounty Board home"
+            data-testid="logo-home-btn"
+            onClick={() => navigate('/')}
+          >
+            <Rocket className="logo-icon" aria-hidden="true" />
             <h1>{t('app.title', 'Stellar Bounty Board')}</h1>
-          </div>
+          </button>
           <div className="header-actions">
             <button
               type="button"
@@ -862,7 +869,7 @@ function App() {
               onClick={() => navigate('/settings/notifications')}
               data-testid="header-notification-preferences-btn"
             >
-              <Bell size={18} />
+              <Bell size={18} aria-hidden="true" />
             </button>
             <button
               type="button"
@@ -872,16 +879,17 @@ function App() {
               onClick={() => setShowGlossary(true)}
               data-testid="header-status-glossary-btn"
             >
-              <HelpCircle size={18} />
+              <HelpCircle size={18} aria-hidden="true" />
             </button>
             <LanguageSwitcher />
             <FreighterConnectButton freighter={freighter} compact />
             <button
+              type="button"
               className="theme-toggle"
               aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'}
               onClick={toggleDark}
             >
-              {dark ? <Sun size={20} /> : <Moon size={20} />}
+              {dark ? <Sun size={20} aria-hidden="true" /> : <Moon size={20} aria-hidden="true" />}
             </button>
           </div>
         </div>
@@ -1157,19 +1165,12 @@ function App() {
 
                 <div
                   className="reward-range-filter"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    marginTop: '8px',
-                    flexWrap: 'wrap',
-                  }}
                   data-testid="reward-range-filter"
                 >
-                  <span className="meta-label" style={{ fontSize: '12px', fontWeight: 600 }}>
+                  <span className="meta-label reward-range-filter__label">
                     Reward Range:
                   </span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <div className="reward-range-filter__inputs">
                     <input
                       type="number"
                       min="0"
@@ -1177,19 +1178,13 @@ function App() {
                       value={minReward}
                       aria-label="Minimum reward amount"
                       data-testid="min-reward-filter"
-                      style={{
-                        width: '90px',
-                        padding: '4px 8px',
-                        fontSize: '13px',
-                        borderRadius: '6px',
-                        border: '1px solid var(--border)',
-                      }}
+                      className="reward-range-filter__input"
                       onChange={(e) => {
                         setPage(1);
                         setMinReward(e.target.value);
                       }}
                     />
-                    <span>–</span>
+                    <span aria-hidden="true">–</span>
                     <input
                       type="number"
                       min="0"
@@ -1197,13 +1192,7 @@ function App() {
                       value={maxReward}
                       aria-label="Maximum reward amount"
                       data-testid="max-reward-filter"
-                      style={{
-                        width: '90px',
-                        padding: '4px 8px',
-                        fontSize: '13px',
-                        borderRadius: '6px',
-                        border: '1px solid var(--border)',
-                      }}
+                      className="reward-range-filter__input"
                       onChange={(e) => {
                         setPage(1);
                         setMaxReward(e.target.value);
@@ -1214,14 +1203,6 @@ function App() {
                     <span
                       className="active-range-badge"
                       data-testid="active-reward-range-badge"
-                      style={{
-                        fontSize: '11px',
-                        padding: '2px 8px',
-                        borderRadius: '12px',
-                        background: 'rgba(30,189,147,0.1)',
-                        color: '#1ebd93',
-                        fontWeight: 600,
-                      }}
                     >
                       Active: {minReward || '0'} – {maxReward || '∞'} XLM
                     </span>
@@ -1229,14 +1210,13 @@ function App() {
                   {(minReward !== '' || maxReward !== '') && (
                     <button
                       type="button"
-                      className="text-button"
+                      className="text-button reward-range-filter__clear"
                       onClick={() => {
                         setPage(1);
                         setMinReward('');
                         setMaxReward('');
                       }}
                       data-testid="clear-reward-filter-btn"
-                      style={{ fontSize: '12px', padding: '2px 6px', color: 'var(--muted)' }}
                     >
                       Clear Range
                     </button>
