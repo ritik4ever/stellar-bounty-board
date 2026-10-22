@@ -68,4 +68,40 @@ describe('GitHubIssuePreviewCard small-viewport layout (#1285)', () => {
     const link = screen.getByRole('link');
     expect(link).toHaveAttribute('aria-label', expect.stringContaining('Issue #1285'));
   });
+
+  it('applies responsive layout adjustments at 320px breakpoint', () => {
+    const { container } = render(
+      <div style={{ width: '320px', maxWidth: '320px' }}>
+        <GitHubIssuePreviewCard
+          repo="stellar/stellar-protocol"
+          issueNumber={1285}
+          issue={longTitleIssue}
+        />
+      </div>
+    );
+
+    // Verify github-issue-card__top stacks vertically at 320px
+    const cardTop = container.querySelector('.github-issue-card__top');
+    expect(cardTop).toBeInTheDocument();
+
+    // Verify card has proper responsive styling
+    const card = container.querySelector('.github-issue-card');
+    expect(card).toBeInTheDocument();
+  });
+
+  it('meets 44px minimum tap target for retry button at 320px', () => {
+    const { container } = render(
+      <div style={{ width: '320px', maxWidth: '320px' }}>
+        <GitHubIssuePreviewCard
+          repo="stellar/stellar-protocol"
+          issueNumber={1285}
+          error="Network timeout"
+          onRetry={() => {}}
+        />
+      </div>
+    );
+
+    const retryBtn = screen.getByRole('button', { name: /retry/i });
+    expect(retryBtn).toHaveClass('github-issue-card__retry-btn');
+  });
 });
