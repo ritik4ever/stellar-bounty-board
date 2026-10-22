@@ -41,7 +41,7 @@ jobs:
       - name: Install Rust toolchain & wasm target
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: "1.81.0"
           target: wasm32-unknown-unknown
           components: clippy
           profile: minimal

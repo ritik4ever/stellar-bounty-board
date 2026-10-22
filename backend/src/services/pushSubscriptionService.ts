@@ -66,6 +66,7 @@ export function registerPushSubscription(
 
   if (existing) {
     existing.keys = subscription.keys;
+    saveSubscriptions(subscriptions, storePath);
     return existing;
   }
 

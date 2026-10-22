@@ -21,7 +21,6 @@
     "react-window": "^1.8.10",
     "recharts": "^3.8.1",
     "sonner": "^2.0.7",
-    "stellar-bounty-board": "file:..",
     "vite-plugin-pwa": "^1.3.0"
   },
   "devDependencies": {

@@ -39,6 +39,7 @@ const defaultStatusCopy: Record<BountyStatus, { label: string; description: stri
   released: { label: 'Released', description: 'Payment disbursed' },
   refunded: { label: 'Refunded', description: 'Funds returned to creator' },
   disputed: { label: 'Disputed', description: 'Under arbitration' },
+  expired: { label: 'Expired', description: 'Reservation expired' },
 };
 
 const defaultActionCopy = {
@@ -50,6 +51,7 @@ const defaultActionCopy = {
   released: [],
   refunded: [],
   disputed: [],
+  expired: [],
 };
 
 describe('BountyDetailPage accessibility pass (#1278)', () => {

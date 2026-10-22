@@ -36,16 +36,16 @@ WORKDIR /app
 
 # Copy root manifests first to leverage Docker layer caching.
 # Dependencies are only re-downloaded if package manifests change.
-COPY package.json package-lock.json ./
+COPY .npmrc package.json package-lock.json ./
 COPY backend ./backend
 
 # `npm ci` ensures deterministic, repeatable installation adhering strictly
 # to package-lock.json rather than resolving floating ranges.
-RUN npm ci
+RUN npm ci --legacy-peer-deps
 
 # Compile TypeScript backend to production JavaScript artifacts in /app/backend/dist.
 WORKDIR /app/backend
-RUN npm run build
+RUN npm ci --legacy-peer-deps && npm run build
 
 # ------------------------------------------------------------------------------
 # 2. Production Runtime Stage

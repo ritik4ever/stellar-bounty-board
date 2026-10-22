@@ -995,7 +995,7 @@ function App() {
             bounties={bounties}
             maintainerAddress={freighter.publicKey || ''}
             loading={loading}
-            onSelectBounty={(id) => setDetailId(id)}
+            onSelectBounty={(id) => handleOpenBounty(id)}
             onRelease={(b) => void handleRelease(b)}
             onRefund={(b) => void handleRefund(b)}
           />

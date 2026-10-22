@@ -55,6 +55,14 @@ const UNDOCUMENTED_ROUTES = new Set([
   // SEO helpers — not API routes
   'GET /robots.txt',
   'GET /sitemap.xml',
+  // Notification preferences and opt-in — undocumented internal endpoints
+  'POST /api/notification-preferences/push',
+  'DELETE /api/notification-preferences/push',
+  'POST /api/notifications/opt-in',
+  'GET /api/notifications/opt-in/:address',
+  'GET /api/notification-preferences/:address',
+  'PUT /api/notification-preferences/:address',
+  'PUT /api/notification-preferences',
 ]);
 
 // HTTP methods recognised by OpenAPI

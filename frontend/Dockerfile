@@ -1,10 +1,10 @@
 FROM node:20
 WORKDIR /app
 
-COPY frontend/package*.json ./
-RUN npm install --no-audit --no-fund
+COPY package*.json ./
+RUN npm install --legacy-peer-deps --no-audit --no-fund
 
-COPY frontend/ ./
+COPY . ./
 
-EXPOSE 5173
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+EXPOSE 3000
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "3000"]

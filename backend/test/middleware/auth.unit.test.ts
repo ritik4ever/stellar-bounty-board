@@ -165,7 +165,7 @@ describe("createBountyCreationSignatureMiddleware", () => {
 });
 
 describe("createStellarSignatureAuthMiddleware", () => {
-  const BOUNTY_ID = "BNT-0001";
+  const BOUNTY_ID = "BNT-TEST-AUTH-UNIQUE";
 
   function signedRequest(
     overrides: {

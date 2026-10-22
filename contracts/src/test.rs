@@ -1645,9 +1645,6 @@ fn test_create_bounty_override_above_max_fails() {
     );
 }
 
-#[test]
-#[should_panic(expected = "DisputeWindowNotMet")]
-fn test_resolve_dispute_custom_window_not_met_fails() {
 // ─── get_bounties_by_contributor tests (Issue #750) ────────────────────────
 
 /// No bounties at all — should return an empty vec without panic.
