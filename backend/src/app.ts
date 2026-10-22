@@ -172,7 +172,9 @@ const mutationLimiter = rateLimit({
       req.path &&
       (req.path.endsWith('/release') ||
         req.path.endsWith('/submit') ||
-        req.path.endsWith('/refund'))
+        req.path.endsWith('/refund') ||
+        req.path === '/api/bounties' ||
+        req.path === '/api/bounties/')
     ),
 });
 
@@ -283,6 +285,46 @@ export const refundLimiter = rateLimit({
     });
   },
 });
+
+/**
+ * Route-specific explicit rate limiter for POST /api/bounties (bounty creation).
+ *
+ * Cost justification:
+ * Creating a bounty is an expensive, unauthenticated write operation that:
+ * 1. Executes maintainer rate limiting (`maintainerLimiter`) using filesystem locks and JSON persistence.
+ * 2. Cryptographically verifies Ed25519 signatures when maintainer signature headers are supplied.
+ * 3. Applies bounty templates, executes Zod schema validation, and validates financial amounts.
+ * 4. Acquires the exclusive global filesystem store lock (`withStoreLock`), parses the store,
+ *    assigns IDs, resolves token contract addresses, and writes out the updated JSON store to disk.
+ * 5. Invalidates the bounty cache across all cached listing queries.
+ * 6. Dispatches asynchronous notification events to maintainers and interested parties.
+ *
+ * Legitimate maintainers create bounties deliberately as new tasks are defined; it is never
+ * intended for high-frequency burst traffic. An explicit ceiling of 10 requests per minute
+ * (configurable via RATE_LIMIT_CREATE_MAX and RATE_LIMIT_CREATE_WINDOW_MS) protects the
+ * file-backed store lock from contention, avoids write spam, prevents cache thrashing, and
+ * shields against denial-of-service on an unauthenticated write endpoint.
+ *
+ * When the limit is exceeded, HTTP 429 is returned with an explicit Retry-After header.
+ */
+export const createBountyLimiter = rateLimit({
+  windowMs: appConfig.rateLimitCreateWindowMs,
+  max: appConfig.rateLimitCreateMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true',
+  handler: (req: Request, res: Response) => {
+    const retryAfter = Math.ceil(appConfig.rateLimitCreateWindowMs / 1000);
+    res.setHeader('Retry-After', String(retryAfter));
+    res.status(429).json({
+      error: 'Too many bounty creation attempts. Please try again later.',
+      retryAfter,
+      requestId: req.requestId,
+    });
+  },
+});
+
+export const createLimiter = createBountyLimiter;
 
 /**
  * Route-specific explicit rate limiter for GET /api/open-issues (#1222).
@@ -1137,7 +1179,7 @@ app.get('/api/bounties/released/export.csv', (req: Request, res: Response) => {
 
 app.post(
   '/api/bounties',
-  mutationLimiter,
+  createBountyLimiter,
   enforceBodyLimit(DEFAULT_BODY_LIMIT),
   requireJsonContentType,
   idempotencyMiddleware,

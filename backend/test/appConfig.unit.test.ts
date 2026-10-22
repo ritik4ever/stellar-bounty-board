@@ -8,10 +8,18 @@ describe('appConfig unit tests (#1298)', () => {
     delete process.env.RATE_LIMIT_WINDOW_MS;
     delete process.env.RATE_LIMIT_READ_MAX;
     delete process.env.RATE_LIMIT_MUTATION_MAX;
+    delete process.env.RATE_LIMIT_RELEASE_MAX;
+    delete process.env.RATE_LIMIT_RELEASE_WINDOW_MS;
+    delete process.env.RATE_LIMIT_SUBMIT_MAX;
+    delete process.env.RATE_LIMIT_SUBMIT_WINDOW_MS;
     delete process.env.RATE_LIMIT_BOUNTIES_MAX;
     delete process.env.RATE_LIMIT_BOUNTIES_WINDOW_MS;
     delete process.env.RATE_LIMIT_HEALTH_MAX;
     delete process.env.RATE_LIMIT_HEALTH_WINDOW_MS;
+    delete process.env.RATE_LIMIT_CREATE_MAX;
+    delete process.env.RATE_LIMIT_CREATE_WINDOW_MS;
+    delete process.env.RATE_LIMIT_BOUNTY_CREATE_MAX;
+    delete process.env.RATE_LIMIT_BOUNTY_CREATE_WINDOW_MS;
     delete process.env.DEFAULT_PAGE_SIZE;
     delete process.env.MAX_PAGE_SIZE;
     delete process.env.DEFAULT_LEADERBOARD_LIMIT;
@@ -33,10 +41,16 @@ describe('appConfig unit tests (#1298)', () => {
     expect(config.rateLimitWindowMs).toBe(60_000);
     expect(config.rateLimitReadMax).toBe(120);
     expect(config.rateLimitMutationMax).toBe(10);
+    expect(config.rateLimitReleaseMax).toBe(10);
+    expect(config.rateLimitReleaseWindowMs).toBe(60_000);
+    expect(config.rateLimitSubmitMax).toBe(10);
+    expect(config.rateLimitSubmitWindowMs).toBe(60_000);
     expect(config.rateLimitBountiesMax).toBe(60);
     expect(config.rateLimitBountiesWindowMs).toBe(60_000);
     expect(config.rateLimitHealthMax).toBe(300);
     expect(config.rateLimitHealthWindowMs).toBe(60_000);
+    expect(config.rateLimitCreateMax).toBe(10);
+    expect(config.rateLimitCreateWindowMs).toBe(60_000);
     expect(config.defaultPageSize).toBe(20);
     expect(config.maxPageSize).toBe(100);
     expect(config.defaultLeaderboardLimit).toBe(10);
@@ -54,6 +68,8 @@ describe('appConfig unit tests (#1298)', () => {
     process.env.RATE_LIMIT_MUTATION_MAX = '50';
     process.env.RATE_LIMIT_HEALTH_MAX = '600';
     process.env.RATE_LIMIT_HEALTH_WINDOW_MS = '120000';
+    process.env.RATE_LIMIT_CREATE_MAX = '15';
+    process.env.RATE_LIMIT_CREATE_WINDOW_MS = '45000';
     process.env.DEFAULT_PAGE_SIZE = '25';
     process.env.MAX_PAGE_SIZE = '150';
     process.env.DEFAULT_LEADERBOARD_LIMIT = '20';
@@ -71,6 +87,8 @@ describe('appConfig unit tests (#1298)', () => {
     expect(config.rateLimitMutationMax).toBe(50);
     expect(config.rateLimitHealthMax).toBe(600);
     expect(config.rateLimitHealthWindowMs).toBe(120_000);
+    expect(config.rateLimitCreateMax).toBe(15);
+    expect(config.rateLimitCreateWindowMs).toBe(45_000);
     expect(config.defaultPageSize).toBe(25);
     expect(config.maxPageSize).toBe(150);
     expect(config.defaultLeaderboardLimit).toBe(20);
@@ -86,6 +104,8 @@ describe('appConfig unit tests (#1298)', () => {
     process.env.RATE_LIMIT_WINDOW_MS = '-100';
     process.env.RATE_LIMIT_READ_MAX = 'invalid';
     process.env.RATE_LIMIT_MUTATION_MAX = '0';
+    process.env.RATE_LIMIT_CREATE_MAX = '-5';
+    process.env.RATE_LIMIT_CREATE_WINDOW_MS = 'invalid';
     process.env.DEFAULT_PAGE_SIZE = '   ';
     process.env.CSV_UPLOAD_LIMIT = '   ';
 
@@ -94,6 +114,8 @@ describe('appConfig unit tests (#1298)', () => {
     expect(config.rateLimitWindowMs).toBe(60_000);
     expect(config.rateLimitReadMax).toBe(120);
     expect(config.rateLimitMutationMax).toBe(10);
+    expect(config.rateLimitCreateMax).toBe(10);
+    expect(config.rateLimitCreateWindowMs).toBe(60_000);
     expect(config.defaultPageSize).toBe(20);
     expect(config.csvUploadLimit).toBe('1mb');
   });
