@@ -539,6 +539,24 @@ Coverage report (Istanbul via Vitest):
 npm run test:coverage
 ```
 
+### UI lifecycle test (Playwright)
+
+After installing the root, backend, and frontend dependencies, run:
+
+```bash
+npx playwright install chromium
+npx playwright test playwright/tests/bounty-lifecycle.spec.ts
+```
+
+Playwright starts both app servers with an isolated temporary bounty store. The
+lifecycle test uses separate maintainer and contributor browser sessions to create,
+reserve, submit a PR link through the checklist, and release a bounty. Each step
+asserts the rendered UI, including the final state after reloading both sessions.
+Only the Freighter extension is stubbed; bounty API requests use the real backend
+in `NODE_ENV=test`, which uses the existing signature-auth bypass. The
+`playwright-e2e.yml` workflow runs a dedicated lifecycle check alongside the full
+Playwright suite on pull requests and pushes to `main`.
+
 ### Load Testing
 
 The load-test script uses [autocannon](https://github.com/mcollina/autocannon) to run a mixed read/write workload against the backend. It seeds 20 bounties and opens 20 concurrent connections for 30 seconds.

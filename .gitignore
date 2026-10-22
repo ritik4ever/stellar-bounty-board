@@ -1,4 +1,7 @@
 node_modules/
+playwright-report/
+test-results/
+.npm-cache/
 dist/
 frontend/storybook-static/
 .env

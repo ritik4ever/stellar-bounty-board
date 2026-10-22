@@ -1,4 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
+const storeDirectory = path.join(tmpdir(), `stellar-bounty-board-e2e-${process.pid}`);
 
 // ==============================================================================
 // Playwright End-to-End Test Suite Configuration
@@ -26,8 +30,8 @@ import { defineConfig, devices } from '@playwright/test';
 //
 // 5. Monorepo & CI Verification:
 //    - Verified against `.github/workflows/playwright-e2e.yml`:
-//      * BASE_URL maps to frontend container on port 3000.
-//      * API_URL maps to backend container on port 3001.
+//      * Playwright starts the frontend and backend on ports 3000 and 3001.
+//      * The backend uses test mode and an isolated temporary bounty store.
 //      * Reporter generates HTML artifacts in CI while keeping terminal output concise.
 // ==============================================================================
 
@@ -42,6 +46,8 @@ export default defineConfig({
 
   // Execution Parallelism (Deliberately chosen: false vs true tool default):
   fullyParallel: false,
+  workers: 1,
+  forbidOnly: !!process.env.CI,
 
   // Reporter (Cross-checked with CI workflow):
   reporter: process.env.CI ? [['html', { open: 'never' }], ['list']] : 'list',
@@ -58,7 +64,36 @@ export default defineConfig({
 
     // Diagnostic Tracing (Standard Template Default: captures traces on initial retry):
     trace: 'on-first-retry',
+    screenshot: 'only-on-failure',
   },
+
+  // BASE_URL supports an explicitly managed external stack. Otherwise the same
+  // real app servers are started and stopped automatically locally and in CI.
+  webServer: process.env.BASE_URL
+    ? undefined
+    : [
+        {
+          command: 'node --import tsx src/index.ts',
+          cwd: path.join(__dirname, 'backend'),
+          url: 'http://localhost:3001/api/health',
+          reuseExistingServer: false,
+          env: {
+            NODE_ENV: 'test',
+            PORT: '3001',
+            STELLAR_AUTH_ENFORCED: 'false',
+            BOUNTY_STORE_PATH: path.join(storeDirectory, 'bounties.json'),
+            BOUNTY_AUDIT_STORE_PATH: path.join(storeDirectory, 'audit.json'),
+          },
+        },
+        {
+          command:
+            'node node_modules/vite/bin/vite.js --config vite.config.ts --host localhost --strictPort',
+          cwd: path.join(__dirname, 'frontend'),
+          url: 'http://localhost:3000',
+          reuseExistingServer: false,
+          env: { VITE_API_URL: '/api' },
+        },
+      ],
 
   projects: [
     // Browser Matrix (Deliberately chosen: single browser project vs multi-engine default):
