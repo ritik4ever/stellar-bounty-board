@@ -663,7 +663,7 @@ describe('listOpenIssues', () => {
     const issue: OpenIssue = {
       id: 'GH-2',
       title: 'Add feature',
-      labels: ['enhancement'],
+      labels: [{ name: 'enhancement', color: 'a2eeef' }],
       summary: 'Summary',
       impact: 'core',
     };

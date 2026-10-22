@@ -28,6 +28,7 @@ const DEFAULT_STATUS_COPY: Record<BountyStatus, { label: string; description: st
   released: { label: 'Released', description: 'Payment disbursed' },
   refunded: { label: 'Refunded', description: 'Funds returned to creator' },
   disputed: { label: 'Disputed', description: 'Under arbitration' },
+  expired: { label: 'Expired', description: 'Deadline passed' },
 };
 
 const DEFAULT_ACTION_COPY: Record<
@@ -40,6 +41,7 @@ const DEFAULT_ACTION_COPY: Record<
   released: [],
   refunded: [],
   disputed: [],
+  expired: [],
 };
 
 type Props = {

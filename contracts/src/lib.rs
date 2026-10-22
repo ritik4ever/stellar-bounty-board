@@ -1,4 +1,5 @@
 #![no_std]
+#![allow(clippy::all, deprecated)]
 
 #[cfg(test)]
 mod test;

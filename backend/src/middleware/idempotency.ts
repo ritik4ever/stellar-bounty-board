@@ -65,6 +65,7 @@ export function idempotencyMiddleware(req: Request, res: Response, next: NextFun
 
   if (existing) {
     if (now - existing.createdAt < IDEMPOTENCY_TTL_MS) {
+      res.setHeader('Idempotent-Replayed', 'true');
       res.status(existing.statusCode).json(existing.body);
       return;
     }

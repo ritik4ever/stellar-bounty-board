@@ -143,7 +143,7 @@ if (resolvedLevel.invalidValue !== undefined) {
 // ── Legacy shim ─────────────────────────────────────────────────────────────
 // Keeps existing callers of `logStructured` working without changes.
 
-export type LogFields = Record<string, string | number | boolean | null | undefined>;
+export type LogFields = Record<string, any>;
 
 export function logStructured(
   level: "info" | "warn" | "error",

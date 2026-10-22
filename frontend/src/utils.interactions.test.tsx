@@ -65,6 +65,8 @@ const initialFilters: FilterState = {
   searchQuery: '',
   minReward: '',
   maxReward: '',
+  sortOption: 'newest',
+  sortDirection: 'desc',
 };
 
 function InteractiveUtilsConsumer({ bounties }: { bounties: Bounty[] }) {

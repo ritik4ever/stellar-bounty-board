@@ -36,6 +36,8 @@ const initialFilters: FilterState = {
   searchQuery: '',
   minReward: '',
   maxReward: '',
+  sortOption: 'newest',
+  sortDirection: 'desc',
 };
 
 function AccessibleFilterAnnouncerWidget({ bounties }: { bounties: Bounty[] }) {

@@ -175,7 +175,7 @@ export default function MaintainerDashboard({
               >
                 <div className="maintainer-card__top">
                   <span className={`status-tag status-tag--${bounty.status}`}>
-                    {statusCopy[bounty.status] ?? bounty.status}
+                    {statusCopy[bounty.status]?.label ?? bounty.status}
                   </span>
                   {bounty.status === 'submitted' && (
                     <span className="urgency-badge urgency-badge--action">⚠️ Needs Review</span>

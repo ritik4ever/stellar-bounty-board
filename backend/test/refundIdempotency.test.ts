@@ -1,21 +1,25 @@
 import request from 'supertest';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('./services/bountyStore', async (importOriginal) => {
+vi.mock('../src/services/bountyStore', async (importOriginal) => {
   const actual: any = await importOriginal();
   return { ...actual, refundBounty: vi.fn(async (id: string) => ({ id, status: 'refunded' })) };
 });
 
-import { app } from './app';
-import { refundBounty } from './services/bountyStore';
-import { resetIdempotencyStore } from './idempotency';
+import { app } from '../src/app';
+import { refundBounty } from '../src/services/bountyStore';
+import { resetIdempotencyStore } from '../src/idempotency';
+import { __resetIdempotencyStoreForTests } from '../src/middleware/idempotency';
+
+import { MAINTAINER } from './fixtures';
 
 const id = '11111111-1111-4111-8111-111111111111';
-const body = { maintainer: 'G' + 'A'.repeat(55) };
+const body = { maintainer: MAINTAINER, transactionHash: 'b'.repeat(64) };
 
 describe('POST /api/bounties/:id/refund idempotency', () => {
   beforeEach(() => {
     resetIdempotencyStore();
+    __resetIdempotencyStoreForTests();
     vi.clearAllMocks();
   });
 

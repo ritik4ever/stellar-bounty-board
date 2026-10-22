@@ -158,7 +158,12 @@ const mutationLimiter = rateLimit({
   message: { error: 'Too many mutations, please slow down.' },
   skip: (req: Request) =>
     (process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true') ||
-    Boolean(req.path && (req.path.endsWith('/release') || req.path.endsWith('/submit'))),
+    Boolean(
+      req.path &&
+        (req.path.endsWith('/release') ||
+          req.path.endsWith('/submit') ||
+          req.path.endsWith('/refund'))
+    ),
 });
 
 /**
@@ -227,6 +232,42 @@ export const submitLimiter = rateLimit({
     res.setHeader('Retry-After', String(retryAfter));
     res.status(429).json({
       error: 'Too many bounty submission attempts. Please try again later.',
+      retryAfter,
+      requestId: req.requestId,
+    });
+  },
+});
+
+/**
+ * Route-specific explicit rate limiter for POST /api/bounties/:id/refund (#1213).
+ *
+ * Cost justification:
+ * Refunding a bounty is a high-cost escrow reversal operation that:
+ * 1. Cryptographically validates maintainer authorization and Ed25519 signatures.
+ * 2. Verifies deadline expiration, dispute resolution status, and cancellation rules.
+ * 3. Triggers on-chain Stellar Soroban smart contract refund interactions to return locked escrow tokens.
+ * 4. Modifies persistent state (`open`/`disputed` -> `refunded`), records immutable audit log entries,
+ *    and invalidates platform-wide cached bounty lists and financial metrics.
+ * 5. Dispatches notifications and event webhooks informing participants of the refund.
+ *
+ * Legitimate maintainers initiate refunds infrequently (only when bounties expire unclaimed or
+ * dispute resolutions dictate returning funds). An explicit ceiling of 10 requests per minute
+ * (configurable via RATE_LIMIT_REFUND_MAX and RATE_LIMIT_REFUND_WINDOW_MS) protects the route
+ * against automated transaction flooding, abuse, and RPC queue saturation.
+ *
+ * When the limit is exceeded, HTTP 429 is returned with an explicit Retry-After header.
+ */
+export const refundLimiter = rateLimit({
+  windowMs: appConfig.rateLimitRefundWindowMs,
+  max: appConfig.rateLimitRefundMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true',
+  handler: (req: Request, res: Response) => {
+    const retryAfter = Math.ceil(appConfig.rateLimitRefundWindowMs / 1000);
+    res.setHeader('Retry-After', String(retryAfter));
+    res.status(429).json({
+      error: 'Too many bounty refund attempts. Please try again later.',
       retryAfter,
       requestId: req.requestId,
     });
@@ -1583,7 +1624,7 @@ app.post(
 
 app.get('/api/notifications/opt-in/:address', (req: Request, res: Response) => {
   try {
-    const { address } = req.params;
+    const address = String(req.params.address);
     const pref = getNotificationOptIn(address);
     res.json({
       data: {
@@ -1600,7 +1641,7 @@ app.get('/api/notifications/opt-in/:address', (req: Request, res: Response) => {
 
 app.get('/api/notification-preferences/:address', (req: Request, res: Response) => {
   try {
-    const { address } = req.params;
+    const address = String(req.params.address);
     const pref = getNotificationOptIn(address);
     res.json({
       data: {

@@ -21,6 +21,10 @@ export interface AppConfig {
   rateLimitSubmitMax: number;
   /** Rate limit window in milliseconds for submit endpoint (default: 60000 = 1 minute). */
   rateLimitSubmitWindowMs: number;
+  /** Maximum refund requests per window (default: 10). */
+  rateLimitRefundMax: number;
+  /** Rate limit window in milliseconds for refund endpoint (default: 60000 = 1 minute). */
+  rateLimitRefundWindowMs: number;
   /** Default pagination limit for list endpoints (default: 20). */
   defaultPageSize: number;
   /** Maximum allowable pagination limit for list endpoints (default: 100). */
@@ -61,6 +65,8 @@ export function getAppConfig(): AppConfig {
     rateLimitReleaseWindowMs: parsePositiveInt(process.env.RATE_LIMIT_RELEASE_WINDOW_MS, 60_000),
     rateLimitSubmitMax: parsePositiveInt(process.env.RATE_LIMIT_SUBMIT_MAX, 10),
     rateLimitSubmitWindowMs: parsePositiveInt(process.env.RATE_LIMIT_SUBMIT_WINDOW_MS, 60_000),
+    rateLimitRefundMax: parsePositiveInt(process.env.RATE_LIMIT_REFUND_MAX, 10),
+    rateLimitRefundWindowMs: parsePositiveInt(process.env.RATE_LIMIT_REFUND_WINDOW_MS, 60_000),
     defaultPageSize: parsePositiveInt(process.env.DEFAULT_PAGE_SIZE, 20),
     maxPageSize: parsePositiveInt(process.env.MAX_PAGE_SIZE, 100),
     defaultLeaderboardLimit: parsePositiveInt(process.env.DEFAULT_LEADERBOARD_LIMIT, 10),
