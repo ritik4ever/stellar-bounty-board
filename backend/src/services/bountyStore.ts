@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import lockfile from 'proper-lockfile';
+import { getBountyArchivePath } from './bountyArchivePath';
 import { sendNotification, type NotificationRecipient } from './notificationService';
 import { logStructured } from '../logger';
 import { getCache, type CacheAdapter } from './cache';
@@ -512,7 +513,12 @@ function normalizeRecords(records: BountyRecord[]): BountyRecord[] {
 }
 
 function nextId(records: BountyRecord[]): string {
-  const max = records.reduce((highest, record) => {
+  // Creation is a write path; public list reads never open the cold archive.
+  const archivePath = getBountyArchivePath(getStorePath());
+  const archived = fs.existsSync(archivePath)
+    ? (JSON.parse(fs.readFileSync(archivePath, 'utf8')) as BountyRecord[])
+    : [];
+  const max = [...records, ...archived].reduce((highest, record) => {
     const numeric = Number(record.id.replace('BNT-', ''));
     return Number.isFinite(numeric) ? Math.max(highest, numeric) : highest;
   }, 0);

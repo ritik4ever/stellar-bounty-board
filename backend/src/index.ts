@@ -18,6 +18,7 @@ import { getOperationalConfig } from "./config";
 import { getMiddlewareConfig } from "./middleware/config";
 import { getServicesConfig } from "./services/config";
 import { getAppConfig } from "./appConfig";
+import { startArchiveJob, stopArchiveJob } from "./services/archiveScheduler";
 
 const port = Number(process.env.PORT ?? 3001);
 const keepAliveTimeout = Number(process.env.KEEP_ALIVE_TIMEOUT ?? 65000);
@@ -96,6 +97,7 @@ if (process.env.NODE_ENV !== "test") {
   startExpirationJob();
   startDisputeAlertJob();
   startRecurringBountyScheduler();
+  startArchiveJob();
 }
 
 async function shutdown(signal: string): Promise<void> {
@@ -108,6 +110,7 @@ async function shutdown(signal: string): Promise<void> {
   stopExpirationJob();
   stopDisputeAlertJob();
   stopRecurringBountyScheduler();
+  stopArchiveJob();
 
   // Stop the indexer worker
   if (indexerWorker) {

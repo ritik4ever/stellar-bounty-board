@@ -680,16 +680,67 @@ soroban contract invoke \
 
 ## Redeploy Contract
 
-**Use case:** Deploy a new version of the Soroban smart contract or redeploy after a failed deployment.
+**Use case:** Deploy a new version of the Soroban smart contract, rotate the arbiter key, or redeploy following critical contract bugs/failed deployments.
+
+### Triggers for Redeployment
+
+Unlike backend or frontend services, the Soroban smart contract layer cannot be hotfixed on-chain without an explicit upgrade mechanism. A contract redeployment is required when:
+- **Arbiter Rotation Required:** When the arbiter key is compromised, decommissioned, or rotated, because the arbiter address is set at initialization time (`initialize`) and cannot be updated in-place without redeploying.
+- **Contract Bug / Security Vulnerability:** Discovery of an unpatchable flaw or exploit in the deployed smart contract WASM.
+- **Protocol Architecture / ABI Changes:** State layout modifications, protocol fee mechanism updates, or breaking ABI modifications requiring a clean contract deployment.
+- **Failed Deployment Recovery:** Recovering from an uninitialized, corrupted, or misconfigured deployment on testnet or mainnet.
+
+### Authority and Execution Roles
+
+Redeploying the contract is a critical operational procedure requiring strict access controls and multisig/maintainer sign-off:
+- **Authority:** Core Project Maintainers and Security Lead consensus. On mainnet, execution requires approval from at least two core maintainers.
+- **Executor:** Authorized DevOps Engineer or Release Engineer possessing access to deployment wallets holding sufficient XLM network reserves and credentials to configure production secrets.
+- **Notification Requirement:** Notify all bounty maintainers, contributors, and the on-call team before initiating redeployment on mainnet (see [Incident Response Notification Chain](#notification-chain)).
+
+### Handling In-Flight Escrows
+
+Because a new contract deployment instantiates a fresh contract ID with empty state, escrows locked in the existing contract do not automatically migrate. Follow these explicit handling rules based on escrow status:
+
+1. **Inventory All In-Flight Escrows:**
+   Export existing bounties and their statuses from the current contract and backend store before cutting over:
+   ```bash
+   soroban contract invoke \
+     --id $CURRENT_CONTRACT_ID \
+     --source $MAINTAINER_SECRET_KEY \
+     --network $SOROBAN_NETWORK_URL \
+     -- \
+     get_all_bounties --start 1 --limit 100
+   ```
+2. **Open / Reserved Bounties (Not Yet Submitted):**
+   - Maintainers should refund unallocated or unsubmitted bounties on the old contract via `refund_bounty`:
+     ```bash
+     soroban contract invoke \
+       --id $CURRENT_CONTRACT_ID \
+       --source $MAINTAINER_SECRET_KEY \
+       --network $SOROBAN_NETWORK_URL \
+       -- \
+       refund_bounty --bounty_id $BOUNTY_ID
+     ```
+   - Recreate the bounties on the newly deployed contract with equivalent parameters and fund them under the new contract ID.
+3. **Submitted / Pending Review Bounties:**
+   - Allow maintainers a grace period to review and call `release_bounty` on the old contract so contributors receive their earned payouts from the existing escrow.
+   - If maintainers cannot release payouts before cutover, coordinate with maintainers to refund on the old contract and immediately reissue/release directly on the new contract.
+4. **Disputed Bounties:**
+   - **If Arbiter Key is Intact:** Existing arbiter resolves in-flight disputes on the old contract before cutover via `resolve_dispute`.
+   - **If Arbiter Key is Compromised:** Freeze interactions with the old contract (pause if emergency pause was enabled, or stop backend indexer/relayer routes to it). Coordinate off-chain restitution or manual refunding if maintainer keys permit, and document manual reconciliation in `data/bounties.audit.json`.
+5. **Finalized (Released / Refunded / Expired) Bounties:**
+   - No token balance remains locked in contract escrow for finalized bounties. Retain on-chain records and backend JSON archives for historical indexing and audit compliance.
 
 ### Prerequisites
 
-- Rust and Soroban CLI installed
-- Access to Stellar network (testnet or mainnet)
-- Wallet with sufficient XLM for deployment fees
-- Contract source code in `contracts/`
+- Rust toolchain with `wasm32-unknown-unknown` target installed
+- Stellar CLI (`stellar`) and Soroban CLI (`soroban`) installed
+- Access to Stellar network RPC (`SOROBAN_NETWORK_URL`, e.g., Futurenet, Testnet, or Mainnet)
+- Deployer wallet secret key with sufficient XLM for deployment and transaction fees
+- Arbiter public key (`ARBITER_ADDRESS`), Fee Recipient address, and dispute window configuration
+- Access to backend hosting environment (Railway, Render, Docker, or systemd) and frontend deployment pipeline
 
-### Steps
+### Step-by-Step Redeployment Procedure
 
 1. **Prepare the environment**
 
@@ -697,112 +748,161 @@ soroban contract invoke \
    # Navigate to contracts directory
    cd /path/to/stellar-bounty-board/contracts
 
-   # Install Soroban CLI if not already installed
-   cargo install soroban-cli
+   # Ensure target is installed
+   rustup target add wasm32-unknown-unknown
 
-   # Set the network (testnet or mainnet)
-   export SOROBAN_NETWORK_URL="https://rpc-futurenet.stellar.org"  # for testnet
-   # export SOROBAN_NETWORK_URL="https://rpc.mainnet.stellar.org"  # for mainnet
+   # Set the network environment
+   export SOROBAN_NETWORK_URL="https://rpc-futurenet.stellar.org"  # or testnet / mainnet
    ```
 
-2. **Build the contract**
+2. **Build and optimize the contract**
 
    ```bash
-   # Build the contract
+   # Build release WASM
    cargo build --target wasm32-unknown-unknown --release
 
-   # The WASM file will be at target/wasm32-unknown-unknown/release/stellar_bounty_board.wasm
+   # Optimize WASM bytecode for deployment
+   soroban contract optimize \
+     --wasm target/wasm32-unknown-unknown/release/stellar_bounty_board.wasm \
+     --wasm-out target/wasm32-unknown-unknown/release/stellar_bounty_board_opt.wasm
    ```
 
-3. **Optimize the WASM file**
+3. **Deploy and initialize the contract**
 
    ```bash
-   # Optimize for deployment
-   soroban contract optimize target/wasm32-unknown-unknown/release/stellar_bounty_board.wasm \
-     --wasm target/wasm32-unknown-unknown/release/stellar_bounty_board_opt.wasm
-   ```
-
-4. **Deploy the contract**
-
-   ```bash
-   # Deploy to the network
-   CONTRACT_ID=$(soroban contract deploy \
+   # Deploy contract WASM to the Stellar network
+   NEW_CONTRACT_ID=$(soroban contract deploy \
      --wasm target/wasm32-unknown-unknown/release/stellar_bounty_board_opt.wasm \
-     --source YOUR_SECRET_KEY \
+     --source $DEPLOYER_SECRET_KEY \
      --network $SOROBAN_NETWORK_URL)
 
-   echo "Contract deployed with ID: $CONTRACT_ID"
-   ```
+   echo "Deployed contract ID: $NEW_CONTRACT_ID"
 
-5. **Update environment variables**
-
-   ```bash
-   # Update the backend environment with the new contract ID
-   export SOROBAN_CONTRACT_ID=$CONTRACT_ID
-
-   # If using Railway/Render, update the environment variable in the dashboard
-   # If using Docker, update the docker-compose.yml or .env file
-   # If using systemd, update the service environment file
-   ```
-
-6. **Test the contract**
-
-   ```bash
-   # Run contract tests
-   cargo test
-
-   # Or invoke a contract method to verify
+   # Initialize contract parameters (sets admin, fee recipient, and arbiter)
    soroban contract invoke \
-     --id $CONTRACT_ID \
-     --source YOUR_SECRET_KEY \
+     --id $NEW_CONTRACT_ID \
+     --source $DEPLOYER_SECRET_KEY \
      --network $SOROBAN_NETWORK_URL \
      -- \
-     get_bounty \
-     --bounty_id 1
+     initialize \
+     --fee_recipient $FEE_RECIPIENT_ADDRESS \
+     --arbiter $ARBITER_ADDRESS \
+     --dispute_window 86400
    ```
 
-7. **Restart the backend service**
+4. **Regenerate frontend TypeScript bindings**
+
+   Whenever the contract is rebuilt or redeployed, propagate contract ABI definitions into the frontend bindings to ensure type and interface consistency:
 
    ```bash
-   # Restart to pick up the new contract ID
+   # From the repository root
+   npm run gen:bindings
+
+   # Verify bindings diff and ensure no unexpected ABI drift
+   git diff frontend/src/generated
+   ```
+
+5. **Propagate Contract ID to backend configuration**
+
+   Update the contract ID across backend services, workers, and indexers:
+
+   - **Environment Variables:**
+     ```bash
+     export SOROBAN_CONTRACT_ID=$NEW_CONTRACT_ID
+     export CONTRACT_ID=$NEW_CONTRACT_ID
+     ```
+   - **Local / Bare Metal (`.env` or systemd):**
+     Update `SOROBAN_CONTRACT_ID` in `.env` and `/etc/systemd/system/stellar-bounty-board-backend.service.d/override.conf`:
+     ```ini
+     SOROBAN_CONTRACT_ID=CC...<NEW_CONTRACT_ID>...
+     ```
+   - **Docker / Container Deployments:**
+     Update `.env` or `docker-compose.yml` service environment definitions:
+     ```yaml
+     environment:
+       - SOROBAN_CONTRACT_ID=CC...<NEW_CONTRACT_ID>...
+     ```
+   - **Cloud Platforms (Railway / Render / Kubernetes):**
+     Update `SOROBAN_CONTRACT_ID` in the platform dashboard or secret manager for both the API backend and Soroban event indexer worker (`backend/worker`).
+
+6. **Propagate Contract ID & configuration to frontend bindings**
+
+   - **Client Bindings & Environment:**
+     If the frontend interacts with the contract directly or through SDK bindings, verify and update frontend environment variables:
+     ```bash
+     VITE_CONTRACT_ID=$NEW_CONTRACT_ID
+     VITE_ARBITER_ADDRESS=$ARBITER_ADDRESS
+     ```
+   - **Rebuild and Deploy Frontend:**
+     Trigger a frontend build and deployment (e.g., Vercel, Netlify, or static server):
+     ```bash
+     cd frontend
+     npm run build
+     ```
+   - Verify frontend tests pass with the new generated bindings:
+     ```bash
+     npm run test
+     ```
+
+7. **Restart backend and worker services**
+
+   ```bash
+   # If using systemd
    sudo systemctl restart stellar-bounty-board-backend
+   sudo systemctl restart stellar-bounty-board-worker
+
+   # If using Docker
+   docker-compose restart backend worker
+
+   # If using cloud platforms: trigger a service redeploy after updating environment variables
    ```
 
-8. **Verify the deployment**
-   ```bash
-   # Check backend health
-   curl https://your-backend.example.com/api/health
+8. **Verify deployment & end-to-end propagation**
 
-   # Verify the contract is accessible
-   curl https://your-backend.example.com/api/bounties
+   ```bash
+   # 1. Check backend deep health check (verifies RPC, contract ID, and arbiter address)
+   curl -s https://your-backend.example.com/api/health/deep | jq .
+
+   # 2. Verify contract responsiveness via CLI
+   soroban contract invoke \
+     --id $NEW_CONTRACT_ID \
+     --source $DEPLOYER_SECRET_KEY \
+     --network $SOROBAN_NETWORK_URL \
+     -- \
+     get_arbiter
+
+   # 3. Check worker event indexer logs
+   # Ensure the indexer starts polling from the new contract without RPC errors
    ```
 
 ### Expected Output
 
-- Contract deployment succeeds with a new contract ID
-- Contract tests pass
-- Backend service starts successfully
-- API endpoints respond correctly
-- No errors in logs related to contract interaction
+- Contract deploys successfully and emits a valid Soroban Contract ID (`C...`).
+- `initialize` succeeds, configuring the fee recipient, arbiter, and dispute window.
+- `npm run gen:bindings` cleanly generates `frontend/src/generated/types.ts`.
+- Deep health check (`/api/health/deep`) returns `"status": "ok"` with all subsystem components reporting healthy.
+- Backend and event worker process transactions against `$NEW_CONTRACT_ID`.
 
 ### Rollback
 
-If the new deployment has issues:
+If issues are detected post-deployment prior to final migration cutover:
 
 ```bash
-# Revert to the previous contract ID
-export SOROBAN_CONTRACT_ID=OLD_CONTRACT_ID
+# Revert backend and worker configuration to previous contract ID
+export SOROBAN_CONTRACT_ID=$OLD_CONTRACT_ID
+export CONTRACT_ID=$OLD_CONTRACT_ID
 
-# Restart the backend service
+# Revert frontend environment variables and redeploy frontend if needed
+# Restart backend services
 sudo systemctl restart stellar-bounty-board-backend
+sudo systemctl restart stellar-bounty-board-worker
 ```
 
 ### Important Notes
 
-- Contract deployment is irreversible on mainnet. Always test on testnet first.
-- Keep a record of all deployed contract IDs for audit purposes.
-- Update any frontend configuration if it references the contract ID directly.
-- Consider using a contract upgrade pattern if frequent updates are expected.
+- Contract deployment is irreversible on Stellar mainnet. Always rehearse deployment and state cutover on Testnet or Futurenet first.
+- Keep an immutable log of all historical contract IDs, deployer addresses, and initialization transaction hashes for compliance and tracking.
+- Do not shut down or orphan old contract escrows until in-flight funds have been released or refunded.
 
 ---
 

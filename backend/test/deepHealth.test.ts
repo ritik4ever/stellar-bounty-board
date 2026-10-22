@@ -54,6 +54,40 @@ async function getApp() {
 }
 
 describe("GET /api/health/deep", () => {
+  it("replays the original response without rerunning the health check for the same key", async () => {
+    const deepHealthService = await import("../src/services/deepHealth");
+    const runDeepHealthCheck = vi
+      .spyOn(deepHealthService, "runDeepHealthCheck")
+      .mockResolvedValue({
+        overall: "up",
+        components: {
+          store: "up",
+          soroban: "up",
+          contract: "up",
+          auth: "up",
+        },
+        timestamp: "2026-01-01T00:00:00.000Z",
+      });
+    const app = await getApp();
+    const idempotencyKey = `deep-health-${randomUUID()}`;
+
+    try {
+      const first = await request(app)
+        .get("/api/health/deep")
+        .set("Idempotency-Key", idempotencyKey)
+        .expect(200);
+      const second = await request(app)
+        .get("/api/health/deep")
+        .set("Idempotency-Key", idempotencyKey)
+        .expect(200);
+
+      expect(runDeepHealthCheck).toHaveBeenCalledTimes(1);
+      expect(second.body).toEqual(first.body);
+    } finally {
+      runDeepHealthCheck.mockRestore();
+    }
+  });
+
   it("returns 200 with all components up when dependencies are healthy", async () => {
     mockHealthyRpc();
     const app = await getApp();

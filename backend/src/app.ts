@@ -75,7 +75,6 @@ import {
 import { idempotencyMiddleware } from './middleware/idempotency';
 import { requireJsonContentType } from './middleware/contentType';
 import { enforceBodyLimit, DEFAULT_BODY_LIMIT } from './middleware/bodyLimit';
-import { readLimiter, mutationLimiter } from './utils';
 import { maintainerLimiter } from './middleware/maintainerLimiter';
 import { logger } from './logger';
 import rateLimit from 'express-rate-limit';
@@ -148,7 +147,15 @@ const readLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many read requests, please slow down.' },
-  keyGenerator: (req: any) => req.ip || req.socket.remoteAddress || 'unknown',
+  skip: (req: Request) =>
+    (process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true') ||
+    Boolean(
+      req.path &&
+        (req.path === '/api/open-issues' ||
+          req.path.endsWith('/open-issues') ||
+          req.path === '/api/bounties' ||
+          req.path === '/api/bounties/')
+    ),
 });
 
 const mutationLimiter = rateLimit({
@@ -157,7 +164,197 @@ const mutationLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many mutations, please slow down.' },
-  keyGenerator: (req: any) => req.ip || req.socket.remoteAddress || 'unknown',
+  skip: (req: Request) =>
+    (process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true') ||
+    Boolean(
+      req.path &&
+      (req.path.endsWith('/release') ||
+        req.path.endsWith('/submit') ||
+        req.path.endsWith('/refund'))
+    ),
+});
+
+/**
+ * Route-specific explicit rate limiter for POST /api/bounties/:id/release (#1209).
+ *
+ * Cost justification:
+ * Releasing a bounty is a high-cost, critical financial operation that:
+ * 1. Cryptographically verifies maintainer Ed25519 signatures and public key authorization.
+ * 2. Interacts with the Stellar blockchain / Soroban RPC to release or verify escrow disbursement.
+ * 3. Modifies persistent state ('submitted' -> 'released'), writes audit records, and invalidates caches.
+ * 4. Triggers asynchronous push notifications and lifecycle transition webhooks.
+ *
+ * Maintainers execute releases intentionally after milestone or pull request review approval;
+ * legitimate callers do not invoke this endpoint in high-frequency bursts. An explicit ceiling
+ * of 10 requests per minute (configurable via RATE_LIMIT_RELEASE_MAX and RATE_LIMIT_RELEASE_WINDOW_MS)
+ * prevents transaction spam, mitigates replay attacks, and protects downstream RPC infrastructure.
+ *
+ * When the limit is exceeded, HTTP 429 is returned with an explicit Retry-After header.
+ */
+export const releaseLimiter = rateLimit({
+  windowMs: appConfig.rateLimitReleaseWindowMs,
+  max: appConfig.rateLimitReleaseMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true',
+  handler: (req: Request, res: Response) => {
+    const retryAfter = Math.ceil(appConfig.rateLimitReleaseWindowMs / 1000);
+    res.setHeader('Retry-After', String(retryAfter));
+    res.status(429).json({
+      error: 'Too many bounty release attempts. Please try again later.',
+      retryAfter,
+      requestId: req.requestId,
+    });
+  },
+});
+
+/**
+ * Route-specific explicit rate limiter for POST /api/bounties/:id/submit (#1205).
+ *
+ * Cost justification:
+ * Submitting a bounty is a moderately expensive, unauthenticated operation that:
+ * 1. Performs an outbound GitHub API call to validate the submission URL against the
+ *    source repository and issue (validateGithubPrUrlForRepo) — every request consumes
+ *    third-party quota and is a potential amplification/abuse target since no
+ *    authentication is required.
+ * 2. Acquires the global store lock and rewrites persistent bounty state
+ *    ('reserved' -> 'submitted'), appends audit logs, and invalidates the bounty cache.
+ * 3. Triggers asynchronous maintainer notifications for the submitted bounty.
+ *
+ * A contributor submits intentionally once per reserved bounty; legitimate callers do not
+ * invoke this endpoint in high-frequency bursts. An explicit ceiling of 10 requests per
+ * minute (configurable via RATE_LIMIT_SUBMIT_MAX and RATE_LIMIT_SUBMIT_WINDOW_MS) prevents
+ * GitHub API quota exhaustion from unauthenticated traffic and protects store persistence
+ * from write spam.
+ *
+ * When the limit is exceeded, HTTP 429 is returned with an explicit Retry-After header.
+ */
+export const submitLimiter = rateLimit({
+  windowMs: appConfig.rateLimitSubmitWindowMs,
+  max: appConfig.rateLimitSubmitMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true',
+  handler: (req: Request, res: Response) => {
+    const retryAfter = Math.ceil(appConfig.rateLimitSubmitWindowMs / 1000);
+    res.setHeader('Retry-After', String(retryAfter));
+    res.status(429).json({
+      error: 'Too many bounty submission attempts. Please try again later.',
+      retryAfter,
+      requestId: req.requestId,
+    });
+  },
+});
+
+/**
+ * Route-specific explicit rate limiter for POST /api/bounties/:id/refund (#1213).
+ *
+ * Cost justification:
+ * Refunding a bounty is a high-cost escrow reversal operation that:
+ * 1. Cryptographically validates maintainer authorization and Ed25519 signatures.
+ * 2. Verifies deadline expiration, dispute resolution status, and cancellation rules.
+ * 3. Triggers on-chain Stellar Soroban smart contract refund interactions to return locked escrow tokens.
+ * 4. Modifies persistent state ('open'/'disputed' -> 'refunded'), records immutable audit log entries,
+ *    and invalidates platform-wide cached bounty lists and financial metrics.
+ * 5. Dispatches notifications and event webhooks informing participants of the refund.
+ *
+ * Legitimate maintainers initiate refunds infrequently (only when bounties expire unclaimed or
+ * dispute resolutions dictate returning funds). An explicit ceiling of 10 requests per minute
+ * (configurable via RATE_LIMIT_REFUND_MAX and RATE_LIMIT_REFUND_WINDOW_MS) protects the route
+ * against automated transaction flooding, abuse, and RPC queue saturation.
+ *
+ * When the limit is exceeded, HTTP 429 is returned with an explicit Retry-After header.
+ */
+export const refundLimiter = rateLimit({
+  windowMs: appConfig.rateLimitRefundWindowMs,
+  max: appConfig.rateLimitRefundMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true',
+  handler: (req: Request, res: Response) => {
+    const retryAfter = Math.ceil(appConfig.rateLimitRefundWindowMs / 1000);
+    res.setHeader('Retry-After', String(retryAfter));
+    res.status(429).json({
+      error: 'Too many bounty refund attempts. Please try again later.',
+      retryAfter,
+      requestId: req.requestId,
+    });
+  },
+});
+
+/**
+ * Route-specific explicit rate limiter for GET /api/open-issues (#1222).
+ *
+ * Cost justification:
+ * Fetching open candidate issues is a public, unauthenticated read operation that:
+ * 1. Queries upstream third-party GitHub REST API (/repos/:owner/:repo/issues) on cache misses.
+ * 2. Consumes GitHub API rate limits (60 req/hr unauthenticated, 5,000 req/hr authenticated).
+ *    Excessive requests from unauthenticated clients could exhaust GitHub API quotas for the entire
+ *    platform, causing downstream service degradation (HTTP 502/403).
+ * 3. While responses are cached for 10 minutes (openIssuesCacheSeconds), an attacker or aggressive crawler
+ *    hitting expired entries or requesting with distinct cache headers can cause repeated upstream fetch spikes.
+ * 4. Legitimate frontend clients fetch this list during discovery or board browsing; normal users do not
+ *    need more than a few requests per minute.
+ *
+ * An explicit ceiling of 30 requests per minute (configurable via RATE_LIMIT_OPEN_ISSUES_MAX and
+ * RATE_LIMIT_OPEN_ISSUES_WINDOW_MS) protects upstream API quotas and backend memory while providing
+ * more than ample capacity for legitimate browsing.
+ *
+ * When the limit is exceeded, HTTP 429 is returned with an explicit Retry-After header.
+ */
+export const openIssuesLimiter = rateLimit({
+  windowMs: appConfig.rateLimitOpenIssuesWindowMs,
+  max: appConfig.rateLimitOpenIssuesMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true',
+  handler: (req: Request, res: Response) => {
+    const retryAfter = Math.ceil(appConfig.rateLimitOpenIssuesWindowMs / 1000);
+    res.setHeader('Retry-After', String(retryAfter));
+    res.status(429).json({
+      error: 'Too many requests for open issues. Please try again later.',
+      retryAfter,
+      requestId: req.requestId,
+    });
+  },
+});
+
+/**
+ * Route-specific explicit rate limiter for GET /api/bounties (#1220).
+ *
+ * Cost justification:
+ * Fetching the bounties list is an unauthenticated, public read endpoint with moderate-to-high cost:
+ * 1. Executes multi-parameter query filtering (q, repo, status, tokenSymbol, contributor, maintainer,
+ *    minReward, maxReward, deadlineBefore, deadlineAfter) and sorting across all bounties in the store.
+ * 2. Employs caching (`listBountiesCached`) backed by an in-memory or Redis layer, and generates/validates
+ *    conditional HTTP headers (ETag, Last-Modified, If-None-Match).
+ * 3. On cache misses or high-cardinality filter permutations (custom text search / query variants),
+ *    each request forces an in-memory scan, array slicing, and JSON serialization of potentially large
+ *    bounty payloads.
+ * 4. While legitimate clients (frontend index and search pages) query this endpoint when users browse or
+ *    filter bounties, excessive unauthenticated bursts could exhaust backend CPU and memory.
+ *
+ * An explicit ceiling of 60 requests per minute (configurable via RATE_LIMIT_BOUNTIES_MAX and
+ * RATE_LIMIT_BOUNTIES_WINDOW_MS) balances responsive browsing for human users with protection
+ * against automated scraping, denial of service, and resource exhaustion.
+ *
+ * When the limit is exceeded, HTTP 429 is returned with an explicit Retry-After header.
+ */
+export const bountiesLimiter = rateLimit({
+  windowMs: appConfig.rateLimitBountiesWindowMs,
+  max: appConfig.rateLimitBountiesMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true',
+  handler: (req: Request, res: Response) => {
+    const retryAfter = Math.ceil(appConfig.rateLimitBountiesWindowMs / 1000);
+    res.setHeader('Retry-After', String(retryAfter));
+    res.status(429).json({
+      error: 'Too many requests for bounties. Please try again later.',
+      retryAfter,
+      requestId: req.requestId,
+    });
+  },
 });
 
 // Apply read limiter to all GET requests
@@ -209,13 +406,17 @@ const healthHandler = (_req: Request, res: Response) => {
   });
 };
 
-app.get('/api/health', healthHandler);
+app.get('/api/health', idempotencyMiddleware, healthHandler);
 
-app.get('/api/health/deep', async (_req: Request, res: Response) => {
-  const result = await runDeepHealthCheck();
-  const statusCode = result.overall === 'up' ? 200 : 503;
-  res.status(statusCode).json(result);
-});
+app.get(
+  '/api/health/deep',
+  idempotencyMiddleware,
+  async (_req: Request, res: Response) => {
+    const result = await runDeepHealthCheck();
+    const statusCode = result.overall === 'up' ? 200 : 503;
+    res.status(statusCode).json(result);
+  },
+);
 
 app.get('/worker/health', (_req: Request, res: Response) => {
   res.json({
@@ -645,144 +846,149 @@ app.delete(
   }
 );
 
-app.get('/api/bounties', async (req: Request, res: Response) => {
-  try {
-    const q = typeof req.query.q === 'string' ? req.query.q : undefined;
-    const contributor =
-      typeof req.query.contributor === 'string' && req.query.contributor.trim()
-        ? req.query.contributor.trim()
-        : undefined;
-    const maintainer =
-      typeof req.query.maintainer === 'string' && req.query.maintainer.trim()
-        ? req.query.maintainer.trim()
-        : undefined;
-    const status =
-      typeof req.query.status === 'string' && req.query.status.trim()
-        ? req.query.status.trim()
-        : undefined;
-    const tokenSymbol =
-      typeof req.query.tokenSymbol === 'string' && req.query.tokenSymbol.trim()
-        ? req.query.tokenSymbol.trim()
-        : undefined;
-    const sort =
-      typeof req.query.sort === 'string' && req.query.sort.trim()
-        ? req.query.sort.trim()
-        : 'createdAt';
-    const order =
-      typeof req.query.order === 'string' && req.query.order.trim()
-        ? req.query.order.trim()
-        : 'desc';
+app.get(
+  '/api/bounties',
+  bountiesLimiter,
+  idempotencyMiddleware,
+  async (req: Request, res: Response) => {
+    try {
+      const q = typeof req.query.q === 'string' ? req.query.q : undefined;
+      const contributor =
+        typeof req.query.contributor === 'string' && req.query.contributor.trim()
+          ? req.query.contributor.trim()
+          : undefined;
+      const maintainer =
+        typeof req.query.maintainer === 'string' && req.query.maintainer.trim()
+          ? req.query.maintainer.trim()
+          : undefined;
+      const status =
+        typeof req.query.status === 'string' && req.query.status.trim()
+          ? req.query.status.trim()
+          : undefined;
+      const tokenSymbol =
+        typeof req.query.tokenSymbol === 'string' && req.query.tokenSymbol.trim()
+          ? req.query.tokenSymbol.trim()
+          : undefined;
+      const sort =
+        typeof req.query.sort === 'string' && req.query.sort.trim()
+          ? req.query.sort.trim()
+          : 'createdAt';
+      const order =
+        typeof req.query.order === 'string' && req.query.order.trim()
+          ? req.query.order.trim()
+          : 'desc';
 
-    const repo =
-      typeof req.query.repo === 'string' && req.query.repo.trim()
-        ? req.query.repo.trim()
-        : undefined;
+      const repo =
+        typeof req.query.repo === 'string' && req.query.repo.trim()
+          ? req.query.repo.trim()
+          : undefined;
 
-    const parseReward = (value: unknown, name: string): number | undefined => {
-      if (typeof value !== 'string' || !value.trim()) return undefined;
-      const n = Number(value);
-      if (!Number.isFinite(n) || n < 0) {
-        throw new Error(`${name} must be a non-negative number`);
-      }
-      return n;
-    };
-    const minReward = parseReward(req.query.minReward, 'minReward');
-    const maxReward = parseReward(req.query.maxReward, 'maxReward');
-    if (minReward !== undefined && maxReward !== undefined && minReward > maxReward) {
-      throw new Error('minReward must be less than or equal to maxReward');
-    }
-
-    // `limit` is the primary page-size param; `pageSize` is a legacy alias.
-    const page = parsePaginationValue(req.query.page, 'page', 1, 1);
-    const pageSize =
-      req.query.limit !== undefined
-        ? parsePaginationValue(req.query.limit, 'limit', 20, 1, 100)
-        : parsePaginationValue(req.query.pageSize, 'pageSize', 20, 1, 100);
-
-    let deadlineBefore: number | undefined;
-    if (typeof req.query.deadlineBefore === 'string') {
-      const date = new Date(req.query.deadlineBefore);
-      if (isNaN(date.getTime())) {
-        throw new Error('deadlineBefore must be a valid ISO 8601 date string');
-      }
-      deadlineBefore = Math.floor(date.getTime() / 1000);
-    }
-
-    let deadlineAfter: number | undefined;
-    if (typeof req.query.deadlineAfter === 'string') {
-      const date = new Date(req.query.deadlineAfter);
-      if (isNaN(date.getTime())) {
-        throw new Error('deadlineAfter must be a valid ISO 8601 date string');
-      }
-      deadlineAfter = Math.floor(date.getTime() / 1000);
-    }
-
-    if (contributor && !isValidStellarAddress(contributor)) {
-      throw new Error('contributor must be a valid Stellar public key');
-    }
-    if (maintainer && !isValidStellarAddress(maintainer)) {
-      throw new Error('maintainer must be a valid Stellar public key');
-    }
-    if (!['amount', 'deadline', 'createdAt', 'status'].includes(sort)) {
-      throw new Error('sort must be one of: amount, deadline, createdAt, status');
-    }
-    if (!['asc', 'desc'].includes(order)) {
-      throw new Error('order must be one of: asc, desc');
-    }
-
-    const all = await listBountiesCached({
-      q,
-      repo,
-      minReward,
-      maxReward,
-      contributor,
-      maintainer,
-      status: status as never,
-      tokenSymbol,
-      deadlineBefore,
-      deadlineAfter,
-      sort: sort as never,
-      order: order as never,
-    });
-    const total = all.length;
-    const start = (page - 1) * pageSize;
-    const data = all.slice(start, start + pageSize);
-    const hasMore = start + data.length < total;
-
-    let maxTimestamp = 0;
-    for (const bounty of all) {
-      if (bounty.events && bounty.events.length > 0) {
-        const lastEvent = bounty.events[bounty.events.length - 1];
-        if (lastEvent.timestamp > maxTimestamp) {
-          maxTimestamp = lastEvent.timestamp;
+      const parseReward = (value: unknown, name: string): number | undefined => {
+        if (typeof value !== 'string' || !value.trim()) return undefined;
+        const n = Number(value);
+        if (!Number.isFinite(n) || n < 0) {
+          throw new Error(`${name} must be a non-negative number`);
         }
-      } else if (bounty.createdAt > maxTimestamp) {
-        maxTimestamp = bounty.createdAt;
+        return n;
+      };
+      const minReward = parseReward(req.query.minReward, 'minReward');
+      const maxReward = parseReward(req.query.maxReward, 'maxReward');
+      if (minReward !== undefined && maxReward !== undefined && minReward > maxReward) {
+        throw new Error('minReward must be less than or equal to maxReward');
       }
+
+      // `limit` is the primary page-size param; `pageSize` is a legacy alias.
+      const page = parsePaginationValue(req.query.page, 'page', 1, 1);
+      const pageSize =
+        req.query.limit !== undefined
+          ? parsePaginationValue(req.query.limit, 'limit', 20, 1, 100)
+          : parsePaginationValue(req.query.pageSize, 'pageSize', 20, 1, 100);
+
+      let deadlineBefore: number | undefined;
+      if (typeof req.query.deadlineBefore === 'string') {
+        const date = new Date(req.query.deadlineBefore);
+        if (isNaN(date.getTime())) {
+          throw new Error('deadlineBefore must be a valid ISO 8601 date string');
+        }
+        deadlineBefore = Math.floor(date.getTime() / 1000);
+      }
+
+      let deadlineAfter: number | undefined;
+      if (typeof req.query.deadlineAfter === 'string') {
+        const date = new Date(req.query.deadlineAfter);
+        if (isNaN(date.getTime())) {
+          throw new Error('deadlineAfter must be a valid ISO 8601 date string');
+        }
+        deadlineAfter = Math.floor(date.getTime() / 1000);
+      }
+
+      if (contributor && !isValidStellarAddress(contributor)) {
+        throw new Error('contributor must be a valid Stellar public key');
+      }
+      if (maintainer && !isValidStellarAddress(maintainer)) {
+        throw new Error('maintainer must be a valid Stellar public key');
+      }
+      if (!['amount', 'deadline', 'createdAt', 'status'].includes(sort)) {
+        throw new Error('sort must be one of: amount, deadline, createdAt, status');
+      }
+      if (!['asc', 'desc'].includes(order)) {
+        throw new Error('order must be one of: asc, desc');
+      }
+
+      const all = await listBountiesCached({
+        q,
+        repo,
+        minReward,
+        maxReward,
+        contributor,
+        maintainer,
+        status: status as never,
+        tokenSymbol,
+        deadlineBefore,
+        deadlineAfter,
+        sort: sort as never,
+        order: order as never,
+      });
+      const total = all.length;
+      const start = (page - 1) * pageSize;
+      const data = all.slice(start, start + pageSize);
+      const hasMore = start + data.length < total;
+
+      let maxTimestamp = 0;
+      for (const bounty of all) {
+        if (bounty.events && bounty.events.length > 0) {
+          const lastEvent = bounty.events[bounty.events.length - 1];
+          if (lastEvent.timestamp > maxTimestamp) {
+            maxTimestamp = lastEvent.timestamp;
+          }
+        } else if (bounty.createdAt > maxTimestamp) {
+          maxTimestamp = bounty.createdAt;
+        }
+      }
+
+      if (maxTimestamp > 0) {
+        const lastModifiedDate = new Date(maxTimestamp * 1000);
+        res.setHeader('Last-Modified', lastModifiedDate.toUTCString());
+      }
+
+      const responsePayload = { data, total, page, pageSize, hasMore };
+      const responseString = JSON.stringify(responsePayload);
+      const etag = `"${createHash('md5').update(responseString).digest('hex')}"`;
+      res.setHeader('ETag', etag);
+
+      if (req.headers['if-none-match'] === etag) {
+        res.status(304).end();
+        return;
+      }
+
+      res.setHeader('X-Total-Count', String(total));
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.json(responsePayload);
+    } catch (error) {
+      sendError(res, req, error);
     }
-
-    if (maxTimestamp > 0) {
-      const lastModifiedDate = new Date(maxTimestamp * 1000);
-      res.setHeader('Last-Modified', lastModifiedDate.toUTCString());
-    }
-
-    const responsePayload = { data, total, page, pageSize, hasMore };
-    const responseString = JSON.stringify(responsePayload);
-    const etag = `"${createHash('md5').update(responseString).digest('hex')}"`;
-    res.setHeader('ETag', etag);
-
-    if (req.headers['if-none-match'] === etag) {
-      res.status(304).end();
-      return;
-    }
-
-    res.setHeader('X-Total-Count', String(total));
-    res.setHeader('Content-Type', 'application/json; charset=utf-8');
-    res.send(responseString);
-  } catch (error) {
-    sendError(res, req, error);
   }
-});
+);
 
 app.get('/api/leaderboard', (req: Request, res: Response) => {
   try {
@@ -957,7 +1163,7 @@ app.post(
 
 app.post(
   '/api/bounties/:id/submit',
-  mutationLimiter,
+  submitLimiter,
   requireJsonContentType,
   idempotencyMiddleware,
   validateBody(submitBountySchema),
@@ -977,18 +1183,49 @@ app.post(
   }
 );
 
+/**
+ * Zod schema for POST /api/bounties/:id/release.
+ *
+ * Validates every input the route accepts before the store or contract layer
+ * is touched: the `:id` path param, the (empty) query string, and the JSON
+ * body carrying the maintainer address and optional transaction hash.
+ */
+const releaseBountyParamsSchema = z.object({ id: bountyIdSchema }).strict();
+const releaseBountyQuerySchema = z.object({}).strict();
+const releaseBountyBodySchema = maintainerActionSchema;
+
+const releaseBountyRequestSchema = z.object({
+  params: releaseBountyParamsSchema,
+  query: releaseBountyQuerySchema,
+  body: releaseBountyBodySchema,
+});
+
 app.post(
   '/api/bounties/:id/release',
-  mutationLimiter,
+  releaseLimiter,
   enforceBodyLimit(DEFAULT_BODY_LIMIT),
   requireJsonContentType,
   idempotencyMiddleware,
   createStellarSignatureAuthMiddleware(),
-  validateBody(maintainerActionSchema),
+  (req: Request, res: Response, next: NextFunction) => {
+    const parsed = releaseBountyRequestSchema.safeParse({
+      params: req.params,
+      query: req.query,
+      body: req.body,
+    });
+
+    if (!parsed.success) {
+      jsonError(res, req, 400, `INVALID_INPUT: ${zodErrorMessage(parsed.error)}`);
+      return;
+    }
+
+    req.body = parsed.data.body;
+    next();
+  },
   async (req: Request, res: Response) => {
     try {
       const bounty = await releaseBounty(
-        parseId(req.params.id),
+        req.params.id,
         req.body.maintainer,
         req.body.transactionHash
       );
@@ -1002,7 +1239,7 @@ app.post(
 
 app.post(
   '/api/bounties/:id/refund',
-  mutationLimiter,
+  refundLimiter,
   enforceBodyLimit(DEFAULT_BODY_LIMIT),
   idempotencyMiddleware,
   createStellarSignatureAuthMiddleware(),
@@ -1256,28 +1493,38 @@ app.post(
  */
 const openIssuesQuerySchema = z.object({}).strict();
 
-app.get('/api/open-issues', async (req: Request, res: Response) => {
-  // Validate query params — must be empty; any unknown key is a 400.
-  const queryResult = openIssuesQuerySchema.safeParse(req.query);
-  if (!queryResult.success) {
-    jsonError(res, req, 400, `INVALID_QUERY: ${zodErrorMessage(queryResult.error)}`);
-    return;
-  }
+app.get(
+  '/api/open-issues',
+  openIssuesLimiter,
+  idempotencyMiddleware,
+  async (req: Request, res: Response) => {
+    // Validate query params — must be empty; any unknown key is a 400.
+    const queryResult = openIssuesQuerySchema.safeParse(req.query);
+    if (!queryResult.success) {
+      jsonError(res, req, 400, `INVALID_QUERY: ${zodErrorMessage(queryResult.error)}`);
+      return;
+    }
 
-  // Reject any accidental request body.
-  if (req.body && Object.keys(req.body).length > 0) {
-    jsonError(res, req, 400, 'INVALID_BODY: GET /api/open-issues does not accept a request body.');
-    return;
-  }
+    // Reject any accidental request body.
+    if (req.body && Object.keys(req.body).length > 0) {
+      jsonError(
+        res,
+        req,
+        400,
+        'INVALID_BODY: GET /api/open-issues does not accept a request body.'
+      );
+      return;
+    }
 
-  try {
-    const data = await listOpenIssues();
-    res.set('Cache-Control', `max-age=${appConfig.openIssuesCacheSeconds}`);
-    res.json({ data });
-  } catch (error) {
-    sendError(res, req, error, 502);
+    try {
+      const data = await listOpenIssues();
+      res.set('Cache-Control', `max-age=${appConfig.openIssuesCacheSeconds}`);
+      res.json({ data });
+    } catch (error) {
+      sendError(res, req, error, 502);
+    }
   }
-});
+);
 
 app.get('/api/bounties/:id/events', (req: Request, res: Response) => {
   try {

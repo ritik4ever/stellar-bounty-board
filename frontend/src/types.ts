@@ -249,3 +249,30 @@ export function resolveAsyncState<T>(
 }
 
 export const resolveAsyncDataState = resolveAsyncState;
+
+/**
+ * Generates an accessible, screen-reader friendly announcement string for async state transitions.
+ */
+export function getAccessibleAsyncStateAnnouncement<T>(
+  state: AsyncDataState<T>,
+  entityName: string = 'items'
+): string {
+  switch (state.status) {
+    case 'loading':
+      return `Loading ${entityName}...`;
+    case 'error':
+      return `Error loading ${entityName}: ${state.error || 'An unexpected error occurred'}.`;
+    case 'empty':
+      return `No ${entityName} found.`;
+    case 'success':
+      if (Array.isArray(state.data)) {
+        const count = state.data.length;
+        const itemWord = count === 1 ? entityName.replace(/s$/, '') : entityName;
+        return `Successfully loaded ${count} ${itemWord}.`;
+      }
+      return `Successfully loaded ${entityName}.`;
+    case 'idle':
+    default:
+      return `${entityName} idle.`;
+  }
+}

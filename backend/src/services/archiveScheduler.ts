@@ -1,7 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import lockfile from 'proper-lockfile';
 import { logger } from '../logger';
 import type { BountyRecord } from './bountyStore';
+import { invalidateBountyCache } from './bountyStore';
+import { getBountyArchivePath } from './bountyArchivePath';
+import { wrapServiceError } from './errors';
 
 /**
  * Statuses that are eligible for automatic archiving once the retention
@@ -27,7 +31,7 @@ function getRetentionSeconds(): number {
   if (!Number.isFinite(days) || days <= 0) {
     logger.warn(
       { ARCHIVE_AFTER_DAYS: process.env.ARCHIVE_AFTER_DAYS },
-      '[ArchiveScheduler] Invalid ARCHIVE_AFTER_DAYS — falling back to 90 days',
+      '[ArchiveScheduler] Invalid ARCHIVE_AFTER_DAYS — falling back to 90 days'
     );
     return 90 * 24 * 60 * 60;
   }
@@ -42,12 +46,8 @@ function getStorePath(): string {
   return path.resolve(__dirname, '../../data/bounties.json');
 }
 
-import { wrapServiceError } from './errors';
-
-function readBounties(): BountyRecord[] {
+function readBounties(storePath: string): BountyRecord[] {
   try {
-    const storePath = getStorePath();
-
     if (!fs.existsSync(storePath)) {
       return [];
     }
@@ -58,17 +58,24 @@ function readBounties(): BountyRecord[] {
       return [];
     }
 
-    return JSON.parse(raw) as BountyRecord[];
+    const records = JSON.parse(raw) as BountyRecord[];
+    if (!Array.isArray(records)) throw new Error('Bounty store must contain an array');
+    return records;
   } catch (err) {
     throw wrapServiceError('archive_scheduler.read_store', 'json-store', err);
   }
 }
 
-function writeBounties(records: BountyRecord[]): void {
+function writeBounties(storePath: string, records: BountyRecord[]): void {
   try {
-    const storePath = getStorePath();
     fs.mkdirSync(path.dirname(storePath), { recursive: true });
-    fs.writeFileSync(storePath, JSON.stringify(records, null, 2));
+    const tmpPath = `${storePath}.${process.pid}.tmp`;
+    try {
+      fs.writeFileSync(tmpPath, JSON.stringify(records, null, 2));
+      fs.renameSync(tmpPath, storePath);
+    } finally {
+      if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+    }
   } catch (err) {
     throw wrapServiceError('archive_scheduler.write_store', 'json-store', err);
   }
@@ -94,62 +101,63 @@ function terminalTimestamp(bounty: BountyRecord): number {
  * (released/refunded) and whose terminal timestamp is older than
  * `retentionSeconds`.
  *
- * Already-archived bounties are skipped.
+ * Writes the cold archive before removing records from the active file. A retry
+ * deduplicates by ID if the process stops between those two writes.
  *
  * @param retentionSeconds - Override the env-configured retention window (used in tests).
  */
-export function archiveOldBounties(retentionSeconds?: number): ArchiveResult {
+export async function archiveOldBounties(retentionSeconds?: number): Promise<ArchiveResult> {
   const checkedAt = Math.floor(Date.now() / 1000);
   const retention = retentionSeconds ?? getRetentionSeconds();
-  const bounties = readBounties();
-
+  const storePath = getStorePath();
   const archivedBountyIds: string[] = [];
-
-  const updated = bounties.map((bounty) => {
-    // Skip already-archived bounties and ineligible statuses
-    if (bounty.archived || !ARCHIVABLE_STATUSES.has(bounty.status)) {
-      return bounty;
+  if (!fs.existsSync(storePath)) return { archivedCount: 0, archivedBountyIds, checkedAt };
+  const release = await lockfile.lock(storePath, { stale: 10000, update: 5000, retries: 0 });
+  try {
+    const bounties = readBounties(storePath);
+    const retained: BountyRecord[] = [];
+    const moving: BountyRecord[] = [];
+    for (const bounty of bounties) {
+      if (
+        !ARCHIVABLE_STATUSES.has(bounty.status) ||
+        (!bounty.archived && checkedAt - terminalTimestamp(bounty) <= retention)
+      ) {
+        retained.push(bounty);
+        continue;
+      }
+      archivedBountyIds.push(bounty.id);
+      moving.push(
+        bounty.archived
+          ? bounty
+          : {
+              ...bounty,
+              archived: true,
+              archivedAt: checkedAt,
+              version: (bounty.version ?? 1) + 1,
+              events: [
+                ...(bounty.events ?? []),
+                {
+                  type: 'archived',
+                  timestamp: checkedAt,
+                  details: { reason: 'retention_window_exceeded', retentionSeconds: retention },
+                },
+              ],
+            }
+      );
     }
-
-    const elapsed = checkedAt - terminalTimestamp(bounty);
-
-    if (elapsed <= retention) {
-      return bounty;
+    if (moving.length > 0) {
+      const archivePath = getBountyArchivePath(storePath);
+      const archive = readBounties(archivePath);
+      const archivedIds = new Set(archive.map((bounty) => bounty.id));
+      writeBounties(archivePath, [
+        ...archive,
+        ...moving.filter((bounty) => !archivedIds.has(bounty.id)),
+      ]);
+      writeBounties(storePath, retained);
+      await invalidateBountyCache();
     }
-
-    logger.info(
-      {
-        bountyId: bounty.id,
-        status: bounty.status,
-        elapsedDays: Math.floor(elapsed / 86400),
-        retentionDays: Math.floor(retention / 86400),
-      },
-      '[ArchiveScheduler] Archiving bounty past retention window',
-    );
-
-    archivedBountyIds.push(bounty.id);
-
-    return {
-      ...bounty,
-      archived: true,
-      archivedAt: checkedAt,
-      version: (bounty.version ?? 1) + 1,
-      events: [
-        ...(bounty.events ?? []),
-        {
-          type: 'archived' as const,
-          timestamp: checkedAt,
-          details: {
-            reason: 'retention_window_exceeded',
-            retentionSeconds: retention,
-          },
-        },
-      ],
-    };
-  });
-
-  if (archivedBountyIds.length > 0) {
-    writeBounties(updated);
+  } finally {
+    await release();
   }
 
   logger.info(
@@ -157,7 +165,7 @@ export function archiveOldBounties(retentionSeconds?: number): ArchiveResult {
       archivedCount: archivedBountyIds.length,
       checkedAt,
     },
-    '[ArchiveScheduler] Archive run complete',
+    '[ArchiveScheduler] Archive run complete'
   );
 
   return {
@@ -192,10 +200,14 @@ export function startArchiveJob(intervalMs?: number, retentionSeconds?: number):
     })();
 
   // Run immediately on startup, then on interval
-  archiveOldBounties(retentionSeconds);
+  void archiveOldBounties(retentionSeconds).catch((err) =>
+    logger.error({ err }, '[ArchiveScheduler] Archive run failed')
+  );
 
   archiveTimer = setInterval(() => {
-    archiveOldBounties(retentionSeconds);
+    void archiveOldBounties(retentionSeconds).catch((err) =>
+      logger.error({ err }, '[ArchiveScheduler] Archive run failed')
+    );
   }, resolvedInterval);
 }
 

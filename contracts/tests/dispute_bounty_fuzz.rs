@@ -6,7 +6,7 @@
 //! - Bounded time budget and wide coverage of numeric input domains.
 
 use soroban_sdk::{
-    testutils::Address as _,
+    testutils::{Address as _, Ledger as _},
     Address, Env, String,
 };
 use stellar_bounty_board::{

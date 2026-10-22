@@ -9,6 +9,34 @@ superseded_by: 0004-postgres-persistence.md
 
 > **Status:** Superseded by [ADR 0004: Move from JSON file storage to PostgreSQL persistence](0004-postgres-persistence.md).
 
+## Retention for the remaining JSON store
+
+The JSON fallback still serves bounty API reads. It keeps open, reserved,
+submitted, disputed, expired, and recently released/refunded records in
+`backend/data/bounties.json`. A job runs at startup and every 24 hours. It moves
+released/refunded records more than 90 days past `releasedAt`/`refundedAt` to
+`backend/data/bounties.archive.json`; `ARCHIVE_AFTER_DAYS` and
+`ARCHIVE_JOB_INTERVAL_MS` configure those defaults. For older records missing a
+terminal timestamp, the job uses `createdAt`. Previously soft-archived terminal
+records are also moved. `BOUNTY_ARCHIVE_PATH` can put the archive elsewhere.
+
+Public list and detail reads parse only the active file. Archived records leave
+the public API and remain in the cold archive for offline inspection/export and
+backup. Creating a bounty checks the archive for the highest allocated ID, so
+IDs are never reused. The job writes the archive first, then removes moved
+records from the active file; retries deduplicate by ID after an interrupted
+run. Back up both files together. There is no byte cap on active bounties or on
+the archive; active growth is bounded by the number of nonterminal and recent
+terminal records, while the cold archive can grow until an operator exports or
+rotates it. This policy applies to the JSON fallback, not PostgreSQL.
+
+To measure the hot read cost with 10,000 old terminal and 100 active records,
+run `cd backend && node --import tsx scripts/benchmark-bounty-archive.ts`. It reports
+active file bytes and median `listBounties()` latency over 100 measured reads
+before and after moving old records. The benchmark uses a temporary store.
+On 2026-10-22, this measured 3,581,695 → 42,402 active bytes and
+11.90 → 0.19 ms median read latency on a local Mac (one run; results vary by machine).
+
 ## Context / Problem
 
 The backend stores bounty state. We must choose a persistence strategy that

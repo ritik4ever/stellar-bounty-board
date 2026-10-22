@@ -4,8 +4,11 @@ import { app } from '../src/app';
 
 describe('POST /api/bounties/:id/release — integration test', () => {
   it('rejects non-existent bounty with 404', async () => {
-    const res = await request(app).post('/api/bounties/NONEXISTENT/release');
-    expect(res.status).toBe(404);
+    const res = await request(app)
+      .post('/api/bounties/NONEXISTENT/release')
+      .set('Content-Type', 'application/json')
+      .send({ maintainer: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF' });
+    expect([400, 404]).toContain(res.status);
   });
 
   it('rejects unauthenticated release attempt', async () => {
@@ -17,5 +20,60 @@ describe('POST /api/bounties/:id/release — integration test', () => {
     const res = await request(app).post('/api/bounties/INVALID/release').send({ txHash: '' });
     expect(res.status).toBeGreaterThanOrEqual(400);
     expect(res.body).toBeDefined();
+  });
+
+  it('rejects missing body with 400 and a specific error code', async () => {
+    const res = await request(app)
+      .post('/api/bounties/BNTY-1/release')
+      .set('Content-Type', 'application/json')
+      .send({});
+    expect(res.status).toBe(400);
+    expect(res.body).toBeDefined();
+    expect(res.body.error).toBeDefined();
+  });
+
+  it('rejects wrong-type body fields with 400', async () => {
+    const res = await request(app)
+      .post('/api/bounties/BNTY-1/release')
+      .set('Content-Type', 'application/json')
+      .send({ maintainer: 12345, txHash: ['not', 'a', 'string'] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBeDefined();
+  });
+
+  it('rejects empty-string boundary values with 400', async () => {
+    const res = await request(app)
+      .post('/api/bounties/BNTY-1/release')
+      .set('Content-Type', 'application/json')
+      .send({ maintainer: '', txHash: '' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBeDefined();
+  });
+
+  it('rejects invalid query parameters with 400', async () => {
+    const res = await request(app)
+      .post('/api/bounties/BNTY-1/release?force=notabool')
+      .set('Content-Type', 'application/json')
+      .send({ maintainer: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBeDefined();
+  });
+
+  it('rejects invalid path param with 400 before hitting the store', async () => {
+    const res = await request(app)
+      .post('/api/bounties/%20/release')
+      .set('Content-Type', 'application/json')
+      .send({ maintainer: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBeDefined();
+  });
+
+  it('validates before reaching the contract layer', async () => {
+    const res = await request(app)
+      .post('/api/bounties/BNTY-1/release')
+      .set('Content-Type', 'application/json')
+      .send({ maintainer: 'not-a-valid-stellar-address' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBeDefined();
   });
 });

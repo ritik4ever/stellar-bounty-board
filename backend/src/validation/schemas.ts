@@ -264,6 +264,34 @@ export const maintainerActionSchema = z
   })
   .openapi('MaintainerActionRequest');
 
+/**
+ * Request for `POST /api/bounties/:id/release`.
+ *
+ * Validates the route param (`id`), any query string, and the body in one
+ * schema so invalid input is rejected with a 400 before the store or contract
+ * layer is touched. `transactionHash` is optional and, when present, must be a
+ * 64-character hex string.
+ */
+export const releaseBountySchema = z
+  .object({
+    id: bountyIdSchema.openapi({
+      description: 'Bounty ID from the route path.',
+    }),
+    maintainer: stellarAccountSchema.openapi({
+      description: 'Must match the maintainer address on the bounty.',
+    }),
+    transactionHash: z
+      .string()
+      .trim()
+      .regex(TX_HASH_REGEX, 'Transaction hash must be a 64 character hex string.')
+      .optional()
+      .openapi({
+        example: '0'.repeat(64),
+        description: 'Optional transaction hash for the release action (64-char hex).',
+      }),
+  })
+  .openapi('ReleaseBountyRequest');
+
 /** Request body for updating maintainer notes (0–2000 chars after trimming; an empty string is allowed). */
 export const updateNotesSchema = z
   .object({

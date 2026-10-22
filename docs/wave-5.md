@@ -92,6 +92,18 @@ observability, and contributor-experience polish built on top of the Wave 4 foun
 
 ---
 
+## Security checklist cross-reference
+
+The detailed, item-by-item mapping for all 40 Wave 5 issues is maintained in
+[`SECURITY_CHECKLIST.md`](../SECURITY_CHECKLIST.md#wave-5-issue-cross-reference).
+Use that matrix during implementation and review; it distinguishes direct checklist
+coverage from related hardening work and items with no direct checklist equivalent.
+
+**Source of truth:** `SECURITY_CHECKLIST.md` is authoritative for security review
+criteria and checklist changes. This file remains authoritative for the Wave 5 backlog,
+issue titles, ownership areas, and implementation progress. A listed issue is planned
+work, not proof that a security control is already implemented or verified.
+
 ## How to Contribute
 
 1. Browse open issues tagged **wave-5**

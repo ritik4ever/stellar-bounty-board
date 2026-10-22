@@ -21,6 +21,7 @@ import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
+import { __resetIdempotencyStoreForTests } from '../src/middleware/idempotency';
 
 // ---------------------------------------------------------------------------
 // Test-local helpers
@@ -53,6 +54,7 @@ let originalFetch: typeof globalThis.fetch;
 
 beforeEach(() => {
   vi.resetModules();
+  __resetIdempotencyStoreForTests();
   originalFetch = globalThis.fetch;
 
   // Isolated bounty store so no dev data bleeds into tests.
@@ -281,5 +283,110 @@ describe('GET /api/open-issues — failure modes', () => {
     // Only the non-PR issue should be in the response.
     expect(res.body.data).toHaveLength(1);
     expect(res.body.data[0].id).toBe('GH-42');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Idempotency: replay cached response and prevent re-execution (Issue #1219)
+// ---------------------------------------------------------------------------
+
+describe('GET /api/open-issues — idempotency', () => {
+  it('replays original response and does not re-execute upstream fetch on repeat request with the same Idempotency-Key', async () => {
+    const fetchMock = makeSuccessfulFetch([GITHUB_ISSUE]);
+    (globalThis as any).fetch = fetchMock;
+    const app = await getApp();
+
+    const idempotencyKey = `open-issues-${randomUUID()}`;
+
+    const first = await request(app)
+      .get('/api/open-issues')
+      .set('Idempotency-Key', idempotencyKey)
+      .expect(200);
+
+    const second = await request(app)
+      .get('/api/open-issues')
+      .set('Idempotency-Key', idempotencyKey)
+      .expect(200);
+
+    // Upstream fetch is called exactly once despite duplicate requests
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(second.body).toEqual(first.body);
+    expect(second.body.data[0].id).toBe('GH-42');
+  });
+
+  it('replays original 400 error response on repeat request with the same Idempotency-Key', async () => {
+    const app = await getApp();
+    const idempotencyKey = `open-issues-err-${randomUUID()}`;
+
+    const first = await request(app)
+      .get('/api/open-issues')
+      .set('Idempotency-Key', idempotencyKey)
+      .query({ invalid: 'param' })
+      .expect(400);
+
+    const second = await request(app)
+      .get('/api/open-issues')
+      .set('Idempotency-Key', idempotencyKey)
+      .expect(400);
+
+    expect(second.body).toEqual(first.body);
+    expect(first.body.error).toMatch(/INVALID_QUERY/i);
+  });
+
+  it('replays 502 upstream failure without re-attempting upstream fetch on repeat request', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError('fetch failed'));
+    (globalThis as any).fetch = fetchMock;
+    const app = await getApp();
+    const idempotencyKey = `open-issues-502-${randomUUID()}`;
+
+    const first = await request(app)
+      .get('/api/open-issues')
+      .set('Idempotency-Key', idempotencyKey)
+      .expect(502);
+
+    const second = await request(app)
+      .get('/api/open-issues')
+      .set('Idempotency-Key', idempotencyKey)
+      .expect(502);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(second.body).toEqual(first.body);
+  });
+
+  it('different Idempotency-Key values are treated independently and execute separately', async () => {
+    const fetchMock = makeSuccessfulFetch([GITHUB_ISSUE]);
+    (globalThis as any).fetch = fetchMock;
+    const app = await getApp();
+
+    const key1 = `key-1-${randomUUID()}`;
+    const key2 = `key-2-${randomUUID()}`;
+
+    const first = await request(app)
+      .get('/api/open-issues')
+      .set('Idempotency-Key', key1)
+      .expect(200);
+
+    const second = await request(app)
+      .get('/api/open-issues')
+      .set('Idempotency-Key', key2)
+      .expect(200);
+
+    expect(first.body.data[0].id).toBe('GH-42');
+    expect(second.body.data[0].id).toBe('GH-42');
+  });
+
+  it('passes through and works normally when Idempotency-Key is not set or empty', async () => {
+    (globalThis as any).fetch = makeSuccessfulFetch([GITHUB_ISSUE]);
+    const app = await getApp();
+
+    const resWithoutKey = await request(app).get('/api/open-issues').expect(200);
+
+    const resWithEmptyKey = await request(app)
+      .get('/api/open-issues')
+      .set('Idempotency-Key', '   ')
+      .expect(200);
+
+    expect(resWithoutKey.body.data[0].id).toBe('GH-42');
+    expect(resWithEmptyKey.body.data[0].id).toBe('GH-42');
   });
 });

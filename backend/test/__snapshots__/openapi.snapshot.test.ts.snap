@@ -969,8 +969,17 @@ Maintainers may \`cancel\` an \`open\` bounty before reservation, or \`refund\` 
     },
     "/api/bounties": {
       "get": {
-        "description": "Returns bounty records sorted by \`createdAt\` descending by default, with optional maintainer/status/token filters and sort parameters. Bounties whose deadline has passed are automatically transitioned to \`expired\` before the list is returned.",
+        "description": "Returns bounty records sorted by \`createdAt\` descending by default, with optional maintainer/status/token filters and sort parameters. Bounties whose deadline has passed are automatically transitioned to \`expired\` before the list is returned. An optional \`Idempotency-Key\` header replays the original response for retries made with the same key.",
         "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "description": "Optional key used to replay the original response for repeated requests.",
+              "type": "string",
+            },
+          },
           {
             "in": "query",
             "name": "q",
@@ -2015,7 +2024,18 @@ Response is cached with \`Cache-Control: public, max-age=300\` (5 min) since the
     },
     "/api/health": {
       "get": {
-        "description": "Returns the service name and current server timestamp. Use this to verify the API is reachable.",
+        "description": "Returns the service name and current server timestamp. Use this to verify the API is reachable. An optional \`Idempotency-Key\` header replays the original response for retries made with the same key.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "description": "Optional key used to replay the original response for repeated requests.",
+              "type": "string",
+            },
+          },
+        ],
         "responses": {
           "200": {
             "content": {

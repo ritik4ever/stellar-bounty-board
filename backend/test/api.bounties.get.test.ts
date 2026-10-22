@@ -1,11 +1,34 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { app } from '../src/app';
+import * as bountyStore from '../src/services/bountyStore';
 
 describe('GET /api/bounties — integration test', () => {
   it('returns 200 OK', async () => {
     const res = await request(app).get('/api/bounties');
     expect(res.status).toBe(200);
+  });
+
+  it('replays the original response without repeating the list operation for the same key', async () => {
+    const listSpy = vi.spyOn(bountyStore, 'listBountiesCached');
+    const idempotencyKey = `bounties-${randomUUID()}`;
+
+    try {
+      const first = await request(app)
+        .get('/api/bounties')
+        .set('Idempotency-Key', idempotencyKey)
+        .expect(200);
+      const second = await request(app)
+        .get('/api/bounties')
+        .set('Idempotency-Key', idempotencyKey)
+        .expect(200);
+
+      expect(listSpy).toHaveBeenCalledTimes(1);
+      expect(second.body).toEqual(first.body);
+    } finally {
+      listSpy.mockRestore();
+    }
   });
 
   it('returns an array', async () => {

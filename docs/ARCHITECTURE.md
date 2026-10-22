@@ -131,7 +131,8 @@ Express REST API managing bounty state with JSON file persistence.
 | `src/services/openIssues.ts`  | Serves contribution-ready issue drafts        |
 | `src/validation/schemas.ts`   | Zod schemas for request validation            |
 | `src/utils.ts`                | Rate limiter and helpers                      |
-| `data/bounties.json`          | Persistent bounty storage                     |
+| `data/bounties.json`          | Active and recently terminal bounty storage   |
+| `data/bounties.archive.json`  | Terminal bounties past JSON retention window  |
 
 ### Smart Contract (`contracts/`)
 
