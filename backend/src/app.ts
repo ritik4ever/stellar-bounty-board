@@ -57,6 +57,7 @@ import {
   reserveBountySchema,
   submitBountySchema,
   updateNotesSchema,
+  healthInputSchema,
   zodErrorMessage,
 } from './validation/schemas';
 import { validateBody } from './middleware/validateBody';
@@ -151,10 +152,10 @@ const readLimiter = rateLimit({
     (process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true') ||
     Boolean(
       req.path &&
-        (req.path === '/api/open-issues' ||
-          req.path.endsWith('/open-issues') ||
-          req.path === '/api/bounties' ||
-          req.path === '/api/bounties/')
+      (req.path === '/api/open-issues' ||
+        req.path.endsWith('/open-issues') ||
+        req.path === '/api/bounties' ||
+        req.path === '/api/bounties/')
     ),
 });
 
@@ -398,7 +399,23 @@ app.use(
 );
 app.use(requestContextMiddleware);
 
-const healthHandler = (_req: Request, res: Response) => {
+const healthHandler = (req: Request, res: Response) => {
+  const result = healthInputSchema.safeParse({
+    params: req.params,
+    query: req.query,
+    body: req.body,
+  });
+
+  if (!result.success) {
+    res.status(400).json({
+      error: 'Invalid input for health endpoint.',
+      code: 'HEALTH_INVALID_INPUT',
+      details: result.error.issues,
+      requestId: req.requestId,
+    });
+    return;
+  }
+
   res.json({
     service: 'stellar-bounty-board-api',
     status: 'ok',
@@ -408,15 +425,11 @@ const healthHandler = (_req: Request, res: Response) => {
 
 app.get('/api/health', idempotencyMiddleware, healthHandler);
 
-app.get(
-  '/api/health/deep',
-  idempotencyMiddleware,
-  async (_req: Request, res: Response) => {
-    const result = await runDeepHealthCheck();
-    const statusCode = result.overall === 'up' ? 200 : 503;
-    res.status(statusCode).json(result);
-  },
-);
+app.get('/api/health/deep', idempotencyMiddleware, async (_req: Request, res: Response) => {
+  const result = await runDeepHealthCheck();
+  const statusCode = result.overall === 'up' ? 200 : 503;
+  res.status(statusCode).json(result);
+});
 
 app.get('/worker/health', (_req: Request, res: Response) => {
   res.json({

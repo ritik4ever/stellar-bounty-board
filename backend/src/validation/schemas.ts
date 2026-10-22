@@ -81,15 +81,10 @@ export const createBountySchema = z
       .int()
       .positive('Issue number must be positive.')
       .openapi({ example: 42, description: 'GitHub issue number this bounty is attached to.' }),
-    title: z
-      .string()
-      .trim()
-      .min(5)
-      .max(120)
-      .openapi({
-        example: 'Fix login redirect bug',
-        description: 'Short bounty title (5–120 chars).',
-      }),
+    title: z.string().trim().min(5).max(120).openapi({
+      example: 'Fix login redirect bug',
+      description: 'Short bounty title (5–120 chars).',
+    }),
     summary: z.string().trim().min(20).max(280).openapi({
       example:
         'The login page does not redirect after successful authentication. Fix the redirect logic.',
@@ -114,13 +109,10 @@ export const createBountySchema = z
         example: 'XLM',
         description: 'Stellar token symbol for payout (1–12 alphanumeric chars).',
       }),
-    amount: z.coerce
-      .number()
-      .positive()
-      .openapi({
-        example: 42.5,
-        description: 'Payout amount in the selected token.',
-      }),
+    amount: z.coerce.number().positive().openapi({
+      example: 42.5,
+      description: 'Payout amount in the selected token.',
+    }),
     deadlineDays: z.coerce
       .number()
       .int()
@@ -186,15 +178,10 @@ export const submitBountySchema = z
       description: 'GitHub pull request URL for the submission.',
     }),
 
-    notes: z
-      .string()
-      .trim()
-      .max(240)
-      .optional()
-      .openapi({
-        example: 'Fixed by updating the redirect handler.',
-        description: 'Optional notes (max 240 chars).',
-      }),
+    notes: z.string().trim().max(240).optional().openapi({
+      example: 'Fixed by updating the redirect handler.',
+      description: 'Optional notes (max 240 chars).',
+    }),
   })
   .openapi('SubmitBountyRequest');
 
@@ -225,12 +212,10 @@ export const resolveDisputeBountySchema = z
     arbiter: stellarAccountSchema.openapi({
       description: 'Stellar public key of the arbiter resolving the dispute.',
     }),
-    release: z
-      .boolean()
-      .openapi({
-        example: true,
-        description: 'Whether the arbiter resolves the dispute in favor of the contributor.',
-      }),
+    release: z.boolean().openapi({
+      example: true,
+      description: 'Whether the arbiter resolves the dispute in favor of the contributor.',
+    }),
     transactionHash: z
       .string()
       .trim()
@@ -298,14 +283,10 @@ export const updateNotesSchema = z
     maintainer: stellarAccountSchema.openapi({
       description: 'Must match the maintainer address on the bounty.',
     }),
-    notes: z
-      .string()
-      .trim()
-      .max(2000, 'Notes must be at most 2000 characters.')
-      .openapi({
-        example: 'Added additional details about the bounty requirements.',
-        description: 'Maintainer notes for the bounty (max 2000 characters).',
-      }),
+    notes: z.string().trim().max(2000, 'Notes must be at most 2000 characters.').openapi({
+      example: 'Added additional details about the bounty requirements.',
+      description: 'Maintainer notes for the bounty (max 2000 characters).',
+    }),
   })
   .openapi('UpdateNotesRequest');
 
@@ -367,7 +348,9 @@ export const bountyRecordSchema = z
     maintainer: z.string().openapi({ example: STELLAR_EXAMPLE }),
     contributor: z.string().optional().openapi({ example: STELLAR_EXAMPLE }),
     tokenSymbol: z.string().openapi({ example: 'XLM' }),
-    tokenAddress: z.string().openapi({ example: 'CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA' }),
+    tokenAddress: z
+      .string()
+      .openapi({ example: 'CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA' }),
     amount: z.number().openapi({ example: 100 }),
     labels: z.array(z.string()).openapi({ example: ['bug', 'help wanted'] }),
     status: z
@@ -422,11 +405,9 @@ export const openIssueSchema = z
     id: z.string().openapi({ example: 'SBB-101' }),
     title: z.string().openapi({ example: 'Add Freighter wallet signing' }),
     labels: z.array(z.string()).openapi({ example: ['enhancement', 'help wanted'] }),
-    summary: z
-      .string()
-      .openapi({
-        example: 'Replace prompt-based demo actions with wallet-authenticated transactions.',
-      }),
+    summary: z.string().openapi({
+      example: 'Replace prompt-based demo actions with wallet-authenticated transactions.',
+    }),
     impact: z.enum(['starter', 'core', 'advanced']).openapi({ example: 'core' }),
   })
   .openapi('OpenIssue');
@@ -448,7 +429,16 @@ export const bountyAuditLogSchema = z
       .enum(['open', 'reserved', 'submitted', 'released', 'refunded', 'expired'])
       .openapi({ example: 'reserved' }),
     transition: z
-      .enum(['reserve', 'submit', 'release', 'refund', 'cancel', 'expire', 'dispute', 'update_notes'])
+      .enum([
+        'reserve',
+        'submit',
+        'release',
+        'refund',
+        'cancel',
+        'expire',
+        'dispute',
+        'update_notes',
+      ])
       .openapi({ example: 'reserve' }),
     actor: z.string().openapi({ example: STELLAR_EXAMPLE }),
     timestamp: z
@@ -484,6 +474,28 @@ export const bountyAuditLogListResponseSchema = z
     pageSize: z.number().int().min(1).max(100).openapi({ example: 20 }),
   })
   .openapi('BountyAuditLogListResponse');
+
+/**
+ * Input validation for `GET /api/health`.
+ *
+ * The health endpoint is a simple liveness probe that accepts no meaningful
+ * input. This schema enforces that callers do not send unexpected query
+ * parameters or a request body. Any extraneous input is rejected with a 400
+ * before the handler executes, preventing confusing downstream behaviour.
+ *
+ * - **params** – empty (the route has no path parameters).
+ * - **query** – must be empty; unknown keys are rejected.
+ * - **body** – must be `undefined`, `null`, or `{}`.
+ */
+export const healthInputSchema = z
+  .object({
+    params: z.object({}).strict().openapi({ description: 'No path parameters expected.' }),
+    query: z.object({}).strict().openapi({ description: 'No query parameters expected.' }),
+    body: z
+      .union([z.undefined(), z.null(), z.object({}).strict()])
+      .openapi({ description: 'No request body expected.' }),
+  })
+  .openapi('HealthInput');
 
 /** Response of the shallow health check. `timestamp` is an ISO-8601 string. */
 export const healthResponseSchema = z
