@@ -158,7 +158,7 @@ const mutationLimiter = rateLimit({
   message: { error: 'Too many mutations, please slow down.' },
   skip: (req: Request) =>
     (process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true') ||
-    Boolean(req.path && req.path.endsWith('/release')),
+    Boolean(req.path && (req.path.endsWith('/release') || req.path.endsWith('/submit'))),
 });
 
 /**
@@ -189,6 +189,44 @@ export const releaseLimiter = rateLimit({
     res.setHeader('Retry-After', String(retryAfter));
     res.status(429).json({
       error: 'Too many bounty release attempts. Please try again later.',
+      retryAfter,
+      requestId: req.requestId,
+    });
+  },
+});
+
+/**
+ * Route-specific explicit rate limiter for POST /api/bounties/:id/submit (#1205).
+ *
+ * Cost justification:
+ * Submitting a bounty is a moderately expensive, unauthenticated operation that:
+ * 1. Performs an outbound GitHub API call to validate the submission URL against the
+ *    source repository and issue (validateGithubPrUrlForRepo) — every request consumes
+ *    third-party quota and is a potential amplification/abuse target since no
+ *    authentication is required.
+ * 2. Acquires the global store lock and rewrites persistent bounty state
+ *    ('reserved' -> 'submitted'), appends audit logs, and invalidates the bounty cache.
+ * 3. Triggers asynchronous maintainer notifications for the submitted bounty.
+ *
+ * A contributor submits intentionally once per reserved bounty; legitimate callers do not
+ * invoke this endpoint in high-frequency bursts. An explicit ceiling of 10 requests per
+ * minute (configurable via RATE_LIMIT_SUBMIT_MAX and RATE_LIMIT_SUBMIT_WINDOW_MS) prevents
+ * GitHub API quota exhaustion from unauthenticated traffic and protects store persistence
+ * from write spam.
+ *
+ * When the limit is exceeded, HTTP 429 is returned with an explicit Retry-After header.
+ */
+export const submitLimiter = rateLimit({
+  windowMs: appConfig.rateLimitSubmitWindowMs,
+  max: appConfig.rateLimitSubmitMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true',
+  handler: (req: Request, res: Response) => {
+    const retryAfter = Math.ceil(appConfig.rateLimitSubmitWindowMs / 1000);
+    res.setHeader('Retry-After', String(retryAfter));
+    res.status(429).json({
+      error: 'Too many bounty submission attempts. Please try again later.',
       retryAfter,
       requestId: req.requestId,
     });
@@ -992,7 +1030,7 @@ app.post(
 
 app.post(
   '/api/bounties/:id/submit',
-  mutationLimiter,
+  submitLimiter,
   requireJsonContentType,
   idempotencyMiddleware,
   validateBody(submitBountySchema),

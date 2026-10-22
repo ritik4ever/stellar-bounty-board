@@ -17,6 +17,10 @@ export interface AppConfig {
   rateLimitReleaseMax: number;
   /** Rate limit window in milliseconds for release endpoint (default: 60000 = 1 minute). */
   rateLimitReleaseWindowMs: number;
+  /** Maximum submit requests per window (default: 10). */
+  rateLimitSubmitMax: number;
+  /** Rate limit window in milliseconds for submit endpoint (default: 60000 = 1 minute). */
+  rateLimitSubmitWindowMs: number;
   /** Default pagination limit for list endpoints (default: 20). */
   defaultPageSize: number;
   /** Maximum allowable pagination limit for list endpoints (default: 100). */
@@ -55,6 +59,8 @@ export function getAppConfig(): AppConfig {
     rateLimitMutationMax: parsePositiveInt(process.env.RATE_LIMIT_MUTATION_MAX, 10),
     rateLimitReleaseMax: parsePositiveInt(process.env.RATE_LIMIT_RELEASE_MAX, 10),
     rateLimitReleaseWindowMs: parsePositiveInt(process.env.RATE_LIMIT_RELEASE_WINDOW_MS, 60_000),
+    rateLimitSubmitMax: parsePositiveInt(process.env.RATE_LIMIT_SUBMIT_MAX, 10),
+    rateLimitSubmitWindowMs: parsePositiveInt(process.env.RATE_LIMIT_SUBMIT_WINDOW_MS, 60_000),
     defaultPageSize: parsePositiveInt(process.env.DEFAULT_PAGE_SIZE, 20),
     maxPageSize: parsePositiveInt(process.env.MAX_PAGE_SIZE, 100),
     defaultLeaderboardLimit: parsePositiveInt(process.env.DEFAULT_LEADERBOARD_LIMIT, 10),
