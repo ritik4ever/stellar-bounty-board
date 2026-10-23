@@ -3612,3 +3612,189 @@ fn test_get_bounty_one_second_past_deadline_is_expired() {
         "Bounty one second past deadline must be Expired"
     );
 }
+
+
+// ─── release_bounty authorization ───────────────────────────────────────
+// `release_bounty` is maintainer-only. These tests pin both the
+// `require_auth()` signer check and the explicit `MaintainerMismatch` check.
+
+use soroban_sdk::testutils::{MockAuth, MockAuthInvoke};
+
+type ReleaseAuthFixture = (
+    StellarBountyBoardContractClient<'static>,
+    u64,
+    Address, // maintainer
+    Address, // contributor
+    Address, // token_id
+    Address, // admin
+    Address, // arbiter
+);
+
+/// Builds a Submitted bounty (setup runs under `mock_all_auths`; each test
+/// then overrides auth with `mock_auths` / `set_auths`).
+fn release_auth_fixture(env: &Env) -> ReleaseAuthFixture {
+    env.mock_all_auths();
+    let (client, admin, maintainer, contributor, token_id, _fee_recipient, arbiter) =
+        setup_test(env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(env, &token_id);
+    token_admin.mint(&maintainer, &10_000);
+    let bounty_id = create_bounty_with_state(
+        env,
+        &client,
+        maintainer.clone(),
+        contributor.clone(),
+        token_id.clone(),
+        BountyStatus::Submitted,
+        arbiter.clone(),
+    );
+    (
+        client,
+        bounty_id,
+        maintainer,
+        contributor,
+        token_id,
+        admin,
+        arbiter,
+    )
+}
+
+/// Authorizes exactly `release_bounty(bounty_id, arg)` for `signer`.
+fn mock_release_auth(
+    env: &Env,
+    client: &StellarBountyBoardContractClient<'static>,
+    signer: &Address,
+    bounty_id: u64,
+    arg: &Address,
+) {
+    env.mock_auths(&[MockAuth {
+        address: signer,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "release_bounty",
+            args: (bounty_id, arg.clone()).into_val(env),
+            sub_invokes: &[],
+        },
+    }]);
+}
+
+#[test]
+fn test_release_bounty_auth_correct_maintainer_succeeds() {
+    let env = Env::default();
+    let (client, bounty_id, maintainer, contributor, token_id, _admin, _arbiter) =
+        release_auth_fixture(&env);
+
+    mock_release_auth(&env, &client, &maintainer, bounty_id, &maintainer);
+    client.release_bounty(&bounty_id, &maintainer);
+
+    assert_eq!(client.get_bounty(&bounty_id).status, BountyStatus::Released);
+    let token = soroban_sdk::token::TokenClient::new(&env, &token_id);
+    assert_eq!(token.balance(&contributor), 500);
+}
+
+#[test]
+#[should_panic(expected = "Error(Auth, InvalidAction)")]
+fn test_release_bounty_auth_missing_signer_rejected() {
+    let env = Env::default();
+    let (client, bounty_id, maintainer, _contributor, _token_id, _admin, _arbiter) =
+        release_auth_fixture(&env);
+
+    // No authorization at all.
+    env.set_auths(&[]);
+    client.release_bounty(&bounty_id, &maintainer);
+}
+
+// Wrong signer: the maintainer address is passed as the argument, but a
+// different address signed. `maintainer.require_auth()` must fail.
+
+#[test]
+#[should_panic(expected = "Error(Auth, InvalidAction)")]
+fn test_release_bounty_auth_wrong_signer_contributor_rejected() {
+    let env = Env::default();
+    let (client, bounty_id, maintainer, contributor, _token_id, _admin, _arbiter) =
+        release_auth_fixture(&env);
+
+    mock_release_auth(&env, &client, &contributor, bounty_id, &maintainer);
+    client.release_bounty(&bounty_id, &maintainer);
+}
+
+#[test]
+#[should_panic(expected = "Error(Auth, InvalidAction)")]
+fn test_release_bounty_auth_wrong_signer_arbiter_rejected() {
+    let env = Env::default();
+    let (client, bounty_id, maintainer, _contributor, _token_id, _admin, arbiter) =
+        release_auth_fixture(&env);
+
+    mock_release_auth(&env, &client, &arbiter, bounty_id, &maintainer);
+    client.release_bounty(&bounty_id, &maintainer);
+}
+
+#[test]
+#[should_panic(expected = "Error(Auth, InvalidAction)")]
+fn test_release_bounty_auth_wrong_signer_admin_rejected() {
+    let env = Env::default();
+    let (client, bounty_id, maintainer, _contributor, _token_id, admin, _arbiter) =
+        release_auth_fixture(&env);
+
+    mock_release_auth(&env, &client, &admin, bounty_id, &maintainer);
+    client.release_bounty(&bounty_id, &maintainer);
+}
+
+#[test]
+#[should_panic(expected = "Error(Auth, InvalidAction)")]
+fn test_release_bounty_auth_wrong_signer_stranger_rejected() {
+    let env = Env::default();
+    let (client, bounty_id, maintainer, _contributor, _token_id, _admin, _arbiter) =
+        release_auth_fixture(&env);
+    let stranger = Address::generate(&env);
+
+    mock_release_auth(&env, &client, &stranger, bounty_id, &maintainer);
+    client.release_bounty(&bounty_id, &maintainer);
+}
+
+// Self-signed wrong caller: authorized for themselves but not the bounty's
+// maintainer, so the contract rejects with `MaintainerMismatch` (#25).
+
+#[test]
+#[should_panic(expected = "Error(Contract, #25)")]
+fn test_release_bounty_auth_self_signed_contributor_rejected() {
+    let env = Env::default();
+    let (client, bounty_id, _maintainer, contributor, _token_id, _admin, _arbiter) =
+        release_auth_fixture(&env);
+
+    mock_release_auth(&env, &client, &contributor, bounty_id, &contributor);
+    client.release_bounty(&bounty_id, &contributor);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #25)")]
+fn test_release_bounty_auth_self_signed_arbiter_rejected() {
+    let env = Env::default();
+    let (client, bounty_id, _maintainer, _contributor, _token_id, _admin, arbiter) =
+        release_auth_fixture(&env);
+
+    mock_release_auth(&env, &client, &arbiter, bounty_id, &arbiter);
+    client.release_bounty(&bounty_id, &arbiter);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #25)")]
+fn test_release_bounty_auth_self_signed_admin_rejected() {
+    let env = Env::default();
+    let (client, bounty_id, _maintainer, _contributor, _token_id, admin, _arbiter) =
+        release_auth_fixture(&env);
+
+    mock_release_auth(&env, &client, &admin, bounty_id, &admin);
+    client.release_bounty(&bounty_id, &admin);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #25)")]
+fn test_release_bounty_auth_self_signed_stranger_rejected() {
+    let env = Env::default();
+    let (client, bounty_id, _maintainer, _contributor, _token_id, _admin, _arbiter) =
+        release_auth_fixture(&env);
+    let stranger = Address::generate(&env);
+
+    mock_release_auth(&env, &client, &stranger, bounty_id, &stranger);
+    client.release_bounty(&bounty_id, &stranger);
+}
