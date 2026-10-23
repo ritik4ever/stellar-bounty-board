@@ -11,6 +11,7 @@ import {
   deepHealthResponseSchema,
   maintainerActionSchema,
   openIssueSchema,
+  bountyIdSchema,
   reserveBountySchema,
   resolveDisputeBountySchema,
   submitBountySchema,
@@ -351,12 +352,14 @@ registry.registerPath({
     "Only one contributor can hold a reservation at a time. " +
     "Rate-limited to **5 requests per IP per minute**.",
   request: {
-    params: z.object({ id: z.string().openapi(bountyIdParam.schema) }),
+    params: z.object({ id: bountyIdSchema }),
     body: jsonBody(reserveBountySchema),
   },
   responses: {
     200: bountyDataResponse("Bounty successfully reserved."),
-    400: errorResponse("Bounty not found, not open, or validation failed."),
+    400: errorResponse(
+      "Bounty not found, not open, or request input is invalid (`BOUNTY_RESERVE_INVALID_INPUT`)."
+    ),
   },
 });
 

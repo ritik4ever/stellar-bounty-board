@@ -269,6 +269,9 @@ Routes:
     - `401 Unauthorized` — missing or invalid Stellar signature authorization header.
     - `429 Too Many Requests` — rate limit exceeded.
 - `POST /api/bounties/:id/reserve` — reserve an open bounty
+  - The `id` path parameter must be non-empty; no query parameters are accepted.
+    `expectedVersion`, when provided, must be a positive integer. Invalid path,
+    query, or body input returns `400` with code `BOUNTY_RESERVE_INVALID_INPUT`.
   - **Request Body**:
     ```json
     {
@@ -289,7 +292,7 @@ Routes:
     }
     ```
   - **Error Responses**:
-    - `400 Bad Request` — invalid request payload (`INVALID_BODY`).
+    - `400 Bad Request` — invalid path, query, or request body (`BOUNTY_RESERVE_INVALID_INPUT`).
     - `404 Not Found` — bounty ID not found (`BOUNTY_NOT_FOUND`).
     - `409 Conflict` — bounty is already reserved/released, or version mismatch.
     - `429 Too Many Requests` — rate limit exceeded.

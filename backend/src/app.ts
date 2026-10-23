@@ -54,7 +54,7 @@ import {
   resolveDisputeBountySchema,
   maintainerActionSchema,
   bulkActionSchema,
-  reserveBountySchema,
+  reserveBountyRequestSchema,
   submitBountySchema,
   updateNotesSchema,
   healthInputSchema,
@@ -1216,8 +1216,28 @@ app.post(
   mutationLimiter,
   enforceBodyLimit(DEFAULT_BODY_LIMIT),
   requireJsonContentType,
+  (req: Request, res: Response, next: NextFunction) => {
+    const parsed = reserveBountyRequestSchema.safeParse({
+      params: req.params,
+      query: req.query,
+      body: req.body,
+    });
+
+    if (!parsed.success) {
+      res.status(400).json({
+        error: `INVALID_INPUT: ${zodErrorMessage(parsed.error)}`,
+        code: 'BOUNTY_RESERVE_INVALID_INPUT',
+        details: parsed.error.issues,
+        requestId: req.requestId,
+      });
+      return;
+    }
+
+    req.params.id = parsed.data.params.id;
+    req.body = parsed.data.body;
+    next();
+  },
   idempotencyMiddleware,
-  validateBody(reserveBountySchema),
   async (req: Request, res: Response) => {
     try {
       const bounty = await reserveBounty(

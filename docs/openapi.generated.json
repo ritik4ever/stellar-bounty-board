@@ -464,13 +464,15 @@
           },
           "expectedVersion": {
             "type": "integer",
-            "description": "Optional version number for race condition prevention. If provided, must match current bounty version.",
+            "minimum": 1,
+            "description": "Optional positive version number for race condition prevention. If provided, must match current bounty version.",
             "example": 1
           }
         },
         "required": [
           "contributor"
-        ]
+        ],
+        "additionalProperties": false
       },
       "SubmitBountyRequest": {
         "type": "object",
@@ -1891,7 +1893,8 @@
           {
             "schema": {
               "type": "string",
-              "example": "BNT-0001"
+              "example": "BNT-0001",
+              "minLength": 1
             },
             "required": true,
             "name": "id",
@@ -1928,7 +1931,7 @@
             }
           },
           "400": {
-            "description": "Bounty not found, not open, or validation failed.",
+            "description": "Bounty not found, not open, or request input is invalid (`BOUNTY_RESERVE_INVALID_INPUT`).",
             "content": {
               "application/json": {
                 "schema": {

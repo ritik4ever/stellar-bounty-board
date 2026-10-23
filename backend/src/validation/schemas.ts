@@ -137,20 +137,35 @@ export const createBountySchema = z
 /**
  * Request body for reserving a bounty. `expectedVersion`, when given, enables
  * optimistic concurrency: the store rejects the reservation if the bounty's
- * version has changed. This schema only checks that it is an integer.
+ * version has changed. It must be a positive integer.
  */
 export const reserveBountySchema = z
   .object({
     contributor: stellarAccountSchema.openapi({
       description: 'Stellar public key of the contributor reserving the bounty.',
     }),
-    expectedVersion: z.number().int().optional().openapi({
+    expectedVersion: z.number().int().positive().optional().openapi({
       example: 1,
       description:
-        'Optional version number for race condition prevention. If provided, must match current bounty version.',
+        'Optional positive version number for race condition prevention. If provided, must match current bounty version.',
     }),
   })
+  .strict()
   .openapi('ReserveBountyRequest');
+
+/**
+ * Request for `POST /api/bounties/:id/reserve`.
+ *
+ * Validates the route ID, the empty query string, and the reservation body
+ * together so malformed input is rejected before idempotency or store logic.
+ */
+export const reserveBountyRequestSchema = z
+  .object({
+    params: z.object({ id: bountyIdSchema }).strict(),
+    query: z.object({}).strict(),
+    body: reserveBountySchema,
+  })
+  .strict();
 
 /**
  * Exact-match pattern for `https://github.com/<owner>/<repo>/pull/<number>`.
