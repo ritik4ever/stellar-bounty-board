@@ -32,6 +32,18 @@ coverage
 # `npm run check:bindings` to fail in CI due to git diff discrepancies.
 frontend/src/generated
 
+# Auto-generated OpenAPI spec (Deliberately chosen):
+# Produced by `npm run gen:openapi` via JSON.stringify(..., null, 2). Prettier
+# collapses arrays onto single lines, producing churn that no longer matches the
+# generator output on every regeneration. Do not reformat.
+docs/openapi.generated.json
+
+# OpenAPI registry source (Deliberately chosen):
+# Hand-maintained spec definitions written with double quotes; eslint (the CI
+# gate) enforces code quality, while reformatting this large file with prettier
+# produces unrelated churn. Kept out of prettier to keep diffs focused.
+backend/src/docs/openapi.ts
+
 # Cargo compiler artifacts for Soroban contracts (Deliberately chosen):
 contracts/target
 target
@@ -41,6 +53,13 @@ target
 contracts/test_snapshots
 contracts/**/test_snapshots
 *.zip
+
+# Generated OpenAPI artifacts (Deliberately chosen):
+# `frontend`-consumed spec and its source are emitted by `npm run gen:openapi`.
+# Reformatting them creates churn and breaks the spec drift check
+# (`test/openapi.routes.test.ts`), so they are kept byte-for-byte as generated.
+backend/src/docs/openapi.ts
+docs/openapi.generated.json
 
 # ------------------------------------------------------------------------------
 # Runtime Data Stores (Deliberately chosen)

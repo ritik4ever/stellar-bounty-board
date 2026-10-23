@@ -113,7 +113,7 @@ impl Fixture {
     }
 }
 
-// ─── Committee Configuration Tests ──────────────────────────────────────────
+// â”€â”€â”€ Committee Configuration Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 #[test]
 fn test_admin_configures_committee() {
@@ -128,7 +128,7 @@ fn test_admin_configures_committee() {
 }
 
 #[test]
-#[should_panic(expected = "CommitteeSizeExceeded")]
+#[should_panic(expected = "Error(Contract, #36)")]
 fn test_committee_size_exceeded_fails() {
     let fix = setup();
     let four_members = vec![
@@ -142,7 +142,7 @@ fn test_committee_size_exceeded_fails() {
 }
 
 #[test]
-#[should_panic(expected = "DuplicateCommitteeMember")]
+#[should_panic(expected = "Error(Contract, #37)")]
 fn test_committee_duplicate_members_fails() {
     let fix = setup();
     let duplicates = vec![
@@ -154,7 +154,7 @@ fn test_committee_duplicate_members_fails() {
     fix.client.set_arbiter_committee(&duplicates);
 }
 
-// ─── Acceptance Criteria 1: Single Vote Does Not Release Funds ───────────────
+// â”€â”€â”€ Acceptance Criteria 1: Single Vote Does Not Release Funds â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 #[test]
 fn test_single_vote_does_not_release_funds() {
@@ -179,7 +179,7 @@ fn test_single_vote_does_not_release_funds() {
     assert_eq!(votes.get(0).unwrap().decision, true);
 }
 
-// ─── Acceptance Criteria 2: Two Matching Votes Triggers Resolution ───────────
+// â”€â”€â”€ Acceptance Criteria 2: Two Matching Votes Triggers Resolution â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 #[test]
 fn test_two_matching_votes_release_funds_to_contributor() {
@@ -228,7 +228,7 @@ fn test_two_matching_votes_refund_to_maintainer() {
     assert_eq!(fix.token_client().balance(&fix.contributor), 0);
 }
 
-// ─── Acceptance Criteria 3: Conflicting Votes + Tie-Breaker ──────────────────
+// â”€â”€â”€ Acceptance Criteria 3: Conflicting Votes + Tie-Breaker â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 #[test]
 fn test_conflicting_votes_with_tie_breaker_resolves_to_majority() {
@@ -274,10 +274,10 @@ fn test_conflicting_votes_with_tie_breaker_resolves_to_refund() {
     assert_eq!(fix.token_client().balance(&fix.contributor), 0);
 }
 
-// ─── Edge Cases & Failure Paths ──────────────────────────────────────────────
+// â”€â”€â”€ Edge Cases & Failure Paths â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 #[test]
-#[should_panic(expected = "DuplicateCommitteeVote")]
+#[should_panic(expected = "Error(Contract, #35)")]
 fn test_duplicate_vote_rejected() {
     let fix = setup();
     fix.configure_committee();
@@ -289,7 +289,7 @@ fn test_duplicate_vote_rejected() {
 }
 
 #[test]
-#[should_panic(expected = "NotCommitteeMember")]
+#[should_panic(expected = "Error(Contract, #34)")]
 fn test_non_committee_member_cannot_vote() {
     let fix = setup();
     fix.configure_committee();
@@ -299,7 +299,7 @@ fn test_non_committee_member_cannot_vote() {
 }
 
 #[test]
-#[should_panic(expected = "CommitteeNotConfigured")]
+#[should_panic(expected = "Error(Contract, #38)")]
 fn test_vote_without_committee_configured_fails() {
     let fix = setup();
     let bounty_id = fix.create_disputed_bounty(1000, 0);
@@ -309,7 +309,7 @@ fn test_vote_without_committee_configured_fails() {
 }
 
 #[test]
-#[should_panic(expected = "bounty not disputed")]
+#[should_panic(expected = "Error(Contract, #41)")]
 fn test_voting_on_undisputed_bounty_fails() {
     let fix = setup();
     fix.configure_committee();

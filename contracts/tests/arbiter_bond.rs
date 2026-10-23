@@ -136,7 +136,7 @@ fn an_address_that_never_bonded_has_no_stake() {
 }
 
 #[test]
-#[should_panic(expected = "StakeTokenMismatch")]
+#[should_panic(expected = "Error(Contract, #31)")]
 fn topping_up_in_a_different_token_is_rejected() {
     let f = setup();
     f.bond(&f.candidate, 5_000);
@@ -149,7 +149,7 @@ fn topping_up_in_a_different_token_is_rejected() {
 }
 
 #[test]
-#[should_panic(expected = "InvalidAmount")]
+#[should_panic(expected = "Error(Contract, #11)")]
 fn bonding_zero_is_rejected() {
     let f = setup();
     f.client.bond_arbiter_stake(&f.candidate, &f.token, &0);
@@ -193,7 +193,7 @@ fn the_arbiter_can_raise_the_minimum() {
 }
 
 #[test]
-#[should_panic(expected = "InvalidAmount")]
+#[should_panic(expected = "Error(Contract, #11)")]
 fn a_minimum_of_zero_is_rejected() {
     // Zero would make the bond decorative: every address would qualify.
     let f = setup();
@@ -201,14 +201,14 @@ fn a_minimum_of_zero_is_rejected() {
 }
 
 #[test]
-#[should_panic(expected = "InsufficientArbiterStake")]
+#[should_panic(expected = "Error(Contract, #30)")]
 fn an_unbonded_candidate_cannot_be_rotated_in() {
     let f = setup();
     f.client.set_arbiter(&f.candidate);
 }
 
 #[test]
-#[should_panic(expected = "InsufficientArbiterStake")]
+#[should_panic(expected = "Error(Contract, #30)")]
 fn a_candidate_bonded_below_the_minimum_cannot_be_rotated_in() {
     let f = setup();
     f.bond(&f.candidate, DEFAULT_MIN_ARBITER_STAKE - 1);
@@ -232,7 +232,7 @@ fn a_bonded_candidate_is_rotated_in_once_the_timelock_elapses() {
 }
 
 #[test]
-#[should_panic(expected = "InsufficientArbiterStake")]
+#[should_panic(expected = "Error(Contract, #30)")]
 fn a_slash_during_the_timelock_blocks_the_rotation() {
     let f = setup();
     f.bond(&f.candidate, DEFAULT_MIN_ARBITER_STAKE);
@@ -304,7 +304,7 @@ fn slashing_the_whole_bond_empties_it_without_removing_the_record() {
 }
 
 #[test]
-#[should_panic(expected = "SlashExceedsStake")]
+#[should_panic(expected = "Error(Contract, #33)")]
 fn slashing_more_than_the_bond_is_rejected() {
     // The contract can only pay out of funds it actually holds, so an
     // over-slash has to fail rather than drain other bounties' escrow.
@@ -315,7 +315,7 @@ fn slashing_more_than_the_bond_is_rejected() {
 }
 
 #[test]
-#[should_panic(expected = "NoArbiterStake")]
+#[should_panic(expected = "Error(Contract, #32)")]
 fn slashing_an_unbonded_address_is_rejected() {
     let f = setup();
     f.client.slash_arbiter(
@@ -326,7 +326,7 @@ fn slashing_an_unbonded_address_is_rejected() {
 }
 
 #[test]
-#[should_panic(expected = "InvalidAmount")]
+#[should_panic(expected = "Error(Contract, #11)")]
 fn slashing_zero_is_rejected() {
     let f = setup();
     f.bond(&f.candidate, 5_000);

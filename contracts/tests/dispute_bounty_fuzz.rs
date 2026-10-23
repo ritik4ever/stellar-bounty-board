@@ -89,12 +89,12 @@ impl LcgRng {
 fn matches_documented_error(err_str: &str) -> bool {
     // Only documented errors are allowed
     let documented = [
-        "BountyNotFound",
-        "BountyExpired",
-        "MissingContributor",
-        "BountyMustBeSubmitted",
-        "ArbiterNotSet",
-        "NotArbiter",
+        "Error(Contract, #2)",
+        "Error(Contract, #22)",
+        "Error(Contract, #27)",
+        "Error(Contract, #20)",
+        "Error(Contract, #8)",
+        "Error(Contract, #7)",
     ];
 
     for doc in documented {

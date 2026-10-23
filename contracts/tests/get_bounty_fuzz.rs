@@ -169,7 +169,7 @@ fn test_fuzz_get_bounty_invalid_and_arbitrary_ids() {
             ""
         };
         assert!(
-            msg.contains("BountyNotFound"),
+            msg.contains("Error(Contract, #2)"),
             "Expected documented BountyNotFound error for edge ID {}, got panic: {}",
             id,
             msg
@@ -203,7 +203,7 @@ fn test_fuzz_get_bounty_invalid_and_arbitrary_ids() {
             ""
         };
         assert!(
-            msg.contains("BountyNotFound"),
+            msg.contains("Error(Contract, #2)"),
             "Expected documented BountyNotFound error for random ID {}, got panic: {}",
             rand_id,
             msg

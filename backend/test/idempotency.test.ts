@@ -264,3 +264,113 @@ describe('idempotency middleware', () => {
     expect(second.body).toEqual(first.body);
   });
 });
+
+describe('POST /api/bounties idempotency (#1194)', () => {
+  let storeFile: string;
+
+  beforeEach(() => {
+    storeFile = path.join(os.tmpdir(), `bounty-create-idempotency-${randomUUID()}.json`);
+    fs.writeFileSync(storeFile, '[]', 'utf8');
+    process.env.BOUNTY_STORE_PATH = storeFile;
+    vi.resetModules();
+    __resetIdempotencyStoreForTests();
+  });
+
+  afterEach(() => {
+    delete process.env.BOUNTY_STORE_PATH;
+    for (const suffix of ['', '.audit.json', '.health-probe']) {
+      try {
+        fs.unlinkSync(`${storeFile}${suffix}`);
+      } catch {
+        /* best-effort */
+      }
+    }
+  });
+
+  async function getApp() {
+    const { app } = await import('../src/app');
+    return app;
+  }
+
+  it('replays the original response and does not re-execute the create for a repeated key', async () => {
+    const app = await getApp();
+    const key = `create-replay-${randomUUID()}`;
+
+    const first = await request(app)
+      .post('/api/bounties')
+      .set('Idempotency-Key', key)
+      .send(validCreateBody)
+      .expect(201);
+
+    // Second call carries a different body; the cached response must still win.
+    const second = await request(app)
+      .post('/api/bounties')
+      .set('Idempotency-Key', key)
+      .send({ ...validCreateBody, issueNumber: 1234, title: 'A different bounty entirely' })
+      .expect(201);
+
+    expect(second.body).toEqual(first.body);
+    expect(second.body.data.id).toBe(first.body.data.id);
+  });
+
+  it('produces exactly one effect from a duplicated request', async () => {
+    const app = await getApp();
+    const key = `create-single-effect-${randomUUID()}`;
+
+    const first = await request(app)
+      .post('/api/bounties')
+      .set('Idempotency-Key', key)
+      .send(validCreateBody)
+      .expect(201);
+
+    await request(app)
+      .post('/api/bounties')
+      .set('Idempotency-Key', key)
+      .send(validCreateBody)
+      .expect(201);
+
+    // Exactly one bounty exists in the store.
+    const list = await request(app).get('/api/bounties').expect(200);
+    expect(list.body.total).toBe(1);
+    expect(list.body.data).toHaveLength(1);
+
+    // The single persisted record carries exactly one `created` event.
+    const id = first.body.data.id as string;
+    const created = list.body.data.find((b: { id: string }) => b.id === id);
+    expect(created.events).toHaveLength(1);
+    expect(created.events[0].type).toBe('created');
+  });
+
+  it('creates distinct bounties for distinct keys', async () => {
+    const app = await getApp();
+
+    const first = await request(app)
+      .post('/api/bounties')
+      .set('Idempotency-Key', `create-a-${randomUUID()}`)
+      .send(validCreateBody)
+      .expect(201);
+
+    const second = await request(app)
+      .post('/api/bounties')
+      .set('Idempotency-Key', `create-b-${randomUUID()}`)
+      .send({ ...validCreateBody, issueNumber: 100 })
+      .expect(201);
+
+    expect(second.body.data.id).not.toBe(first.body.data.id);
+
+    const list = await request(app).get('/api/bounties').expect(200);
+    expect(list.body.total).toBe(2);
+  });
+
+  it('creates a new bounty when no idempotency key is supplied', async () => {
+    const app = await getApp();
+
+    const first = await request(app).post('/api/bounties').send(validCreateBody).expect(201);
+    const second = await request(app).post('/api/bounties').send(validCreateBody).expect(201);
+
+    expect(second.body.data.id).not.toBe(first.body.data.id);
+
+    const list = await request(app).get('/api/bounties').expect(200);
+    expect(list.body.total).toBe(2);
+  });
+});

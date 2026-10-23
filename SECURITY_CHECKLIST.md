@@ -130,7 +130,7 @@ This matrix covers every numbered item in [`docs/wave-5.md`](docs/wave-5.md). â€
 | 14 | Per-IP rate limiting | Related: 2 | Review placement and bypass resistance alongside authentication/authorization changes. |
 | 15 | `X-Request-ID` propagation | Related: 1, 5 | Treat supplied IDs as untrusted input; do not place secrets or personal data in IDs/logs. |
 | 16 | Concurrent reservation integration test | Related: 1, 2 | Exercise validation and authorization invariants under race conditions where applicable. |
-| 17 | JSON store to SQLite / Drizzle ORM | Direct: 4 | Review new dependencies and migration tooling for necessity and known vulnerabilities. |
+| 17 | JSON store to PostgreSQL (SQLite/Drizzle retired, see ADR 0004) | Direct: 4 | Review new dependencies and migration tooling for necessity and known vulnerabilities. |
 | 18 | `BOUNTY_STORE_PATH` configuration | Related: 1, 5 | Validate the configured path and keep deployment secrets out of configuration/log output. |
 | 19 | Graceful shutdown / stop expiration job | No direct match | Lifecycle and reliability work. |
 | 20 | Zod validation for expiration settings | Direct: 1 | Validate environment values and reject invalid configuration at startup. |

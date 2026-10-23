@@ -81,15 +81,10 @@ export const createBountySchema = z
       .int()
       .positive('Issue number must be positive.')
       .openapi({ example: 42, description: 'GitHub issue number this bounty is attached to.' }),
-    title: z
-      .string()
-      .trim()
-      .min(5)
-      .max(120)
-      .openapi({
-        example: 'Fix login redirect bug',
-        description: 'Short bounty title (5–120 chars).',
-      }),
+    title: z.string().trim().min(5).max(120).openapi({
+      example: 'Fix login redirect bug',
+      description: 'Short bounty title (5–120 chars).',
+    }),
     summary: z.string().trim().min(20).max(280).openapi({
       example:
         'The login page does not redirect after successful authentication. Fix the redirect logic.',
@@ -114,13 +109,10 @@ export const createBountySchema = z
         example: 'XLM',
         description: 'Stellar token symbol for payout (1–12 alphanumeric chars).',
       }),
-    amount: z.coerce
-      .number()
-      .positive()
-      .openapi({
-        example: 42.5,
-        description: 'Payout amount in the selected token.',
-      }),
+    amount: z.coerce.number().positive().openapi({
+      example: 42.5,
+      description: 'Payout amount in the selected token.',
+    }),
     deadlineDays: z.coerce
       .number()
       .int()
@@ -145,20 +137,35 @@ export const createBountySchema = z
 /**
  * Request body for reserving a bounty. `expectedVersion`, when given, enables
  * optimistic concurrency: the store rejects the reservation if the bounty's
- * version has changed. This schema only checks that it is an integer.
+ * version has changed. It must be a positive integer.
  */
 export const reserveBountySchema = z
   .object({
     contributor: stellarAccountSchema.openapi({
       description: 'Stellar public key of the contributor reserving the bounty.',
     }),
-    expectedVersion: z.number().int().optional().openapi({
+    expectedVersion: z.number().int().positive().optional().openapi({
       example: 1,
       description:
-        'Optional version number for race condition prevention. If provided, must match current bounty version.',
+        'Optional positive version number for race condition prevention. If provided, must match current bounty version.',
     }),
   })
+  .strict()
   .openapi('ReserveBountyRequest');
+
+/**
+ * Request for `POST /api/bounties/:id/reserve`.
+ *
+ * Validates the route ID, the empty query string, and the reservation body
+ * together so malformed input is rejected before idempotency or store logic.
+ */
+export const reserveBountyRequestSchema = z
+  .object({
+    params: z.object({ id: bountyIdSchema }).strict(),
+    query: z.object({}).strict(),
+    body: reserveBountySchema,
+  })
+  .strict();
 
 /**
  * Exact-match pattern for `https://github.com/<owner>/<repo>/pull/<number>`.
@@ -186,15 +193,10 @@ export const submitBountySchema = z
       description: 'GitHub pull request URL for the submission.',
     }),
 
-    notes: z
-      .string()
-      .trim()
-      .max(240)
-      .optional()
-      .openapi({
-        example: 'Fixed by updating the redirect handler.',
-        description: 'Optional notes (max 240 chars).',
-      }),
+    notes: z.string().trim().max(240).optional().openapi({
+      example: 'Fixed by updating the redirect handler.',
+      description: 'Optional notes (max 240 chars).',
+    }),
   })
   .openapi('SubmitBountyRequest');
 
@@ -225,12 +227,10 @@ export const resolveDisputeBountySchema = z
     arbiter: stellarAccountSchema.openapi({
       description: 'Stellar public key of the arbiter resolving the dispute.',
     }),
-    release: z
-      .boolean()
-      .openapi({
-        example: true,
-        description: 'Whether the arbiter resolves the dispute in favor of the contributor.',
-      }),
+    release: z.boolean().openapi({
+      example: true,
+      description: 'Whether the arbiter resolves the dispute in favor of the contributor.',
+    }),
     transactionHash: z
       .string()
       .trim()
@@ -298,14 +298,10 @@ export const updateNotesSchema = z
     maintainer: stellarAccountSchema.openapi({
       description: 'Must match the maintainer address on the bounty.',
     }),
-    notes: z
-      .string()
-      .trim()
-      .max(2000, 'Notes must be at most 2000 characters.')
-      .openapi({
-        example: 'Added additional details about the bounty requirements.',
-        description: 'Maintainer notes for the bounty (max 2000 characters).',
-      }),
+    notes: z.string().trim().max(2000, 'Notes must be at most 2000 characters.').openapi({
+      example: 'Added additional details about the bounty requirements.',
+      description: 'Maintainer notes for the bounty (max 2000 characters).',
+    }),
   })
   .openapi('UpdateNotesRequest');
 
@@ -331,6 +327,124 @@ export const extendDeadlineSchema = z
       }),
   })
   .openapi('ExtendDeadlineRequest');
+
+// ---------------------------------------------------------------------------
+// GET /api/bounties input validation
+// ---------------------------------------------------------------------------
+
+/** Statuses accepted by the `status` filter on `GET /api/bounties`. */
+const BOUNTY_STATUS_VALUES = [
+  'open',
+  'reserved',
+  'submitted',
+  'released',
+  'refunded',
+  'expired',
+  'disputed',
+] as const;
+
+/** Fields accepted by the `sort` query parameter on `GET /api/bounties`. */
+const BOUNTY_SORT_FIELDS = ['amount', 'deadline', 'createdAt', 'status'] as const;
+
+/** Directions accepted by the `order` query parameter on `GET /api/bounties`. */
+const BOUNTY_SORT_ORDERS = ['asc', 'desc'] as const;
+
+/** Express parses `?q=` as an empty string; treat blank values as absent. */
+const emptyQueryValueToUndefined = (value: unknown): unknown =>
+  typeof value === 'string' && value.trim() === '' ? undefined : value;
+
+/** Makes a query-string schema optional while treating blank values as absent. */
+function optionalQueryValue<T extends z.ZodTypeAny>(schema: T) {
+  return z.preprocess(emptyQueryValueToUndefined, schema.optional());
+}
+
+/** Coerces a non-negative reward filter to a finite number. */
+const rewardQueryValueSchema = optionalQueryValue(z.coerce.number().finite().nonnegative());
+
+/** Coerces the 1-based page number, defaulting when absent. */
+const pageQueryValueSchema = z.preprocess(
+  emptyQueryValueToUndefined,
+  z.coerce.number().int().min(1, 'page must be greater than or equal to 1.').default(1)
+);
+
+/** Coerces a page size of 1–100; the route defaults to 20 when absent. */
+const pageSizeQueryValueSchema = optionalQueryValue(z.coerce.number().int().min(1).max(100));
+
+/**
+ * Converts an ISO 8601 deadline filter to Unix seconds. The route compares it
+ * against `deadlineAt`, which is stored in seconds.
+ */
+const deadlineQueryValueSchema = z.preprocess(
+  emptyQueryValueToUndefined,
+  z
+    .string()
+    .trim()
+    .refine((value) => !Number.isNaN(new Date(value).getTime()), {
+      message: 'Must be a valid ISO 8601 date string.',
+    })
+    .transform((value) => Math.floor(new Date(value).getTime() / 1000))
+    .optional()
+);
+
+/**
+ * Query string for `GET /api/bounties`.
+ *
+ * Covers every filter, sort, and pagination parameter the route accepts and
+ * rejects unknown parameters via `.strict()`. Repeated parameters arrive as
+ * arrays and therefore fail the scalar checks instead of being silently
+ * ignored. `limit` and `pageSize` are both accepted; the route prefers
+ * `limit`, matching the documented legacy alias. Blank values are treated as
+ * absent so `?q=&page=` behaves like an unfiltered request.
+ */
+export const listBountiesQuerySchema = z
+  .object({
+    q: optionalQueryValue(z.string().trim().min(1, 'q must not be empty.')),
+    repo: optionalQueryValue(
+      z.string().trim().regex(REPO_REGEX, 'Repo must look like owner/repository.')
+    ),
+    minReward: rewardQueryValueSchema,
+    maxReward: rewardQueryValueSchema,
+    contributor: optionalQueryValue(stellarAccountSchema),
+    maintainer: optionalQueryValue(stellarAccountSchema),
+    status: optionalQueryValue(z.enum(BOUNTY_STATUS_VALUES)),
+    tokenSymbol: optionalQueryValue(
+      z
+        .string()
+        .trim()
+        .regex(TOKEN_REGEX, 'Token symbol must be 1-12 letters or numbers.')
+        .transform((symbol) => symbol.toUpperCase())
+    ),
+    sort: z.preprocess(emptyQueryValueToUndefined, z.enum(BOUNTY_SORT_FIELDS).default('createdAt')),
+    order: z.preprocess(emptyQueryValueToUndefined, z.enum(BOUNTY_SORT_ORDERS).default('desc')),
+    page: pageQueryValueSchema,
+    limit: pageSizeQueryValueSchema,
+    pageSize: pageSizeQueryValueSchema,
+    deadlineBefore: deadlineQueryValueSchema,
+    deadlineAfter: deadlineQueryValueSchema,
+  })
+  .strict()
+  .refine(
+    (query) =>
+      query.minReward === undefined ||
+      query.maxReward === undefined ||
+      query.minReward <= query.maxReward,
+    {
+      message: 'minReward must be less than or equal to maxReward.',
+      path: ['minReward'],
+    }
+  );
+
+/**
+ * Complete input for `GET /api/bounties`: no path parameters, the validated
+ * query string, and no request body.
+ */
+export const listBountiesInputSchema = z.object({
+  params: z.object({}).strict().openapi({ description: 'No path parameters expected.' }),
+  query: listBountiesQuerySchema,
+  body: z
+    .union([z.undefined(), z.null(), z.object({}).strict()])
+    .openapi({ description: 'No request body expected.' }),
+});
 
 // ---------------------------------------------------------------------------
 // Shared response schemas
@@ -367,7 +481,9 @@ export const bountyRecordSchema = z
     maintainer: z.string().openapi({ example: STELLAR_EXAMPLE }),
     contributor: z.string().optional().openapi({ example: STELLAR_EXAMPLE }),
     tokenSymbol: z.string().openapi({ example: 'XLM' }),
-    tokenAddress: z.string().openapi({ example: 'CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA' }),
+    tokenAddress: z
+      .string()
+      .openapi({ example: 'CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA' }),
     amount: z.number().openapi({ example: 100 }),
     labels: z.array(z.string()).openapi({ example: ['bug', 'help wanted'] }),
     status: z
@@ -422,11 +538,9 @@ export const openIssueSchema = z
     id: z.string().openapi({ example: 'SBB-101' }),
     title: z.string().openapi({ example: 'Add Freighter wallet signing' }),
     labels: z.array(z.string()).openapi({ example: ['enhancement', 'help wanted'] }),
-    summary: z
-      .string()
-      .openapi({
-        example: 'Replace prompt-based demo actions with wallet-authenticated transactions.',
-      }),
+    summary: z.string().openapi({
+      example: 'Replace prompt-based demo actions with wallet-authenticated transactions.',
+    }),
     impact: z.enum(['starter', 'core', 'advanced']).openapi({ example: 'core' }),
   })
   .openapi('OpenIssue');
@@ -448,7 +562,16 @@ export const bountyAuditLogSchema = z
       .enum(['open', 'reserved', 'submitted', 'released', 'refunded', 'expired'])
       .openapi({ example: 'reserved' }),
     transition: z
-      .enum(['reserve', 'submit', 'release', 'refund', 'cancel', 'expire', 'dispute', 'update_notes'])
+      .enum([
+        'reserve',
+        'submit',
+        'release',
+        'refund',
+        'cancel',
+        'expire',
+        'dispute',
+        'update_notes',
+      ])
       .openapi({ example: 'reserve' }),
     actor: z.string().openapi({ example: STELLAR_EXAMPLE }),
     timestamp: z
@@ -484,6 +607,28 @@ export const bountyAuditLogListResponseSchema = z
     pageSize: z.number().int().min(1).max(100).openapi({ example: 20 }),
   })
   .openapi('BountyAuditLogListResponse');
+
+/**
+ * Input validation for `GET /api/health`.
+ *
+ * The health endpoint is a simple liveness probe that accepts no meaningful
+ * input. This schema enforces that callers do not send unexpected query
+ * parameters or a request body. Any extraneous input is rejected with a 400
+ * before the handler executes, preventing confusing downstream behaviour.
+ *
+ * - **params** – empty (the route has no path parameters).
+ * - **query** – must be empty; unknown keys are rejected.
+ * - **body** – must be `undefined`, `null`, or `{}`.
+ */
+export const healthInputSchema = z
+  .object({
+    params: z.object({}).strict().openapi({ description: 'No path parameters expected.' }),
+    query: z.object({}).strict().openapi({ description: 'No query parameters expected.' }),
+    body: z
+      .union([z.undefined(), z.null(), z.object({}).strict()])
+      .openapi({ description: 'No request body expected.' }),
+  })
+  .openapi('HealthInput');
 
 /** Response of the shallow health check. `timestamp` is an ISO-8601 string. */
 export const healthResponseSchema = z

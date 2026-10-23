@@ -11,6 +11,7 @@ import {
   deepHealthResponseSchema,
   maintainerActionSchema,
   openIssueSchema,
+  bountyIdSchema,
   reserveBountySchema,
   resolveDisputeBountySchema,
   submitBountySchema,
@@ -128,9 +129,35 @@ registry.registerPath({
     "Extended health check that verifies all external dependencies. " +
     "Checks JSON store read/write, Soroban RPC reachability, contract ID configuration, " +
     "and auth configuration (MAINTAINER_PUBLIC_KEY and ARBITER_ADDRESS). " +
-    "Excluded from rate limiting. Returns HTTP 503 when any critical component is down.",
+    "Each component check has a configurable timeout via DEEP_HEALTH_CHECK_TIMEOUT_MS " +
+    "(default 5000 ms); a timed-out component is reported as down. " +
+    "Limited to 10 requests per minute per IP by default (configurable with " +
+    "RATE_LIMIT_DEEP_HEALTH_MAX and RATE_LIMIT_DEEP_HEALTH_WINDOW_MS). " +
+    "Returns HTTP 503 when any critical component is down.",
   responses: {
     200: jsonResponse("All critical components are healthy.", deepHealthResponseSchema),
+    400: jsonResponse(
+      "Invalid input: the route accepts no path parameters, query string, or request body.",
+      errorResponseSchema
+    ),
+    429: {
+      description: "Rate limit exceeded. Retry after the number of seconds in Retry-After.",
+      headers: {
+        "Retry-After": {
+          description: "Seconds to wait before retrying.",
+          schema: { type: "string" },
+        },
+      },
+      content: {
+        "application/json": {
+          schema: z.object({
+            error: z.string(),
+            retryAfter: z.number(),
+            requestId: z.string().optional(),
+          }),
+        },
+      },
+    },
     503: jsonResponse("One or more critical components are down.", deepHealthResponseSchema),
   },
 });
@@ -319,8 +346,14 @@ registry.registerPath({
   description:
     "Creates a new open bounty and persists it. " +
     "Rate-limited to **5 requests per IP per minute**. " +
-    "The `deadlineAt` timestamp is computed as `now + deadlineDays * 86400`.",
+    "The `deadlineAt` timestamp is computed as `now + deadlineDays * 86400`. " +
+    "An optional `Idempotency-Key` header replays the original response for retries made with the same key, so a client retrying after a timeout does not create a duplicate bounty.",
   request: {
+    headers: z.object({
+      "Idempotency-Key": z.string().optional().openapi({
+        description: "Optional key used to replay the original response for repeated requests.",
+      }),
+    }),
     body: jsonBody(createBountySchema),
   },
   responses: {
@@ -339,12 +372,14 @@ registry.registerPath({
     "Only one contributor can hold a reservation at a time. " +
     "Rate-limited to **5 requests per IP per minute**.",
   request: {
-    params: z.object({ id: z.string().openapi(bountyIdParam.schema) }),
+    params: z.object({ id: bountyIdSchema }),
     body: jsonBody(reserveBountySchema),
   },
   responses: {
     200: bountyDataResponse("Bounty successfully reserved."),
-    400: errorResponse("Bounty not found, not open, or validation failed."),
+    400: errorResponse(
+      "Bounty not found, not open, or request input is invalid (`BOUNTY_RESERVE_INVALID_INPUT`)."
+    ),
   },
 });
 

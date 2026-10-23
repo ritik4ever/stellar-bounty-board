@@ -104,10 +104,10 @@ fn matches_documented_refund_error(err_str: &str) -> bool {
     // Contract panics with panic_error(ContractError::Variant) which the Soroban host
     // surfaces either as the named variant, InvokeError::Abort, or Error(Context, InvalidAction).
     let documented = [
-        "BountyNotFound",
-        "MaintainerMismatch",
-        "BountyAlreadyFinalized",
-        "BountyNotExpiredYet",
+        "Error(Contract, #2)",
+        "Error(Contract, #25)",
+        "Error(Contract, #23)",
+        "Error(Contract, #21)",
         "InvalidAction",
         "Abort",
     ];

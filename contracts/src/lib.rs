@@ -114,6 +114,22 @@ pub struct BountyCreated {
 
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BountyCreatedEvent {
+    pub bounty_id: u64,
+    pub maintainer: Address,
+    pub token: Address,
+    pub amount: i128,
+    pub repo: String,
+    pub issue_number: u32,
+    pub title: String,
+    pub deadline: u64,
+    pub protocol_fee_bps: u32,
+    pub dispute_window_override: Option<u64>,
+    pub created_at: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BountyReserved {
     pub bounty_id: u64,
     pub contributor: Address,
@@ -393,64 +409,71 @@ pub const MAX_BOUNTY_AMOUNT: i128 = 1_000_000_000_000_000;
 /// `set_min_arbiter_stake`, the same way `DEFAULT_MIN_BOUNTY_AMOUNT` is.
 pub const DEFAULT_MIN_ARBITER_STAKE: i128 = 1_000_000_000;
 
-/// Contract error discriminant used by `panic_error` to produce stable,
-/// indexer-friendly panic messages.  We stringify via Display (via
-/// `panic!` with `"{e:?}"`) so the variant name appears verbatim in
-/// the ledger entry and in any snapshot diffs.
+/// Stable, machine-readable Soroban contract errors.
+/// Codes 1-3 preserve the original README contract. Never renumber or reuse a
+/// code; append a new explicit value when introducing a new failure mode.
+#[soroban_sdk::contracterror]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
 pub enum ContractError {
-    AlreadyInitialized,
-    NotInitialized,
-    NotAdmin,
-    NotArbiter,
-    ArbiterNotSet,
-    NoPendingArbiter,
-    TimelockNotElapsed,
-    InvalidAmount,
-    AmountTooSmall,
-    DeadlineMustBeInTheFuture,
-    DeadlineMustAdvance,
-    FeeRecipientNotSet,
-    TokenNotAllowed,
-    DisputeWindowOverrideTooSmall,
-    DisputeWindowOverrideTooLarge,
-    BountyNotFound,
-    BountyNotOpen,
-    BountyMustBeReserved,
-    BountyMustBeSubmitted,
-    BountyNotExpiredYet,
-    BountyExpired,
-    BountyAlreadyFinalized,
-    CannotExtendFinalizedBounty,
-    MaintainerMismatch,
-    ContributorMismatch,
-    MissingContributor,
-    DisputeWindowNotMet,
-    ContractIsPaused,
-    // ── Appended (see the note on `DataKey`): the variant name is part of the
-    //    contract's observable panic message, so these are only ever added.
+    BountyNotOpen = 1,
+    BountyNotFound = 2,
+    BountyAlreadyReserved = 3,
+    AlreadyInitialized = 4,
+    NotInitialized = 5,
+    NotAdmin = 6,
+    NotArbiter = 7,
+    ArbiterNotSet = 8,
+    NoPendingArbiter = 9,
+    TimelockNotElapsed = 10,
+    InvalidAmount = 11,
+    AmountTooSmall = 12,
+    DeadlineMustBeInTheFuture = 13,
+    DeadlineMustAdvance = 14,
+    FeeRecipientNotSet = 15,
+    TokenNotAllowed = 16,
+    DisputeWindowOverrideTooSmall = 17,
+    DisputeWindowOverrideTooLarge = 18,
+    BountyMustBeReserved = 19,
+    BountyMustBeSubmitted = 20,
+    BountyNotExpiredYet = 21,
+    BountyExpired = 22,
+    BountyAlreadyFinalized = 23,
+    CannotExtendFinalizedBounty = 24,
+    MaintainerMismatch = 25,
+    ContributorMismatch = 26,
+    MissingContributor = 27,
+    DisputeWindowNotMet = 28,
+    ContractIsPaused = 29,
     /// The address has no bond, or less than `MinArbiterStake`.
-    InsufficientArbiterStake,
+    InsufficientArbiterStake = 30,
     /// A bond is held in a different token than the one being paid in.
-    StakeTokenMismatch,
+    StakeTokenMismatch = 31,
     /// The address has never bonded, so there is nothing to slash.
-    NoArbiterStake,
+    NoArbiterStake = 32,
     /// The requested slash is larger than the bond held.
-    SlashExceedsStake,
+    SlashExceedsStake = 33,
     /// Caller is not a registered arbiter committee member.
-    NotCommitteeMember,
+    NotCommitteeMember = 34,
     /// Committee member has already voted on this dispute.
-    DuplicateCommitteeVote,
+    DuplicateCommitteeVote = 35,
     /// Committee exceeds maximum allowed members (3).
-    CommitteeSizeExceeded,
+    CommitteeSizeExceeded = 36,
     /// Committee contains duplicate member addresses.
-    DuplicateCommitteeMember,
+    DuplicateCommitteeMember = 37,
     /// Committee is not configured in contract storage.
-    CommitteeNotConfigured,
+    CommitteeNotConfigured = 38,
+    InvalidFeeBps = 39,
+    BountyIdOverflow = 40,
+    BountyMustBeDisputed = 41,
+    EscrowTransferFailed = 42,
+    PayoutTransferFailed = 43,
+    FeeTransferFailed = 44,
+    RefundTransferFailed = 45,
 }
 
-fn panic_error(e: ContractError) -> ! {
-    panic!("{e:?}")
+fn panic_error(env: &Env, e: ContractError) -> ! {
+    soroban_sdk::panic_with_error!(env, e)
 }
 
 #[contract]
@@ -534,10 +557,10 @@ impl StellarBountyBoardContract {
         arbiter.require_auth();
 
         if new_min <= 0 {
-            panic_error(ContractError::InvalidAmount);
+            panic_error(&env, ContractError::InvalidAmount);
         }
         if new_min > MAX_BOUNTY_AMOUNT {
-            panic_error(ContractError::InvalidAmount);
+            panic_error(&env, ContractError::InvalidAmount);
         }
 
         env.storage()
@@ -657,51 +680,58 @@ impl StellarBountyBoardContract {
         maintainer.require_auth();
 
         if Self::get_paused_state(env.clone()) {
-            panic_error(ContractError::ContractIsPaused);
+            panic_error(&env, ContractError::ContractIsPaused);
         }
 
         let min_amount = Self::get_min_bounty_amount(env.clone());
 
         if amount <= 0 || amount > MAX_BOUNTY_AMOUNT {
-            panic_error(ContractError::InvalidAmount);
+            panic_error(&env, ContractError::InvalidAmount);
         }
         if amount < min_amount {
-            panic_error(ContractError::AmountTooSmall);
+            panic_error(&env, ContractError::AmountTooSmall);
         }
         if deadline <= env.ledger().timestamp() {
-            panic_error(ContractError::DeadlineMustBeInTheFuture);
+            panic_error(&env, ContractError::DeadlineMustBeInTheFuture);
         }
         //fee cannot exceed 100% (10000 bps)
         if protocol_fee_bps > 10_000 {
-            panic!("fee exceeds 100%");
+            panic_error(&env, ContractError::InvalidFeeBps);
         }
         if protocol_fee_bps > 0 && !env.storage().persistent().has(&DataKey::FeeRecipient) {
-            panic_error(ContractError::FeeRecipientNotSet);
+            panic_error(&env, ContractError::FeeRecipientNotSet);
         }
         if !is_token_allowed(&env, token.clone()) {
-            panic_error(ContractError::TokenNotAllowed);
+            panic_error(&env, ContractError::TokenNotAllowed);
         }
 
         // Validate dispute window override if provided
         if let Some(override_value) = dispute_window_override {
             if override_value < MIN_DISPUTE_WINDOW_OVERRIDE {
-                panic_error(ContractError::DisputeWindowOverrideTooSmall);
+                panic_error(&env, ContractError::DisputeWindowOverrideTooSmall);
             }
             if override_value > MAX_DISPUTE_WINDOW_OVERRIDE {
-                panic_error(ContractError::DisputeWindowOverrideTooLarge);
+                panic_error(&env, ContractError::DisputeWindowOverrideTooLarge);
             }
         }
 
         let token_client = TokenClient::new(&env, &token);
         let contract_address = env.current_contract_address();
-        token_client.transfer(&maintainer, &contract_address, &amount);
+        if !matches!(
+            token_client.try_transfer(&maintainer, &contract_address, &amount),
+            Ok(Ok(()))
+        ) {
+            panic_error(&env, ContractError::EscrowTransferFailed);
+        }
 
         let mut next_id: u64 = env
             .storage()
             .persistent()
             .get(&DataKey::NextBountyId)
             .unwrap_or(0);
-        next_id += 1;
+        next_id = next_id
+            .checked_add(1)
+            .unwrap_or_else(|| panic_error(&env, ContractError::BountyIdOverflow));
 
         let bounty = Bounty {
             maintainer: maintainer.clone(),
@@ -710,7 +740,7 @@ impl StellarBountyBoardContract {
             amount,
             repo: repo.clone(),
             issue_number,
-            title,
+            title: title.clone(),
             deadline,
             status: BountyStatus::Open,
             protocol_fee_bps,
@@ -729,12 +759,29 @@ impl StellarBountyBoardContract {
             (symbol_short!("Bounty"), symbol_short!("Create")),
             BountyCreated {
                 bounty_id: next_id,
+                maintainer: maintainer.clone(),
+                token: token.clone(),
+                amount,
+                repo: repo.clone(),
+                issue_number,
+                protocol_fee_bps,
+            },
+        );
+
+        env.events().publish(
+            (symbol_short!("Bounty"), symbol_short!("CrtEvent")),
+            BountyCreatedEvent {
+                bounty_id: next_id,
                 maintainer,
                 token,
                 amount,
                 repo,
                 issue_number,
+                title,
+                deadline,
                 protocol_fee_bps,
+                dispute_window_override,
+                created_at: env.ledger().timestamp(),
             },
         );
 
@@ -757,7 +804,9 @@ impl StellarBountyBoardContract {
     /// # Errors & Panic Paths
     /// * [`ContractError::ContractIsPaused`] - If the contract circuit-breaker is paused (`Self::get_paused_state`).
     /// * [`ContractError::BountyNotFound`] - If no bounty exists with the given `bounty_id` (raised in `read_bounty`).
-    /// * [`ContractError::BountyNotOpen`] - If the bounty's status is not [`BountyStatus::Open`] or has expired past deadline.
+    /// * [`ContractError::BountyAlreadyReserved`] - If an unexpired bounty is reserved.
+    /// * [`ContractError::BountyExpired`] - If the deadline elapsed or status is Expired.
+    /// * [`ContractError::BountyNotOpen`] - If another non-open status prevents reservation.
     ///
     /// # Storage
     /// * **Read**:
@@ -772,14 +821,20 @@ impl StellarBountyBoardContract {
         contributor.require_auth();
 
         if Self::get_paused_state(env.clone()) {
-            panic_error(ContractError::ContractIsPaused);
+            panic_error(&env, ContractError::ContractIsPaused);
         }
 
         let mut bounty = read_bounty(&env, bounty_id);
         expire_if_needed(&env, &mut bounty);
 
+        if bounty.status == BountyStatus::Expired {
+            panic_error(&env, ContractError::BountyExpired);
+        }
+        if bounty.status == BountyStatus::Reserved {
+            panic_error(&env, ContractError::BountyAlreadyReserved);
+        }
         if bounty.status != BountyStatus::Open {
-            panic_error(ContractError::BountyNotOpen);
+            panic_error(&env, ContractError::BountyNotOpen);
         }
 
         bounty.contributor = Some(contributor.clone());
@@ -807,17 +862,17 @@ impl StellarBountyBoardContract {
         expire_if_needed(&env, &mut bounty);
 
         if bounty.maintainer != maintainer {
-            panic_error(ContractError::MaintainerMismatch);
+            panic_error(&env, ContractError::MaintainerMismatch);
         }
 
         if bounty.status != BountyStatus::Reserved {
-            panic_error(ContractError::BountyMustBeReserved);
+            panic_error(&env, ContractError::BountyMustBeReserved);
         }
 
         let old_contributor = bounty
             .contributor
             .clone()
-            .unwrap_or_else(|| panic_error(ContractError::MissingContributor));
+            .unwrap_or_else(|| panic_error(&env, ContractError::MissingContributor));
 
         bounty.contributor = Some(new_contributor.clone());
         write_bounty(&env, bounty_id, &bounty);
@@ -847,7 +902,7 @@ impl StellarBountyBoardContract {
     ///
     /// # Errors & Panic Paths
     /// * [`ContractError::BountyNotFound`] - If no bounty exists with the given `bounty_id` (via `read_bounty`).
-    /// * [`ContractError::BountyMustBeReserved`] - If the bounty's status is not [`BountyStatus::Reserved`] (also triggered if `expire_if_needed` transitions an expired bounty to [`BountyStatus::Expired`]).
+    /// * [`ContractError::BountyMustBeReserved`] - If the bounty's status is not [`BountyStatus::Reserved`].
     /// * [`ContractError::ContributorMismatch`] - If `contributor` does not match the bounty's assigned worker (`bounty.contributor != Some(contributor)`).
     ///
     /// # Storage
@@ -863,11 +918,18 @@ impl StellarBountyBoardContract {
         let mut bounty = read_bounty(&env, bounty_id);
         expire_if_needed(&env, &mut bounty);
 
-        if bounty.status != BountyStatus::Reserved {
-            panic_error(ContractError::BountyMustBeReserved);
+        if bounty.status == BountyStatus::Expired {
+            panic_error(&env, ContractError::BountyExpired);
         }
-        if bounty.contributor != Some(contributor.clone()) {
-            panic_error(ContractError::ContributorMismatch);
+        if bounty.status != BountyStatus::Reserved {
+            panic_error(&env, ContractError::BountyMustBeReserved);
+        }
+        let assigned = bounty
+            .contributor
+            .as_ref()
+            .unwrap_or_else(|| panic_error(&env, ContractError::MissingContributor));
+        if assigned != &contributor {
+            panic_error(&env, ContractError::ContributorMismatch);
         }
 
         bounty.status = BountyStatus::Submitted;
@@ -900,7 +962,7 @@ impl StellarBountyBoardContract {
     /// * [`ContractError::BountyNotFound`] - If no bounty exists with the given `bounty_id` (via `read_bounty`).
     /// * [`ContractError::MaintainerMismatch`] - If the caller `maintainer` does not match the bounty's registered creator (`bounty.maintainer != maintainer`).
     /// * [`ContractError::BountyMustBeSubmitted`] - If the bounty's current status is not [`BountyStatus::Submitted`].
-    /// * Panics via `unwrap()` if the bounty lacks an assigned contributor (`bounty.contributor` is `None`).
+    /// * [`ContractError::MissingContributor`] - If the bounty has no assigned contributor.
     /// * Contract token client panics if token transfers to contributor or treasury fail.
     ///
     /// # Storage
@@ -917,13 +979,16 @@ impl StellarBountyBoardContract {
         let mut bounty = read_bounty(&env, bounty_id);
 
         if bounty.maintainer != maintainer {
-            panic_error(ContractError::MaintainerMismatch);
+            panic_error(&env, ContractError::MaintainerMismatch);
         }
         if bounty.status != BountyStatus::Submitted {
-            panic_error(ContractError::BountyMustBeSubmitted);
+            panic_error(&env, ContractError::BountyMustBeSubmitted);
         }
 
-        let contributor = bounty.contributor.clone().unwrap();
+        let contributor = bounty
+            .contributor
+            .clone()
+            .unwrap_or_else(|| panic_error(&env, ContractError::MissingContributor));
 
         let token_client = TokenClient::new(&env, &bounty.token);
         let contract_address = env.current_contract_address();
@@ -943,7 +1008,12 @@ impl StellarBountyBoardContract {
         let net_payout = bounty.amount - fee_amount;
 
         // Transfer net payout to contributor
-        token_client.transfer(&contract_address, &contributor, &net_payout);
+        if !matches!(
+            token_client.try_transfer(&contract_address, &contributor, &net_payout),
+            Ok(Ok(()))
+        ) {
+            panic_error(&env, ContractError::PayoutTransferFailed);
+        }
 
         // Transfer fee to recipient (only when fee is non-zero)
         if fee_amount > 0 {
@@ -951,8 +1021,13 @@ impl StellarBountyBoardContract {
                 .storage()
                 .persistent()
                 .get(&DataKey::FeeRecipient)
-                .unwrap_or_else(|| panic_error(ContractError::FeeRecipientNotSet));
-            token_client.transfer(&contract_address, &fee_recipient, &fee_amount);
+                .unwrap_or_else(|| panic_error(&env, ContractError::FeeRecipientNotSet));
+            if !matches!(
+                token_client.try_transfer(&contract_address, &fee_recipient, &fee_amount),
+                Ok(Ok(()))
+            ) {
+                panic_error(&env, ContractError::FeeTransferFailed);
+            }
         }
         // ─────────────────────────────────────────────────────────────────
 
@@ -966,7 +1041,7 @@ impl StellarBountyBoardContract {
             (symbol_short!("Bounty"), symbol_short!("Releas")),
             BountyReleased {
                 bounty_id,
-                contributor,
+                contributor: contributor.clone(),
                 amount: net_payout, // net amount after fee
                 fee_amount,
             },
@@ -981,7 +1056,7 @@ impl StellarBountyBoardContract {
             BountyReleasedEvent {
                 bounty_id,
                 maintainer: bounty.maintainer.clone(),
-                contributor: bounty.contributor.clone().unwrap(),
+                contributor,
                 token: bounty.token.clone(),
                 amount: net_payout,
                 fee_amount,
@@ -1026,22 +1101,27 @@ impl StellarBountyBoardContract {
         let mut bounty = read_bounty(&env, bounty_id);
 
         if bounty.maintainer != maintainer {
-            panic_error(ContractError::MaintainerMismatch);
+            panic_error(&env, ContractError::MaintainerMismatch);
         }
 
         if bounty.status == BountyStatus::Released || bounty.status == BountyStatus::Refunded {
-            panic_error(ContractError::BountyAlreadyFinalized);
+            panic_error(&env, ContractError::BountyAlreadyFinalized);
         }
 
         let now = env.ledger().timestamp();
         if now <= bounty.deadline && bounty.deadline != 0 {
-            panic_error(ContractError::BountyNotExpiredYet);
+            panic_error(&env, ContractError::BountyNotExpiredYet);
         }
 
         let token_client = TokenClient::new(&env, &bounty.token);
         let contract_address = env.current_contract_address();
         // Refund returns the FULL original amount there is no fee on refunds
-        token_client.transfer(&contract_address, &maintainer, &bounty.amount);
+        if !matches!(
+            token_client.try_transfer(&contract_address, &maintainer, &bounty.amount),
+            Ok(Ok(()))
+        ) {
+            panic_error(&env, ContractError::RefundTransferFailed);
+        }
 
         bounty.status = BountyStatus::Refunded;
         write_bounty(&env, bounty_id, &bounty);
@@ -1062,10 +1142,10 @@ impl StellarBountyBoardContract {
         expire_if_needed(&env, &mut bounty);
 
         if bounty.maintainer != maintainer {
-            panic_error(ContractError::MaintainerMismatch);
+            panic_error(&env, ContractError::MaintainerMismatch);
         }
         if bounty.status != BountyStatus::Open {
-            panic_error(ContractError::BountyNotOpen);
+            panic_error(&env, ContractError::BountyNotOpen);
         }
 
         let token_client = TokenClient::new(&env, &bounty.token);
@@ -1091,18 +1171,18 @@ impl StellarBountyBoardContract {
         expire_if_needed(&env, &mut bounty);
 
         if bounty.maintainer != maintainer {
-            panic_error(ContractError::MaintainerMismatch);
+            panic_error(&env, ContractError::MaintainerMismatch);
         }
 
         if bounty.status == BountyStatus::Released
             || bounty.status == BountyStatus::Refunded
             || bounty.status == BountyStatus::Expired
         {
-            panic_error(ContractError::CannotExtendFinalizedBounty);
+            panic_error(&env, ContractError::CannotExtendFinalizedBounty);
         }
 
         if new_deadline <= bounty.deadline {
-            panic_error(ContractError::DeadlineMustAdvance);
+            panic_error(&env, ContractError::DeadlineMustAdvance);
         }
 
         bounty.deadline = new_deadline;
@@ -1153,28 +1233,28 @@ impl StellarBountyBoardContract {
         let mut bounty = read_bounty(&env, bounty_id);
 
         if env.ledger().timestamp() > bounty.deadline {
-            panic_error(ContractError::BountyExpired);
+            panic_error(&env, ContractError::BountyExpired);
         }
 
         let contributor = bounty
             .contributor
             .clone()
-            .unwrap_or_else(|| panic_error(ContractError::MissingContributor));
+            .unwrap_or_else(|| panic_error(&env, ContractError::MissingContributor));
 
         contributor.require_auth();
 
         if bounty.status != BountyStatus::Submitted {
-            panic_error(ContractError::BountyMustBeSubmitted);
+            panic_error(&env, ContractError::BountyMustBeSubmitted);
         }
 
         let stored_arbiter: Address = env
             .storage()
             .persistent()
             .get(&DataKey::Arbiter)
-            .unwrap_or_else(|| panic_error(ContractError::ArbiterNotSet));
+            .unwrap_or_else(|| panic_error(&env, ContractError::ArbiterNotSet));
 
         if arbiter != stored_arbiter {
-            panic_error(ContractError::NotArbiter);
+            panic_error(&env, ContractError::NotArbiter);
         }
 
         bounty.status = BountyStatus::Disputed;
@@ -1196,14 +1276,14 @@ impl StellarBountyBoardContract {
             .storage()
             .persistent()
             .get(&DataKey::Arbiter)
-            .unwrap_or_else(|| panic_error(ContractError::ArbiterNotSet));
+            .unwrap_or_else(|| panic_error(&env, ContractError::ArbiterNotSet));
 
         arbiter.require_auth();
 
         let mut bounty = read_bounty(&env, bounty_id);
 
         if bounty.status != BountyStatus::Disputed {
-            panic!("bounty not disputed");
+            panic_error(&env, ContractError::BountyMustBeDisputed);
         }
 
         // Use per-bounty override if set, otherwise fall back to global default
@@ -1215,7 +1295,7 @@ impl StellarBountyBoardContract {
         });
 
         if env.ledger().timestamp() < bounty.dispute_raised_at + effective_dispute_window {
-            panic_error(ContractError::DisputeWindowNotMet);
+            panic_error(&env, ContractError::DisputeWindowNotMet);
         }
 
         let token_client = TokenClient::new(&env, &bounty.token);
@@ -1225,7 +1305,7 @@ impl StellarBountyBoardContract {
             let contributor = bounty
                 .contributor
                 .clone()
-                .unwrap_or_else(|| panic_error(ContractError::MissingContributor));
+                .unwrap_or_else(|| panic_error(&env, ContractError::MissingContributor));
 
             let fee_amount: i128 = if bounty.protocol_fee_bps == 0 {
                 0
@@ -1242,7 +1322,7 @@ impl StellarBountyBoardContract {
                     .storage()
                     .persistent()
                     .get(&DataKey::FeeRecipient)
-                    .unwrap_or_else(|| panic_error(ContractError::FeeRecipientNotSet));
+                    .unwrap_or_else(|| panic_error(&env, ContractError::FeeRecipientNotSet));
                 token_client.transfer(&contract_address, &fee_recipient, &fee_amount);
             }
 
@@ -1611,7 +1691,7 @@ impl StellarBountyBoardContract {
         arbiter.require_auth();
 
         if amount <= 0 {
-            panic_error(ContractError::InvalidAmount);
+            panic_error(&env, ContractError::InvalidAmount);
         }
 
         let key = DataKey::ArbiterStake(arbiter.clone());
@@ -1620,12 +1700,12 @@ impl StellarBountyBoardContract {
         let total = match &existing {
             Some(stake) => {
                 if stake.token != token {
-                    panic_error(ContractError::StakeTokenMismatch);
+                    panic_error(&env, ContractError::StakeTokenMismatch);
                 }
                 stake
                     .amount
                     .checked_add(amount)
-                    .unwrap_or_else(|| panic_error(ContractError::InvalidAmount))
+                    .unwrap_or_else(|| panic_error(&env, ContractError::InvalidAmount))
             }
             None => amount,
         };
@@ -1675,7 +1755,7 @@ impl StellarBountyBoardContract {
         env.storage()
             .persistent()
             .get(&DataKey::Arbiter)
-            .unwrap_or_else(|| panic_error(ContractError::ArbiterNotSet))
+            .unwrap_or_else(|| panic_error(&env, ContractError::ArbiterNotSet))
     }
 
     /// Allows the arbiter to update the minimum bond required of candidates.
@@ -1694,10 +1774,10 @@ impl StellarBountyBoardContract {
         arbiter.require_auth();
 
         if new_min <= 0 {
-            panic_error(ContractError::InvalidAmount);
+            panic_error(&env, ContractError::InvalidAmount);
         }
         if new_min > MAX_BOUNTY_AMOUNT {
-            panic_error(ContractError::InvalidAmount);
+            panic_error(&env, ContractError::InvalidAmount);
         }
 
         env.storage()
@@ -1736,11 +1816,11 @@ impl StellarBountyBoardContract {
             .storage()
             .persistent()
             .get(&DataKey::Admin)
-            .unwrap_or_else(|| panic_error(ContractError::NotAdmin));
+            .unwrap_or_else(|| panic_error(&env, ContractError::NotAdmin));
         admin.require_auth();
 
         if amount <= 0 {
-            panic_error(ContractError::InvalidAmount);
+            panic_error(&env, ContractError::InvalidAmount);
         }
 
         let key = DataKey::ArbiterStake(arbiter.clone());
@@ -1748,10 +1828,10 @@ impl StellarBountyBoardContract {
             .storage()
             .persistent()
             .get(&key)
-            .unwrap_or_else(|| panic_error(ContractError::NoArbiterStake));
+            .unwrap_or_else(|| panic_error(&env, ContractError::NoArbiterStake));
 
         if amount > stake.amount {
-            panic_error(ContractError::SlashExceedsStake);
+            panic_error(&env, ContractError::SlashExceedsStake);
         }
 
         // The treasury is the fee recipient already configured on this contract;
@@ -1760,7 +1840,7 @@ impl StellarBountyBoardContract {
             .storage()
             .persistent()
             .get(&DataKey::FeeRecipient)
-            .unwrap_or_else(|| panic_error(ContractError::FeeRecipientNotSet));
+            .unwrap_or_else(|| panic_error(&env, ContractError::FeeRecipientNotSet));
 
         stake.amount -= amount;
         env.storage().persistent().set(&key, &stake);
@@ -1786,7 +1866,7 @@ impl StellarBountyBoardContract {
             .storage()
             .persistent()
             .get(&DataKey::Admin)
-            .unwrap_or_else(|| panic_error(ContractError::NotAdmin));
+            .unwrap_or_else(|| panic_error(&env, ContractError::NotAdmin));
         admin.require_auth();
 
         // A candidate takes office bonded, or not at all. Checked here as well as
@@ -1816,23 +1896,23 @@ impl StellarBountyBoardContract {
             .storage()
             .persistent()
             .get(&DataKey::Admin)
-            .unwrap_or_else(|| panic_error(ContractError::NotAdmin));
+            .unwrap_or_else(|| panic_error(&env, ContractError::NotAdmin));
         admin.require_auth();
 
         let pending_arbiter: Address = env
             .storage()
             .persistent()
             .get(&DataKey::PendingArbiter)
-            .unwrap_or_else(|| panic_error(ContractError::NoPendingArbiter));
+            .unwrap_or_else(|| panic_error(&env, ContractError::NoPendingArbiter));
 
         let timelock: u64 = env
             .storage()
             .persistent()
             .get(&DataKey::ArbiterRotationTimelock)
-            .unwrap_or_else(|| panic_error(ContractError::NoPendingArbiter));
+            .unwrap_or_else(|| panic_error(&env, ContractError::NoPendingArbiter));
 
         if env.ledger().timestamp() < timelock {
-            panic_error(ContractError::TimelockNotElapsed);
+            panic_error(&env, ContractError::TimelockNotElapsed);
         }
 
         // Re-checked here: a slash during the timelock must not let an
@@ -1864,9 +1944,9 @@ impl StellarBountyBoardContract {
             .storage()
             .persistent()
             .get(&DataKey::Admin)
-            .unwrap_or_else(|| panic_error(ContractError::NotAdmin));
+            .unwrap_or_else(|| panic_error(&env, ContractError::NotAdmin));
         if admin != stored_admin {
-            panic_error(ContractError::NotAdmin);
+            panic_error(&env, ContractError::NotAdmin);
         }
         admin.require_auth();
         let mut config = get_allowlist_config(&env);
@@ -1882,9 +1962,9 @@ impl StellarBountyBoardContract {
             .storage()
             .persistent()
             .get(&DataKey::Admin)
-            .unwrap_or_else(|| panic_error(ContractError::NotAdmin));
+            .unwrap_or_else(|| panic_error(&env, ContractError::NotAdmin));
         if admin != stored_admin {
-            panic_error(ContractError::NotAdmin);
+            panic_error(&env, ContractError::NotAdmin);
         }
         admin.require_auth();
         let mut config = get_allowlist_config(&env);
@@ -1904,9 +1984,9 @@ impl StellarBountyBoardContract {
             .storage()
             .persistent()
             .get(&DataKey::Admin)
-            .unwrap_or_else(|| panic_error(ContractError::NotAdmin));
+            .unwrap_or_else(|| panic_error(&env, ContractError::NotAdmin));
         if admin != stored_admin {
-            panic_error(ContractError::NotAdmin);
+            panic_error(&env, ContractError::NotAdmin);
         }
         admin.require_auth();
         let mut config = get_allowlist_config(&env);
@@ -2043,7 +2123,7 @@ impl StellarBountyBoardContract {
             .storage()
             .persistent()
             .get(&DataKey::Admin)
-            .unwrap_or_else(|| panic_error(ContractError::NotAdmin));
+            .unwrap_or_else(|| panic_error(&env, ContractError::NotAdmin));
         admin.require_auth();
 
         // The host exposes no "what wasm am I running" query through
@@ -2085,18 +2165,18 @@ impl StellarBountyBoardContract {
             .storage()
             .persistent()
             .get(&DataKey::Admin)
-            .unwrap_or_else(|| panic_error(ContractError::NotAdmin));
+            .unwrap_or_else(|| panic_error(&env, ContractError::NotAdmin));
         admin.require_auth();
 
         if arbiters.len() > 3 {
-            panic_error(ContractError::CommitteeSizeExceeded);
+            panic_error(&env, ContractError::CommitteeSizeExceeded);
         }
 
         // Ensure all member addresses are distinct
         for i in 0..arbiters.len() {
             for j in (i + 1)..arbiters.len() {
                 if arbiters.get(i).unwrap() == arbiters.get(j).unwrap() {
-                    panic_error(ContractError::DuplicateCommitteeMember);
+                    panic_error(&env, ContractError::DuplicateCommitteeMember);
                 }
             }
         }
@@ -2156,17 +2236,17 @@ impl StellarBountyBoardContract {
             .storage()
             .persistent()
             .get(&DataKey::ArbiterCommittee)
-            .unwrap_or_else(|| panic_error(ContractError::CommitteeNotConfigured));
+            .unwrap_or_else(|| panic_error(&env, ContractError::CommitteeNotConfigured));
 
         if !committee.members.contains(&arbiter) {
-            panic_error(ContractError::NotCommitteeMember);
+            panic_error(&env, ContractError::NotCommitteeMember);
         }
 
         arbiter.require_auth();
 
         let mut bounty = read_bounty(&env, bounty_id);
         if bounty.status != BountyStatus::Disputed {
-            panic!("bounty not disputed");
+            panic_error(&env, ContractError::BountyMustBeDisputed);
         }
 
         let mut votes: Vec<DisputeVote> = env
@@ -2178,7 +2258,7 @@ impl StellarBountyBoardContract {
         // Check for duplicate vote
         for v in votes.iter() {
             if v.arbiter == arbiter {
-                panic_error(ContractError::DuplicateCommitteeVote);
+                panic_error(&env, ContractError::DuplicateCommitteeVote);
             }
         }
 
@@ -2215,7 +2295,7 @@ impl StellarBountyBoardContract {
             let contributor = bounty
                 .contributor
                 .clone()
-                .unwrap_or_else(|| panic_error(ContractError::MissingContributor));
+                .unwrap_or_else(|| panic_error(&env, ContractError::MissingContributor));
 
             let fee_amount: i128 = if bounty.protocol_fee_bps == 0 {
                 0
@@ -2234,7 +2314,7 @@ impl StellarBountyBoardContract {
                     .storage()
                     .persistent()
                     .get(&DataKey::FeeRecipient)
-                    .unwrap_or_else(|| panic_error(ContractError::FeeRecipientNotSet));
+                    .unwrap_or_else(|| panic_error(&env, ContractError::FeeRecipientNotSet));
                 token_client.transfer(&contract_address, &fee_recipient, &fee_amount);
             }
 
@@ -2282,7 +2362,7 @@ fn read_bounty(env: &Env, bounty_id: u64) -> Bounty {
     env.storage()
         .persistent()
         .get(&DataKey::Bounty(bounty_id))
-        .unwrap_or_else(|| panic_error(ContractError::BountyNotFound))
+        .unwrap_or_else(|| panic_error(env, ContractError::BountyNotFound))
 }
 
 fn write_bounty(env: &Env, bounty_id: u64, bounty: &Bounty) {
@@ -2334,7 +2414,7 @@ fn require_min_arbiter_stake(env: &Env, arbiter: &Address) {
         .unwrap_or(0);
 
     if held < min {
-        panic_error(ContractError::InsufficientArbiterStake);
+        panic_error(env, ContractError::InsufficientArbiterStake);
     }
 }
 

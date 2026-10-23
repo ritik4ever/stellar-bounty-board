@@ -25,9 +25,13 @@ As the platform has matured across Waves 1 through 6, the limitations explicitly
 
 We will migrate the primary persistence store from JSON flat files to **PostgreSQL**.
 
-- PostgreSQL is the production standard for all live and containerized deployments.
+- PostgreSQL is the **single** target. SQLite via Drizzle ORM was proposed separately in Wave 4 item 33 and Wave 5 item 17; both items were amended to point here during the reconciliation tracked in Issue #1169. No SQLite/Drizzle migration path will be built.
 - A transitional adapter pattern is maintained in the backend store interface, allowing local offline environments to fallback to JSON file storage when `DATABASE_URL` is unset.
-- Migration is orchestrated via `scripts/migrate-to-postgres.mjs`.
+- Migration is orchestrated via `scripts/migrate-to-postgres.mjs`, which backfills existing JSON records into PostgreSQL idempotently. The pre-cutover rehearsal is documented in [postgres-migration.md](../postgres-migration.md).
+
+## Current status
+
+The backfill tooling and schema exist and are exercised against a throwaway PostgreSQL instance. The runtime store adapter and the `DATABASE_URL` cutover switch are still Wave 6 item 1 work; until that lands, `backend/data/bounties.json` remains authoritative for API reads and writes. This ADR records the destination, not that the cutover has already happened.
 
 ## Data Model
 
@@ -56,9 +60,14 @@ The relational architecture introduces three primary tables: `bounties`, `disput
   |     released_tx_hash VARCHAR(128)                                       |
   |     refunded_tx_hash VARCHAR(128)                                       |
   |     escrow_status    VARCHAR(32)                                        |
+  |     token_address    VARCHAR(128)                                       |
+  |     submission_url   TEXT                                               |
   |     labels           JSONB                                              |
+  |     events           JSONB                                              |
   |     notes            TEXT                                               |
   |     version          INTEGER                                            |
+  |     reservation_timeout_seconds INTEGER                                  |
+  |     payload          JSONB  -- full source record, lossless safety net   |
   |     updated_at       TIMESTAMPTZ                                        |
   +-------------------------------------------------------------------------+
                                  | 1
@@ -93,37 +102,49 @@ The relational architecture introduces three primary tables: `bounties`, `disput
 
 ## Migration Script Usage
 
-The repository provides an automated, idempotent migration runner: `scripts/migrate-to-postgres.mjs`.
+The repository provides an automated, idempotent backfill runner: `scripts/migrate-to-postgres.mjs`.
+The full pre-cutover rehearsal procedure, including a recorded dry-run against a data copy,
+is documented in [postgres-migration.md](../postgres-migration.md).
 
-### 1. Preflight Validation (`--dry-run`)
+### 1. Preflight Validation (`--dry-run`, default)
 
-Validates existing records in `backend/data/bounties.json` against the schema without modifying the target database:
-
-```bash
-node scripts/migrate-to-postgres.mjs --dry-run
-```
-
-### 2. Execution with Automatic Backup (`--backup`)
-
-Creates a timestamped snapshot (`backend/data/bounties.backup.<timestamp>.json`), applies relational DDL, and transfers validated rows:
+Reads a copy of the JSON store and its audit store, validates every record, and prints the
+migration plan. It never connects to PostgreSQL and never writes to the source:
 
 ```bash
-node scripts/migrate-to-postgres.mjs --backup
+node scripts/migrate-to-postgres.mjs --dry-run \
+  --source /tmp/bounties.prod-copy.json \
+  --audit-source /tmp/bounties.audit.prod-copy.json \
+  --report /tmp/postgres-migration-report.json
 ```
+
+### 2. Execution with Automatic Backup (`--execute --backup`)
+
+Creates a timestamped snapshot, applies the idempotent DDL, and backfills bounties and audit
+records in a single transaction. Verification compares every migrated row against the source
+before commit; any mismatch rolls the whole run back:
+
+```bash
+node scripts/migrate-to-postgres.mjs --execute --backup \
+  --source /tmp/bounties.prod-copy.json \
+  --audit-source /tmp/bounties.audit.prod-copy.json \
+  --database-url "$DATABASE_URL"
+```
+
+Re-running the command is safe: bounty rows are upserted by `id`, and audit rows are guarded
+by a `NOT EXISTS` check on entity, action, actor and timestamp.
 
 ### 3. Rollback Plan (`--rollback`)
 
-In the event of an operational failure or unplanned maintenance, rollback is executed through:
+Prints the reviewed inverse-DDL plan; it deliberately does not drop tables by itself:
 
 ```bash
 node scripts/migrate-to-postgres.mjs --rollback
 ```
 
-Rollback actions performed:
-
-- Executes inverse DDL statements (`DROP TABLE IF EXISTS audit_log, disputes, bounties CASCADE;`).
-- Restores active store state from the latest backup snapshot.
-- Restores backend configuration `BOUNTY_STORE=json`.
+An operator applies the printed plan only after confirming the cutover must be undone. Because
+the JSON store stays authoritative until Wave 6 completes the runtime adapter, the usual
+rollback is simply to keep serving from JSON and drop the partially populated tables.
 
 ## Consequences
 

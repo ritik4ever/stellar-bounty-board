@@ -972,15 +972,6 @@ Maintainers may \`cancel\` an \`open\` bounty before reservation, or \`refund\` 
         "description": "Returns bounty records sorted by \`createdAt\` descending by default, with optional maintainer/status/token filters and sort parameters. Bounties whose deadline has passed are automatically transitioned to \`expired\` before the list is returned. An optional \`Idempotency-Key\` header replays the original response for retries made with the same key.",
         "parameters": [
           {
-            "in": "header",
-            "name": "Idempotency-Key",
-            "required": false,
-            "schema": {
-              "description": "Optional key used to replay the original response for repeated requests.",
-              "type": "string",
-            },
-          },
-          {
             "in": "query",
             "name": "q",
             "required": false,
@@ -1140,6 +1131,15 @@ Maintainers may \`cancel\` an \`open\` bounty before reservation, or \`refund\` 
               "type": "integer",
             },
           },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "description": "Optional key used to replay the original response for repeated requests.",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -1196,7 +1196,18 @@ Maintainers may \`cancel\` an \`open\` bounty before reservation, or \`refund\` 
         ],
       },
       "post": {
-        "description": "Creates a new open bounty and persists it. Rate-limited to **5 requests per IP per minute**. The \`deadlineAt\` timestamp is computed as \`now + deadlineDays * 86400\`.",
+        "description": "Creates a new open bounty and persists it. Rate-limited to **5 requests per IP per minute**. The \`deadlineAt\` timestamp is computed as \`now + deadlineDays * 86400\`. An optional \`Idempotency-Key\` header replays the original response for retries made with the same key, so a client retrying after a timeout does not create a duplicate bounty.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "description": "Optional key used to replay the original response for repeated requests.",
+              "type": "string",
+            },
+          },
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -2056,7 +2067,7 @@ Response is cached with \`Cache-Control: public, max-age=300\` (5 min) since the
     },
     "/api/health/deep": {
       "get": {
-        "description": "Extended health check that verifies all external dependencies. Checks JSON store read/write, Soroban RPC reachability, contract ID configuration, and auth configuration (MAINTAINER_PUBLIC_KEY and ARBITER_ADDRESS). Excluded from rate limiting. Returns HTTP 503 when any critical component is down.",
+        "description": "Extended health check that verifies all external dependencies. Checks JSON store read/write, Soroban RPC reachability, contract ID configuration, and auth configuration (MAINTAINER_PUBLIC_KEY and ARBITER_ADDRESS). Each component check has a configurable timeout via DEEP_HEALTH_CHECK_TIMEOUT_MS (default 5000 ms); a timed-out component is reported as down. Excluded from rate limiting. Returns HTTP 503 when any critical component is down.",
         "responses": {
           "200": {
             "content": {

@@ -69,22 +69,22 @@ test('ISSUE-727: contracts/src/lib.rs implements ArbiterCommittee and dispute re
   // Logic checks
   assert.match(
     content,
-    /panic_error\(ContractError::CommitteeSizeExceeded\)/,
+    /panic_error\(\s*&env,\s*ContractError::CommitteeSizeExceeded\)/,
     'Must enforce max 3 committee members'
   );
   assert.match(
     content,
-    /panic_error\(ContractError::DuplicateCommitteeMember\)/,
+    /panic_error\(\s*&env,\s*ContractError::DuplicateCommitteeMember\)/,
     'Must reject duplicate committee addresses'
   );
   assert.match(
     content,
-    /panic_error\(ContractError::NotCommitteeMember\)/,
+    /panic_error\(\s*&env,\s*ContractError::NotCommitteeMember\)/,
     'Must reject votes from non-committee members'
   );
   assert.match(
     content,
-    /panic_error\(ContractError::DuplicateCommitteeVote\)/,
+    /panic_error\(\s*&env,\s*ContractError::DuplicateCommitteeVote\)/,
     'Must reject duplicate votes from same arbiter'
   );
   assert.match(content, /release_votes >= 2/, 'Must check 2-of-3 quorum for release');

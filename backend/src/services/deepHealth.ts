@@ -15,7 +15,15 @@ export interface DeepHealthResult {
 }
 
 const DEFAULT_SOROBAN_RPC_URL = "https://rpc-futurenet.stellar.org";
-const RPC_TIMEOUT_MS = 5_000;
+const DEFAULT_COMPONENT_TIMEOUT_MS = 5_000;
+const MAX_TIMEOUT_MS = 2_147_483_647;
+
+function resolveComponentTimeoutMs(): number {
+  const configured = Number(process.env.DEEP_HEALTH_CHECK_TIMEOUT_MS);
+  return Number.isInteger(configured) && configured > 0 && configured <= MAX_TIMEOUT_MS
+    ? configured
+    : DEFAULT_COMPONENT_TIMEOUT_MS;
+}
 
 function resolveStorePath(): string {
   if (process.env.BOUNTY_STORE_PATH?.trim()) {
@@ -40,16 +48,18 @@ function resolveMaintainerKeys(): string[] {
     .filter(Boolean);
 }
 
-function checkStore(): ComponentStatus {
+async function checkStore(): Promise<ComponentStatus> {
   try {
     const storePath = resolveStorePath();
-    fs.mkdirSync(path.dirname(storePath), { recursive: true });
+    await fs.promises.mkdir(path.dirname(storePath), { recursive: true });
 
-    if (!fs.existsSync(storePath)) {
-      fs.writeFileSync(storePath, "[]", "utf8");
+    try {
+      await fs.promises.access(storePath);
+    } catch {
+      await fs.promises.writeFile(storePath, "[]", "utf8");
     }
 
-    const raw = fs.readFileSync(storePath, "utf8");
+    const raw = await fs.promises.readFile(storePath, "utf8");
     const records = JSON.parse(raw);
     if (!Array.isArray(records)) {
       return "down";
@@ -57,12 +67,12 @@ function checkStore(): ComponentStatus {
 
     const probePath = `${storePath}.health-probe`;
     const marker = JSON.stringify({ probe: true, ts: Date.now() });
-    fs.writeFileSync(probePath, marker, "utf8");
-    const readBack = fs.readFileSync(probePath, "utf8");
+    await fs.promises.writeFile(probePath, marker, "utf8");
+    const readBack = await fs.promises.readFile(probePath, "utf8");
     if (readBack !== marker) {
       return "down";
     }
-    fs.unlinkSync(probePath);
+    await fs.promises.unlink(probePath);
 
     return "up";
   } catch {
@@ -70,21 +80,16 @@ function checkStore(): ComponentStatus {
   }
 }
 
-async function checkSorobanRpc(): Promise<ComponentStatus> {
+async function checkSorobanRpc(signal: AbortSignal): Promise<ComponentStatus> {
   const rpcUrl = (process.env.SOROBAN_RPC_URL?.trim() || DEFAULT_SOROBAN_RPC_URL).replace(/\/$/, "");
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
-
     const response = await fetch(rpcUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getHealth" }),
-      signal: controller.signal,
+      signal,
     });
-
-    clearTimeout(timeout);
 
     if (!response.ok) {
       return "down";
@@ -94,6 +99,30 @@ async function checkSorobanRpc(): Promise<ComponentStatus> {
     return body.result?.status === "healthy" ? "up" : "down";
   } catch {
     return "down";
+  }
+}
+
+async function runWithTimeout(
+  check: (signal: AbortSignal) => ComponentStatus | Promise<ComponentStatus>,
+  timeoutMs: number,
+): Promise<ComponentStatus> {
+  const controller = new AbortController();
+  let timeout: NodeJS.Timeout | undefined;
+
+  try {
+    return await Promise.race([
+      Promise.resolve().then(() => check(controller.signal)),
+      new Promise<ComponentStatus>((resolve) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          resolve("down");
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
   }
 }
 
@@ -109,11 +138,12 @@ function checkAuth(): ComponentStatus {
 }
 
 export async function runDeepHealthCheck(): Promise<DeepHealthResult> {
+  const timeoutMs = resolveComponentTimeoutMs();
   const [store, soroban, contract, auth] = await Promise.all([
-    Promise.resolve(checkStore()),
-    checkSorobanRpc(),
-    Promise.resolve(checkContract()),
-    Promise.resolve(checkAuth()),
+    runWithTimeout(checkStore, timeoutMs),
+    runWithTimeout(checkSorobanRpc, timeoutMs),
+    runWithTimeout(checkContract, timeoutMs),
+    runWithTimeout(checkAuth, timeoutMs),
   ]);
 
   const components = { store, soroban, contract, auth };

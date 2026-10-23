@@ -54,13 +54,15 @@ import {
   resolveDisputeBountySchema,
   maintainerActionSchema,
   bulkActionSchema,
-  reserveBountySchema,
+  reserveBountyRequestSchema,
   submitBountySchema,
   updateNotesSchema,
+  healthInputSchema,
+  listBountiesInputSchema,
+  listBountiesQuerySchema,
   zodErrorMessage,
 } from './validation/schemas';
 import { validateBody } from './middleware/validateBody';
-import { isValidStellarAddress } from './utils';
 import { getPublicConfig } from './config';
 import { getAppConfig } from './appConfig';
 
@@ -151,10 +153,11 @@ const readLimiter = rateLimit({
     (process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true') ||
     Boolean(
       req.path &&
-        (req.path === '/api/open-issues' ||
-          req.path.endsWith('/open-issues') ||
-          req.path === '/api/bounties' ||
-          req.path === '/api/bounties/')
+      (req.path === '/api/open-issues' ||
+        req.path.endsWith('/open-issues') ||
+        req.path === '/api/bounties' ||
+        req.path === '/api/bounties/' ||
+        req.path === '/api/health/deep')
     ),
 });
 
@@ -170,7 +173,9 @@ const mutationLimiter = rateLimit({
       req.path &&
       (req.path.endsWith('/release') ||
         req.path.endsWith('/submit') ||
-        req.path.endsWith('/refund'))
+        req.path.endsWith('/refund') ||
+        req.path === '/api/bounties' ||
+        req.path === '/api/bounties/')
     ),
 });
 
@@ -283,6 +288,46 @@ export const refundLimiter = rateLimit({
 });
 
 /**
+ * Route-specific explicit rate limiter for POST /api/bounties (bounty creation).
+ *
+ * Cost justification:
+ * Creating a bounty is an expensive, unauthenticated write operation that:
+ * 1. Executes maintainer rate limiting (`maintainerLimiter`) using filesystem locks and JSON persistence.
+ * 2. Cryptographically verifies Ed25519 signatures when maintainer signature headers are supplied.
+ * 3. Applies bounty templates, executes Zod schema validation, and validates financial amounts.
+ * 4. Acquires the exclusive global filesystem store lock (`withStoreLock`), parses the store,
+ *    assigns IDs, resolves token contract addresses, and writes out the updated JSON store to disk.
+ * 5. Invalidates the bounty cache across all cached listing queries.
+ * 6. Dispatches asynchronous notification events to maintainers and interested parties.
+ *
+ * Legitimate maintainers create bounties deliberately as new tasks are defined; it is never
+ * intended for high-frequency burst traffic. An explicit ceiling of 10 requests per minute
+ * (configurable via RATE_LIMIT_CREATE_MAX and RATE_LIMIT_CREATE_WINDOW_MS) protects the
+ * file-backed store lock from contention, avoids write spam, prevents cache thrashing, and
+ * shields against denial-of-service on an unauthenticated write endpoint.
+ *
+ * When the limit is exceeded, HTTP 429 is returned with an explicit Retry-After header.
+ */
+export const createBountyLimiter = rateLimit({
+  windowMs: appConfig.rateLimitCreateWindowMs,
+  max: appConfig.rateLimitCreateMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true',
+  handler: (req: Request, res: Response) => {
+    const retryAfter = Math.ceil(appConfig.rateLimitCreateWindowMs / 1000);
+    res.setHeader('Retry-After', String(retryAfter));
+    res.status(429).json({
+      error: 'Too many bounty creation attempts. Please try again later.',
+      retryAfter,
+      requestId: req.requestId,
+    });
+  },
+});
+
+export const createLimiter = createBountyLimiter;
+
+/**
  * Route-specific explicit rate limiter for GET /api/open-issues (#1222).
  *
  * Cost justification:
@@ -357,6 +402,74 @@ export const bountiesLimiter = rateLimit({
   },
 });
 
+/**
+ * Route-specific explicit rate limiter for GET /api/health (#1180).
+ *
+ * Cost justification:
+ * Fetching the health status is a cheap, unauthenticated liveness probe that performs
+ * essentially no work:
+ * 1. No store lock, no GitHub/Stellar/Soroban call, no disk or database I/O.
+ * 2. It only validates the (empty) query/body via `healthInputSchema` and returns a
+ *    static `{ status: 'ok', timestamp }` payload.
+ *
+ * Because it is a liveness probe it is polled by load balancers, Kubernetes
+ * readiness/liveness checks, and uptime monitors, often from a small number of shared
+ * IPs. Legitimate traffic therefore needs a much higher ceiling than ordinary reads to
+ * avoid falsely signalling an outage. An explicit ceiling of 300 requests per minute
+ * (5 req/sec per IP, configurable via RATE_LIMIT_HEALTH_MAX and RATE_LIMIT_HEALTH_WINDOW_MS)
+ * is far above any realistic monitor cadence while still bounding unauthenticated flooding.
+ *
+ * Note: per-IP limiting can misbehave when many clients sit behind a single NAT/proxy;
+ * very high-volume probes are better exempted at the infrastructure layer than handled here.
+ *
+ * When the limit is exceeded, HTTP 429 is returned with an explicit Retry-After header.
+ */
+export const healthLimiter = rateLimit({
+  windowMs: appConfig.rateLimitHealthWindowMs,
+  max: appConfig.rateLimitHealthMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true',
+  handler: (req: Request, res: Response) => {
+    const retryAfter = Math.ceil(appConfig.rateLimitHealthWindowMs / 1000);
+    res.setHeader('Retry-After', String(retryAfter));
+    res.status(429).json({
+      error: 'Too many health check requests. Please try again later.',
+      retryAfter,
+      requestId: req.requestId,
+    });
+  },
+});
+
+/**
+ * Route-specific explicit rate limiter for GET /api/health/deep (#1184).
+ *
+ * Cost justification:
+ * Each check probes the filesystem by creating, reading, and deleting a temporary file,
+ * and sends an outbound Soroban RPC request that can wait up to the configured component
+ * timeout. A ceiling of 10 requests per minute per IP allows a probe every six seconds
+ * while bounding unauthenticated disk and RPC work. Operators can tune it with
+ * RATE_LIMIT_DEEP_HEALTH_MAX and RATE_LIMIT_DEEP_HEALTH_WINDOW_MS.
+ *
+ * When the limit is exceeded, HTTP 429 is returned with an explicit Retry-After header.
+ */
+export const deepHealthLimiter = rateLimit({
+  windowMs: appConfig.rateLimitDeepHealthWindowMs,
+  max: appConfig.rateLimitDeepHealthMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true',
+  handler: (req: Request, res: Response) => {
+    const retryAfter = Math.ceil(appConfig.rateLimitDeepHealthWindowMs / 1000);
+    res.setHeader('Retry-After', String(retryAfter));
+    res.status(429).json({
+      error: 'Too many deep health check requests. Please try again later.',
+      retryAfter,
+      requestId: req.requestId,
+    });
+  },
+});
+
 // Apply read limiter to all GET requests
 app.use((req: any, res: any, next: any) => {
   if (req.method === 'GET') return readLimiter(req, res, next);
@@ -398,7 +511,23 @@ app.use(
 );
 app.use(requestContextMiddleware);
 
-const healthHandler = (_req: Request, res: Response) => {
+const healthHandler = (req: Request, res: Response) => {
+  const result = healthInputSchema.safeParse({
+    params: req.params,
+    query: req.query,
+    body: req.body,
+  });
+
+  if (!result.success) {
+    res.status(400).json({
+      error: 'Invalid input for health endpoint.',
+      code: 'HEALTH_INVALID_INPUT',
+      details: result.error.issues,
+      requestId: req.requestId,
+    });
+    return;
+  }
+
   res.json({
     service: 'stellar-bounty-board-api',
     status: 'ok',
@@ -406,16 +535,42 @@ const healthHandler = (_req: Request, res: Response) => {
   });
 };
 
-app.get('/api/health', idempotencyMiddleware, healthHandler);
+app.get('/api/health', healthLimiter, idempotencyMiddleware, healthHandler);
 
+/**
+ * Validates every input to `GET /api/health/deep` before any dependency probe
+ * (store, Soroban RPC, contract, auth) runs.
+ *
+ * The route accepts no path parameters, no query string, and no request body.
+ * `healthInputSchema` enforces that contract explicitly, so unexpected input is
+ * rejected here with HTTP 400 and the `HEALTH_DEEP_INVALID_INPUT` error code
+ * rather than surfacing as a confusing downstream failure.
+ */
 app.get(
   '/api/health/deep',
+  deepHealthLimiter,
   idempotencyMiddleware,
-  async (_req: Request, res: Response) => {
-    const result = await runDeepHealthCheck();
-    const statusCode = result.overall === 'up' ? 200 : 503;
-    res.status(statusCode).json(result);
-  },
+  async (req: Request, res: Response) => {
+    const result = healthInputSchema.safeParse({
+      params: req.params,
+      query: req.query,
+      body: req.body,
+    });
+
+    if (!result.success) {
+      res.status(400).json({
+        error: 'Invalid input for deep health endpoint.',
+        code: 'HEALTH_DEEP_INVALID_INPUT',
+        details: result.error.issues,
+        requestId: req.requestId,
+      });
+      return;
+    }
+
+    const health = await runDeepHealthCheck();
+    const statusCode = health.overall === 'up' ? 200 : 503;
+    res.status(statusCode).json(health);
+  }
 );
 
 app.get('/worker/health', (_req: Request, res: Response) => {
@@ -846,108 +1001,59 @@ app.delete(
   }
 );
 
+/**
+ * Validates every input to `GET /api/bounties` before the idempotency cache,
+ * store, or contract layer is touched. Path parameters must be empty, the
+ * query string is checked against {@link listBountiesQuerySchema}, and a
+ * request body is rejected. On failure the route returns HTTP 400 with the
+ * `BOUNTIES_INVALID_INPUT` error code and the individual Zod issues.
+ */
+const validateListBountiesInput = (req: Request, res: Response, next: NextFunction): void => {
+  const parsed = listBountiesInputSchema.safeParse({
+    params: req.params,
+    query: req.query,
+    body: req.body,
+  });
+
+  if (!parsed.success) {
+    res.status(400).json({
+      error: `INVALID_INPUT: ${zodErrorMessage(parsed.error)}`,
+      code: 'BOUNTIES_INVALID_INPUT',
+      details: parsed.error.issues,
+      requestId: req.requestId,
+    });
+    return;
+  }
+
+  res.locals.bountiesQuery = parsed.data.query;
+  next();
+};
+
 app.get(
   '/api/bounties',
   bountiesLimiter,
+  validateListBountiesInput,
   idempotencyMiddleware,
   async (req: Request, res: Response) => {
     try {
-      const q = typeof req.query.q === 'string' ? req.query.q : undefined;
-      const contributor =
-        typeof req.query.contributor === 'string' && req.query.contributor.trim()
-          ? req.query.contributor.trim()
-          : undefined;
-      const maintainer =
-        typeof req.query.maintainer === 'string' && req.query.maintainer.trim()
-          ? req.query.maintainer.trim()
-          : undefined;
-      const status =
-        typeof req.query.status === 'string' && req.query.status.trim()
-          ? req.query.status.trim()
-          : undefined;
-      const tokenSymbol =
-        typeof req.query.tokenSymbol === 'string' && req.query.tokenSymbol.trim()
-          ? req.query.tokenSymbol.trim()
-          : undefined;
-      const sort =
-        typeof req.query.sort === 'string' && req.query.sort.trim()
-          ? req.query.sort.trim()
-          : 'createdAt';
-      const order =
-        typeof req.query.order === 'string' && req.query.order.trim()
-          ? req.query.order.trim()
-          : 'desc';
-
-      const repo =
-        typeof req.query.repo === 'string' && req.query.repo.trim()
-          ? req.query.repo.trim()
-          : undefined;
-
-      const parseReward = (value: unknown, name: string): number | undefined => {
-        if (typeof value !== 'string' || !value.trim()) return undefined;
-        const n = Number(value);
-        if (!Number.isFinite(n) || n < 0) {
-          throw new Error(`${name} must be a non-negative number`);
-        }
-        return n;
-      };
-      const minReward = parseReward(req.query.minReward, 'minReward');
-      const maxReward = parseReward(req.query.maxReward, 'maxReward');
-      if (minReward !== undefined && maxReward !== undefined && minReward > maxReward) {
-        throw new Error('minReward must be less than or equal to maxReward');
-      }
-
+      const query = res.locals.bountiesQuery as z.infer<typeof listBountiesQuerySchema>;
+      const page = query.page;
       // `limit` is the primary page-size param; `pageSize` is a legacy alias.
-      const page = parsePaginationValue(req.query.page, 'page', 1, 1);
-      const pageSize =
-        req.query.limit !== undefined
-          ? parsePaginationValue(req.query.limit, 'limit', 20, 1, 100)
-          : parsePaginationValue(req.query.pageSize, 'pageSize', 20, 1, 100);
-
-      let deadlineBefore: number | undefined;
-      if (typeof req.query.deadlineBefore === 'string') {
-        const date = new Date(req.query.deadlineBefore);
-        if (isNaN(date.getTime())) {
-          throw new Error('deadlineBefore must be a valid ISO 8601 date string');
-        }
-        deadlineBefore = Math.floor(date.getTime() / 1000);
-      }
-
-      let deadlineAfter: number | undefined;
-      if (typeof req.query.deadlineAfter === 'string') {
-        const date = new Date(req.query.deadlineAfter);
-        if (isNaN(date.getTime())) {
-          throw new Error('deadlineAfter must be a valid ISO 8601 date string');
-        }
-        deadlineAfter = Math.floor(date.getTime() / 1000);
-      }
-
-      if (contributor && !isValidStellarAddress(contributor)) {
-        throw new Error('contributor must be a valid Stellar public key');
-      }
-      if (maintainer && !isValidStellarAddress(maintainer)) {
-        throw new Error('maintainer must be a valid Stellar public key');
-      }
-      if (!['amount', 'deadline', 'createdAt', 'status'].includes(sort)) {
-        throw new Error('sort must be one of: amount, deadline, createdAt, status');
-      }
-      if (!['asc', 'desc'].includes(order)) {
-        throw new Error('order must be one of: asc, desc');
-      }
+      const pageSize = query.limit ?? query.pageSize ?? 20;
 
       const all = await listBountiesCached({
-        q,
-        repo,
-        minReward,
-        maxReward,
-        contributor,
-        maintainer,
-        status: status as never,
-        tokenSymbol,
-        deadlineBefore,
-        deadlineAfter,
-        sort: sort as never,
-        order: order as never,
+        q: query.q,
+        repo: query.repo,
+        minReward: query.minReward,
+        maxReward: query.maxReward,
+        contributor: query.contributor,
+        maintainer: query.maintainer,
+        status: query.status,
+        tokenSymbol: query.tokenSymbol,
+        deadlineBefore: query.deadlineBefore,
+        deadlineAfter: query.deadlineAfter,
+        sort: query.sort,
+        order: query.order,
       });
       const total = all.length;
       const start = (page - 1) * pageSize;
@@ -1108,9 +1214,10 @@ app.get('/api/bounties/released/export.csv', (req: Request, res: Response) => {
 
 app.post(
   '/api/bounties',
-  mutationLimiter,
+  createBountyLimiter,
   enforceBodyLimit(DEFAULT_BODY_LIMIT),
   requireJsonContentType,
+  idempotencyMiddleware,
   maintainerLimiter,
   createBountyCreationSignatureMiddleware(),
   (req: Request, res: Response, next: NextFunction) => {
@@ -1144,8 +1251,28 @@ app.post(
   mutationLimiter,
   enforceBodyLimit(DEFAULT_BODY_LIMIT),
   requireJsonContentType,
+  (req: Request, res: Response, next: NextFunction) => {
+    const parsed = reserveBountyRequestSchema.safeParse({
+      params: req.params,
+      query: req.query,
+      body: req.body,
+    });
+
+    if (!parsed.success) {
+      res.status(400).json({
+        error: `INVALID_INPUT: ${zodErrorMessage(parsed.error)}`,
+        code: 'BOUNTY_RESERVE_INVALID_INPUT',
+        details: parsed.error.issues,
+        requestId: req.requestId,
+      });
+      return;
+    }
+
+    req.params.id = parsed.data.params.id;
+    req.body = parsed.data.body;
+    next();
+  },
   idempotencyMiddleware,
-  validateBody(reserveBountySchema),
   async (req: Request, res: Response) => {
     try {
       const bounty = await reserveBounty(

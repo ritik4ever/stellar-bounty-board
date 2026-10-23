@@ -27,6 +27,7 @@ afterEach(() => {
   delete process.env.SOROBAN_CONTRACT_ID;
   delete process.env.CONTRACT_ID;
   delete process.env.SOROBAN_RPC_URL;
+  delete process.env.DEEP_HEALTH_CHECK_TIMEOUT_MS;
   delete process.env.NODE_ENV;
   globalThis.fetch = originalFetch;
   try {
@@ -140,6 +141,24 @@ describe("GET /api/health/deep", () => {
     expect(res.body.overall).toBe("down");
   });
 
+  it("marks a component down when its configurable check timeout expires", async () => {
+    process.env.DEEP_HEALTH_CHECK_TIMEOUT_MS = "25";
+    let rpcSignal: AbortSignal | null | undefined;
+    globalThis.fetch = vi.fn<typeof fetch>().mockImplementation((_input, init) => {
+      rpcSignal = init?.signal;
+      return new Promise<Response>(() => {});
+    });
+    vi.resetModules();
+
+    const app = await getApp();
+    const startedAt = Date.now();
+    const res = await request(app).get("/api/health/deep").expect(503);
+
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    expect(res.body.components.soroban).toBe("down");
+    expect(rpcSignal?.aborted).toBe(true);
+  });
+
   it("returns 503 when store is not readable JSON", async () => {
     mockHealthyRpc();
     fs.writeFileSync(storeFile, "not-json", "utf8");
@@ -166,7 +185,7 @@ describe("GET /api/health/deep", () => {
 
 describe("GET /api/health/deep — Soroban RPC chaos (#908)", () => {
   it("marks soroban degraded on a simulated connection timeout, while other checks stay independently healthy", async () => {
-    // Simulate what a real fetch abort (RPC_TIMEOUT_MS exceeded) produces,
+    // Simulate what a real fetch abort (component timeout exceeded) produces,
     // without waiting out the real timeout.
     globalThis.fetch = vi
       .fn()

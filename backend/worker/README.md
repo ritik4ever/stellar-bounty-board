@@ -17,7 +17,8 @@ stable event type string:
 
 | Topic[1]   | `event.type` | Payload struct     | Extracted fields                             |
 |------------|--------------|------------------|---------------------------------------------------|
-| `Create`   | `create`      | `BountyCreated`    | bounty ID, maintainer, amount                     |
+| `Create`   | `create`      | `BountyCreated`    | bounty ID, maintainer, amount 
+|CrtEvent	created	BountyCreatedEvent	bounty ID, maintainer, token, amount, repo, issue number, title, deadline, protocol fee bps, dispute window override, created at
 | `Reserv`   | `reserve`     | `BountyReserved`   | bounty ID, contributor                            |
 | `Submit`   | `submit`      | `BountySubmitted`  | bounty ID, contributor                            |
 | `Releas`   | `release`      | `BountyReleased`   | bounty ID, contributor, maintainer, amount           |
@@ -32,6 +33,12 @@ The worker normalizes this into a record with `type: "release"`, the bounty ID, 
 contributor, the maintainer, and the released amount -- all derived from the event
 payload alone. No follow-up contract read is required to react to the release
 transition.
+
+### Create event
+
+`create_bounty` emits a structured event with the topic `(Bounty, CrtEvent)` and a `BountyCreatedEvent` payload containing `bounty_id`, `maintainer`, `token`, `amount`, `repo`, `issue_number`, `title`, `deadline`, `protocol_fee_bps`, `dispute_window_override`, and `created_at`. The worker normalizes this into a record with `type: "created"` and the same fields in camelCase, all derived from the event payload alone. No follow-up contract read is required to react to the create transition.
+
+The older `(Bounty, Create)` event is unchanged and still maps to `type: "create"`.
 
 ## Usage
 
