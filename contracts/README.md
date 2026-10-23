@@ -23,3 +23,23 @@ The contract uses named error codes for all invalid operations. These codes are 
 - `dispute_bounty(bounty_id, arbiter)` - transitions a submitted bounty to the **Disputed** state and emits the `(Bounty, Dispt)` event. Its `BountyDisputed` payload contains `bounty_id`, `contributor`, and `arbiter`, allowing indexer workers to process the state change without a follow-up contract read.
 - `NewDeadlineMustBeGreaterThanCurrentDeadline` - extend_deadline requires a later deadline.
 - `BountyNotFound` - referenced bounty does not exist.
+
+## Events
+
+Contract events use a two-topic shape: `(symbol_short!("Bounty"), <action>)`
+with a `#[contracttype]` payload.
+
+| Topics | Emitted by | Payload |
+| --- | --- | --- |
+| `("Bounty", "Queried")` | `get_bounty` | `BountyQueried` |
+
+`get_bounty` is the only read path that applies lazy expiration: an `Open` or
+`Reserved` bounty past its deadline is returned as `Expired` without being
+written back to storage. `BountyQueried` carries that post-expiration state
+(bounty id, maintainer, contributor, token, amount, issue number, status,
+deadline, protocol fee bps and dispute timestamp) so the indexer can observe
+the transition from the event alone — no scan of every bounty and no follow-up
+contract read. `repo` and `title` are omitted because they are immutable and
+unbounded; `repo` is already carried by `BountyCreated`.
+
+The worker consumes the event as `type: "queried"` (see `backend/worker/`).

@@ -273,6 +273,37 @@ pub struct BountyResolved {
     pub release: bool,
 }
 
+/// Emitted by [`StellarBountyBoardContract::get_bounty`] with the bounty state
+/// that call observed (and returned).
+///
+/// `get_bounty` is the only read path that applies lazy expiration: an `Open`
+/// or `Reserved` bounty whose deadline has passed is reported as `Expired` for
+/// that call without writing storage. Without this event, an indexer cannot
+/// learn about that transition except by polling every bounty on a timer.
+///
+/// The payload is the complete *mutable* projection of the bounty (identity,
+/// status, deadline, fee, dispute timestamp), so a consumer can update its
+/// record without a follow-up contract read. The immutable, unbounded strings
+/// (`repo`, `title`) are deliberately omitted: `repo` is already carried by
+/// [`BountyCreated`], and including a long title would risk producing an
+/// oversized event that makes an otherwise valid read fail.
+///
+/// Topic: `(symbol_short!("Bounty"), symbol_short!("Queried"))`.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BountyQueried {
+    pub bounty_id: u64,
+    pub maintainer: Address,
+    pub contributor: Option<Address>,
+    pub token: Address,
+    pub amount: i128,
+    pub issue_number: u32,
+    pub status: BountyStatus,
+    pub deadline: u64,
+    pub protocol_fee_bps: u32,
+    pub dispute_raised_at: u64,
+}
+
 /// Emitted when the losing party of a dispute files an appeal.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1371,9 +1402,34 @@ impl StellarBountyBoardContract {
     ///   - [`DataKey::Bounty(bounty_id)`] - Reads the bounty state from persistent storage via `read_bounty`.
     /// * **Write**:
     ///   - None (read-only query; expiration status mutation is purely in-memory).
+    ///
+    /// # Events
+    /// * Emits `(symbol_short!("Bounty"), symbol_short!("Queried"))` with a
+    ///   [`BountyQueried`] payload carrying the post-expiration state, so the
+    ///   event and the returned [`Bounty`] always agree.
     pub fn get_bounty(env: Env, bounty_id: u64) -> Bounty {
         let mut bounty = read_bounty(&env, bounty_id);
         expire_if_needed(&env, &mut bounty);
+
+        // Publish the state this read exposes. The `Expired` transition above
+        // is computed here and never written, so this event is the only way an
+        // indexer can observe it without scanning every bounty on a timer.
+        env.events().publish(
+            (symbol_short!("Bounty"), symbol_short!("Queried")),
+            BountyQueried {
+                bounty_id,
+                maintainer: bounty.maintainer.clone(),
+                contributor: bounty.contributor.clone(),
+                token: bounty.token.clone(),
+                amount: bounty.amount,
+                issue_number: bounty.issue_number,
+                status: bounty.status,
+                deadline: bounty.deadline,
+                protocol_fee_bps: bounty.protocol_fee_bps,
+                dispute_raised_at: bounty.dispute_raised_at,
+            },
+        );
+
         bounty
     }
 

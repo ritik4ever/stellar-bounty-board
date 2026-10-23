@@ -97,4 +97,50 @@ describe('Soroban indexer event normalization', () => {
       timestamp: '2026-10-22T06:00:00Z',
     });
   });
+
+  it('consumes a Bounty/Queried event without a follow-up contract read', () => {
+    const maintainer = Keypair.random().publicKey();
+    const contributor = Keypair.random().publicKey();
+    const topic = (name: string) => xdr.ScVal.scvSymbol(name).toXDR('base64');
+    const entry = (key: string, val: xdr.ScVal) =>
+      new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol(key), val });
+    const value = xdr.ScVal.scvMap([
+      entry('bounty_id', nativeToScVal(42n, { type: 'u64' })),
+      entry('maintainer', nativeToScVal(maintainer, { type: 'address' })),
+      entry('contributor', nativeToScVal(contributor, { type: 'address' })),
+      entry('amount', nativeToScVal(500n, { type: 'i128' })),
+      entry('status', xdr.ScVal.scvVec([xdr.ScVal.scvSymbol('Expired')])),
+      entry('deadline', nativeToScVal(1_700_000_000n, { type: 'u64' })),
+    ]).toXDR('base64');
+
+    const record = normalizeEvent({
+      id: 'event-42',
+      topic: [topic('Bounty'), topic('Queried')],
+      value,
+      ledger_closed_at: '2026-10-22T07:00:00Z',
+    });
+
+    expect(record).toMatchObject({
+      id: 'event-42',
+      type: 'queried',
+      bountyId: '42',
+      // `actor` keeps the worker's existing maintainer-first precedence.
+      actor: maintainer,
+      status: 'Expired',
+      deadline: '1700000000',
+      timestamp: '2026-10-22T07:00:00Z',
+    });
+    // The whole mutable projection is available, with the unit-variant status
+    // flattened, so no follow-up read is needed to learn the visit state.
+    expect(record.state).toMatchObject({
+      bounty_id: '42',
+      maintainer,
+      contributor,
+      amount: '500',
+      status: 'Expired',
+      deadline: '1700000000',
+    });
+    // The worker persists records with JSON.stringify, which rejects BigInt.
+    expect(() => JSON.stringify(record)).not.toThrow();
+  });
 });
