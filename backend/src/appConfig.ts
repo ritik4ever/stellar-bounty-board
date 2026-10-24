@@ -21,6 +21,10 @@ export interface AppConfig {
   rateLimitSubmitMax: number;
   /** Rate limit window in milliseconds for submit endpoint (default: 60000 = 1 minute). */
   rateLimitSubmitWindowMs: number;
+  /** Maximum reserve requests per window (default: 10). */
+  rateLimitReserveMax: number;
+  /** Rate limit window in milliseconds for reserve endpoint (default: 60000 = 1 minute). */
+  rateLimitReserveWindowMs: number;
   /** Maximum refund requests per window (default: 10). */
   rateLimitRefundMax: number;
   /** Rate limit window in milliseconds for refund endpoint (default: 60000 = 1 minute). */
@@ -85,6 +89,8 @@ export function getAppConfig(): AppConfig {
     rateLimitReleaseWindowMs: parsePositiveInt(process.env.RATE_LIMIT_RELEASE_WINDOW_MS, 60_000),
     rateLimitSubmitMax: parsePositiveInt(process.env.RATE_LIMIT_SUBMIT_MAX, 10),
     rateLimitSubmitWindowMs: parsePositiveInt(process.env.RATE_LIMIT_SUBMIT_WINDOW_MS, 60_000),
+    rateLimitReserveMax: parsePositiveInt(process.env.RATE_LIMIT_RESERVE_MAX, 10),
+    rateLimitReserveWindowMs: parsePositiveInt(process.env.RATE_LIMIT_RESERVE_WINDOW_MS, 60_000),
     rateLimitRefundMax: parsePositiveInt(process.env.RATE_LIMIT_REFUND_MAX, 10),
     rateLimitRefundWindowMs: parsePositiveInt(process.env.RATE_LIMIT_REFUND_WINDOW_MS, 60_000),
     rateLimitOpenIssuesMax: parsePositiveInt(process.env.RATE_LIMIT_OPEN_ISSUES_MAX, 30),

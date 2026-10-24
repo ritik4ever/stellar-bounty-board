@@ -1922,7 +1922,7 @@
           "Bounties"
         ],
         "summary": "Reserve a bounty",
-        "description": "Assigns a contributor to an `open` bounty, transitioning its status to `reserved`. Only one contributor can hold a reservation at a time. Rate-limited to **5 requests per IP per minute**.",
+        "description": "Assigns a contributor to an `open` bounty, transitioning its status to `reserved`. Only one contributor can hold a reservation at a time. Rate-limited to **10 requests per IP per minute**.",
         "parameters": [
           {
             "schema": {

@@ -3766,3 +3766,24 @@ select {
   border-radius: 8px;
   cursor: pointer;
 }
+
+.contributor-dashboard__state {
+  padding: 1.25rem;
+  border-radius: 12px;
+  text-align: center;
+  border: 1px solid var(--border, #d0d7de);
+}
+
+.contributor-dashboard__state--loading {
+  border-style: dashed;
+  opacity: 0.8;
+}
+
+.contributor-dashboard__state--error {
+  border-color: #d1242f;
+  color: #d1242f;
+}
+
+.contributor-dashboard__state--empty {
+  border-style: dotted;
+}

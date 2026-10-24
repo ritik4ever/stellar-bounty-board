@@ -75,6 +75,7 @@ import {
   createStellarSignatureAuthMiddleware,
 } from './middleware/auth';
 import { idempotencyMiddleware } from './middleware/idempotency';
+import { IdempotencyKeyReuseError, runIdempotent } from './idempotency';
 import { requireJsonContentType } from './middleware/contentType';
 import { enforceBodyLimit, DEFAULT_BODY_LIMIT } from './middleware/bodyLimit';
 import { maintainerLimiter } from './middleware/maintainerLimiter';
@@ -245,6 +246,42 @@ export const submitLimiter = rateLimit({
     res.setHeader('Retry-After', String(retryAfter));
     res.status(429).json({
       error: 'Too many bounty submission attempts. Please try again later.',
+      retryAfter,
+      requestId: req.requestId,
+    });
+  },
+});
+
+/**
+ * Route-specific explicit rate limiter for POST /api/bounties/:id/reserve (#1201).
+ *
+ * Cost justification:
+ * Reserving a bounty is a state-changing, unauthenticated write that:
+ * 1. Acquires the global store lock, serializing it against every other writer, and
+ *    rewrites the persistent JSON store on each call.
+ * 2. Transitions bounty state ('open' -> 'reserved'), bumps the optimistic-concurrency
+ *    version, and appends an immutable audit-log entry.
+ * 3. Invalidates the platform-wide bounty cache and dispatches a maintainer notification.
+ *
+ * A contributor reserves a bounty at most once before submitting work; legitimate callers
+ * do not invoke this endpoint in high-frequency bursts. An explicit ceiling of 10 requests
+ * per minute (configurable via RATE_LIMIT_RESERVE_MAX and RATE_LIMIT_RESERVE_WINDOW_MS)
+ * matches the sibling unauthenticated write routes (submit/release/refund) and protects the
+ * store lock, persistence layer, and notification fan-out from write spam.
+ *
+ * When the limit is exceeded, HTTP 429 is returned with an explicit Retry-After header.
+ */
+export const reserveLimiter = rateLimit({
+  windowMs: appConfig.rateLimitReserveWindowMs,
+  max: appConfig.rateLimitReserveMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true',
+  handler: (req: Request, res: Response) => {
+    const retryAfter = Math.ceil(appConfig.rateLimitReserveWindowMs / 1000);
+    res.setHeader('Retry-After', String(retryAfter));
+    res.status(429).json({
+      error: 'Too many bounty reservation attempts. Please try again later.',
       retryAfter,
       requestId: req.requestId,
     });
@@ -1248,7 +1285,7 @@ app.post(
 
 app.post(
   '/api/bounties/:id/reserve',
-  mutationLimiter,
+  reserveLimiter,
   enforceBodyLimit(DEFAULT_BODY_LIMIT),
   requireJsonContentType,
   (req: Request, res: Response, next: NextFunction) => {
@@ -1272,17 +1309,39 @@ app.post(
     req.body = parsed.data.body;
     next();
   },
-  idempotencyMiddleware,
   async (req: Request, res: Response) => {
     try {
-      const bounty = await reserveBounty(
-        parseId(req.params.id),
-        req.body.contributor,
-        req.body.expectedVersion
+      const id = parseId(req.params.id);
+      const execute = async () => ({
+        status: 200,
+        body: { data: await reserveBounty(id, req.body.contributor, req.body.expectedVersion) },
+      });
+
+      const rawKey = req.headers['idempotency-key'];
+      const key = (Array.isArray(rawKey) ? rawKey[0] : rawKey)?.trim();
+
+      if (!key) {
+        const { status, body } = await execute();
+        res.status(status).json(body);
+        return;
+      }
+
+      // Scope the key to this route and bounty so it cannot collide with other endpoints.
+      const { result, replayed } = await runIdempotent(
+        `reserve:${id}:${key}`,
+        JSON.stringify([req.body.contributor, req.body.expectedVersion ?? null]),
+        execute
       );
 
-      res.json({ data: bounty });
+      if (replayed) {
+        res.setHeader('Idempotent-Replayed', 'true');
+      }
+      res.status(result.status).json(result.body);
     } catch (error) {
+      if (error instanceof IdempotencyKeyReuseError) {
+        jsonError(res, req, 422, 'Idempotency-Key was already used with a different request');
+        return;
+      }
       sendError(res, req, error);
     }
   }
@@ -1370,7 +1429,27 @@ app.post(
   enforceBodyLimit(DEFAULT_BODY_LIMIT),
   idempotencyMiddleware,
   createStellarSignatureAuthMiddleware(),
-  validateBody(maintainerActionSchema),
+  (req: Request, res: Response, next: NextFunction) => {
+    const parsed = refundBountyRequestSchema.safeParse({
+      params: req.params,
+      query: req.query,
+      body: req.body,
+    });
+
+    if (!parsed.success) {
+      res.status(400).json({
+        error: `INVALID_INPUT: ${zodErrorMessage(parsed.error)}`,
+        code: 'BOUNTY_REFUND_INVALID_INPUT',
+        details: parsed.error.issues,
+        requestId: req.requestId,
+      });
+      return;
+    }
+
+    req.params.id = parsed.data.params.id;
+    req.body = parsed.data.body;
+    next();
+  },
   async (req: Request, res: Response) => {
     try {
       const bounty = await refundBounty(
@@ -1378,7 +1457,6 @@ app.post(
         req.body.maintainer,
         req.body.transactionHash
       );
-
       res.json({ data: bounty });
     } catch (error) {
       sendError(res, req, error);

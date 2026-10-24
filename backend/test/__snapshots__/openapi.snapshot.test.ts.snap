@@ -1749,7 +1749,7 @@ Maintainers may \`cancel\` an \`open\` bounty before reservation, or \`refund\` 
     },
     "/api/bounties/{id}/reserve": {
       "post": {
-        "description": "Assigns a contributor to an \`open\` bounty, transitioning its status to \`reserved\`. Only one contributor can hold a reservation at a time. Rate-limited to **5 requests per IP per minute**.",
+        "description": "Assigns a contributor to an \`open\` bounty, transitioning its status to \`reserved\`. Only one contributor can hold a reservation at a time. Rate-limited to **10 requests per IP per minute**.",
         "parameters": [
           {
             "in": "path",
@@ -2078,6 +2078,16 @@ Response is cached with \`Cache-Control: public, max-age=300\` (5 min) since the
               },
             },
             "description": "All critical components are healthy.",
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                },
+              },
+            },
+            "description": "Invalid input: the route accepts no path parameters, query string, or request body.",
           },
           "503": {
             "content": {

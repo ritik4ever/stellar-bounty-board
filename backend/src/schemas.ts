@@ -9,8 +9,8 @@
  * routes/bounties.ts with the export from this file.
  */
 
-import { z } from "zod";
-import { sanitizeText } from "./sanitize";
+import { z } from 'zod';
+import { sanitizeText } from './sanitize';
 
 // ---------------------------------------------------------------------------
 // Reusable sanitized string primitive
@@ -23,7 +23,7 @@ import { sanitizeText } from "./sanitize";
 function sanitizedString(maxLength = 1000) {
   return z
     .string()
-    .min(1, "Field must not be empty")
+    .min(1, 'Field must not be empty')
     .max(maxLength, `Field must be at most ${maxLength} characters`)
     .transform(sanitizeText);
 }
@@ -34,7 +34,7 @@ function sanitizedString(maxLength = 1000) {
 
 export const createBountySchema = z.object({
   /** GitHub issue URL the bounty is linked to */
-  issueUrl: z.string().url("issueUrl must be a valid URL"),
+  issueUrl: z.string().url('issueUrl must be a valid URL'),
 
   /** Short human-readable title — trimmed and HTML-encoded */
   title: sanitizedString(200),
@@ -43,12 +43,25 @@ export const createBountySchema = z.object({
   summary: sanitizedString(2000),
 
   /** Reward in XLM (string to avoid floating-point surprises) */
-  reward: z
-    .string()
-    .regex(/^\d+(\.\d{1,7})?$/, "reward must be a positive decimal number"),
+  reward: z.string().regex(/^\d+(\.\d{1,7})?$/, 'reward must be a positive decimal number'),
 
   /** Optional urgency label */
-  urgency: z.enum(["low", "medium", "high"]).optional(),
+  urgency: z.enum(['low', 'medium', 'high']).optional(),
 });
+
+// ---------------------------------------------------------------------------
+// Bounty refund schema — POST /api/bounties/:id/refund
+// ---------------------------------------------------------------------------
+
+/** Path params: the bounty id must be a non-empty string of safe characters */
+export const refundBountyParamsSchema = z.object({
+  id: z
+    .string()
+    .min(1, 'id must not be empty')
+    .max(64, 'id must be at most 64 characters')
+    .regex(/^[A-Za-z0-9_-]+$/, 'id contains invalid characters'),
+});
+
+export type RefundBountyParams = z.infer<typeof refundBountyParamsSchema>;
 
 export type CreateBountyInput = z.infer<typeof createBountySchema>;

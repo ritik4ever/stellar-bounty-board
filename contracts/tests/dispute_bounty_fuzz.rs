@@ -42,7 +42,9 @@ fn setup_fuzz_fixture() -> FuzzFixture {
     client.initialize(&admin, &treasury, &arbiter, &DISPUTE_WINDOW);
 
     let token_admin = Address::generate(&env);
-    let token = env.register_stellar_asset_contract_v2(token_admin).address();
+    let token = env
+        .register_stellar_asset_contract_v2(token_admin)
+        .address();
 
     FuzzFixture {
         env,
@@ -68,7 +70,10 @@ impl LcgRng {
     }
 
     fn next_u64(&mut self) -> u64 {
-        self.state = self.state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.state = self
+            .state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         self.state
     }
 
@@ -163,7 +168,11 @@ fn test_fuzz_dispute_bounty_numeric_inputs_and_invariants() {
         let fix = setup_fuzz_fixture();
         let rand_id = rng.next_u64();
         let res = fix.client.try_dispute_bounty(&rand_id, &fix.arbiter);
-        assert!(res.is_err(), "Arbitrary random bounty_id {} should fail", rand_id);
+        assert!(
+            res.is_err(),
+            "Arbitrary random bounty_id {} should fail",
+            rand_id
+        );
     }
 
     // 3. Fuzz lifecycle invariants: create legitimate bounties with varying parameters
@@ -175,7 +184,8 @@ fn test_fuzz_dispute_bounty_numeric_inputs_and_invariants() {
         }
 
         let fix = setup_fuzz_fixture();
-        soroban_sdk::token::StellarAssetClient::new(&fix.env, &fix.token).mint(&fix.maintainer, &amount);
+        soroban_sdk::token::StellarAssetClient::new(&fix.env, &fix.token)
+            .mint(&fix.maintainer, &amount);
 
         let initial_time = 10_000u64;
         fix.env.ledger().set_timestamp(initial_time);
@@ -200,7 +210,10 @@ fn test_fuzz_dispute_bounty_numeric_inputs_and_invariants() {
         // (b) Advance to Reserved -> dispute_bounty must fail with BountyMustBeSubmitted
         fix.client.reserve_bounty(&bounty_id, &fix.contributor);
         let res_reserved = fix.client.try_dispute_bounty(&bounty_id, &fix.arbiter);
-        assert!(res_reserved.is_err(), "dispute_bounty on Reserved bounty must fail");
+        assert!(
+            res_reserved.is_err(),
+            "dispute_bounty on Reserved bounty must fail"
+        );
 
         // (c) Advance to Submitted
         fix.client.submit_bounty(&bounty_id, &fix.contributor);
@@ -208,14 +221,20 @@ fn test_fuzz_dispute_bounty_numeric_inputs_and_invariants() {
         // (d) Test wrong arbiter address -> must fail with NotArbiter
         let rogue_arbiter = Address::generate(&fix.env);
         let res_rogue = fix.client.try_dispute_bounty(&bounty_id, &rogue_arbiter);
-        assert!(res_rogue.is_err(), "dispute_bounty with incorrect arbiter must fail");
+        assert!(
+            res_rogue.is_err(),
+            "dispute_bounty with incorrect arbiter must fail"
+        );
 
         // (e) Test expired deadline boundary:
         // Case 1: timestamp == deadline -> strictly not expired (env.ledger().timestamp() > bounty.deadline)
         // dispute_bounty succeeds at exactly deadline!
         fix.env.ledger().set_timestamp(deadline);
         let res_at_deadline = fix.client.try_dispute_bounty(&bounty_id, &fix.arbiter);
-        assert!(res_at_deadline.is_ok(), "dispute_bounty at timestamp == deadline should succeed");
+        assert!(
+            res_at_deadline.is_ok(),
+            "dispute_bounty at timestamp == deadline should succeed"
+        );
 
         let bounty = fix.client.get_bounty(&bounty_id);
         assert_eq!(bounty.status, BountyStatus::Disputed);
@@ -226,7 +245,8 @@ fn test_fuzz_dispute_bounty_numeric_inputs_and_invariants() {
     // 4. Test off-by-one boundary: exactly one second after deadline (deadline + 1)
     {
         let fix = setup_fuzz_fixture();
-        soroban_sdk::token::StellarAssetClient::new(&fix.env, &fix.token).mint(&fix.maintainer, &base_amount);
+        soroban_sdk::token::StellarAssetClient::new(&fix.env, &fix.token)
+            .mint(&fix.maintainer, &base_amount);
         let deadline = 5_000u64;
         fix.env.ledger().set_timestamp(1_000);
 
@@ -247,7 +267,10 @@ fn test_fuzz_dispute_bounty_numeric_inputs_and_invariants() {
         // One second past deadline
         fix.env.ledger().set_timestamp(deadline + 1);
         let res_past_deadline = fix.client.try_dispute_bounty(&bounty_id, &fix.arbiter);
-        assert!(res_past_deadline.is_err(), "dispute_bounty at deadline + 1 must fail (expired)");
+        assert!(
+            res_past_deadline.is_err(),
+            "dispute_bounty at deadline + 1 must fail (expired)"
+        );
 
         // Bounty state must remain Submitted (no state corruption on failure)
         let bounty_after = fix.client.get_bounty(&bounty_id);
@@ -257,7 +280,8 @@ fn test_fuzz_dispute_bounty_numeric_inputs_and_invariants() {
     // 5. Fuzz across pseudorandom timestamps around deadline
     for i in 0..50 {
         let fix = setup_fuzz_fixture();
-        soroban_sdk::token::StellarAssetClient::new(&fix.env, &fix.token).mint(&fix.maintainer, &base_amount);
+        soroban_sdk::token::StellarAssetClient::new(&fix.env, &fix.token)
+            .mint(&fix.maintainer, &base_amount);
 
         let deadline = rng.gen_range_u64(10_000, 1_000_000);
         fix.env.ledger().set_timestamp(deadline - 500);
@@ -285,7 +309,11 @@ fn test_fuzz_dispute_bounty_numeric_inputs_and_invariants() {
         if test_timestamp > deadline {
             assert!(res.is_err(), "Dispute after deadline must fail");
             let b = fix.client.get_bounty(&bounty_id);
-            assert_eq!(b.status, BountyStatus::Submitted, "State must not be corrupt on failure");
+            assert_eq!(
+                b.status,
+                BountyStatus::Submitted,
+                "State must not be corrupt on failure"
+            );
         } else {
             assert!(res.is_ok(), "Dispute on or before deadline must succeed");
             let b = fix.client.get_bounty(&bounty_id);

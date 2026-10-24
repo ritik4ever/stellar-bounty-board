@@ -1408,7 +1408,12 @@ impl StellarBountyBoardContract {
     /// Emits `("Dispute", "Scheduled")` through [`Self::finalize_resolution`]'s
     /// counterpart event.
     pub fn propose_resolution(env: Env, bounty_id: u64, decision: u32) {
-        // For simplicity, any caller can resolve; in production enforce arbiter auth.
+        let arbiter: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Arbiter)
+            .unwrap_or_else(|| panic_error(&env, ContractError::ArbiterNotSet));
+        arbiter.require_auth();
         let decision = match decision {
             0 => DisputeDecision::Release,
             1 => DisputeDecision::Refund,

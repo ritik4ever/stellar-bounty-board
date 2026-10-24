@@ -1,6 +1,5 @@
 # Security Policy
 
-
 ## Table of Contents
 
 - [Content Security Policy (CSP)](#content-security-policy-csp)
@@ -22,7 +21,6 @@
 - [Wave & Backlog Alignment](#wave--backlog-alignment)
 
 ---
-
 
 ## Content Security Policy (CSP)
 
@@ -82,6 +80,15 @@ Include the following in your report:
 2. Step-by-step reproduction instructions or a proof-of-concept (PoC).
 3. Affected versions, components, or endpoints.
 4. Any suggested mitigations (optional but appreciated).
+
+**Expected first response:** A maintainer will acknowledge your report within 48 hours of
+receipt. This confirms that the report was received; it does not mean triage is complete.
+We will provide a triage status update within 7 days.
+
+**Coordinated disclosure:** We target public disclosure 90 days after receipt, allowing time to
+investigate, prepare a fix, and coordinate a release. We will agree with the reporter in writing
+before extending this window, and any extension will be limited to 30 additional days before
+re-evaluation. Critical or actively exploited issues may be disclosed earlier as described below.
 
 For detailed information on our Service Level Agreements, response times, and the handling of third-party dependency vulnerabilities, please review our [Security Disclosure Process](docs/issues/security-disclosure-process.md).
 
@@ -194,6 +201,7 @@ The Stellar Bounty Board contract (`contracts/src/lib.rs`) currently places **si
 **Scenario**: The arbiter's private key is stolen or leaked.
 
 **Impact**:
+
 - Attacker can dispute any submitted bounty, forcing it into disputed status
 - Attacker can resolve all disputed bounties maliciously (stealing funds or denying legitimate payouts)
 - No mechanism to revoke arbiter authority without full contract redeployment
@@ -208,6 +216,7 @@ The Stellar Bounty Board contract (`contracts/src/lib.rs`) currently places **si
 **Scenario**: The arbiter loses access to their private key (device failure, death, incapacity).
 
 **Impact**:
+
 - Disputed bounties cannot be resolved, leaving funds permanently locked in the contract
 - New disputes cannot be initiated (though this is less critical)
 - No recovery mechanism without contract redeployment
@@ -223,6 +232,7 @@ The Stellar Bounty Board contract (`contracts/src/lib.rs`) currently places **si
 **Scenario**: The arbiter acts in bad faith (bribery, collusion, arbitrary decisions).
 
 **Impact**:
+
 - Arbiter can selectively resolve disputes to favor certain parties
 - No mechanism to appeal or reverse arbiter decisions
 - Arbiter can extort maintainers/contributors by threatening adverse resolutions
@@ -238,6 +248,7 @@ The Stellar Bounty Board contract (`contracts/src/lib.rs`) currently places **si
 **Scenario**: The arbiter is temporarily unavailable (vacation, illness, technical issues).
 
 **Impact**:
+
 - Disputed bounties remain unresolved for extended periods
 - Contributors experience delayed payments
 - Maintainers experience delayed refunds
@@ -252,6 +263,7 @@ The Stellar Bounty Board contract (`contracts/src/lib.rs`) currently places **si
 **Scenario**: The arbiter observes pending transactions and acts on information before transactions complete.
 
 **Impact**:
+
 - Arbiter could dispute bounties immediately before maintainer cancellation to capture fees
 - Timing attacks on dispute resolution to maximize personal gain
 - Information asymmetry exploitation
@@ -354,13 +366,13 @@ The following features have been proposed to address these failure modes but are
 
 ### Risk Assessment Summary
 
-| Failure Mode | Likelihood | Impact | Current Mitigation | Priority |
-|-------------|------------|--------|-------------------|----------|
-| Key Compromise | Medium | Critical | Contract redeployment | HIGH |
-| Key Loss | Low | High | Contract redeployment | MEDIUM |
-| Malicious Behavior | Low | High | None (social/legal) | HIGH |
-| Unavailability | Medium | Medium | None | LOW |
-| Front-Running | Low | Medium | Dispute window | LOW |
+| Failure Mode       | Likelihood | Impact   | Current Mitigation    | Priority |
+| ------------------ | ---------- | -------- | --------------------- | -------- |
+| Key Compromise     | Medium     | Critical | Contract redeployment | HIGH     |
+| Key Loss           | Low        | High     | Contract redeployment | MEDIUM   |
+| Malicious Behavior | Low        | High     | None (social/legal)   | HIGH     |
+| Unavailability     | Medium     | Medium   | None                  | LOW      |
+| Front-Running      | Low        | Medium   | Dispute window        | LOW      |
 
 **Overall Risk Level**: HIGH - Due to single point of failure and lack of implemented mitigations.
 
@@ -398,7 +410,6 @@ The following are **out of scope**:
 
 ---
 
-
 ---
 
 ## See Also / Related Documentation
@@ -408,7 +419,6 @@ The following are **out of scope**:
 - [WEBHOOK_SECRET_VALIDATION.md](./WEBHOOK_SECRET_VALIDATION.md) — Server startup validation and enforcement of webhook secrets.
 - [RUNBOOK.md](./RUNBOOK.md) — Operational runbooks including incident response procedures for compromised arbiter keys.
 - [CONTRIBUTING.md](./CONTRIBUTING.md) — Contribution guidelines and development workflow.
-
 
 ## Wave & Backlog Alignment
 
@@ -427,6 +437,7 @@ This security policy directly aligns with the project's phased delivery roadmap 
 ### Canonical Contribution Process
 
 When contributing security fixes, enhancements, or non-sensitive tooling updates, follow the single canonical workflow defined across the Wave backlogs ([docs/wave-4.md](docs/wave-4.md)) and [CONTRIBUTING.md](./CONTRIBUTING.md):
+
 1. **Browse Backlog Issues:** Check open issues tagged `wave-4`, `wave-5`, `wave-6`, or `Stellar Wave`.
 2. **Claim Prior to Work:** Comment on the issue you plan to claim to avoid duplicate effort.
 3. **Branching:** Create focused topic branches off `main` (`git checkout -b fix/security-...`, `docs/...`, or `feat/...`).
@@ -439,4 +450,3 @@ When contributing security fixes, enhancements, or non-sensitive tooling updates
 ---
 
 _Last updated: October 18, 2026 (Reconciled with Wave 4/5/6 backlog structure, Issue #1380)_
-
