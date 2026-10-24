@@ -50,6 +50,13 @@ jobs:
             exit 0
           fi
 
+          mergeable="$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" \
+            --json mergeable --jq '.mergeable')"
+          if [ "$mergeable" = "CONFLICTING" ]; then
+            echo "PR #$PR_NUMBER has merge conflicts with the base branch; resolve them before merging."
+            exit 1
+          fi
+
           while read -r issue; do
             has_label="$(gh issue view "$issue" --repo "$GH_REPO" \
               --json labels --jq 'any(.labels[].name; . == "Stellar Wave")')"

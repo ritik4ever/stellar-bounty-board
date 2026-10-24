@@ -9,6 +9,7 @@ interface IdempotencyEntry {
   statusCode: number;
   body: unknown;
   createdAt: number;
+  inFlight: boolean;
 }
 
 const store = new Map<string, IdempotencyEntry>();
@@ -41,10 +42,11 @@ cleanupTimer.unref();
  * Never throws.
  *
  * Concurrency: the cache is an in-memory `Map` in this process, cleared on
- * restart and not shared across replicas. An entry is written only when the
- * response is sent, so two concurrent requests with the same key that both
- * arrive before either responds will **both** run the handler. This does not
- * replace a store-level uniqueness check.
+ * restart and not shared across replicas. A placeholder entry is written
+ * before the handler runs, so a concurrent request with the same key that
+ * arrives while the first is still in flight is rejected with a 409 instead
+ * of running the handler twice. This does not replace a store-level
+ * uniqueness check.
  *
  * @param req - Incoming request; only the `idempotency-key` header is read.
  * @param res - Response; `res.json` is wrapped on a cache miss.
@@ -65,11 +67,22 @@ export function idempotencyMiddleware(req: Request, res: Response, next: NextFun
 
   if (existing) {
     if (now - existing.createdAt < IDEMPOTENCY_TTL_MS) {
+      if (existing.inFlight) {
+        res.status(409).json({ error: 'Request with this idempotency key is already in progress' });
+        return;
+      }
       res.status(existing.statusCode).json(existing.body);
       return;
     }
     store.delete(trimmedKey);
   }
+
+  store.set(trimmedKey, {
+    statusCode: 0,
+    body: undefined,
+    createdAt: now,
+    inFlight: true,
+  });
 
   const originalJson = res.json.bind(res);
   res.json = function (body: unknown) {
@@ -77,6 +90,7 @@ export function idempotencyMiddleware(req: Request, res: Response, next: NextFun
       statusCode: res.statusCode,
       body,
       createdAt: now,
+      inFlight: false,
     });
     return originalJson(body);
   };

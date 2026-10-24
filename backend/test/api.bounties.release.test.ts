@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import request from 'supertest';
 import { app } from '../src/app';
+import { vi } from 'vitest';
 
 describe('POST /api/bounties/:id/release — integration test', () => {
   it('rejects non-existent bounty with 404', async () => {
@@ -20,6 +21,28 @@ describe('POST /api/bounties/:id/release — integration test', () => {
     const res = await request(app).post('/api/bounties/INVALID/release').send({ txHash: '' });
     expect(res.status).toBeGreaterThanOrEqual(400);
     expect(res.body).toBeDefined();
+  });
+
+  it('does not re-execute the release effect on a duplicated idempotent request', async () => {
+    const idempotencyKey = 'test-idempotency-key-release-1';
+    const payload = {
+      maintainer: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
+    };
+
+    const first = await request(app)
+      .post('/api/bounties/BNTY-IDEMP/release')
+      .set('Content-Type', 'application/json')
+      .set('Idempotency-Key', idempotencyKey)
+      .send(payload);
+
+    const second = await request(app)
+      .post('/api/bounties/BNTY-IDEMP/release')
+      .set('Content-Type', 'application/json')
+      .set('Idempotency-Key', idempotencyKey)
+      .send(payload);
+
+    expect(second.status).toBe(first.status);
+    expect(second.body).toEqual(first.body);
   });
 
   it('rejects missing body with 400 and a specific error code', async () => {
@@ -63,7 +86,7 @@ describe('POST /api/bounties/:id/release — integration test', () => {
     const res = await request(app)
       .post('/api/bounties/%20/release')
       .set('Content-Type', 'application/json')
-      .send({ maintainer: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF' });
+      .send({ maintainer: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF' });
     expect(res.status).toBe(400);
     expect(res.body.error).toBeDefined();
   });
