@@ -814,6 +814,199 @@ textarea:focus {
   color: var(--muted);
 }
 
+/* ── Reward range filter (App.tsx) ─────────────────────────────────────────── */
+
+.reward-range-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.reward-range-filter__label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.reward-range-filter__inputs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+
+.reward-range-filter__input {
+  width: 90px;
+  max-width: 90px;
+  min-width: 0;
+  padding: 4px 8px;
+  font-size: 13px;
+  border-radius: 6px;
+  border: 1px solid var(--border, rgba(54, 63, 59, 0.14));
+  box-sizing: border-box;
+}
+
+.active-range-badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: rgba(30, 189, 147, 0.1);
+  color: #1ebd93;
+  font-weight: 600;
+}
+
+.reward-range-filter__clear {
+  font-size: 12px;
+  padding: 2px 6px;
+  color: var(--muted);
+}
+
+/* ── App header — logo as button ───────────────────────────────────────────── */
+
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  text-align: left;
+  min-width: 0;
+}
+
+.logo:focus-visible {
+  outline: 2px solid rgba(30, 143, 111, 0.42);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.logo h1 {
+  margin: 0;
+  font-size: clamp(1rem, 3vw, 1.4rem);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── App header — icon buttons and theme toggle ────────────────────────────── */
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 8px;
+  cursor: pointer;
+  color: inherit;
+  transition: background-color 120ms ease, border-color 120ms ease;
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.icon-button:hover {
+  background: rgba(54, 63, 59, 0.06);
+}
+
+.icon-button:focus-visible {
+  outline: 2px solid rgba(30, 143, 111, 0.42);
+  outline-offset: 2px;
+}
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid rgba(54, 63, 59, 0.18);
+  border-radius: 8px;
+  padding: 8px;
+  cursor: pointer;
+  color: inherit;
+  transition: background-color 120ms ease;
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.theme-toggle:hover {
+  background: rgba(54, 63, 59, 0.06);
+}
+
+.theme-toggle:focus-visible {
+  outline: 2px solid rgba(30, 143, 111, 0.42);
+  outline-offset: 2px;
+}
+
+/* ── App main header layout ───────────────────────────────────────────────── */
+
+.main-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  padding: 0 24px;
+  background: var(--bg-surface, rgba(246, 239, 227, 0.92));
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid rgba(54, 63, 59, 0.08);
+  box-sizing: border-box;
+}
+
+[data-theme='dark'] .main-header {
+  background: rgba(31, 36, 33, 0.92);
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+.header-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: 1280px;
+  margin: 0 auto;
+  min-height: 64px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* ── Dashboard hero section ───────────────────────────────────────────────── */
+
+.dashboard-hero {
+  padding: 24px 24px 0;
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+.hero-grid {
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.hero-main h2 {
+  font-size: clamp(1.2rem, 3vw, 1.8rem);
+  overflow-wrap: break-word;
+  word-break: break-word;
+  margin-bottom: 8px;
+}
+
+/* ── Board section ───────────────────────────────────────────────────────── */
+
+.board-section {
+  padding: 0 24px 24px;
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+
+
 .filter-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2862,6 +3055,166 @@ select {
     max-width: 100vw;
   }
 
+  /* App shell */
+  .app-container {
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+    box-sizing: border-box;
+  }
+
+  /* Main header — stack logo and actions on narrow screens */
+  .main-header {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    padding: 0 12px;
+    box-sizing: border-box;
+    max-width: 100%;
+  }
+
+  .header-content {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 56px;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .logo {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .logo h1 {
+    font-size: clamp(1rem, 4vw, 1.4rem);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 45vw;
+  }
+
+  .header-actions {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  /* Icon buttons in the header */
+  .icon-button,
+  .theme-toggle {
+    min-height: 44px;
+    min-width: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    flex-shrink: 0;
+  }
+
+  /* Hero section */
+  .dashboard-hero {
+    padding: 12px;
+    box-sizing: border-box;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .hero-grid {
+    display: block;
+    max-width: 100%;
+  }
+
+  .hero-main h2 {
+    font-size: clamp(1.1rem, 5vw, 1.6rem);
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
+
+  /* Bounty creation form */
+  .bounty-form .form-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .form-actions {
+    flex-wrap: wrap;
+  }
+
+  .form-actions button {
+    flex: 1 1 auto;
+    min-height: 44px;
+  }
+
+  /* Board filters — reward range inputs */
+  .board-filters {
+    padding: 12px;
+    box-sizing: border-box;
+  }
+
+  /* Reward range filter: stack label and inputs vertically on narrow screens */
+  .reward-range-filter {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .reward-range-filter__inputs {
+    width: 100%;
+  }
+
+  .reward-range-filter__input {
+    width: 100%;
+    max-width: none;
+    min-height: 44px;
+    font-size: 16px; /* Prevent iOS auto-zoom */
+  }
+
+  /* Filter chip row — allow wrapping */
+  .filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  /* Dashboard view switcher — fill full width */
+  .dashboard-view-switcher {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .view-tab-btn {
+    flex: 1 1 0;
+    text-align: center;
+    padding: 8px 4px;
+    font-size: 0.85rem;
+    min-height: 44px;
+  }
+
+  /* Board section */
+  .board-section {
+    padding: 0 12px;
+    box-sizing: border-box;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  /* Pagination — ensure buttons hit 44px tap target */
+  .pagination-controls button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  .pagination-controls span {
+    font-size: 0.8rem;
+    text-align: center;
+  }
+
   .page-shell,
   .dashboard,
   .content-grid,
@@ -2992,6 +3345,46 @@ select {
   .dashboard h1 {
     font-size: 1.5rem;
     line-height: 1.25;
+  }
+
+  /* App.tsx — header at 320px */
+  .main-header {
+    padding: 0 8px;
+  }
+
+  .logo h1 {
+    font-size: 0.95rem;
+    max-width: 40vw;
+  }
+
+  .header-actions {
+    gap: 2px;
+  }
+
+  /* Hero form at 320px */
+  .dashboard-hero {
+    padding: 8px;
+  }
+
+  /* Board section at 320px */
+  .board-section {
+    padding: 0 8px;
+  }
+
+  /* View switcher tabs stack vertically at 320px */
+  .dashboard-view-switcher {
+    flex-direction: column;
+    width: 100%;
+    gap: 4px;
+  }
+
+  .view-tab-btn {
+    width: 100%;
+  }
+
+  /* Pagination text tight at 320px */
+  .pagination-controls span {
+    font-size: 0.75rem;
   }
 
   /* Recommendations panel 320px small-viewport adjustments (#1288) */
