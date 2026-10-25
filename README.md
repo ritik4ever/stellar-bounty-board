@@ -150,6 +150,63 @@ Base URL:
 
 Routes:
 
+The complete route inventory below is generated from the Express route handlers
+and mounted routers in `backend/src/app.ts` (`MOUNT` denotes a mounted router or
+middleware path). To refresh it after changing routes, run
+`node scripts/check-api-routes.mjs --write`; CI checks that it stays in sync.
+
+<!-- API ROUTES START -->
+| Method | Route |
+| --- | --- |
+| DELETE | `/api/notification-preferences/push` |
+| DELETE | `/api/recurring-bounty-schedules/:id` |
+| GET | `/api/audit-log` |
+| GET | `/api/bounties` |
+| GET | `/api/bounties/:id` |
+| GET | `/api/bounties/:id/audit-log` |
+| GET | `/api/bounties/:id/audit-logs` |
+| GET | `/api/bounties/:id/events` |
+| GET | `/api/bounties/by-issue` |
+| GET | `/api/bounties/released/export.csv` |
+| GET | `/api/bounties/search` |
+| GET | `/api/bounty-templates` |
+| GET | `/api/config` |
+| GET | `/api/global-metrics` |
+| GET | `/api/health` |
+| GET | `/api/health/deep` |
+| GET | `/api/leaderboard` |
+| GET | `/api/maintainers/:maintainer/metrics` |
+| GET | `/api/metrics` |
+| GET | `/api/notification-preferences/:address` |
+| GET | `/api/notifications/opt-in/:address` |
+| GET | `/api/open-issues` |
+| GET | `/api/recurring-bounty-schedules` |
+| GET | `/api/stats` |
+| GET | `/robots.txt` |
+| GET | `/sitemap.xml` |
+| GET | `/worker/health` |
+| MOUNT | `/api/docs` |
+| MOUNT | `/graphql` |
+| PATCH | `/api/bounties/:id/notes` |
+| POST | `/api/bounties` |
+| POST | `/api/bounties/:id/cancel` |
+| POST | `/api/bounties/:id/dispute` |
+| POST | `/api/bounties/:id/extend-deadline` |
+| POST | `/api/bounties/:id/refund` |
+| POST | `/api/bounties/:id/release` |
+| POST | `/api/bounties/:id/reserve` |
+| POST | `/api/bounties/:id/resolve-dispute` |
+| POST | `/api/bounties/:id/submit` |
+| POST | `/api/bounties/bulk-action` |
+| POST | `/api/bounties/import` |
+| POST | `/api/notification-preferences/push` |
+| POST | `/api/notifications/opt-in` |
+| POST | `/api/recurring-bounty-schedules` |
+| POST | `/api/webhooks/github` |
+| PUT | `/api/notification-preferences` |
+| PUT | `/api/notification-preferences/:address` |
+<!-- API ROUTES END -->
+
 - `GET /api/health` — liveness check
   - **Request**: No request body or query parameters required.
   - **Response 200 OK**:
