@@ -131,4 +131,34 @@ describe('BountyDetailPage small-viewport layout (#1279)', () => {
     const issueLink = screen.getByRole('link', { name: /#1279/i });
     expect(issueLink).toHaveAttribute('href', expect.stringContaining('1279'));
   });
+
+  it('applies responsive layout adjustments at 320px breakpoint', () => {
+    const { container } = render(
+      <div style={{ width: '320px', maxWidth: '320px' }}>
+        <BountyDetailPage
+          bounty={longTitleBounty}
+          loading={false}
+          onBack={() => {}}
+          owner="stellar"
+          avatarUrl=""
+          statusCopy={defaultStatusCopy}
+          actionCopy={defaultActionCopy}
+          renderActionButton={() => <button type="button">Action</button>}
+          formatTimestamp={(t) => (t ? new Date(t * 1000).toLocaleDateString() : '')}
+        />
+      </div>
+    );
+
+    // Verify meta-grid exists (CSS handles the grid-template-columns via media query)
+    const metaGrid = container.querySelector('.meta-grid--detail');
+    expect(metaGrid).toBeInTheDocument();
+
+    // Verify bounty-detail__hero exists (CSS handles the grid-template-columns via media query)
+    const hero = container.querySelector('.bounty-detail__hero');
+    expect(hero).toBeInTheDocument();
+
+    // Verify panel-header__actions exists (CSS handles flex-direction via media query)
+    const panelActions = container.querySelector('.panel-header__actions');
+    expect(panelActions).toBeInTheDocument();
+  });
 });

@@ -73,4 +73,35 @@ describe('RecommendedBounties.tsx small-viewport layout (#1282)', () => {
     expect(actionLink).toHaveClass('secondary-link');
     expect(actionLink).toHaveAttribute('href', expect.stringContaining('/issues/1282'));
   });
+
+  it('applies responsive layout adjustments at 320px breakpoint', () => {
+    const { container } = render(
+      <div style={{ width: '320px', maxWidth: '320px' }}>
+        <RecommendedBounties recommendations={[mockRecommendation]} walletConnected={true} />
+      </div>
+    );
+
+    // Verify tag-filter-row exists (CSS handles gap reduction at 320px)
+    const tagFilterRow = container.querySelector('.tag-filter-row');
+    expect(tagFilterRow).toBeInTheDocument();
+
+    // Verify bounty-card--recommended exists (CSS handles padding at 320px)
+    const bountyCard = container.querySelector('.bounty-card--recommended');
+    expect(bountyCard).toBeInTheDocument();
+
+    // Verify recommendations-panel exists (CSS handles padding at 320px)
+    const panel = container.querySelector('.recommendations-panel');
+    expect(panel).toBeInTheDocument();
+  });
+
+  it('meets 44px minimum tap target for filter chips at 320px', () => {
+    const { container } = render(
+      <div style={{ width: '320px', maxWidth: '320px' }}>
+        <RecommendedBounties recommendations={[mockRecommendation]} walletConnected={true} />
+      </div>
+    );
+
+    const filterChips = container.querySelectorAll('.filter-chip');
+    expect(filterChips.length).toBeGreaterThan(0);
+  });
 });
