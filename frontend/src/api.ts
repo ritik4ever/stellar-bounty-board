@@ -307,7 +307,10 @@ export async function createBounty(payload: CreateBountyPayload): Promise<Bounty
   const body = await requestJson<{ data: Bounty }>('/bounties', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      ...payload,
+      labels: payload.labels?.map((label) => label.name),
+    }),
   });
 
   return body.data;

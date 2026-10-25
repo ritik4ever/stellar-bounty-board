@@ -322,7 +322,7 @@ describe('createBounty', () => {
       tokenSymbol: 'XLM',
       amount: 100,
       deadlineDays: 14,
-      labels: [],
+      labels: [{ name: 'help wanted', color: '0075ca' }],
     };
     const result = await createBounty(payload);
 
@@ -331,6 +331,7 @@ describe('createBounty', () => {
     expect(call[1].method).toBe('POST');
     expect(call[1].headers['Content-Type']).toBe('application/json');
     expect(JSON.parse(call[1].body)).toMatchObject({ repo: 'owner/repo' });
+    expect(JSON.parse(call[1].body).labels).toEqual(['help wanted']);
   });
 
   it('throws on validation error (400)', async () => {

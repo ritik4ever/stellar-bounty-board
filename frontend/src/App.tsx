@@ -670,7 +670,13 @@ function App() {
         </button>
       );
     },
-    [refresh]
+    [
+      refresh,
+      freighter.isConnected,
+      freighter.isOnCorrectNetwork,
+      freighter.publicKey,
+      freighter.signPayload,
+    ]
   );
 
   const repoRoute = useMemo(() => {
@@ -933,6 +939,21 @@ function App() {
                         setIsFormDirty(true);
                       }}
                       placeholder="Add WebSocket updates..."
+                    />
+                  </label>
+                </div>
+                <div className="form-row">
+                  <label>
+                    Summary
+                    <textarea
+                      value={form.summary}
+                      onChange={(e) => {
+                        setForm({ ...form, summary: e.target.value });
+                        setIsFormDirty(true);
+                      }}
+                      minLength={20}
+                      maxLength={280}
+                      required
                     />
                   </label>
                 </div>
