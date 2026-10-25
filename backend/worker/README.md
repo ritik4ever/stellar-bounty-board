@@ -24,6 +24,7 @@ stable event type string:
 | `Releas`   | `release`      | `BountyReleased`   | bounty ID, contributor, maintainer, amount           |
 | `Refund`   | `refunde`      | `BountyRefunded`   | bounty ID, maintainer, amount                      |
 | `Dispt`    | `disputed`     | `BountyDisputed`    | bounty ID, contributor, arbiter                      |
+| `Queried`  | `queried`      | `BountyQueried`     | bounty ID, status, deadline, full mutable state      |
 
 ### Release event
 
