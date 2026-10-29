@@ -54,7 +54,7 @@ cleanupTimer.unref();
  */
 export function idempotencyMiddleware(req: Request, res: Response, next: NextFunction): void {
   const rawKey = req.headers['idempotency-key'];
-  const key = Array.isArray(rawKey) ? rawKey[0] : rawKey;
+  const key: string | undefined = Array.isArray(rawKey) ? rawKey[0] : rawKey;
 
   if (!key || typeof key !== 'string' || key.trim().length === 0) {
     next();

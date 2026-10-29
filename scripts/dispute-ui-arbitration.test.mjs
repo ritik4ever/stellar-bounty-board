@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
 
 // Test Issue #1453: Add a dispute UI for maintainers and arbiters
 // Acceptance criteria:

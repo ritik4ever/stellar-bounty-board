@@ -18,6 +18,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Pre-pull base image with retry
+        run: |
+          for i in 1 2 3; do docker pull node:20 && break; echo "pull attempt $i failed, retrying"; sleep 5; done
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 

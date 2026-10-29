@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import request from 'supertest';
 import { app } from '../src/app';
-import { vi } from 'vitest';
 
 describe('POST /api/bounties/:id/release — integration test', () => {
   it('rejects non-existent bounty with 404', async () => {
@@ -86,7 +85,7 @@ describe('POST /api/bounties/:id/release — integration test', () => {
     const res = await request(app)
       .post('/api/bounties/%20/release')
       .set('Content-Type', 'application/json')
-      .send({ maintainer: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF' });
+      .send({ maintainer: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF' });
     expect(res.status).toBe(400);
     expect(res.body.error).toBeDefined();
   });
