@@ -48,6 +48,7 @@ const EVENT_TYPES = {
   Create: "create",
   CrtEvent: "created",
   Reserv: "reserve",
+  ReservEvt: "reserve",
   Submit: "submit",
   Releas: "release",
   Refund: "refund",
@@ -114,6 +115,24 @@ export function normalizeEvent(event) {
   // carries these fields (BountyReleased), so this is just a convenience view.
   if (type === " release".trim()) {
     normalized.released = true;
+  }
+
+  // `reserve` is emitted by both the legacy `(Bounty, Reserv)` topic and the
+  // new structured `(Bounty, ReservEvt)` topic. The structured topic's payload
+  // (`BountyReservedEvent`) is sufficient on its own, so the worker does not need
+  // a follow-up contract read to react to the reserve transition.
+  if (type === "reserve") {
+    normalized.token = addressString(data.token ?? event.token);
+    normalized.repo = data.repo ?? event.repo;
+    normalized.issueNumber = jsonSafe(data.issue_number ?? event.issue_number);
+    normalized.title = data.title ?? event.title;
+    normalized.deadline = jsonSafe(data.deadline ?? event.deadline);
+    normalized.protocolFeeBps = jsonSafe(data.protocol_fee_bps ?? event.protocol_fee_bps);
+    normalized.disputeWindowOverride = jsonSafe(
+      data.dispute_window_override ?? event.dispute_window_override ?? null,
+    );
+    normalized.reservedAt = jsonSafe(data.reserved_at ?? event.reserved_at);
+    normalized.bountyStatusAfterReserve = data.bounty_status_after_reserve ?? event.bounty_status_after_reserve;
   }
 
  // `created` is the structured create_bounty event (BountyCreatedEvent).

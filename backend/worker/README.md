@@ -20,14 +20,24 @@ stable event type string:
 | `Create`   | `create`      | `BountyCreated`    | bounty ID, maintainer, amount 
 |CrtEvent	created	BountyCreatedEvent	bounty ID, maintainer, token, amount, repo, issue number, title, deadline, protocol fee bps, dispute window override, created at
 | `Reserv`   | `reserve`     | `BountyReserved`   | bounty ID, contributor                            |
+| `ReservEvt` | `reserve`     | `BountyReservedEvent` | bounty ID, contributor, reservedAt, bountyStatusAfterReserve |
 | `Submit`   | `submit`      | `BountySubmitted`  | bounty ID, contributor                            |
 | `Releas`   | `release`      | `BountyReleased`   | bounty ID, contributor, maintainer, amount           |
 | `Refund`   | `refunde`      | `BountyRefunded`   | bounty ID, maintainer, amount                      |
 | `Dispt`    | `disputed`     | `BountyDisputed`    | bounty ID, contributor, arbiter                      |
 
+### Reserve event
+
+`reserve_bounty` emits two events:
+
+- A legacy lightweight event with the topic `(Bounty, Reserv)` and a `BountyReserved` payload containing `bounty_id` and `contributor`.
+- A structured event with the topic `(Bounty, ReservEvt)` and a `BountyReservedEvent` payload containing `bounty_id`, `contributor`, `reserved_at`, and `bounty_status_after_reserve`. The worker normalizes this into a record with `type: "reserve"`, the bounty ID, the contributor, the reservedAt timestamp, and the post-reservation status -- all derived from the event payload alone. No follow-up contract read is required to react to the reserve transition.
+
+The legacy `(Bounty, Reserv)` event is unchanged and still maps to `type: "reserve"`.
+
 ### Release event
 
-`Wrelease_bounty` emits a structured event with the topic `(Bounty, Releasa)` and a
+`release_bounty` emits a structured event with the topic `(Bounty, Releas)` and a
 `BountyReleased` payload containing `bounty_id`, `contributor`, `maintainer`, and `amount`.
 The worker normalizes this into a record with `type: "release"`, the bounty ID, the
 contributor, the maintainer, and the released amount -- all derived from the event

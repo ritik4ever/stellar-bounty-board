@@ -647,6 +647,82 @@ fn test_submit_bounty_emits_event() {
 }
 
 #[test]
+fn test_reserve_bounty_emits_structured_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _admin, maintainer, contributor, token_id, fee_recipient, _arbiter) =
+        setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1_000);
+    token_admin.mint(&contributor, &1_000);
+
+    let deadline = env.ledger().timestamp() + 1000;
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+
+    let before_timestamp = env.ledger().timestamp();
+    client.reserve_bounty(&bounty_id, &contributor);
+    let after_timestamp = env.ledger().timestamp();
+
+    let events = env.events().all().filter_by_contract(&client.address);
+    let event_list = events.events();
+
+    // The structured reserve event is the *last* event emitted by this call.
+    let structured_event = event_list.last().unwrap();
+    let soroban_sdk::xdr::ContractEventBody::V0(body) = &structured_event.body;
+    let t0 = soroban_sdk::Symbol::from_val(&env, &body.topics[0]);
+    let t1 = soroban_sdk::Symbol::from_val(&env, &body.topics[1]);
+    assert_eq!(t0, symbol_short!("Bounty"));
+    assert_eq!(t1, symbol_short!("ReservEvt"));
+    let structured_payload =
+        BountyReservedEvent::from_val(&env, &body.data);
+    assert_eq!(
+        structured_payload,
+        BountyReservedEvent {
+            bounty_id,
+            contributor: contributor.clone(),
+            reserved_at: after_timestamp,
+            bounty_status_after_reserve: BountyStatus::Reserved,
+        }
+    );
+    assert!(
+        structured_payload.reserved_at >= before_timestamp
+            && structured_payload.reserved_at <= after_timestamp,
+        "reserved_at should be within the observed ledger window"
+    );
+
+    // The legacy lightweight event is still emitted, just before the structured one.
+    let legacy_event = event_list.get(event_list.len() - 2).unwrap();
+    let soroban_sdk::xdr::ContractEventBody::V0(body) = &legacy_event.body;
+    let t0 = soroban_sdk::Symbol::from_val(&env, &body.topics[0]);
+    let t1 = soroban_sdk::Symbol::from_val(&env, &body.topics[1]);
+    assert_eq!(t0, symbol_short!("Bounty"));
+    assert_eq!(t1, symbol_short!("Reserv"));
+    let legacy_payload = BountyReserved::from_val(&env, &body.data);
+    assert_eq!(
+        legacy_payload,
+        BountyReserved {
+            bounty_id,
+            contributor: contributor.clone(),
+        }
+    );
+
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.status, BountyStatus::Reserved);
+    assert_eq!(bounty.contributor, Some(contributor));
+}
+
+#[test]
 fn test_fees_consistent_across_token_types() {
     let env1 = Env::default();
     env1.mock_all_auths();
