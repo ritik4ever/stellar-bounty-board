@@ -143,6 +143,26 @@ pub struct BountyReassigned {
     pub new_contributor: Address,
 }
 
+/// Payload for the `(Bounty, ReservEvt)` event emitted by `reserve_bounty`.
+///
+/// This event is scoped specifically to the `reserve_bounty` transition so
+/// that the indexer worker can react without polling the whole contract
+/// state. The payload carries every field the worker needs to update its
+/// view of the bounty without a follow-up contract read:
+/// - `bounty_id`: which bounty was reserved.
+/// - `contributor`: who reserved the bounty.
+/// - `reserved_at`: the ledger timestamp at which the reservation occurred.
+/// - `bounty_status_after_reserve`: the bounty status recorded in storage after the
+///   transition, so the worker can reconcile its view with on-chain state.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BountyReservedEvent {
+    pub bounty_id: u64,
+    pub contributor: Address,
+    pub reserved_at: u64,
+    pub bounty_status_after_reserve: BountyStatus,
+}
+
 /// Payload for the `(Bounty, Submit)` event emitted when a bounty is submitted by a contributor.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -817,6 +837,7 @@ impl StellarBountyBoardContract {
     ///
     /// # Events
     /// * Emits `(symbol_short!("Bounty"), symbol_short!("Reserv"))` with [`BountyReserved`] payload.
+    /// * Emits `(symbol_short!("Bounty"), symbol_short!("ReservEvt"))` with [`BountyReservedEvent`] payload.
     pub fn reserve_bounty(env: Env, bounty_id: u64, contributor: Address) {
         contributor.require_auth();
 
@@ -837,15 +858,32 @@ impl StellarBountyBoardContract {
             panic_error(&env, ContractError::BountyNotOpen);
         }
 
+        let reserved_at = env.ledger().timestamp();
+
         bounty.contributor = Some(contributor.clone());
         bounty.status = BountyStatus::Reserved;
         write_bounty(&env, bounty_id, &bounty);
 
+        // Legacy lightweight event for backward-compatible topic watchers.
         env.events().publish(
             (symbol_short!("Bounty"), symbol_short!("Reserv")),
             BountyReserved {
                 bounty_id,
+                contributor: contributor.clone(),
+            },
+        );
+
+        // Structured, self-contained event scoped to `reserve_bounty`.
+        // Topic: `(symbol_short!("Bounty"), symbol_short!("ReservEvt"))`.
+        // Payload: `BountyReservedEvent` — sufficient for the indexer worker
+        // to update its view of this bounty without a follow-up contract read.
+        env.events().publish(
+            (symbol_short!("Bounty"), symbol_short!("ReservEvt")),
+            BountyReservedEvent {
+                bounty_id,
                 contributor,
+                reserved_at,
+                bounty_status_after_reserve: BountyStatus::Reserved,
             },
         );
     }
