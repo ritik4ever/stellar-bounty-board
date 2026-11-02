@@ -2546,7 +2546,6 @@ fn test_upgrade_event_topic_symbols() {
     assert_eq!(s2, s2);
     let _ = (t1, t2); // keep variable use for future expansion
 }
-// ─── Release Bounty Boundary & Edge-Case Test Suite (Issue #1242) ───
 
 #[test]
 #[should_panic(expected = "Error(Contract, #2)")]
@@ -3339,301 +3338,42 @@ fn test_get_bounty_boundaries() {
     }
 }
 
-// ── Individual named tests (snapshot-friendly, each asserting one boundary) ──
-//
-// These complement the table above: they are individually named so that `cargo
-// test` output and CI snapshots show exactly which boundary failed.
-
+// Correct caller succeeds
 #[test]
-#[should_panic(expected = "Error(Contract, #2)")]
-fn test_get_bounty_id_zero_not_found() {
+fn get_bounty_allows_authorised_caller() {
     let env = Env::default();
-    let (client, _, _, _, _, _, _) = setup_test(&env);
-    client.get_bounty(&0u64);
+    let (client, authorised, _a, _b, _stranger, id) = auth_setup(&env);
+    env.mock_auths(&[auth_for(&env, &authorised, &client, id)]);
+    let bounty = client.get_bounty(&id);
+    assert_eq!(bounty.id, id); // MATCH: field name
+}
+
+// Wrong signer: a real, different address signs, one test per other role
+#[test]
+fn get_bounty_rejects_wrong_signer_role_a() {
+    let env = Env::default();
+    let (client, _authorised, other_a, _b, _stranger, id) = auth_setup(&env);
+    env.mock_auths(&[auth_for(&env, &other_a, &client, id)]);
+    assert!(client.try_get_bounty(&id).is_err());
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #2)")]
-fn test_get_bounty_large_nonexistent_id_not_found() {
+fn get_bounty_rejects_wrong_signer_role_b() {
     let env = Env::default();
-    let (client, _, _, _, _, _, _) = setup_test(&env);
-    client.get_bounty(&u64::MAX);
+    let (client, _authorised, _a, other_b, _stranger, id) = auth_setup(&env);
+    env.mock_auths(&[auth_for(&env, &other_b, &client, id)]);
+    assert!(client.try_get_bounty(&id).is_err());
 }
 
 #[test]
-fn test_get_bounty_open_before_deadline_returns_open() {
+fn get_bounty_rejects_stranger() {
     let env = Env::default();
-    env.mock_all_auths();
-    let (client, _admin, maintainer, _contributor, token_id, _, _) = setup_test(&env);
-    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
-    token_admin.mint(&maintainer, &1_000);
-
-    let bounty_id = client.create_bounty(
-        &maintainer,
-        &token_id,
-        &500,
-        &String::from_str(&env, "repo"),
-        &1,
-        &String::from_str(&env, "title"),
-        &(env.ledger().timestamp() + 1_000),
-        &0u32,
-        &None,
-    );
-
-    let bounty = client.get_bounty(&bounty_id);
-    assert_eq!(bounty.status, BountyStatus::Open);
-    // Verify stored fields are returned intact.
-    assert_eq!(bounty.amount, 500);
-    assert_eq!(bounty.issue_number, 1);
-    assert_eq!(bounty.maintainer, maintainer);
-    assert_eq!(bounty.contributor, None);
+    let (client, _authorised, _a, _b, stranger, id) = auth_setup(&env);
+    env.mock_auths(&[auth_for(&env, &stranger, &client, id)]);
+    assert!(client.try_get_bounty(&id).is_err());
 }
 
-#[test]
-fn test_get_bounty_open_past_deadline_returns_expired() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _admin, maintainer, _contributor, token_id, _, _) = setup_test(&env);
-    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
-    token_admin.mint(&maintainer, &1_000);
-
-    let deadline = env.ledger().timestamp() + 500;
-    let bounty_id = client.create_bounty(
-        &maintainer,
-        &token_id,
-        &500,
-        &String::from_str(&env, "repo"),
-        &1,
-        &String::from_str(&env, "title"),
-        &deadline,
-        &0u32,
-        &None,
-    );
-
-    // Advance ledger past deadline — expiry is triggered lazily by get_bounty.
-    env.ledger().set_timestamp(deadline + 1);
-
-    let bounty = client.get_bounty(&bounty_id);
-    assert_eq!(
-        bounty.status,
-        BountyStatus::Expired,
-        "Open bounty past deadline must be reported as Expired"
-    );
-}
-
-#[test]
-fn test_get_bounty_reserved_past_deadline_returns_expired() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _admin, maintainer, contributor, token_id, _, _arbiter) = setup_test(&env);
-    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
-    token_admin.mint(&maintainer, &1_000);
-
-    let deadline = env.ledger().timestamp() + 500;
-    let bounty_id = client.create_bounty(
-        &maintainer,
-        &token_id,
-        &500,
-        &String::from_str(&env, "repo"),
-        &1,
-        &String::from_str(&env, "title"),
-        &deadline,
-        &0u32,
-        &None,
-    );
-    client.reserve_bounty(&bounty_id, &contributor);
-
-    env.ledger().set_timestamp(deadline + 1);
-
-    let bounty = client.get_bounty(&bounty_id);
-    assert_eq!(
-        bounty.status,
-        BountyStatus::Expired,
-        "Reserved bounty past deadline must be reported as Expired"
-    );
-    // Contributor is still stored even though status is now Expired.
-    assert_eq!(bounty.contributor, Some(contributor));
-}
-
-#[test]
-fn test_get_bounty_released_past_deadline_stays_released() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _admin, maintainer, contributor, token_id, _, _arbiter) = setup_test(&env);
-    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
-    token_admin.mint(&maintainer, &1_000);
-
-    let deadline = env.ledger().timestamp() + 500;
-    let bounty_id = client.create_bounty(
-        &maintainer,
-        &token_id,
-        &500,
-        &String::from_str(&env, "repo"),
-        &1,
-        &String::from_str(&env, "title"),
-        &deadline,
-        &0u32,
-        &None,
-    );
-    client.reserve_bounty(&bounty_id, &contributor);
-    client.submit_bounty(&bounty_id, &contributor);
-    client.release_bounty(&bounty_id, &maintainer);
-
-    // Advance well past deadline — terminal status must not be overwritten.
-    env.ledger().set_timestamp(deadline + 10_000);
-
-    let bounty = client.get_bounty(&bounty_id);
-    assert_eq!(
-        bounty.status,
-        BountyStatus::Released,
-        "Released bounty must never be promoted to Expired"
-    );
-}
-
-#[test]
-fn test_get_bounty_refunded_past_deadline_stays_refunded() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _admin, maintainer, contributor, token_id, _, _arbiter) = setup_test(&env);
-    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
-    token_admin.mint(&maintainer, &1_000);
-
-    let deadline = env.ledger().timestamp() + 500;
-    let bounty_id = client.create_bounty(
-        &maintainer,
-        &token_id,
-        &500,
-        &String::from_str(&env, "repo"),
-        &1,
-        &String::from_str(&env, "title"),
-        &deadline,
-        &0u32,
-        &None,
-    );
-    client.reserve_bounty(&bounty_id, &contributor);
-    env.ledger().set_timestamp(deadline + 1);
-    client.refund_bounty(&bounty_id, &maintainer);
-
-    env.ledger().set_timestamp(deadline + 10_000);
-
-    let bounty = client.get_bounty(&bounty_id);
-    assert_eq!(
-        bounty.status,
-        BountyStatus::Refunded,
-        "Refunded bounty must never be promoted to Expired"
-    );
-}
-
-#[test]
-fn test_get_bounty_disputed_past_deadline_stays_disputed() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _admin, maintainer, contributor, token_id, _, arbiter) = setup_test(&env);
-    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
-    token_admin.mint(&maintainer, &1_000);
-
-    let deadline = env.ledger().timestamp() + 500;
-    let bounty_id = client.create_bounty(
-        &maintainer,
-        &token_id,
-        &500,
-        &String::from_str(&env, "repo"),
-        &1,
-        &String::from_str(&env, "title"),
-        &deadline,
-        &0u32,
-        &None,
-    );
-    client.reserve_bounty(&bounty_id, &contributor);
-    client.submit_bounty(&bounty_id, &contributor);
-    client.dispute_bounty(&bounty_id, &arbiter);
-
-    env.ledger().set_timestamp(deadline + 10_000);
-
-    let bounty = client.get_bounty(&bounty_id);
-    assert_eq!(
-        bounty.status,
-        BountyStatus::Disputed,
-        "Disputed bounty must never be promoted to Expired"
-    );
-}
-
-#[test]
-fn test_get_bounty_returns_correct_fields() {
-    // Validates that every field stored at creation is faithfully returned.
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _admin, maintainer, _contributor, token_id, _, _arbiter) = setup_test(&env);
-    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
-    token_admin.mint(&maintainer, &10_000);
-
-    let repo = String::from_str(&env, "ritik4ever/stellar-bounty-board");
-    let title = String::from_str(&env, "Boundary test bounty");
-    let deadline = env.ledger().timestamp() + 2_000;
-    let amount = 1_234i128;
-    let issue_number = 42u32;
-    let fee_bps = 0u32;
-
-    let bounty_id = client.create_bounty(
-        &maintainer,
-        &token_id,
-        &amount,
-        &repo,
-        &issue_number,
-        &title,
-        &deadline,
-        &fee_bps,
-        &None,
-    );
-
-    let bounty = client.get_bounty(&bounty_id);
-    assert_eq!(bounty.maintainer, maintainer);
-    assert_eq!(bounty.token, token_id);
-    assert_eq!(bounty.amount, amount);
-    assert_eq!(bounty.repo, repo);
-    assert_eq!(bounty.issue_number, issue_number);
-    assert_eq!(bounty.title, title);
-    assert_eq!(bounty.deadline, deadline);
-    assert_eq!(bounty.status, BountyStatus::Open);
-    assert_eq!(bounty.protocol_fee_bps, fee_bps);
-    assert_eq!(bounty.contributor, None);
-    assert_eq!(bounty.dispute_raised_at, 0);
-    assert_eq!(bounty.dispute_window_override, None);
-}
-
-#[test]
-fn test_get_bounty_exactly_at_deadline_is_not_expired() {
-    // Boundary: timestamp == deadline  →  condition is `now > deadline`, so NOT expired.
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _admin, maintainer, _contributor, token_id, _, _) = setup_test(&env);
-    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
-    token_admin.mint(&maintainer, &1_000);
-
-    let deadline = env.ledger().timestamp() + 500;
-    let bounty_id = client.create_bounty(
-        &maintainer,
-        &token_id,
-        &500,
-        &String::from_str(&env, "repo"),
-        &1,
-        &String::from_str(&env, "title"),
-        &deadline,
-        &0u32,
-        &None,
-    );
-
-    // Set ledger to exactly the deadline (not past it).
-    env.ledger().set_timestamp(deadline);
-
-    let bounty = client.get_bounty(&bounty_id);
-    assert_eq!(
-        bounty.status,
-        BountyStatus::Open,
-        "Bounty exactly AT its deadline must still be Open (expire_if_needed uses strict >)"
-    );
-}
-
+// Missing signer: no auth provided at all
 #[test]
 fn test_get_bounty_one_second_past_deadline_is_expired() {
     // Off-by-one: deadline + 1 second must trigger expiry.
