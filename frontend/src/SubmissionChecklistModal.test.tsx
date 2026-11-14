@@ -210,3 +210,230 @@ describe("SubmissionChecklistModal pre-flight validation", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 });
+
+describe("SubmissionChecklistModal evidence attachment", () => {
+  function createMockFile(name: string, size: number, type: string): File {
+    const file = new File(["x".repeat(size)], name, { type });
+    return file;
+  }
+
+  it("renders the evidence file input", () => {
+    renderModal();
+    const fileInput = screen.getByLabelText(/supporting evidence/i);
+    expect(fileInput).toBeInTheDocument();
+    expect(fileInput).toHaveAttribute("type", "file");
+    expect(fileInput).toHaveAttribute("accept", ".pdf,.png,.jpg,.jpeg");
+  });
+
+  it("accepts a valid PDF file", async () => {
+    const user = userEvent.setup();
+    renderModal();
+
+    const validFile = createMockFile("evidence.pdf", 1024 * 1024, "application/pdf"); // 1MB
+    const fileInput = screen.getByLabelText(/supporting evidence/i);
+
+    await user.upload(fileInput, validFile);
+
+    expect(screen.getByText("evidence.pdf")).toBeInTheDocument();
+    expect(screen.getByText(/1\.0 MB/)).toBeInTheDocument();
+    expect(screen.queryByText(/file type not supported/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/file is too large/i)).not.toBeInTheDocument();
+  });
+
+  it("accepts a valid PNG file", async () => {
+    const user = userEvent.setup();
+    renderModal();
+
+    const validFile = createMockFile("screenshot.png", 500 * 1024, "image/png"); // 500KB
+    const fileInput = screen.getByLabelText(/supporting evidence/i);
+
+    await user.upload(fileInput, validFile);
+
+    expect(screen.getByText("screenshot.png")).toBeInTheDocument();
+    expect(screen.getByText(/500\.0 KB/)).toBeInTheDocument();
+    expect(screen.queryByText(/file type not supported/i)).not.toBeInTheDocument();
+  });
+
+  it("accepts a valid JPG file", async () => {
+    const user = userEvent.setup();
+    renderModal();
+
+    const validFile = createMockFile("photo.jpg", 2 * 1024 * 1024, "image/jpeg"); // 2MB
+    const fileInput = screen.getByLabelText(/supporting evidence/i);
+
+    await user.upload(fileInput, validFile);
+
+    expect(screen.getByText("photo.jpg")).toBeInTheDocument();
+    expect(screen.getByText(/2\.0 MB/)).toBeInTheDocument();
+    expect(screen.queryByText(/file type not supported/i)).not.toBeInTheDocument();
+  });
+
+  it("rejects a file that is too large", async () => {
+    const user = userEvent.setup();
+    renderModal();
+
+    const oversizedFile = createMockFile("large.pdf", 11 * 1024 * 1024, "application/pdf"); // 11MB
+    const fileInput = screen.getByLabelText(/supporting evidence/i);
+
+    await user.upload(fileInput, oversizedFile);
+
+    expect(screen.getByText(/file is too large\. maximum size is 10 mb/i)).toBeInTheDocument();
+    expect(screen.queryByText("large.pdf")).not.toBeInTheDocument();
+  });
+
+  it("rejects an unsupported file type by MIME", async () => {
+    const user = userEvent.setup();
+    renderModal();
+
+    const unsupportedFile = createMockFile("document.docx", 1024, "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    const fileInput = screen.getByLabelText(/supporting evidence/i);
+
+    await user.upload(fileInput, unsupportedFile);
+
+    expect(screen.getByText(/file type not supported\. please upload pdf, png, or jpg/i)).toBeInTheDocument();
+    expect(screen.queryByText("document.docx")).not.toBeInTheDocument();
+  });
+
+  it("rejects an unsupported file type by extension", async () => {
+    const user = userEvent.setup();
+    renderModal();
+
+    const unsupportedFile = createMockFile("script.txt", 1024, "text/plain");
+    const fileInput = screen.getByLabelText(/supporting evidence/i);
+
+    await user.upload(fileInput, unsupportedFile);
+
+    expect(screen.getByText(/file type not supported\. please upload pdf, png, or jpg/i)).toBeInTheDocument();
+    expect(screen.queryByText("script.txt")).not.toBeInTheDocument();
+  });
+
+  it("does not trigger network request when file is invalid", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    renderModal({ onSubmit });
+
+    await fillIdentityFields(user);
+    for (const checkbox of screen.getAllByRole("checkbox")) {
+      await user.click(checkbox);
+    }
+
+    // Upload invalid file
+    const invalidFile = createMockFile("large.pdf", 11 * 1024 * 1024, "application/pdf");
+    const fileInput = screen.getByLabelText(/supporting evidence/i);
+    await user.upload(fileInput, invalidFile);
+
+    // Error should be shown
+    expect(screen.getByText(/file is too large/i)).toBeInTheDocument();
+
+    // Try to submit - should still work (evidence is optional)
+    const submit = screen.getByRole("button", { name: "Submit work" });
+    await user.click(submit);
+
+    // Submission should happen without the invalid file
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit).toHaveBeenCalledWith({
+      contributor: VALID_KEY,
+      prLink: "https://github.com/owner/repo/pull/1",
+      testsWritten: false,
+      notes: "",
+      evidenceFile: undefined,
+    });
+  });
+
+  it("displays evidence summary for valid file", async () => {
+    const user = userEvent.setup();
+    renderModal();
+
+    const validFile = createMockFile("evidence.pdf", 1024 * 1024, "application/pdf");
+    const fileInput = screen.getByLabelText(/supporting evidence/i);
+
+    await user.upload(fileInput, validFile);
+
+    // Summary should show file details
+    expect(screen.getByText("evidence.pdf")).toBeInTheDocument();
+    expect(screen.getByText(/1\.0 MB • application\/pdf/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /remove evidence file/i })).toBeInTheDocument();
+  });
+
+  it("allows removing a selected file", async () => {
+    const user = userEvent.setup();
+    renderModal();
+
+    const validFile = createMockFile("evidence.pdf", 1024 * 1024, "application/pdf");
+    const fileInput = screen.getByLabelText(/supporting evidence/i);
+
+    await user.upload(fileInput, validFile);
+    expect(screen.getByText("evidence.pdf")).toBeInTheDocument();
+
+    const removeButton = screen.getByRole("button", { name: /remove evidence file/i });
+    await user.click(removeButton);
+
+    expect(screen.queryByText("evidence.pdf")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /remove evidence file/i })).not.toBeInTheDocument();
+  });
+
+  it("clears error when removing file", async () => {
+    const user = userEvent.setup();
+    renderModal();
+
+    // Upload invalid file
+    const invalidFile = createMockFile("large.pdf", 11 * 1024 * 1024, "application/pdf");
+    const fileInput = screen.getByLabelText(/supporting evidence/i);
+    await user.upload(fileInput, invalidFile);
+
+    expect(screen.getByText(/file is too large/i)).toBeInTheDocument();
+
+    // Upload valid file to trigger removal of previous error
+    const validFile = createMockFile("valid.pdf", 1024, "application/pdf");
+    await user.upload(fileInput, validFile);
+
+    expect(screen.queryByText(/file is too large/i)).not.toBeInTheDocument();
+    expect(screen.getByText("valid.pdf")).toBeInTheDocument();
+  });
+
+  it("includes valid evidence file in submission", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    renderModal({ onSubmit });
+
+    await fillIdentityFields(user);
+    for (const checkbox of screen.getAllByRole("checkbox")) {
+      await user.click(checkbox);
+    }
+
+    const validFile = createMockFile("evidence.pdf", 1024, "application/pdf");
+    const fileInput = screen.getByLabelText(/supporting evidence/i);
+    await user.upload(fileInput, validFile);
+
+    const submit = screen.getByRole("button", { name: "Submit work" });
+    await user.click(submit);
+
+    expect(onSubmit).toHaveBeenCalledOnce();
+    const submittedData = onSubmit.mock.calls[0][0];
+    expect(submittedData.evidenceFile).toBeInstanceOf(File);
+    expect(submittedData.evidenceFile?.name).toBe("evidence.pdf");
+  });
+
+  it("allows submission without evidence file", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    renderModal({ onSubmit });
+
+    await fillIdentityFields(user);
+    for (const checkbox of screen.getAllByRole("checkbox")) {
+      await user.click(checkbox);
+    }
+
+    const submit = screen.getByRole("button", { name: "Submit work" });
+    await user.click(submit);
+
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit).toHaveBeenCalledWith({
+      contributor: VALID_KEY,
+      prLink: "https://github.com/owner/repo/pull/1",
+      testsWritten: false,
+      notes: "",
+      evidenceFile: undefined,
+    });
+  });
+});
