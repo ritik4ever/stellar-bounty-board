@@ -1,0 +1,145 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate Changelog
+        id: changelog
+        run: |
+          # Get the current tag
+          CURRENT_TAG=${GITHUB_REF#refs/tags/}
+          
+          # Get the previous tag
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          
+          if [ -z "$PREVIOUS_TAG" ]; then
+            echo "No previous tag found, generating changelog from first commit"
+            PREVIOUS_TAG=$(git rev-list --max-parents=0 HEAD)
+          fi
+          
+          echo "Current tag: $CURRENT_TAG"
+          echo "Previous tag: $PREVIOUS_TAG"
+          
+          # Generate changelog using git log
+          CHANGELOG=$(git log ${PREVIOUS_TAG}..${CURRENT_TAG} --pretty=format:"- %s (%h)" --reverse)
+          
+          if [ -z "$CHANGELOG" ]; then
+            CHANGELOG="No changes since previous release"
+          fi
+          
+          # Save changelog to file
+          echo "## Changes since ${PREVIOUS_TAG}" > CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "$CHANGELOG" >> CHANGELOG.md
+          
+          # Set output for use in release step
+          {
+            echo 'changelog<<EOF'
+            cat CHANGELOG.md
+            echo EOF
+          } >> $GITHUB_OUTPUT
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Cache root, backend and frontend node_modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            backend/node_modules
+            frontend/node_modules
+          key: ${{ runner.os }}-node-modules-${{ hashFiles('package-lock.json', 'backend/package-lock.json', 'frontend/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-modules-
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install backend dependencies
+        run: npm ci --prefix backend
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Build backend
+        run: npm --prefix backend run build
+
+      - name: Build frontend
+        run: npm --prefix frontend run build
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: wasm32-unknown-unknown
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            contracts/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build Soroban contract
+        run: cd contracts && cargo build --target wasm32-unknown-unknown --release
+
+      - name: Package artifacts
+        run: |
+          mkdir -p artifacts
+          
+          # Copy backend build
+          cp -r backend/dist artifacts/backend-dist
+          
+          # Copy frontend build
+          cp -r frontend/dist artifacts/frontend-dist
+          
+          # Copy contract WASM
+          cp contracts/target/wasm32-unknown-unknown/release/*.wasm artifacts/ 2>/dev/null || true
+          
+          # Create archives
+          cd artifacts
+          tar -czf backend-dist.tar.gz backend-dist
+          tar -czf frontend-dist.tar.gz frontend-dist
+          tar -czf contract-wasm.tar.gz *.wasm 2>/dev/null || true
+          cd ..
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body: ${{ steps.changelog.outputs.changelog }}
+          files: |
+            artifacts/backend-dist.tar.gz
+            artifacts/frontend-dist.tar.gz
+            artifacts/contract-wasm.tar.gz
+          draft: false
+          prerelease: false
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
