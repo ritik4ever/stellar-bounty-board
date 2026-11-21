@@ -34,9 +34,15 @@ function ensureStore(): void {
   }
 }
 
+import { wrapServiceError } from "./errors";
+
 export function listBountyTemplates(): BountyTemplate[] {
-  ensureStore();
-  return JSON.parse(fs.readFileSync(storePath(), "utf8")) as BountyTemplate[];
+  try {
+    ensureStore();
+    return JSON.parse(fs.readFileSync(storePath(), "utf8")) as BountyTemplate[];
+  } catch (err) {
+    throw wrapServiceError("bounty_templates.read_store", "json-store", err);
+  }
 }
 
 export function getBountyTemplate(id: string): BountyTemplate {

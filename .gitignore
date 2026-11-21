@@ -5,6 +5,7 @@ frontend/storybook-static/
 *.log
 .DS_Store
 backend/data/*.local.json
+backend/data/*.archive.json
 contracts/target/
 contracts/.stellar/
 

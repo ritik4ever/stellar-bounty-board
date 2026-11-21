@@ -28,6 +28,7 @@ This runbook provides step-by-step procedures for common operational tasks in pr
 ### Steps
 
 1. **Stop the backend service**
+
    ```bash
    # If using systemd
    sudo systemctl stop stellar-bounty-board-backend
@@ -39,6 +40,7 @@ This runbook provides step-by-step procedures for common operational tasks in pr
    ```
 
 2. **Backup existing data**
+
    ```bash
    # Navigate to the backend directory
    cd /path/to/backend
@@ -52,6 +54,7 @@ This runbook provides step-by-step procedures for common operational tasks in pr
    ```
 
 3. **Reset the bounty store**
+
    ```bash
    # Option 1: Delete the files (will be recreated with sample data on restart)
    rm data/bounties.json
@@ -63,6 +66,7 @@ This runbook provides step-by-step procedures for common operational tasks in pr
    ```
 
 4. **Restart the backend service**
+
    ```bash
    # If using systemd
    sudo systemctl start stellar-bounty-board-backend
@@ -85,12 +89,106 @@ This runbook provides step-by-step procedures for common operational tasks in pr
 ### Expected Output
 
 - Health check returns `{ "status": "ok", ... }`
-- `/api/bounties` returns either empty array `[]` or sample bounties (if using default initialization)
+- `/api/bounties` returns an envelope whose `data` array is empty — `{ "data": [], "total": 0, ... }`, not a bare `[]`
 - No errors in backend logs
+
+### Worked Example (local development)
+
+A complete run against a local backend, seeded with two bounties so the reset is visible. Everything below is copy-pasteable and the output is from an actual run, not an illustration.
+
+**1. Seed the store so there is something to clear**
+
+```bash
+$ cat > backend/data/bounties.json <<'JSON'
+[
+  { "id": "demo-1", "issueNumber": 101, "title": "Demo bounty one", "reward": "100", "status": "open" },
+  { "id": "demo-2", "issueNumber": 102, "title": "Demo bounty two", "reward": "250", "status": "open" }
+]
+JSON
+$ node -e "console.log(require('./backend/data/bounties.json').length)"
+2
+```
+
+**2. Start the backend and look at the API before the reset**
+
+```bash
+$ npx tsx src/index.ts
+[2026-09-24 13:57:09.929 +0000] INFO: server_listen
+
+$ curl -s http://localhost:3001/api/health
+{"service":"stellar-bounty-board-api","status":"ok","timestamp":"2026-09-24T13:57:10.721Z"}
+
+$ curl -s http://localhost:3001/api/bounties
+{"data":[{"id":"demo-1","issueNumber":101,"title":"Demo bounty one","reward":"100","status":"open",...},{"id":"demo-2",...}],"total":2,"page":1,"pageSize":20,"hasMore":false}
+```
+
+Note the shape: the payload is an envelope, so a script that counts top-level keys returns 5, not the number of bounties. Read `data` — or `total`.
+
+**3. Back up**
+
+```bash
+$ mkdir -p backups/20260924_135708
+$ cp data/bounties.json backups/20260924_135708/
+$ cp data/bounties.audit.json backups/20260924_135708/
+$ ls -1 backups/20260924_135708/
+bounties.audit.json
+bounties.json
+```
+
+**4. Stop the service — and confirm it actually stopped**
+
+This is the step that bites. Stopping by PID a process started through `npx` kills the wrapper and leaves the server running, and the reset then looks like it did nothing because you are still talking to the old process.
+
+```bash
+$ kill 151358
+$ curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3001/api/health
+200          # still serving — the wrapper died, the server did not
+$ pkill -f "tsx src/index.ts"
+$ pgrep -fc "tsx src/index.ts"
+0
+$ curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3001/api/health
+000          # nothing is listening now
+```
+
+Do not continue to the reset until the health check fails.
+
+**5. Reset the store**
+
+```bash
+$ echo "[]" > data/bounties.json
+$ echo "[]" > data/bounties.audit.json
+$ cat data/bounties.json
+[]
+```
+
+**6. Restart and verify**
+
+```bash
+$ npx tsx src/index.ts
+[2026-09-24 13:57:39.xxx +0000] INFO: server_listen
+
+$ curl -s http://localhost:3001/api/health
+{"service":"stellar-bounty-board-api","status":"ok","timestamp":"2026-09-24T13:57:39.660Z"}
+
+$ curl -s http://localhost:3001/api/bounties
+{"data":[],"total":0,"page":1,"pageSize":20,"hasMore":false}
+```
+
+Empty `data` and `total: 0` is what the reset looks like. If entries are still there, step 4 did not take effect — check for a process still holding port 3001 before looking anywhere else.
+
+**7. Restore from the backup (the Rollback path, exercised)**
+
+```bash
+$ cp backups/20260924_135708/bounties.json data/
+$ cp backups/20260924_135708/bounties.audit.json data/
+$ curl -s http://localhost:3001/api/bounties | python3 -c 'import json,sys;print(json.load(sys.stdin)["total"])'
+2
+```
 
 ### Rollback
 
 If you need to restore the previous data:
+
 ```bash
 # Stop the service
 sudo systemctl stop stellar-bounty-board-backend
@@ -119,6 +217,7 @@ sudo systemctl start stellar-bounty-board-backend
 ### Steps
 
 1. **Backup current data**
+
    ```bash
    cd /path/to/backend
    mkdir -p backups/$(date +%Y%m%d_%H%M%S)
@@ -127,11 +226,13 @@ sudo systemctl start stellar-bounty-board-backend
    ```
 
 2. **Stop the backend service**
+
    ```bash
    sudo systemctl stop stellar-bounty-board-backend
    ```
 
 3. **Identify bounties to update**
+
    ```bash
    # Find all bounties with the old maintainer key
    OLD_KEY="GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
@@ -139,6 +240,7 @@ sudo systemctl start stellar-bounty-board-backend
    ```
 
 4. **Update the maintainer key**
+
    ```bash
    # Use sed to replace the old key with the new key
    OLD_KEY="GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
@@ -148,6 +250,7 @@ sudo systemctl start stellar-bounty-board-backend
    ```
 
 5. **Validate the JSON**
+
    ```bash
    # Ensure the file is still valid JSON
    python3 -m json.tool data/bounties.json > /dev/null
@@ -155,6 +258,7 @@ sudo systemctl start stellar-bounty-board-backend
    ```
 
 6. **Restart the backend service**
+
    ```bash
    sudo systemctl start stellar-bounty-board-backend
    ```
@@ -191,7 +295,7 @@ sudo systemctl start stellar-bounty-board-backend
       "newKey": "'$NEW_KEY'"
     }
   }'
-  
+
   # Append to audit log
   echo "$AUDIT_ENTRY" >> data/bounties.audit.json
   ```
@@ -211,6 +315,7 @@ sudo systemctl start stellar-bounty-board-backend
 ### Steps
 
 1. **Backup current data**
+
    ```bash
    cd /path/to/backend
    mkdir -p backups/$(date +%Y%m%d_%H%M%S)
@@ -219,11 +324,13 @@ sudo systemctl start stellar-bounty-board-backend
    ```
 
 2. **Stop the backend service**
+
    ```bash
    sudo systemctl stop stellar-bounty-board-backend
    ```
 
 3. **Locate the bounty in the JSON file**
+
    ```bash
    # Find the bounty by ID
    BOUNTY_ID="BNT-0001"
@@ -234,6 +341,8 @@ sudo systemctl start stellar-bounty-board-backend
    ```bash
    # Use a script to update the bounty (Python example)
    python3 << 'EOF'
+   ```
+
 import json
 import sys
 
@@ -241,63 +350,65 @@ bounty_id = "BNT-0001"
 file_path = "data/bounties.json"
 
 with open(file_path, 'r') as f:
-    bounties = json.load(f)
+bounties = json.load(f)
 
 for bounty in bounties:
-    if bounty['id'] == bounty_id:
-        bounty['status'] = 'open'
-        bounty['contributor'] = None
-        bounty['reservedAt'] = None
-        bounty['version'] = bounty.get('version', 0) + 1
-        bounty['events'].append({
-            'type': 'expired',
-            'timestamp': int(__import__('time').time()),
-            'details': {'reason': 'admin_force_expire'}
-        })
-        print(f"Updated bounty {bounty_id}")
-        break
+if bounty['id'] == bounty_id:
+bounty['status'] = 'open'
+bounty['contributor'] = None
+bounty['reservedAt'] = None
+bounty['version'] = bounty.get('version', 0) + 1
+bounty['events'].append({
+'type': 'expired',
+'timestamp': int(**import**('time').time()),
+'details': {'reason': 'admin_force_expire'}
+})
+print(f"Updated bounty {bounty_id}")
+break
 
 with open(file_path, 'w') as f:
-    json.dump(bounties, f, indent=2)
+json.dump(bounties, f, indent=2)
 
 print("Done")
 EOF
-   ```
+
+````
 
 5. **Add audit log entry**
-   ```bash
-   python3 << 'EOF'
+```bash
+python3 << 'EOF'
 import json
 import time
 
 audit_entry = {
-    "id": "AUD-" + str(int(time.time())),
-    "bountyId": "BNT-0001",
-    "fromStatus": "reserved",
-    "toStatus": "open",
-    "transition": "expire",
-    "actor": "admin",
-    "timestamp": int(time.time()),
-    "metadata": {
-        "reason": "admin_force_expire",
-        "manual_intervention": True
-    }
+ "id": "AUD-" + str(int(time.time())),
+ "bountyId": "BNT-0001",
+ "fromStatus": "reserved",
+ "toStatus": "open",
+ "transition": "expire",
+ "actor": "admin",
+ "timestamp": int(time.time()),
+ "metadata": {
+     "reason": "admin_force_expire",
+     "manual_intervention": True
+ }
 }
 
 audit_file = "data/bounties.audit.json"
 with open(audit_file, 'r') as f:
-    audits = json.load(f)
+ audits = json.load(f)
 
 audits.append(audit_entry)
 
 with open(audit_file, 'w') as f:
-    json.dump(audits, f, indent=2)
+ json.dump(audits, f, indent=2)
 
 print("Audit log updated")
 EOF
-   ```
+````
 
 6. **Validate the JSON**
+
    ```bash
    python3 -m json.tool data/bounties.json > /dev/null
    python3 -m json.tool data/bounties.audit.json > /dev/null
@@ -305,6 +416,7 @@ EOF
    ```
 
 7. **Restart the backend service**
+
    ```bash
    sudo systemctl start stellar-bounty-board-backend
    ```
@@ -326,6 +438,7 @@ EOF
 ### Alternative: API-Based Approach
 
 If you have admin access to the API, you can use the refund endpoint instead:
+
 ```bash
 # Refund the bounty (only works for open or reserved bounties)
 curl -X POST https://your-backend.example.com/api/bounties/BNT-0001/refund \
@@ -352,6 +465,7 @@ Then recreate the bounty with the same details.
 ### Steps
 
 1. **Identify the corruption**
+
    ```bash
    # Try to validate the JSON
    python3 -m json.tool data/bounties.json
@@ -359,6 +473,7 @@ Then recreate the bounty with the same details.
    ```
 
 2. **Backup the corrupted file**
+
    ```bash
    cp data/bounties.json data/bounties.json.corrupted.$(date +%Y%m%d_%H%M%S)
    cp data/bounties.audit.json data/bounties.audit.json.corrupted.$(date +%Y%m%d_%H%M%S) 2>/dev/null || true
@@ -367,10 +482,11 @@ Then recreate the bounty with the same details.
 3. **Attempt to repair the JSON**
 
    **Option A: Use jq (if available)**
+
    ```bash
    # Try to parse and reformat (may fix simple issues)
    jq '.' data/bounties.json > data/bounties.json.repaired 2>&1
-   
+
    # If successful, replace the original
    if [ $? -eq 0 ]; then
      mv data/bounties.json.repaired data/bounties.json
@@ -379,12 +495,13 @@ Then recreate the bounty with the same details.
    ```
 
    **Option B: Manual repair with text editor**
+
    ```bash
    # Open the file in a text editor
    nano data/bounties.json
    # or
    vim data/bounties.json
-   
+
    # Look for common issues:
    # - Missing commas between array elements
    # - Trailing commas
@@ -393,23 +510,25 @@ Then recreate the bounty with the same details.
    ```
 
    **Option C: Extract valid data and rebuild**
+
    ```bash
    # If the file is severely corrupted, extract what you can
    python3 << 'EOF'
+   ```
+
 import json
 import re
 
 file_path = "data/bounties.json"
 
-try:
-    # Try to read as much as possible
-    with open(file_path, 'r') as f:
-        content = f.read()
-    
+try: # Try to read as much as possible
+with open(file_path, 'r') as f:
+content = f.read()
+
     # Find all JSON objects (bounty records)
     pattern = r'\{[^{}]*"id"[^{}]*\}'
     matches = re.findall(pattern, content, re.DOTALL)
-    
+
     valid_bounties = []
     for match in matches:
         try:
@@ -418,28 +537,31 @@ try:
                 valid_bounties.append(bounty)
         except:
             continue
-    
+
     # Write the recovered data
     with open(file_path, 'w') as f:
         json.dump(valid_bounties, f, indent=2)
-    
+
     print(f"Recovered {len(valid_bounties)} bounty records")
+
 except Exception as e:
-    print(f"Error: {e}")
+print(f"Error: {e}")
 EOF
-   ```
+
+````
 
 4. **Validate the repaired file**
-   ```bash
-   python3 -m json.tool data/bounties.json > /dev/null
-   if [ $? -eq 0 ]; then
-     echo "JSON is now valid"
-   else
-     echo "JSON still invalid, manual repair needed"
-   fi
-   ```
+```bash
+python3 -m json.tool data/bounties.json > /dev/null
+if [ $? -eq 0 ]; then
+  echo "JSON is now valid"
+else
+  echo "JSON still invalid, manual repair needed"
+fi
+````
 
 5. **Handle the audit log (if corrupted)**
+
    ```bash
    # The audit log can be safely reset to an empty array if needed
    echo "[]" > data/bounties.audit.json
@@ -447,6 +569,7 @@ EOF
    ```
 
 6. **Restart the backend service**
+
    ```bash
    sudo systemctl start stellar-bounty-board-backend
    ```
@@ -455,7 +578,7 @@ EOF
    ```bash
    # Check health endpoint
    curl https://your-backend.example.com/api/health
-   
+
    # Check bounty list
    curl https://your-backend.example.com/api/bounties
    ```
@@ -501,6 +624,7 @@ soroban contract invoke \
 ```
 
 Verify the contract is paused by attempting a non-state-changing read or by checking the pause status if a getter is available:
+
 ```bash
 soroban contract invoke \
   --id $SOROBAN_CONTRACT_ID \
@@ -513,6 +637,7 @@ soroban contract invoke \
 ### 2. Post-Pause Triage
 
 Once the contract is paused, immediately begin triage:
+
 1. **Assess Affected Bounties:** Query the contract or backend database to identify bounties that were in an active, funded, or payout state at the time of the exploit.
 2. **Review On-Chain Data:** Check recent transactions to the contract to isolate the exploit vector and determine if funds were already compromised.
 3. **Notify Users:** Communicate the incident to the community immediately to prevent confusion.
@@ -522,12 +647,12 @@ Once the contract is paused, immediately begin triage:
 Use the following template to communicate the incident in the project's Discord/Slack and GitHub discussions:
 
 > **[URGENT] Stellar Bounty Board Contract Paused**
-> 
+>
 > **Status:** The smart contract has been temporarily paused by administrators.
 > **Reason:** We are investigating a potential security anomaly/vulnerability.
-> **Impact:** All bounty creations, claims, and payouts are currently halted. Existing funds are secured (or state current status of funds). 
-> **Next Steps:** Our team is actively investigating the issue and working on a remediation. We will provide another update within [Timeframe, e.g., 2 hours]. 
-> 
+> **Impact:** All bounty creations, claims, and payouts are currently halted. Existing funds are secured (or state current status of funds).
+> **Next Steps:** Our team is actively investigating the issue and working on a remediation. We will provide another update within [Timeframe, e.g., 2 hours].
+>
 > Please do not attempt to interact with the contract until further notice. Thank you for your patience.
 
 ### 4. Remediation and Unpause Criteria
@@ -555,121 +680,229 @@ soroban contract invoke \
 
 ## Redeploy Contract
 
-**Use case:** Deploy a new version of the Soroban smart contract or redeploy after a failed deployment.
+**Use case:** Deploy a new version of the Soroban smart contract, rotate the arbiter key, or redeploy following critical contract bugs/failed deployments.
+
+### Triggers for Redeployment
+
+Unlike backend or frontend services, the Soroban smart contract layer cannot be hotfixed on-chain without an explicit upgrade mechanism. A contract redeployment is required when:
+- **Arbiter Rotation Required:** When the arbiter key is compromised, decommissioned, or rotated, because the arbiter address is set at initialization time (`initialize`) and cannot be updated in-place without redeploying.
+- **Contract Bug / Security Vulnerability:** Discovery of an unpatchable flaw or exploit in the deployed smart contract WASM.
+- **Protocol Architecture / ABI Changes:** State layout modifications, protocol fee mechanism updates, or breaking ABI modifications requiring a clean contract deployment.
+- **Failed Deployment Recovery:** Recovering from an uninitialized, corrupted, or misconfigured deployment on testnet or mainnet.
+
+### Authority and Execution Roles
+
+Redeploying the contract is a critical operational procedure requiring strict access controls and multisig/maintainer sign-off:
+- **Authority:** Core Project Maintainers and Security Lead consensus. On mainnet, execution requires approval from at least two core maintainers.
+- **Executor:** Authorized DevOps Engineer or Release Engineer possessing access to deployment wallets holding sufficient XLM network reserves and credentials to configure production secrets.
+- **Notification Requirement:** Notify all bounty maintainers, contributors, and the on-call team before initiating redeployment on mainnet (see [Incident Response Notification Chain](#notification-chain)).
+
+### Handling In-Flight Escrows
+
+Because a new contract deployment instantiates a fresh contract ID with empty state, escrows locked in the existing contract do not automatically migrate. Follow these explicit handling rules based on escrow status:
+
+1. **Inventory All In-Flight Escrows:**
+   Export existing bounties and their statuses from the current contract and backend store before cutting over:
+   ```bash
+   soroban contract invoke \
+     --id $CURRENT_CONTRACT_ID \
+     --source $MAINTAINER_SECRET_KEY \
+     --network $SOROBAN_NETWORK_URL \
+     -- \
+     get_all_bounties --start 1 --limit 100
+   ```
+2. **Open / Reserved Bounties (Not Yet Submitted):**
+   - Maintainers should refund unallocated or unsubmitted bounties on the old contract via `refund_bounty`:
+     ```bash
+     soroban contract invoke \
+       --id $CURRENT_CONTRACT_ID \
+       --source $MAINTAINER_SECRET_KEY \
+       --network $SOROBAN_NETWORK_URL \
+       -- \
+       refund_bounty --bounty_id $BOUNTY_ID
+     ```
+   - Recreate the bounties on the newly deployed contract with equivalent parameters and fund them under the new contract ID.
+3. **Submitted / Pending Review Bounties:**
+   - Allow maintainers a grace period to review and call `release_bounty` on the old contract so contributors receive their earned payouts from the existing escrow.
+   - If maintainers cannot release payouts before cutover, coordinate with maintainers to refund on the old contract and immediately reissue/release directly on the new contract.
+4. **Disputed Bounties:**
+   - **If Arbiter Key is Intact:** Existing arbiter resolves in-flight disputes on the old contract before cutover via `resolve_dispute`.
+   - **If Arbiter Key is Compromised:** Freeze interactions with the old contract (pause if emergency pause was enabled, or stop backend indexer/relayer routes to it). Coordinate off-chain restitution or manual refunding if maintainer keys permit, and document manual reconciliation in `data/bounties.audit.json`.
+5. **Finalized (Released / Refunded / Expired) Bounties:**
+   - No token balance remains locked in contract escrow for finalized bounties. Retain on-chain records and backend JSON archives for historical indexing and audit compliance.
 
 ### Prerequisites
 
-- Rust and Soroban CLI installed
-- Access to Stellar network (testnet or mainnet)
-- Wallet with sufficient XLM for deployment fees
-- Contract source code in `contracts/`
+- Rust toolchain with `wasm32-unknown-unknown` target installed
+- Stellar CLI (`stellar`) and Soroban CLI (`soroban`) installed
+- Access to Stellar network RPC (`SOROBAN_NETWORK_URL`, e.g., Futurenet, Testnet, or Mainnet)
+- Deployer wallet secret key with sufficient XLM for deployment and transaction fees
+- Arbiter public key (`ARBITER_ADDRESS`), Fee Recipient address, and dispute window configuration
+- Access to backend hosting environment (Railway, Render, Docker, or systemd) and frontend deployment pipeline
 
-### Steps
+### Step-by-Step Redeployment Procedure
 
 1. **Prepare the environment**
+
    ```bash
    # Navigate to contracts directory
    cd /path/to/stellar-bounty-board/contracts
-   
-   # Install Soroban CLI if not already installed
-   cargo install soroban-cli
-   
-   # Set the network (testnet or mainnet)
-   export SOROBAN_NETWORK_URL="https://rpc-futurenet.stellar.org"  # for testnet
-   # export SOROBAN_NETWORK_URL="https://rpc.mainnet.stellar.org"  # for mainnet
+
+   # Ensure target is installed
+   rustup target add wasm32-unknown-unknown
+
+   # Set the network environment
+   export SOROBAN_NETWORK_URL="https://rpc-futurenet.stellar.org"  # or testnet / mainnet
    ```
 
-2. **Build the contract**
+2. **Build and optimize the contract**
+
    ```bash
-   # Build the contract
+   # Build release WASM
    cargo build --target wasm32-unknown-unknown --release
-   
-   # The WASM file will be at target/wasm32-unknown-unknown/release/stellar_bounty_board.wasm
+
+   # Optimize WASM bytecode for deployment
+   soroban contract optimize \
+     --wasm target/wasm32-unknown-unknown/release/stellar_bounty_board.wasm \
+     --wasm-out target/wasm32-unknown-unknown/release/stellar_bounty_board_opt.wasm
    ```
 
-3. **Optimize the WASM file**
-   ```bash
-   # Optimize for deployment
-   soroban contract optimize target/wasm32-unknown-unknown/release/stellar_bounty_board.wasm \
-     --wasm target/wasm32-unknown-unknown/release/stellar_bounty_board_opt.wasm
-   ```
+3. **Deploy and initialize the contract**
 
-4. **Deploy the contract**
    ```bash
-   # Deploy to the network
-   CONTRACT_ID=$(soroban contract deploy \
+   # Deploy contract WASM to the Stellar network
+   NEW_CONTRACT_ID=$(soroban contract deploy \
      --wasm target/wasm32-unknown-unknown/release/stellar_bounty_board_opt.wasm \
-     --source YOUR_SECRET_KEY \
+     --source $DEPLOYER_SECRET_KEY \
      --network $SOROBAN_NETWORK_URL)
-   
-   echo "Contract deployed with ID: $CONTRACT_ID"
-   ```
 
-5. **Update environment variables**
-   ```bash
-   # Update the backend environment with the new contract ID
-   export SOROBAN_CONTRACT_ID=$CONTRACT_ID
-   
-   # If using Railway/Render, update the environment variable in the dashboard
-   # If using Docker, update the docker-compose.yml or .env file
-   # If using systemd, update the service environment file
-   ```
+   echo "Deployed contract ID: $NEW_CONTRACT_ID"
 
-6. **Test the contract**
-   ```bash
-   # Run contract tests
-   cargo test
-   
-   # Or invoke a contract method to verify
+   # Initialize contract parameters (sets admin, fee recipient, and arbiter)
    soroban contract invoke \
-     --id $CONTRACT_ID \
-     --source YOUR_SECRET_KEY \
+     --id $NEW_CONTRACT_ID \
+     --source $DEPLOYER_SECRET_KEY \
      --network $SOROBAN_NETWORK_URL \
      -- \
-     get_bounty \
-     --bounty_id 1
+     initialize \
+     --fee_recipient $FEE_RECIPIENT_ADDRESS \
+     --arbiter $ARBITER_ADDRESS \
+     --dispute_window 86400
    ```
 
-7. **Restart the backend service**
+4. **Regenerate frontend TypeScript bindings**
+
+   Whenever the contract is rebuilt or redeployed, propagate contract ABI definitions into the frontend bindings to ensure type and interface consistency:
+
    ```bash
-   # Restart to pick up the new contract ID
+   # From the repository root
+   npm run gen:bindings
+
+   # Verify bindings diff and ensure no unexpected ABI drift
+   git diff frontend/src/generated
+   ```
+
+5. **Propagate Contract ID to backend configuration**
+
+   Update the contract ID across backend services, workers, and indexers:
+
+   - **Environment Variables:**
+     ```bash
+     export SOROBAN_CONTRACT_ID=$NEW_CONTRACT_ID
+     export CONTRACT_ID=$NEW_CONTRACT_ID
+     ```
+   - **Local / Bare Metal (`.env` or systemd):**
+     Update `SOROBAN_CONTRACT_ID` in `.env` and `/etc/systemd/system/stellar-bounty-board-backend.service.d/override.conf`:
+     ```ini
+     SOROBAN_CONTRACT_ID=CC...<NEW_CONTRACT_ID>...
+     ```
+   - **Docker / Container Deployments:**
+     Update `.env` or `docker-compose.yml` service environment definitions:
+     ```yaml
+     environment:
+       - SOROBAN_CONTRACT_ID=CC...<NEW_CONTRACT_ID>...
+     ```
+   - **Cloud Platforms (Railway / Render / Kubernetes):**
+     Update `SOROBAN_CONTRACT_ID` in the platform dashboard or secret manager for both the API backend and Soroban event indexer worker (`backend/worker`).
+
+6. **Propagate Contract ID & configuration to frontend bindings**
+
+   - **Client Bindings & Environment:**
+     If the frontend interacts with the contract directly or through SDK bindings, verify and update frontend environment variables:
+     ```bash
+     VITE_CONTRACT_ID=$NEW_CONTRACT_ID
+     VITE_ARBITER_ADDRESS=$ARBITER_ADDRESS
+     ```
+   - **Rebuild and Deploy Frontend:**
+     Trigger a frontend build and deployment (e.g., Vercel, Netlify, or static server):
+     ```bash
+     cd frontend
+     npm run build
+     ```
+   - Verify frontend tests pass with the new generated bindings:
+     ```bash
+     npm run test
+     ```
+
+7. **Restart backend and worker services**
+
+   ```bash
+   # If using systemd
    sudo systemctl restart stellar-bounty-board-backend
+   sudo systemctl restart stellar-bounty-board-worker
+
+   # If using Docker
+   docker-compose restart backend worker
+
+   # If using cloud platforms: trigger a service redeploy after updating environment variables
    ```
 
-8. **Verify the deployment**
+8. **Verify deployment & end-to-end propagation**
+
    ```bash
-   # Check backend health
-   curl https://your-backend.example.com/api/health
-   
-   # Verify the contract is accessible
-   curl https://your-backend.example.com/api/bounties
+   # 1. Check backend deep health check (verifies RPC, contract ID, and arbiter address)
+   curl -s https://your-backend.example.com/api/health/deep | jq .
+
+   # 2. Verify contract responsiveness via CLI
+   soroban contract invoke \
+     --id $NEW_CONTRACT_ID \
+     --source $DEPLOYER_SECRET_KEY \
+     --network $SOROBAN_NETWORK_URL \
+     -- \
+     get_arbiter
+
+   # 3. Check worker event indexer logs
+   # Ensure the indexer starts polling from the new contract without RPC errors
    ```
 
 ### Expected Output
 
-- Contract deployment succeeds with a new contract ID
-- Contract tests pass
-- Backend service starts successfully
-- API endpoints respond correctly
-- No errors in logs related to contract interaction
+- Contract deploys successfully and emits a valid Soroban Contract ID (`C...`).
+- `initialize` succeeds, configuring the fee recipient, arbiter, and dispute window.
+- `npm run gen:bindings` cleanly generates `frontend/src/generated/types.ts`.
+- Deep health check (`/api/health/deep`) returns `"status": "ok"` with all subsystem components reporting healthy.
+- Backend and event worker process transactions against `$NEW_CONTRACT_ID`.
 
 ### Rollback
 
-If the new deployment has issues:
-```bash
-# Revert to the previous contract ID
-export SOROBAN_CONTRACT_ID=OLD_CONTRACT_ID
+If issues are detected post-deployment prior to final migration cutover:
 
-# Restart the backend service
+```bash
+# Revert backend and worker configuration to previous contract ID
+export SOROBAN_CONTRACT_ID=$OLD_CONTRACT_ID
+export CONTRACT_ID=$OLD_CONTRACT_ID
+
+# Revert frontend environment variables and redeploy frontend if needed
+# Restart backend services
 sudo systemctl restart stellar-bounty-board-backend
+sudo systemctl restart stellar-bounty-board-worker
 ```
 
 ### Important Notes
 
-- Contract deployment is irreversible on mainnet. Always test on testnet first.
-- Keep a record of all deployed contract IDs for audit purposes.
-- Update any frontend configuration if it references the contract ID directly.
-- Consider using a contract upgrade pattern if frequent updates are expected.
+- Contract deployment is irreversible on Stellar mainnet. Always rehearse deployment and state cutover on Testnet or Futurenet first.
+- Keep an immutable log of all historical contract IDs, deployer addresses, and initialization transaction hashes for compliance and tracking.
+- Do not shut down or orphan old contract escrows until in-flight funds have been released or refunded.
 
 ---
 
@@ -680,6 +913,7 @@ sudo systemctl restart stellar-bounty-board-backend
 ### Current Contract Limitations
 
 **IMPORTANT:** The current contract implementation does **NOT** include:
+
 - A pause/emergency stop function
 - An `set_arbiter` function for rotating the arbiter address
 - Timelock-protected admin functions
@@ -698,6 +932,7 @@ Therefore, the primary mitigation for a compromised arbiter key is **contract re
 ### Immediate Containment Steps
 
 **Step 1: Verify the compromise**
+
 ```bash
 # Check recent arbiter transactions on the blockchain
 # Look for unauthorized dispute resolutions or suspicious activity
@@ -711,6 +946,7 @@ soroban contract events \
 ```
 
 **Step 2: Assess impact**
+
 ```bash
 # Identify all bounties in disputed status
 # These are the most vulnerable to malicious arbiter actions
@@ -727,6 +963,7 @@ soroban contract invoke \
 ```
 
 **Step 3: Notify stakeholders (see Notification Chain below)**
+
 - Send initial notification to the on-call security team
 - Escalate to project maintainers
 - Alert affected bounty maintainers and contributors (if any disputed bounties)
@@ -736,6 +973,7 @@ soroban contract invoke \
 Since the contract lacks a built-in arbiter rotation function, follow this redeployment procedure:
 
 **Step 1: Generate a new arbiter keypair**
+
 ```bash
 # Generate a new secure keypair for the replacement arbiter
 # Use a secure method (hardware wallet, air-gapped machine, etc.)
@@ -747,6 +985,7 @@ NEW_ARBITER_PUBLIC_KEY="GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 ```
 
 **Step 2: Backup current contract state**
+
 ```bash
 # Export all bounty data from the current contract
 # This is critical for potential migration
@@ -776,6 +1015,7 @@ EOF
 ```
 
 **Step 3: Deploy new contract with new arbiter**
+
 ```bash
 # Navigate to contracts directory
 cd /path/to/stellar-bounty-board/contracts
@@ -808,6 +1048,7 @@ soroban contract invoke \
 ```
 
 **Step 4: Update environment configuration**
+
 ```bash
 # Update the backend environment with the new contract ID
 export SOROBAN_CONTRACT_ID=$NEW_CONTRACT_ID
@@ -818,6 +1059,7 @@ export SOROBAN_CONTRACT_ID=$NEW_CONTRACT_ID
 ```
 
 **Step 5: Migrate active bounties (if necessary)**
+
 ```bash
 # For each active bounty, recreate it on the new contract
 # This requires maintainer cooperation and re-funding
@@ -840,6 +1082,7 @@ soroban contract invoke \
 ```
 
 **Step 6: Restart the backend service**
+
 ```bash
 # Restart to pick up the new contract ID
 sudo systemctl restart stellar-bounty-board-backend
@@ -849,6 +1092,7 @@ docker-compose restart backend
 ```
 
 **Step 7: Verify the deployment**
+
 ```bash
 # Check backend health
 curl https://your-backend.example.com/api/health
@@ -868,20 +1112,17 @@ soroban contract invoke \
 ### Notification Chain
 
 **Immediate (within 1 hour of detection):**
+
 1. **On-call Security Lead** - Primary contact for incident coordination
 2. **Project Maintainer** - Technical decision-making and approval
 3. **DevOps Engineer** - For contract deployment and infrastructure changes
 
-**Within 4 hours:**
-4. **Affected Bounty Maintainers** - If there are active disputed bounties
-5. **Affected Contributors** - If their disputed bounties are at risk
-6. **Stellar Foundation Security Team** - If mainnet deployment and significant funds at risk
+**Within 4 hours:** 4. **Affected Bounty Maintainers** - If there are active disputed bounties 5. **Affected Contributors** - If their disputed bounties are at risk 6. **Stellar Foundation Security Team** - If mainnet deployment and significant funds at risk
 
-**Within 24 hours:**
-7. **Community Announcement** - Public disclosure (if required by policy)
-8. **Post-Mortem Team** - Schedule incident review
+**Within 24 hours:** 7. **Community Announcement** - Public disclosure (if required by policy) 8. **Post-Mortem Team** - Schedule incident review
 
 **Escalation Matrix:**
+
 - **If unable to reach On-call Security Lead:** Escalate to Project Maintainer
 - **If unable to reach Project Maintainer:** Escalate to Stellar Foundation contact
 - **If funds are actively being drained:** Immediate emergency contact all stakeholders
@@ -889,6 +1130,7 @@ soroban contract invoke \
 ### Post-Incident Review Checklist
 
 **Technical Review:**
+
 - [ ] Root cause analysis completed (how was the key compromised?)
 - [ ] Contract redeployment verified and tested
 - [ ] All active bounties successfully migrated or recreated
@@ -897,12 +1139,14 @@ soroban contract invoke \
 - [ ] Contract code reviewed for adding pause/rotation features
 
 **Process Review:**
+
 - [ ] Notification chain executed correctly
 - [ ] Response time documented
 - [ ] Communication with affected parties completed
 - [ ] Public disclosure (if required) completed
 
 **Security Improvements:**
+
 - [ ] Arbiter key storage procedures updated
 - [ ] Multi-signature or timelock protection considered for future
 - [ ] Contract upgrade path documented
@@ -911,6 +1155,7 @@ soroban contract invoke \
 - [ ] Regular key rotation schedule established
 
 **Documentation:**
+
 - [ ] Incident timeline documented
 - [ ] Lessons learned captured
 - [ ] Runbook updated based on incident findings
@@ -940,6 +1185,7 @@ soroban contract invoke \
 When contract upgrades are possible, prioritize implementing:
 
 1. **Emergency Pause Function**
+
    ```rust
    // Proposed addition to contract
    pub fn pause_contract(env: Env, admin: Address) {
@@ -950,6 +1196,7 @@ When contract upgrades are possible, prioritize implementing:
    ```
 
 2. **Arbiter Rotation with Timelock**
+
    ```rust
    // Proposed addition to contract
    pub fn set_arbiter(env: Env, new_arbiter: Address, effective_at: u64) {
@@ -978,12 +1225,14 @@ When contract upgrades are possible, prioritize implementing:
 ### Steps
 
 1. **Make your API changes**
+
    ```bash
    # Modify routes, schemas, or OpenAPI definitions in backend/src/docs/openapi.ts
    # Update validation schemas in backend/src/validation/schemas.ts if needed
    ```
 
 2. **Review the changes**
+
    ```bash
    # Check what changed in the generated OpenAPI spec
    npm run gen:openapi
@@ -991,6 +1240,7 @@ When contract upgrades are possible, prioritize implementing:
    ```
 
 3. **Update the snapshot**
+
    ```bash
    # Navigate to the backend directory
    cd backend
@@ -1005,12 +1255,14 @@ When contract upgrades are possible, prioritize implementing:
    ```
 
 4. **Verify the snapshot update**
+
    ```bash
    # Run the snapshot test without -u to ensure it passes
    npm run test -- openapi.snapshot.test.ts
    ```
 
 5. **Run the contract test**
+
    ```bash
    # Ensure the live-route validation test also passes
    npm run test -- openapi.contract.test.ts
@@ -1041,6 +1293,7 @@ When contract upgrades are possible, prioritize implementing:
 ### Troubleshooting
 
 **Snapshot test fails after update:**
+
 ```bash
 # If the snapshot still doesn't match, check for:
 # - Typos in the snapshot file
@@ -1049,6 +1302,7 @@ When contract upgrades are possible, prioritize implementing:
 ```
 
 **Contract test fails but snapshot passes:**
+
 ```bash
 # This means your routes don't match your schemas
 # Check that:
@@ -1058,6 +1312,7 @@ When contract upgrades are possible, prioritize implementing:
 ```
 
 **Both tests fail:**
+
 ```bash
 # This suggests a fundamental issue with the API changes
 # Review:
@@ -1085,6 +1340,9 @@ When contract upgrades are possible, prioritize implementing:
 ## Emergency Contacts
 
 If you encounter an issue not covered in this runbook:
-- Open an issue in the GitHub repository
+
+- Check the [GitHub Issues](https://github.com/ritik4ever/stellar-bounty-board/issues) for similar problems
+- If none exists, open an issue in the GitHub repository
 - Contact the maintainers via the project's communication channels
-- Check the [GitHub Issues](https://github.com/your-org/stellar-bounty-board/issues) for similar problems
+
+To contribute a fix, follow the canonical contribution process in [CONTRIBUTING.md](./CONTRIBUTING.md): comment on the issue to claim it, fork the repo, create a feature branch, and open a PR referencing the issue (`Closes #<issue>`). The same process is used across the [wave-4](docs/wave-4.md#how-to-contribute), [wave-5](docs/wave-5.md#how-to-contribute), and [wave-6](docs/wave-6.md#how-to-contribute) backlogs.

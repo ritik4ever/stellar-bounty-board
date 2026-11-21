@@ -2,8 +2,18 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('@stellar/freighter-api', () => ({
+  isConnected: vi.fn().mockResolvedValue({ isConnected: false }),
+  requestAccess: vi.fn(),
+}));
+
 import ContributorDashboard from './ContributorDashboard';
+import { listAllBounties } from './api';
 import type { Bounty } from './types';
+
+vi.mock('./api', () => ({
+  listAllBounties: vi.fn().mockResolvedValue([]),
+}));
 
 const WALLET = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
 
@@ -45,6 +55,7 @@ const openBounties: Bounty[] = [
 beforeEach(() => {
   window.localStorage.clear();
   vi.restoreAllMocks();
+  vi.mocked(listAllBounties).mockResolvedValue([]);
 });
 
 describe('ContributorDashboard', () => {
@@ -104,18 +115,53 @@ describe('ContributorDashboard', () => {
     expect(screen.getByText(/matches 1 label/i)).toBeInTheDocument();
   });
 
-  it('prompts to connect when the connect wallet button is clicked', async () => {
+  it('alerts when Freighter is unavailable and the connect button is clicked', async () => {
     const user = userEvent.setup();
-    const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue(WALLET);
-    vi.spyOn(window, 'alert').mockImplementation(() => {});
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
 
     render(<ContributorDashboard bounties={openBounties} loading={false} />);
 
     await user.click(screen.getAllByRole('button', { name: /connect wallet/i })[0]!);
 
-    expect(promptSpy).toHaveBeenCalled();
+    expect(alertSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Freighter wallet is not installed')
+    );
+  });
+});
+
+describe('ContributorDashboard fetch states', () => {
+  it('shows a loading state while bounties are being fetched', () => {
+    vi.mocked(listAllBounties).mockReturnValue(new Promise(() => {}));
+    render(<ContributorDashboard />);
+
+    expect(screen.getByTestId('dashboard-loading')).toBeInTheDocument();
+    expect(screen.queryByTestId('dashboard-error')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('dashboard-empty')).not.toBeInTheDocument();
+  });
+
+  it('shows an empty state when no bounties exist', async () => {
+    vi.mocked(listAllBounties).mockResolvedValue([]);
+    render(<ContributorDashboard />);
+
+    expect(await screen.findByTestId('dashboard-empty')).toBeInTheDocument();
+    expect(screen.queryByTestId('dashboard-error')).not.toBeInTheDocument();
+  });
+
+  it('shows an error state with retry that refetches', async () => {
+    const user = userEvent.setup();
+    vi.mocked(listAllBounties)
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce(openBounties);
+    render(<ContributorDashboard />);
+
+    expect(await screen.findByTestId('dashboard-error')).toHaveTextContent('boom');
+    expect(screen.queryByTestId('dashboard-empty')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /retry/i }));
+
     await waitFor(() => {
-      expect(screen.getByText('High reward task')).toBeInTheDocument();
+      expect(screen.queryByTestId('dashboard-error')).not.toBeInTheDocument();
     });
+    expect(listAllBounties).toHaveBeenCalledTimes(2);
   });
 });

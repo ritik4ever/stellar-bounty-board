@@ -61,7 +61,10 @@
             "items": {
               "type": "string"
             },
-            "example": ["bug", "help wanted"]
+            "example": [
+              "bug",
+              "help wanted"
+            ]
           },
           "status": {
             "type": "string",
@@ -167,7 +170,10 @@
                   "additionalProperties": {}
                 }
               },
-              "required": ["type", "timestamp"]
+              "required": [
+                "type",
+                "timestamp"
+              ]
             }
           },
           "reservationTimeoutSeconds": {
@@ -206,12 +212,26 @@
           },
           "fromStatus": {
             "type": "string",
-            "enum": ["open", "reserved", "submitted", "released", "refunded", "expired"],
+            "enum": [
+              "open",
+              "reserved",
+              "submitted",
+              "released",
+              "refunded",
+              "expired"
+            ],
             "example": "open"
           },
           "toStatus": {
             "type": "string",
-            "enum": ["open", "reserved", "submitted", "released", "refunded", "expired"],
+            "enum": [
+              "open",
+              "reserved",
+              "submitted",
+              "released",
+              "refunded",
+              "expired"
+            ],
             "example": "reserved"
           },
           "transition": {
@@ -265,7 +285,15 @@
             }
           }
         },
-        "required": ["id", "bountyId", "fromStatus", "toStatus", "transition", "actor", "timestamp"]
+        "required": [
+          "id",
+          "bountyId",
+          "fromStatus",
+          "toStatus",
+          "transition",
+          "actor",
+          "timestamp"
+        ]
       },
       "BountyAuditLogPagination": {
         "type": "object",
@@ -291,12 +319,21 @@
             "example": false
           },
           "nextOffset": {
-            "type": ["integer", "null"],
+            "type": [
+              "integer",
+              "null"
+            ],
             "minimum": 0,
             "example": null
           }
         },
-        "required": ["limit", "offset", "total", "hasMore", "nextOffset"]
+        "required": [
+          "limit",
+          "offset",
+          "total",
+          "hasMore",
+          "nextOffset"
+        ]
       },
       "BountyAuditLogListResponse": {
         "type": "object",
@@ -324,7 +361,12 @@
             "example": 20
           }
         },
-        "required": ["data", "total", "page", "pageSize"]
+        "required": [
+          "data",
+          "total",
+          "page",
+          "pageSize"
+        ]
       },
       "CreateBountyRequest": {
         "type": "object",
@@ -389,7 +431,10 @@
             "maxItems": 6,
             "default": [],
             "description": "Up to 6 labels for categorisation.",
-            "example": ["bug", "help wanted"]
+            "example": [
+              "bug",
+              "help wanted"
+            ]
           },
           "reservationTimeoutSeconds": {
             "type": "integer",
@@ -419,11 +464,15 @@
           },
           "expectedVersion": {
             "type": "integer",
-            "description": "Optional version number for race condition prevention. If provided, must match current bounty version.",
+            "minimum": 1,
+            "description": "Optional positive version number for race condition prevention. If provided, must match current bounty version.",
             "example": 1
           }
         },
-        "required": ["contributor"]
+        "required": [
+          "contributor"
+        ],
+        "additionalProperties": false
       },
       "SubmitBountyRequest": {
         "type": "object",
@@ -446,7 +495,10 @@
             "example": "Fixed by updating the redirect handler."
           }
         },
-        "required": ["contributor", "submissionUrl"]
+        "required": [
+          "contributor",
+          "submissionUrl"
+        ]
       },
       "MaintainerActionRequest": {
         "type": "object",
@@ -463,7 +515,9 @@
             "example": "0000000000000000000000000000000000000000000000000000000000000000"
           }
         },
-        "required": ["maintainer"]
+        "required": [
+          "maintainer"
+        ]
       },
       "UpdateNotesRequest": {
         "type": "object",
@@ -480,7 +534,10 @@
             "example": "Added additional details about the bounty requirements."
           }
         },
-        "required": ["maintainer", "notes"]
+        "required": [
+          "maintainer",
+          "notes"
+        ]
       },
       "ErrorResponse": {
         "type": "object",
@@ -490,7 +547,9 @@
             "example": "Bounty not found."
           }
         },
-        "required": ["error"]
+        "required": [
+          "error"
+        ]
       },
       "OpenIssue": {
         "type": "object",
@@ -508,7 +567,10 @@
             "items": {
               "type": "string"
             },
-            "example": ["enhancement", "help wanted"]
+            "example": [
+              "enhancement",
+              "help wanted"
+            ]
           },
           "summary": {
             "type": "string",
@@ -516,11 +578,21 @@
           },
           "impact": {
             "type": "string",
-            "enum": ["starter", "core", "advanced"],
+            "enum": [
+              "starter",
+              "core",
+              "advanced"
+            ],
             "example": "core"
           }
         },
-        "required": ["id", "title", "labels", "summary", "impact"]
+        "required": [
+          "id",
+          "title",
+          "labels",
+          "summary",
+          "impact"
+        ]
       },
       "HealthResponse": {
         "type": "object",
@@ -538,42 +610,70 @@
             "example": "2026-03-24T19:00:00.000Z"
           }
         },
-        "required": ["service", "status", "timestamp"]
+        "required": [
+          "service",
+          "status",
+          "timestamp"
+        ]
       },
       "DeepHealthResponse": {
         "type": "object",
         "properties": {
           "overall": {
             "type": "string",
-            "enum": ["up", "down"]
+            "enum": [
+              "up",
+              "down"
+            ]
           },
           "components": {
             "type": "object",
             "properties": {
               "store": {
                 "type": "string",
-                "enum": ["up", "down"]
+                "enum": [
+                  "up",
+                  "down"
+                ]
               },
               "soroban": {
                 "type": "string",
-                "enum": ["up", "down"]
+                "enum": [
+                  "up",
+                  "down"
+                ]
               },
               "contract": {
                 "type": "string",
-                "enum": ["up", "down"]
+                "enum": [
+                  "up",
+                  "down"
+                ]
               },
               "auth": {
                 "type": "string",
-                "enum": ["up", "down"]
+                "enum": [
+                  "up",
+                  "down"
+                ]
               }
             },
-            "required": ["store", "soroban", "contract", "auth"]
+            "required": [
+              "store",
+              "soroban",
+              "contract",
+              "auth"
+            ]
           },
           "timestamp": {
             "type": "string"
           }
         },
-        "required": ["overall", "components", "timestamp"]
+        "required": [
+          "overall",
+          "components",
+          "timestamp"
+        ]
       },
       "GlobalMetrics": {
         "type": "object",
@@ -667,7 +767,11 @@
             "example": 3
           }
         },
-        "required": ["address", "totalXlm", "bountiesCompleted"]
+        "required": [
+          "address",
+          "totalXlm",
+          "bountiesCompleted"
+        ]
       },
       "PublicConfig": {
         "type": "object",
@@ -749,7 +853,10 @@
             "example": "0000000000000000000000000000000000000000000000000000000000000000"
           }
         },
-        "required": ["arbiter", "release"]
+        "required": [
+          "arbiter",
+          "release"
+        ]
       }
     },
     "parameters": {}
@@ -757,9 +864,22 @@
   "paths": {
     "/api/health": {
       "get": {
-        "tags": ["System"],
+        "tags": [
+          "System"
+        ],
         "summary": "Health check",
-        "description": "Returns the service name and current server timestamp. Use this to verify the API is reachable.",
+        "description": "Returns the service name and current server timestamp. Use this to verify the API is reachable. An optional `Idempotency-Key` header replays the original response for retries made with the same key.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Optional key used to replay the original response for repeated requests."
+            },
+            "required": false,
+            "name": "Idempotency-Key",
+            "in": "header"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Service is healthy.",
@@ -776,9 +896,11 @@
     },
     "/api/health/deep": {
       "get": {
-        "tags": ["System"],
+        "tags": [
+          "System"
+        ],
         "summary": "Deep health check",
-        "description": "Extended health check that verifies all external dependencies. Checks JSON store read/write, Soroban RPC reachability, contract ID configuration, and auth configuration (MAINTAINER_PUBLIC_KEY and ARBITER_ADDRESS). Excluded from rate limiting. Returns HTTP 503 when any critical component is down.",
+        "description": "Extended health check that verifies all external dependencies. Checks JSON store read/write, Soroban RPC reachability, contract ID configuration, and auth configuration (MAINTAINER_PUBLIC_KEY and ARBITER_ADDRESS). Each component check has a configurable timeout via DEEP_HEALTH_CHECK_TIMEOUT_MS (default 5000 ms); a timed-out component is reported as down. Limited to 10 requests per minute per IP by default (configurable with RATE_LIMIT_DEEP_HEALTH_MAX and RATE_LIMIT_DEEP_HEALTH_WINDOW_MS). Returns HTTP 503 when any critical component is down.",
         "responses": {
           "200": {
             "description": "All critical components are healthy.",
@@ -786,6 +908,50 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DeepHealthResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input: the route accepts no path parameters, query string, or request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded. Retry after the number of seconds in Retry-After.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "retryAfter": {
+                      "type": "number"
+                    },
+                    "requestId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "retryAfter"
+                  ],
+                  "additionalProperties": false
                 }
               }
             }
@@ -805,17 +971,54 @@
     },
     "/api/bounties": {
       "get": {
-        "tags": ["Bounties"],
+        "tags": [
+          "Bounties"
+        ],
         "summary": "List all bounties",
-        "description": "Returns bounty records sorted by `createdAt` descending by default, with optional maintainer/status/token filters and sort parameters. Bounties whose deadline has passed are automatically transitioned to `expired` before the list is returned.",
+        "description": "Returns bounty records sorted by `createdAt` descending by default, with optional maintainer/status/token filters and sort parameters. Bounties whose deadline has passed are automatically transitioned to `expired` before the list is returned. An optional `Idempotency-Key` header replays the original response for retries made with the same key.",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "Case-insensitive substring filter applied to title, summary, and labels."
+              "description": "Case-insensitive substring filter applied to bounty title, summary, repository, status, and labels."
             },
             "required": false,
             "name": "q",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Exact repository filter (owner/repo)."
+            },
+            "required": false,
+            "name": "repo",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "description": "Minimum bounty amount."
+            },
+            "required": false,
+            "name": "minReward",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "description": "Maximum bounty amount."
+            },
+            "required": false,
+            "name": "maxReward",
             "in": "query"
           },
           {
@@ -857,7 +1060,12 @@
           {
             "schema": {
               "type": "string",
-              "enum": ["amount", "deadline", "createdAt", "status"],
+              "enum": [
+                "amount",
+                "deadline",
+                "createdAt",
+                "status"
+              ],
               "description": "Field to sort by (default: createdAt)."
             },
             "required": false,
@@ -867,7 +1075,10 @@
           {
             "schema": {
               "type": "string",
-              "enum": ["asc", "desc"],
+              "enum": [
+                "asc",
+                "desc"
+              ],
               "description": "Sort direction (default: desc)."
             },
             "required": false,
@@ -909,16 +1120,36 @@
               "type": "integer",
               "minimum": 1,
               "maximum": 100,
-              "description": "Number of items per page (max 100, default 20)."
+              "description": "Legacy alias for limit (max 100, default 20)."
             },
             "required": false,
             "name": "pageSize",
             "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "description": "Number of items per page (max 100, default 20)."
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Optional key used to replay the original response for repeated requests."
+            },
+            "required": false,
+            "name": "Idempotency-Key",
+            "in": "header"
           }
         ],
         "responses": {
           "200": {
-            "description": "Array of all bounty records.",
+            "description": "Paginated bounty records and total filtered count.",
             "content": {
               "application/json": {
                 "schema": {
@@ -929,9 +1160,27 @@
                       "items": {
                         "$ref": "#/components/schemas/BountyRecord"
                       }
+                    },
+                    "total": {
+                      "type": "integer"
+                    },
+                    "page": {
+                      "type": "integer"
+                    },
+                    "pageSize": {
+                      "type": "integer"
+                    },
+                    "hasMore": {
+                      "type": "boolean"
                     }
                   },
-                  "required": ["data"]
+                  "required": [
+                    "data",
+                    "total",
+                    "page",
+                    "pageSize",
+                    "hasMore"
+                  ]
                 }
               }
             }
@@ -949,9 +1198,22 @@
         }
       },
       "post": {
-        "tags": ["Bounties"],
+        "tags": [
+          "Bounties"
+        ],
         "summary": "Create a bounty",
-        "description": "Creates a new open bounty and persists it. Rate-limited to **5 requests per IP per minute**. The `deadlineAt` timestamp is computed as `now + deadlineDays * 86400`.",
+        "description": "Creates a new open bounty and persists it. Rate-limited to **5 requests per IP per minute**. The `deadlineAt` timestamp is computed as `now + deadlineDays * 86400`. An optional `Idempotency-Key` header replays the original response for retries made with the same key, so a client retrying after a timeout does not create a duplicate bounty.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Optional key used to replay the original response for repeated requests."
+            },
+            "required": false,
+            "name": "Idempotency-Key",
+            "in": "header"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -974,7 +1236,9 @@
                       "$ref": "#/components/schemas/BountyRecord"
                     }
                   },
-                  "required": ["data"]
+                  "required": [
+                    "data"
+                  ]
                 }
               }
             }
@@ -994,7 +1258,9 @@
     },
     "/api/bounties/search": {
       "get": {
-        "tags": ["Bounties"],
+        "tags": [
+          "Bounties"
+        ],
         "summary": "Search bounties",
         "description": "Free-text search across title, repository, and description, ranked in that order.",
         "parameters": [
@@ -1053,7 +1319,13 @@
                       "type": "boolean"
                     }
                   },
-                  "required": ["data", "total", "page", "pageSize", "hasMore"]
+                  "required": [
+                    "data",
+                    "total",
+                    "page",
+                    "pageSize",
+                    "hasMore"
+                  ]
                 }
               }
             }
@@ -1073,7 +1345,9 @@
     },
     "/api/bounty-templates": {
       "get": {
-        "tags": ["Bounties"],
+        "tags": [
+          "Bounties"
+        ],
         "summary": "List bounty templates",
         "responses": {
           "200": {
@@ -1121,7 +1395,9 @@
                       }
                     }
                   },
-                  "required": ["data"]
+                  "required": [
+                    "data"
+                  ]
                 }
               }
             }
@@ -1131,7 +1407,9 @@
     },
     "/api/bounties/import": {
       "post": {
-        "tags": ["Admin"],
+        "tags": [
+          "Admin"
+        ],
         "summary": "Import bounties from CSV",
         "description": "Admin-only CSV import. Validation failures are reported per data row.",
         "requestBody": {
@@ -1170,7 +1448,9 @@
                             }
                           }
                         },
-                        "required": ["row"]
+                        "required": [
+                          "row"
+                        ]
                       }
                     },
                     "created": {
@@ -1183,7 +1463,12 @@
                       "type": "integer"
                     }
                   },
-                  "required": ["data", "created", "failed", "total"]
+                  "required": [
+                    "data",
+                    "created",
+                    "failed",
+                    "total"
+                  ]
                 }
               }
             }
@@ -1213,7 +1498,9 @@
     },
     "/api/recurring-bounty-schedules": {
       "get": {
-        "tags": ["Admin"],
+        "tags": [
+          "Admin"
+        ],
         "summary": "List recurring bounty schedules",
         "responses": {
           "200": {
@@ -1234,7 +1521,11 @@
                           },
                           "cadence": {
                             "type": "string",
-                            "enum": ["daily", "weekly", "monthly"]
+                            "enum": [
+                              "daily",
+                              "weekly",
+                              "monthly"
+                            ]
                           },
                           "templateId": {
                             "type": "string"
@@ -1279,7 +1570,9 @@
                       }
                     }
                   },
-                  "required": ["data"]
+                  "required": [
+                    "data"
+                  ]
                 }
               }
             }
@@ -1297,7 +1590,9 @@
         }
       },
       "post": {
-        "tags": ["Admin"],
+        "tags": [
+          "Admin"
+        ],
         "summary": "Create a recurring bounty schedule",
         "requestBody": {
           "required": true,
@@ -1308,7 +1603,11 @@
                 "properties": {
                   "cadence": {
                     "type": "string",
-                    "enum": ["daily", "weekly", "monthly"]
+                    "enum": [
+                      "daily",
+                      "weekly",
+                      "monthly"
+                    ]
                   },
                   "templateId": {
                     "type": "string"
@@ -1325,7 +1624,12 @@
                     "exclusiveMinimum": 0
                   }
                 },
-                "required": ["cadence", "templateId", "targetRepo", "bounty"]
+                "required": [
+                  "cadence",
+                  "templateId",
+                  "targetRepo",
+                  "bounty"
+                ]
               }
             }
           }
@@ -1347,7 +1651,11 @@
                         },
                         "cadence": {
                           "type": "string",
-                          "enum": ["daily", "weekly", "monthly"]
+                          "enum": [
+                            "daily",
+                            "weekly",
+                            "monthly"
+                          ]
                         },
                         "templateId": {
                           "type": "string"
@@ -1391,7 +1699,9 @@
                       ]
                     }
                   },
-                  "required": ["data"]
+                  "required": [
+                    "data"
+                  ]
                 }
               }
             }
@@ -1421,7 +1731,9 @@
     },
     "/api/recurring-bounty-schedules/{id}": {
       "delete": {
-        "tags": ["Admin"],
+        "tags": [
+          "Admin"
+        ],
         "summary": "Cancel a recurring bounty schedule",
         "parameters": [
           {
@@ -1451,7 +1763,11 @@
                         },
                         "cadence": {
                           "type": "string",
-                          "enum": ["daily", "weekly", "monthly"]
+                          "enum": [
+                            "daily",
+                            "weekly",
+                            "monthly"
+                          ]
                         },
                         "templateId": {
                           "type": "string"
@@ -1495,7 +1811,9 @@
                       ]
                     }
                   },
-                  "required": ["data"]
+                  "required": [
+                    "data"
+                  ]
                 }
               }
             }
@@ -1525,7 +1843,9 @@
     },
     "/api/bounties/{id}/audit-log": {
       "get": {
-        "tags": ["Bounties"],
+        "tags": [
+          "Bounties"
+        ],
         "summary": "List audit logs for one bounty",
         "description": "Returns ordered status transition history for a bounty. Use `page` (default 1) and `pageSize` (1-100, default 20) for pagination.",
         "parameters": [
@@ -1598,14 +1918,17 @@
     },
     "/api/bounties/{id}/reserve": {
       "post": {
-        "tags": ["Bounties"],
+        "tags": [
+          "Bounties"
+        ],
         "summary": "Reserve a bounty",
-        "description": "Assigns a contributor to an `open` bounty, transitioning its status to `reserved`. Only one contributor can hold a reservation at a time. Rate-limited to **5 requests per IP per minute**.",
+        "description": "Assigns a contributor to an `open` bounty, transitioning its status to `reserved`. Only one contributor can hold a reservation at a time. Rate-limited to **10 requests per IP per minute**.",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "example": "BNT-0001"
+              "example": "BNT-0001",
+              "minLength": 1
             },
             "required": true,
             "name": "id",
@@ -1634,13 +1957,15 @@
                       "$ref": "#/components/schemas/BountyRecord"
                     }
                   },
-                  "required": ["data"]
+                  "required": [
+                    "data"
+                  ]
                 }
               }
             }
           },
           "400": {
-            "description": "Bounty not found, not open, or validation failed.",
+            "description": "Bounty not found, not open, or request input is invalid (`BOUNTY_RESERVE_INVALID_INPUT`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -1654,7 +1979,9 @@
     },
     "/api/bounties/{id}/submit": {
       "post": {
-        "tags": ["Bounties"],
+        "tags": [
+          "Bounties"
+        ],
         "summary": "Submit work for a bounty",
         "description": "Transitions a `reserved` bounty to `submitted` by attaching a submission URL. The `contributor` field must exactly match the address that reserved the bounty. Rate-limited to **5 requests per IP per minute**.",
         "parameters": [
@@ -1690,7 +2017,9 @@
                       "$ref": "#/components/schemas/BountyRecord"
                     }
                   },
-                  "required": ["data"]
+                  "required": [
+                    "data"
+                  ]
                 }
               }
             }
@@ -1710,7 +2039,9 @@
     },
     "/api/bounties/{id}/release": {
       "post": {
-        "tags": ["Bounties"],
+        "tags": [
+          "Bounties"
+        ],
         "summary": "Release payment for a bounty",
         "description": "Transitions a `submitted` bounty to `released`, indicating payment has been sent. Only the maintainer address recorded on the bounty may call this endpoint. Rate-limited to **5 requests per IP per minute**.",
         "parameters": [
@@ -1746,7 +2077,9 @@
                       "$ref": "#/components/schemas/BountyRecord"
                     }
                   },
-                  "required": ["data"]
+                  "required": [
+                    "data"
+                  ]
                 }
               }
             }
@@ -1766,7 +2099,9 @@
     },
     "/api/bounties/{id}/resolve-dispute": {
       "post": {
-        "tags": ["Bounties"],
+        "tags": [
+          "Bounties"
+        ],
         "summary": "Resolve a bounty dispute",
         "parameters": [
           {
@@ -1801,7 +2136,9 @@
                       "$ref": "#/components/schemas/BountyRecord"
                     }
                   },
-                  "required": ["data"]
+                  "required": [
+                    "data"
+                  ]
                 }
               }
             }
@@ -1821,7 +2158,9 @@
     },
     "/api/bounties/:id/refund": {
       "post": {
-        "tags": ["Bounties"],
+        "tags": [
+          "Bounties"
+        ],
         "summary": "Refund a bounty",
         "description": "Transitions an `open` or `reserved` bounty to `refunded`. Cannot be called on `submitted`, `released`, or already `refunded` bounties. Only the maintainer address recorded on the bounty may call this endpoint. Rate-limited to **5 requests per IP per minute**.",
         "parameters": [
@@ -1857,7 +2196,9 @@
                       "$ref": "#/components/schemas/BountyRecord"
                     }
                   },
-                  "required": ["data"]
+                  "required": [
+                    "data"
+                  ]
                 }
               }
             }
@@ -1877,7 +2218,9 @@
     },
     "/api/bounties/:id/cancel": {
       "post": {
-        "tags": ["Bounties"],
+        "tags": [
+          "Bounties"
+        ],
         "summary": "Cancel an open bounty",
         "description": "Cancels an `open` bounty before any contributor has reserved it. Transitions the bounty to `refunded`, records a `canceledAt` timestamp, and returns the full escrow (no fee). Cannot be called on `reserved`, `submitted`, `released`, or already `refunded` bounties. Only the maintainer address recorded on the bounty may call this endpoint. Rate-limited to **5 requests per IP per minute**.",
         "parameters": [
@@ -1913,7 +2256,9 @@
                       "$ref": "#/components/schemas/BountyRecord"
                     }
                   },
-                  "required": ["data"]
+                  "required": [
+                    "data"
+                  ]
                 }
               }
             }
@@ -1933,7 +2278,9 @@
     },
     "/api/bounties/:id/notes": {
       "patch": {
-        "tags": ["Bounties"],
+        "tags": [
+          "Bounties"
+        ],
         "summary": "Update bounty notes",
         "description": "Updates the maintainer notes for a bounty. Only the maintainer address recorded on the bounty may call this endpoint. Notes are limited to 2000 characters. Rate-limited to **5 requests per IP per minute**.",
         "parameters": [
@@ -1969,7 +2316,9 @@
                       "$ref": "#/components/schemas/BountyRecord"
                     }
                   },
-                  "required": ["data"]
+                  "required": [
+                    "data"
+                  ]
                 }
               }
             }
@@ -1989,7 +2338,9 @@
     },
     "/api/open-issues": {
       "get": {
-        "tags": ["Open Issues"],
+        "tags": [
+          "Open Issues"
+        ],
         "summary": "List open feature requests",
         "description": "Returns a curated static list of open feature requests and contribution opportunities for the Stellar Bounty Board project itself.",
         "responses": {
@@ -2007,7 +2358,9 @@
                       }
                     }
                   },
-                  "required": ["data"]
+                  "required": [
+                    "data"
+                  ]
                 }
               }
             }
@@ -2017,7 +2370,9 @@
     },
     "/api/stats": {
       "get": {
-        "tags": ["Stats"],
+        "tags": [
+          "Stats"
+        ],
         "summary": "Global platform metrics",
         "description": "Returns aggregate statistics for the entire platform including bounty status counts, total funded and released amounts, and unique participant counts. Response is cached with a **30-second TTL** to reduce computation overhead.",
         "responses": {
@@ -2032,7 +2387,9 @@
                       "$ref": "#/components/schemas/GlobalMetrics"
                     }
                   },
-                  "required": ["data"]
+                  "required": [
+                    "data"
+                  ]
                 }
               }
             }
@@ -2103,7 +2460,9 @@
     },
     "/api/leaderboard": {
       "get": {
-        "tags": ["Leaderboard"],
+        "tags": [
+          "Leaderboard"
+        ],
         "summary": "Contributor leaderboard",
         "description": "Returns the top 10 contributors ranked by total XLM received from released bounties. Ties are broken by the number of bounties completed. Returns an empty array when no bounties have been released yet.",
         "responses": {
@@ -2121,7 +2480,9 @@
                       }
                     }
                   },
-                  "required": ["data"]
+                  "required": [
+                    "data"
+                  ]
                 }
               }
             }
@@ -2131,7 +2492,9 @@
     },
     "/api/config": {
       "get": {
-        "tags": ["System"],
+        "tags": [
+          "System"
+        ],
         "summary": "Public runtime configuration",
         "description": "Returns non-sensitive runtime values that the frontend and contract-interaction layer need to stay in sync with the backend without hardcoding anything.\n\n**Included:** fee bps, dispute window, min/max bounty amounts, supported token addresses, default reservation TTL, and network label.\n\n**Never included:** API keys, database connection strings, webhook secrets, maintainer public keys, or any other internal-only setting.\n\nResponse is cached with `Cache-Control: public, max-age=300` (5 min) since these values rarely change.",
         "responses": {
@@ -2146,7 +2509,9 @@
                       "$ref": "#/components/schemas/PublicConfig"
                     }
                   },
-                  "required": ["data"]
+                  "required": [
+                    "data"
+                  ]
                 }
               }
             }
@@ -2205,7 +2570,9 @@
     },
     "/api/audit-log": {
       "get": {
-        "tags": ["Admin"],
+        "tags": [
+          "Admin"
+        ],
         "summary": "List all audit logs (admin-only)",
         "description": "Admin-only endpoint that returns a paginated view of all audit log records. Requires a valid x-admin-api-key header.",
         "parameters": [
