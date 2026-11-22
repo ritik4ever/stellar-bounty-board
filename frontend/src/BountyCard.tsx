@@ -234,11 +234,13 @@ const BountyCard = memo(function BountyCard({
         </div>
         <div>
           <span className="meta-label">Maintainer</span>
-          <strong>{shortAddress(bounty.maintainer)}</strong>
+          <strong title={bounty.maintainer}>{shortAddress(bounty.maintainer)}</strong>
         </div>
         <div>
           <span className="meta-label">Contributor</span>
-          <strong>{bounty.contributor ? shortAddress(bounty.contributor) : 'Open'}</strong>
+          <strong title={bounty.contributor}>
+            {bounty.contributor ? shortAddress(bounty.contributor) : 'Open'}
+          </strong>
         </div>
       </div>
 
