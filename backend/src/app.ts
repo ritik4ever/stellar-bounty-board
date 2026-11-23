@@ -780,6 +780,66 @@ export function validateBountyAmount(amount: number): string | null {
   return null;
 }
 
+const createBountyRequestSchema = z
+  .object({
+    params: z.object({}).strict(),
+    query: z.object({}).strict(),
+    body: createBountySchema
+      .partial()
+      .extend({
+        issueNumber: z
+          .union([z.number(), z.string()])
+          .pipe(createBountySchema.shape.issueNumber)
+          .optional(),
+        amount: z
+          .union([z.number(), z.string()])
+          .pipe(createBountySchema.shape.amount)
+          .optional(),
+        deadlineDays: z
+          .union([z.number(), z.string()])
+          .pipe(createBountySchema.shape.deadlineDays)
+          .optional(),
+        templateId: z.string().trim().min(1).optional(),
+      })
+      .strict()
+      .superRefine((body, ctx) => {
+        const requiredFields = body.templateId
+          ? (['repo', 'issueNumber', 'title', 'summary', 'maintainer'] as const)
+          : ([
+              'repo',
+              'issueNumber',
+              'title',
+              'summary',
+              'maintainer',
+              'tokenSymbol',
+              'amount',
+              'deadlineDays',
+            ] as const);
+
+        for (const field of requiredFields) {
+          if (body[field] === undefined) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: 'Required.',
+              path: [field],
+            });
+          }
+        }
+
+        if (body.amount !== undefined) {
+          const amountError = validateBountyAmount(body.amount);
+          if (amountError) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: amountError,
+              path: ['amount'],
+            });
+          }
+        }
+      }),
+  })
+  .strict();
+
 app.get('/robots.txt', (_req: Request, res: Response) => {
   const FRONTEND_URL = process.env.FRONTEND_URL ?? 'https://stellar-bounty-board.vercel.app';
 
@@ -1254,6 +1314,25 @@ app.post(
   createBountyLimiter,
   enforceBodyLimit(DEFAULT_BODY_LIMIT),
   requireJsonContentType,
+  (req: Request, res: Response, next: NextFunction) => {
+    const parsed = createBountyRequestSchema.safeParse({
+      params: req.params,
+      query: req.query,
+      body: req.body,
+    });
+
+    if (!parsed.success) {
+      res.status(400).json({
+        error: `INVALID_INPUT: ${zodErrorMessage(parsed.error)}`,
+        code: 'BOUNTY_CREATE_INVALID_INPUT',
+        details: parsed.error.issues,
+        requestId: req.requestId,
+      });
+      return;
+    }
+
+    next();
+  },
   idempotencyMiddleware,
   maintainerLimiter,
   createBountyCreationSignatureMiddleware(),
@@ -1266,14 +1345,17 @@ app.post(
     }
   },
   validateBody(createBountySchema),
-  async (req: Request, res: Response) => {
+  (req: Request, res: Response, next: NextFunction) => {
     const amountError = validateBountyAmount(req.body.amount);
 
     if (amountError) {
-      jsonError(res, req, 400, amountError);
+      jsonError(res, req, 400, `INVALID_INPUT: ${amountError}`);
       return;
     }
 
+    next();
+  },
+  async (req: Request, res: Response) => {
     try {
       const bounty = await createBounty(req.body);
       res.status(201).json({ data: bounty });
