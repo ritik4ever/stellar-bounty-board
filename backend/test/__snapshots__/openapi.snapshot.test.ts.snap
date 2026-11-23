@@ -360,6 +360,55 @@ exports[`OpenAPI spec snapshot test > generated OpenAPI spec matches snapshot 1`
         ],
         "type": "object",
       },
+      "ContributorReputation": {
+        "properties": {
+          "address": {
+            "description": "Stellar address of the contributor.",
+            "example": "GBBB...BBB",
+            "type": "string",
+          },
+          "breakdown": {
+            "$ref": "#/components/schemas/ReputationBreakdown",
+          },
+          "completedBounties": {
+            "description": "Number of bounties successfully released.",
+            "example": 4,
+            "type": "integer",
+          },
+          "disputeLosses": {
+            "description": "Number of disputes resolved against the contributor.",
+            "example": 0,
+            "type": "integer",
+          },
+          "disputeWins": {
+            "description": "Number of disputes resolved in the contributor's favour.",
+            "example": 1,
+            "type": "integer",
+          },
+          "score": {
+            "description": "Aggregate reputation score, clamped to 0–100.",
+            "example": 75,
+            "maximum": 100,
+            "minimum": 0,
+            "type": "integer",
+          },
+          "totalBounties": {
+            "description": "Total number of bounties the contributor has worked on.",
+            "example": 6,
+            "type": "integer",
+          },
+        },
+        "required": [
+          "address",
+          "score",
+          "breakdown",
+          "totalBounties",
+          "completedBounties",
+          "disputeWins",
+          "disputeLosses",
+        ],
+        "type": "object",
+      },
       "CreateBountyRequest": {
         "properties": {
           "amount": {

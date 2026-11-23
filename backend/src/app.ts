@@ -35,6 +35,7 @@ import {
 } from './services/bountyStore';
 
 import { listOpenIssues } from './services/openIssues';
+import { getContributorReputation } from './services/reputationService';
 import {
   registerPushSubscription,
   unregisterPushSubscription,
@@ -63,6 +64,7 @@ import {
   zodErrorMessage,
 } from './validation/schemas';
 import { validateBody } from './middleware/validateBody';
+import { isValidStellarAddress } from './utils';
 import { getPublicConfig } from './config';
 import { getAppConfig } from './appConfig';
 
@@ -1688,6 +1690,27 @@ app.post(
     });
   }
 );
+
+app.get('/api/contributors/:address/reputation', (req: Request, res: Response) => {
+  try {
+    const { address } = req.params;
+
+    if (!address || typeof address !== 'string') {
+      jsonError(res, req, 400, 'Contributor address is required.');
+      return;
+    }
+
+    if (!isValidStellarAddress(address)) {
+      jsonError(res, req, 400, 'Contributor must be a valid Stellar public key.');
+      return;
+    }
+
+    const reputation = getContributorReputation(address);
+    res.json({ data: reputation });
+  } catch (error) {
+    sendError(res, req, error);
+  }
+});
 
 /**
  * Zod schema for GET /api/open-issues.
