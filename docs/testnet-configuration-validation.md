@@ -62,6 +62,38 @@ startup command doesn't independently verify deployed contract state.
   rejected before any signing or fund movement.
 - No HTTP request or secret material is used during tests.
 
+### Reproducing startup failures from a clean checkout (#1960)
+
+From a clean repository checkout (no `.env`, no live funds, no network calls):
+
+```sh
+# 1. Missing contract ID -> fails before any child command or signing
+STELLAR_NETWORK=testnet \
+SOROBAN_NETWORK_PASSPHRASE="Test SDF Network ; September 2015" \
+ARBITER_ADDRESS="GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF" \
+SOROBAN_RPC_URL="https://soroban-testnet.stellar.org" \
+node scripts/validate-testnet-config.cjs -- node -e "console.log('should not run')"
+# Expected: exit 1, stderr: [testnet-preflight] SOROBAN_CONTRACT_ID is required for Testnet deployment
+
+# 2. Wrong network passphrase (Mainnet passphrase on Testnet) -> fails before signing
+STELLAR_NETWORK=testnet \
+SOROBAN_NETWORK_PASSPHRASE="Public Global Stellar Network ; September 2015" \
+SOROBAN_CONTRACT_ID="CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM" \
+ARBITER_ADDRESS="GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF" \
+SOROBAN_RPC_URL="https://soroban-testnet.stellar.org" \
+node scripts/validate-testnet-config.cjs -- node -e "console.log('should not run')"
+# Expected: exit 1, stderr: [testnet-preflight] SOROBAN_NETWORK_PASSPHRASE does not match Stellar Testnet; stop before signing
+
+# 3. Invalid arbiter address (e.g. C... contract ID or S... secret key instead of G... public key) -> fails
+STELLAR_NETWORK=testnet \
+SOROBAN_NETWORK_PASSPHRASE="Test SDF Network ; September 2015" \
+SOROBAN_CONTRACT_ID="CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM" \
+ARBITER_ADDRESS="G..." \
+SOROBAN_RPC_URL="https://soroban-testnet.stellar.org" \
+node scripts/validate-testnet-config.cjs -- node -e "console.log('should not run')"
+# Expected: exit 1, stderr: [testnet-preflight] ARBITER_ADDRESS must be a valid 56-character Stellar G address
+```
+
 ## Important network limitation
 
 A Stellar `C...` contract address **does not encode a network name**. A valid
