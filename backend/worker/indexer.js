@@ -2,6 +2,7 @@
 // Polls contract events and normalizes them for backend use
 
 import axios from "axios";
+import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -139,9 +140,31 @@ export function normalizeEvent(event) {
 
 function writeJsonAtomic(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(value, null, 2));
-  fs.renameSync(tmp, file);
+  const tmp = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(value, null, 2));
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {
+      /* best effort cleanup */
+    }
+    throw err;
+  }
+}
+
+function eventDedupKey(event) {
+  if (typeof event?.id === "string" && event.id.length > 0) {
+    return `id:${event.id}`;
+  }
+  const raw = event?.raw ?? event;
+  const ledger = Number(event?.ledger ?? raw?.ledger ?? raw?.ledgerNumber);
+  const index = raw?.event_index ?? raw?.eventIndex;
+  if (Number.isInteger(ledger) && index != null && Number.isInteger(Number(index))) {
+    return `pos:${ledger}:${Number(index)}`;
+  }
+  return null;
 }
 
 function readEvents(indexFile) {
@@ -213,11 +236,12 @@ async function pollEvents(options = {}) {
     }
 
     const page = Array.isArray(result.events) ? result.events : [];
-    const knownIds = new Set(events.map((event) => event.id).filter(Boolean));
+    const knownKeys = new Set(events.map(eventDedupKey).filter(Boolean));
     const newEvents = page.map(normalizeEvent).filter((event) => {
-      if (!event.id) return true;
-      if (knownIds.has(event.id)) return false;
-      knownIds.add(event.id);
+      const key = eventDedupKey(event);
+      if (!key) return true;
+      if (knownKeys.has(key)) return false;
+      knownKeys.add(key);
       return true;
     });
     const nextEvents = events.concat(newEvents);
@@ -228,11 +252,11 @@ async function pollEvents(options = {}) {
       lastPageEvent?.id ||
       cursor;
 
-    if (newEvents.length || nextCursor !== cursor) {
+    if (newEvents.length > 0) {
       writeJsonAtomic(indexFile, nextEvents);
-      if (nextCursor && nextCursor !== cursor) {
-        writeJsonAtomic(cursorFile, { cursor: nextCursor });
-      }
+    }
+    if (nextCursor && nextCursor !== cursor) {
+      writeJsonAtomic(cursorFile, { cursor: nextCursor });
     }
 
     if (parentPort) {
@@ -252,7 +276,14 @@ function startWorker() {
     `[Indexer] Effective config: pollIntervalMs=${POLL_INTERVAL_MS} ` +
       `maxRetries=${MAX_RETRIES} initialBackoffMs=${INITIAL_BACKOFF_MS}`,
   );
-  setInterval(pollEvents, POLL_INTERVAL_MS);
+  let polling = false;
+  setInterval(() => {
+    if (polling) return;
+    polling = true;
+    Promise.resolve(pollEvents()).finally(() => {
+      polling = false;
+    });
+  }, POLL_INTERVAL_MS);
 }
 
 if (isMainThread && process.argv[1] && path.resolve(process.argv[1]) === __filename) {

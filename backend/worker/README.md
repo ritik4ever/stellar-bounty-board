@@ -87,7 +87,7 @@ When multiple events occur within the same ledger (sharing the same `ledger` seq
 - Deduplication against existing event IDs (`knownIds`) prevents duplicate entries.
 - The stored cursor (`nextCursor`) checkpoints to the latest event's paging token / ID (or `result.cursor`).
 - On restart or resumption from that cursor, subsequent polls begin strictly after that boundary, ensuring no events in the ledger are skipped or duplicated.
-- **Restart between event write and cursor persistence (#1934):** Because `indexed-events.json` is written atomically before `indexed-events.cursor.json`, a crash between the two writes leaves the cursor at the previous checkpoint (or missing/unreadable, falling back to the last persisted event ID). On restart, replayed same-ledger events are deduplicated by `id` (`knownIds`), ensuring each confirmed event is applied once in order and the cursor checkpoint heals on the next successful poll.
+- **Restart between event write and cursor persistence (#1934, SBB-2026-462):** Because `indexed-events.json` is written atomically before `indexed-events.cursor.json`, a crash or write failure between the two writes leaves the cursor at the previous checkpoint (or missing/unreadable, falling back to the last persisted event ID). Failed atomic writes clean up their unique temporary files, `startWorker` serializes overlapping poll ticks, and on restart replayed events are deduplicated by `id` or `(ledger, event_index)` chain position, ensuring each confirmed event is applied once in order and the cursor checkpoint heals on the next successful poll.
 
 ## Event backfill
 
