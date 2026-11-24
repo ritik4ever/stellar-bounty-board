@@ -5279,3 +5279,167 @@ fn test_escrow_accounting_signed_maintainer_rejects_unallowlisted_token_or_overf
     // No bounty was created
     assert_eq!(client.get_next_bounty_id(), 0);
 }
+
+// ─── SBB-2026-450 (#1919): Bounty Storage Lifetime Regression ─────────────────
+
+#[test]
+fn test_bounty_storage_lifetime_unresolved_bounty_near_ttl_expiry_recovers_through_settlement() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, maintainer, contributor, token_id, fee_recipient, arbiter) =
+        setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    let token = TokenClient::new(&env, &token_id);
+
+    let amount = 2_000i128;
+    let fee_bps = 500u32; // 5% -> fee = 100, net = 1900
+    token_admin.mint(&maintainer, &amount);
+
+    // Configure minimal persistent TTL so entries sit right near expiry.
+    env.ledger().set_min_persistent_entry_ttl(1);
+
+    let deadline = env.ledger().timestamp() + 5_000;
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &amount,
+        &String::from_str(&env, "ritik4ever/stellar-bounty-board"),
+        &450,
+        &String::from_str(&env, "Near-expiry unresolved bounty"),
+        &deadline,
+        &fee_bps,
+        &None,
+    );
+    client.reserve_bounty(&bounty_id, &contributor);
+    client.submit_bounty(&bounty_id, &contributor);
+    client.dispute_bounty(&bounty_id, &arbiter);
+
+    // Advance past dispute window (600s)
+    env.ledger().set_timestamp(env.ledger().timestamp() + 601);
+
+    // Confirm the unresolved bounty entry is near TTL expiry (<= 1 ledger)
+    let bounty_key = DataKey::Bounty(bounty_id);
+    let ttl_before = env.as_contract(&client.address, || {
+        env.storage().persistent().get_ttl(&bounty_key)
+    });
+    assert!(ttl_before <= 1);
+
+    // Unauthorized caller (maintainer) cannot settle the unresolved near-expiry bounty
+    env.mock_auths(&[MockAuth {
+        address: &maintainer,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "resolve_dispute",
+            args: (bounty_id, true).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(client.try_resolve_dispute(&bounty_id, &true).is_err());
+    assert_eq!(token.balance(&client.address), amount);
+    assert_eq!(client.get_bounty(&bounty_id).status, BountyStatus::Disputed);
+
+    // Signed arbiter settles the dispute: TTL refreshes, escrow clears, balances & events match
+    env.mock_auths(&[MockAuth {
+        address: &arbiter,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "resolve_dispute",
+            args: (bounty_id, true).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.resolve_dispute(&bounty_id, &true);
+
+    // Emitted resolution event matches settlement
+    let events = env.events().all().filter_by_contract(&client.address);
+    let last_event = events.events().last().unwrap();
+    let soroban_sdk::xdr::ContractEventBody::V0(body) = &last_event.body;
+    let t0 = soroban_sdk::Symbol::from_val(&env, &body.topics[0]);
+    let t1 = soroban_sdk::Symbol::from_val(&env, &body.topics[1]);
+    assert_eq!(t0, symbol_short!("Bounty"));
+    assert_eq!(t1, symbol_short!("Reslv"));
+
+    let ttl_after = env.as_contract(&client.address, || {
+        env.storage().persistent().get_ttl(&bounty_key)
+    });
+    assert!(ttl_after >= BOUNTY_STORAGE_TTL_EXTEND_TO);
+
+    let expected_fee = (amount * fee_bps as i128) / 10_000;
+    let expected_payout = amount - expected_fee;
+    assert_eq!(token.balance(&client.address), 0);
+    assert_eq!(token.balance(&contributor), expected_payout);
+    assert_eq!(token.balance(&fee_recipient), expected_fee);
+    assert_eq!(client.get_bounty(&bounty_id).status, BountyStatus::Released);
+}
+
+#[test]
+fn test_bounty_storage_lifetime_claim_after_related_entry_expires_fails_atomically() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, maintainer, contributor, token_id, _fee_recipient, arbiter) =
+        setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    let token = TokenClient::new(&env, &token_id);
+
+    let amount = 1_000i128;
+    let fee_bps = 200u32;
+    token_admin.mint(&maintainer, &(amount * 2));
+
+    let deadline = env.ledger().timestamp() + 5_000;
+    let b1 = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &amount,
+        &String::from_str(&env, "ritik4ever/stellar-bounty-board"),
+        &451,
+        &String::from_str(&env, "Expired FeeRecipient fixture"),
+        &deadline,
+        &fee_bps,
+        &None,
+    );
+    client.reserve_bounty(&b1, &contributor);
+    client.submit_bounty(&b1, &contributor);
+
+    let b2 = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &amount,
+        &String::from_str(&env, "ritik4ever/stellar-bounty-board"),
+        &452,
+        &String::from_str(&env, "Expired Arbiter fixture"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+    client.reserve_bounty(&b2, &contributor);
+    client.submit_bounty(&b2, &contributor);
+    client.dispute_bounty(&b2, &arbiter);
+    env.ledger().set_timestamp(env.ledger().timestamp() + 601);
+
+    // 1. Expire related DataKey::FeeRecipient entry before release_bounty claim on b1
+    env.as_contract(&client.address, || {
+        env.storage().persistent().remove(&DataKey::FeeRecipient);
+    });
+    assert!(client.try_release_bounty(&b1, &maintainer).is_err());
+    // Atomically rolled back: escrow intact, contributor paid 0, status still Submitted
+    assert_eq!(token.balance(&contributor), 0);
+    assert_eq!(token.balance(&client.address), amount * 2);
+    assert_eq!(client.get_bounty(&b1).status, BountyStatus::Submitted);
+
+    // 2. Expire related DataKey::Arbiter entry before resolve_dispute on b2
+    env.as_contract(&client.address, || {
+        env.storage().persistent().remove(&DataKey::Arbiter);
+    });
+    assert!(client.try_resolve_dispute(&b2, &true).is_err());
+    assert_eq!(token.balance(&contributor), 0);
+    assert_eq!(token.balance(&client.address), amount * 2);
+    assert_eq!(client.get_bounty(&b2).status, BountyStatus::Disputed);
+
+    // 3. Expire DataKey::Bounty(b1) itself -> claim fails with BountyNotFound, escrow untouched
+    env.as_contract(&client.address, || {
+        env.storage().persistent().remove(&DataKey::Bounty(b1));
+    });
+    assert!(client.try_release_bounty(&b1, &maintainer).is_err());
+    assert_eq!(token.balance(&contributor), 0);
+    assert_eq!(token.balance(&client.address), amount * 2);
+}

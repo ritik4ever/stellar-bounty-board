@@ -34,6 +34,7 @@ The contract uses named error codes for all invalid operations. These codes are 
   - If `DataKey::Arbiter` expired: dispute creation and dispute resolution abort with `ArbiterNotSet`.
   - If `DataKey::FeeRecipient` expired on fee-bearing bounties: payout calls abort with `FeeRecipientNotSet`.
   In all cases, escrow remains untouched and no unauthorized state change occurs.
+- **Recovery & Regression Coverage:** Unresolved bounties near TTL expiry (`<= 1` ledger) recover cleanly when settled by an authorized caller (refreshing TTL to `>= BOUNTY_STORAGE_TTL_EXTEND_TO`, clearing escrow balances, and emitting lifecycle settlement events), while claims attempted after a related entry expires roll back atomically without partial payouts.
 
 ## Escrow Asset Accounting
 
