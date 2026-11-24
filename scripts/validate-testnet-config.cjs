@@ -85,7 +85,7 @@ function validateTestnetConfig(env = process.env) {
   if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.hash) {
     throw new TestnetConfigError("SOROBAN_RPC_URL must be HTTPS without credentials or a fragment");
   }
-  if (/(^|[.-])(mainnet|futurenet)([.-]|$)/i.test(parsed.hostname)) {
+  if (/(^|[.-])(mainnet|futurenet|pubnet)([.-]|$)/i.test(parsed.hostname)) {
     throw new TestnetConfigError("SOROBAN_RPC_URL appears to target a non-Testnet network");
   }
   // StrKey addresses do NOT contain network information. Offline validation

@@ -108,3 +108,20 @@ test("standalone validation makes no network requests or transaction submissions
   assert.match(result.stdout, /Local validation passed/);
   assert.match(result.stdout, /must be verified separately/);
 });
+
+test("rejects secret key as ARBITER_ADDRESS and pubnet RPC URL before running child command (#1960)", () => {
+  const secretKeyAsArbiter = encodeAddress(18 << 3, 0x55);
+  assert.throws(
+    () => validateTestnetConfig({ ...valid, ARBITER_ADDRESS: secretKeyAsArbiter }),
+    /ARBITER_ADDRESS has an invalid Stellar version or checksum/,
+  );
+  assert.throws(
+    () => validateTestnetConfig({ ...valid, SOROBAN_RPC_URL: "https://soroban-pubnet.example.org" }),
+    /SOROBAN_RPC_URL appears to target a non-Testnet network/,
+  );
+
+  // Clean-checkout reproduction: missing SOROBAN_CONTRACT_ID exits 1 without running command
+  const missingContract = invoke({ ...valid, SOROBAN_CONTRACT_ID: "" }, ["--", process.execPath, "-e", "process.exit(99)"]);
+  assert.equal(missingContract.status, 1);
+  assert.match(missingContract.stderr, /SOROBAN_CONTRACT_ID is required/);
+});
