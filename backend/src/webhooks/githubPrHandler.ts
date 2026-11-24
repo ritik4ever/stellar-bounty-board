@@ -143,7 +143,7 @@ async function applyMergedPr(prUrl: string, deliveryId?: string): Promise<GitHub
   // 1. Record PR merge state transition on the bounty (Issue #1449). Skipped when
   // a previous attempt already applied it, so retries never duplicate the event.
   if (!matching.prMerged) {
-    await markBountyPrMerged(matching.id, prUrl);
+    await markBountyPrMerged(matching.id, prUrl, { deliveryRef: deliveryId });
   }
 
   const requireMaintainerConfirmation =
