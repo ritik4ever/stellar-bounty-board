@@ -34,3 +34,13 @@ The contract uses named error codes for all invalid operations. These codes are 
   - If `DataKey::Arbiter` expired: dispute creation and dispute resolution abort with `ArbiterNotSet`.
   - If `DataKey::FeeRecipient` expired on fee-bearing bounties: payout calls abort with `FeeRecipientNotSet`.
   In all cases, escrow remains untouched and no unauthorized state change occurs.
+
+## Escrow Asset Accounting
+
+The contract manages escrow funds with strict asset isolation and unit accounting across supported Stellar tokens:
+
+- **Token decimal precision**: Token amounts are accounted for as integer units (`i128`), preserving the native precision of each asset (e.g. 7 decimals for XLM stroops, 6 decimals for USDC). The contract never mixes or normalizes token units across distinct asset contracts.
+- **Maintainer authorization**: Creating a bounty and funding escrow requires explicit authentication from the maintainer (`maintainer.require_auth()`). Attempts without valid maintainer signatures fail with `Error(Auth, InvalidAction)`.
+- **Escrow transfer integrity**: Funds are transferred atomically from the maintainer to the contract address upon bounty creation. If the token contract is invalid or the transfer fails, the transaction reverts with `EscrowTransferFailed` (#42) without creating state.
+- **Overflow & Dust bounds**: Bounty amounts must be strictly positive and bounded by `MAX_BOUNTY_AMOUNT` (`1_000_000_000_000_000`), rejecting overflow attempts with `InvalidAmount` (#11). Amounts below `min_bounty_amount` are rejected with `AmountTooSmall` (#12).
+- **Payout & Refund settlement**: On release, protocol fees (if configured) are routed to the fee recipient, with the net amount delivered to the contributor. On refund or cancellation, the full escrow amount returns to the maintainer. Escrow balances for unassociated bounties and distinct tokens remain isolated and untouched throughout all lifecycle transitions.
