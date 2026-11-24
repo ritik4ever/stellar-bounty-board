@@ -437,6 +437,76 @@ fn lifecycle_refund_distinguishes_maintainer_deadline_and_finalization() {
     );
 }
 
+/// Issue #1895 / #1897: an expired bounty that was never reserved refunds
+/// exactly once, in full, to the maintainer, and only the maintainer may
+/// trigger it. Contributor, arbiter, admin, and random callers are rejected
+/// with `MaintainerMismatch` and cannot redirect the escrowed funds.
+#[test]
+fn lifecycle_refund_expired_unreserved_is_maintainer_only_and_exact() {
+    let f = Fixture::new();
+    let amount = 1_000;
+    let id = f.funded(0);
+    let token = token::Client::new(&f.env, &f.token);
+    let maintainer_before = token.balance(&f.maintainer);
+    assert_eq!(maintainer_before, 1_000_000 - amount);
+    assert_eq!(token.balance(&f.client.address), amount);
+
+    // Expire the bounty without ever reserving it.
+    f.env.ledger().set_timestamp(1_001);
+    assert_eq!(f.stored(id).status, BountyStatus::Open);
+
+    // Every non-maintainer role is rejected and the escrow is untouched.
+    let unauthorized = [
+        f.contributor.clone(),
+        f.arbiter.clone(),
+        f.admin.clone(),
+        Address::generate(&f.env),
+    ];
+    for caller in unauthorized {
+        assert_error(
+            f.client.try_refund_bounty(&id, &caller),
+            ContractError::MaintainerMismatch,
+        );
+        assert_eq!(token.balance(&f.maintainer), maintainer_before);
+        assert_eq!(token.balance(&f.client.address), amount);
+        assert_eq!(f.stored(id).status, BountyStatus::Open);
+    }
+
+    // The maintainer refunds at deadline + 1 with exact token units.
+    f.client.refund_bounty(&id, &f.maintainer);
+    assert_eq!(token.balance(&f.maintainer), 1_000_000);
+    assert_eq!(token.balance(&f.client.address), 0);
+    assert_eq!(token.balance(&f.contributor), 0);
+    assert_eq!(token.balance(&f.fee_recipient), 0);
+    assert_eq!(f.stored(id).status, BountyStatus::Refunded);
+
+    // A second refund cannot pay out twice.
+    assert_error(
+        f.client.try_refund_bounty(&id, &f.maintainer),
+        ContractError::BountyAlreadyFinalized,
+    );
+    assert_eq!(token.balance(&f.maintainer), 1_000_000);
+    assert_eq!(token.balance(&f.client.address), 0);
+    assert_eq!(f.stored(id).status, BountyStatus::Refunded);
+}
+
+/// A bounty that was reserved (but never submitted) and then expires cannot be
+/// refunded through the maintainer refund path; the escrow stays put.
+#[test]
+fn lifecycle_refund_rejects_reserved_then_expired_bounty() {
+    let f = Fixture::new();
+    let id = f.funded(0);
+    f.client.reserve_bounty(&id, &f.contributor);
+    f.env.ledger().set_timestamp(1_001);
+    let original = f.balances();
+    assert_error(
+        f.client.try_refund_bounty(&id, &f.maintainer),
+        ContractError::BountyMustBeReserved,
+    );
+    assert_eq!(f.balances(), original);
+    assert_eq!(f.stored(id).status, BountyStatus::Reserved);
+}
+
 #[test]
 fn lifecycle_dispute_distinguishes_each_guard_and_keeps_contributor_auth() {
     let f = Fixture::new();
@@ -471,6 +541,47 @@ fn lifecycle_dispute_distinguishes_each_guard_and_keeps_contributor_auth() {
         f.client.try_resolve_dispute(&id, &true),
         ContractError::BountyMustBeDisputed,
     );
+}
+
+#[test]
+fn lifecycle_dispute_window_boundaries_keep_funds_and_status() {
+    // A submitted bounty can be disputed up to and including its deadline.
+    let f = Fixture::new();
+    let id = f.submitted(0);
+    let original = f.balances();
+    f.env.ledger().set_timestamp(1_000);
+    f.client.dispute_bounty(&id, &f.arbiter);
+    assert_eq!(f.stored(id).status, BountyStatus::Disputed);
+    assert_eq!(
+        f.balances(),
+        original,
+        "disputing must not move escrowed funds"
+    );
+
+    // One ledger past the deadline the window is closed and nothing changes.
+    let f = Fixture::new();
+    let id = f.submitted(0);
+    let original = f.balances();
+    f.env.ledger().set_timestamp(1_001);
+    assert_error(
+        f.client.try_dispute_bounty(&id, &f.arbiter),
+        ContractError::BountyExpired,
+    );
+    assert_eq!(f.stored(id).status, BountyStatus::Submitted);
+    assert_eq!(f.balances(), original);
+
+    // A released bounty can never be disputed, even inside the window.
+    let f = Fixture::new();
+    let id = f.submitted(0);
+    f.client.release_bounty(&id, &f.maintainer);
+    let original = f.balances();
+    f.env.ledger().set_timestamp(1_000);
+    assert_error(
+        f.client.try_dispute_bounty(&id, &f.arbiter),
+        ContractError::BountyAlreadyFinalized,
+    );
+    assert_eq!(f.stored(id).status, BountyStatus::Released);
+    assert_eq!(f.balances(), original);
 }
 
 #[test]
@@ -520,6 +631,20 @@ fn lifecycle_token_failures_are_operation_specific_and_atomic() {
     assert_error(
         f.client.try_refund_bounty(&id, &f.maintainer),
         ContractError::RefundTransferFailed,
+    );
+    assert_eq!(f.balances(), original);
+    assert_eq!(f.stored(id).status, BountyStatus::Open);
+    token::StellarAssetClient::new(&f.env, &f.token).set_authorized(&f.maintainer, &true);
+
+    // A contributor cannot claim or mutate a maintainer refund by substituting
+    // its own address. No token or storage state may change.
+    let f = Fixture::new();
+    let id = f.funded(0);
+    f.env.ledger().set_timestamp(1_001);
+    let original = f.balances();
+    assert_error(
+        f.client.try_refund_bounty(&id, &f.contributor),
+        ContractError::MaintainerMismatch,
     );
     assert_eq!(f.balances(), original);
     assert_eq!(f.stored(id).status, BountyStatus::Open);

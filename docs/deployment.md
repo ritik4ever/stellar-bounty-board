@@ -249,7 +249,96 @@ docker run -d \
 
 ---
 
+## Local test data seeding
+
+`scripts/seed.js` (exposed as `npm run seed`) writes a deterministic fixture set into
+the local bounty store. Every run produces the same IDs, timestamps, and status
+histories, so a clean checkout always reproduces the same data.
+
+### Reproduce from a clean checkout
+
+```bash
+# Seed the default fixture set (idempotent: existing records are updated in place)
+npm run seed
+
+# Wipe the store first, then seed from scratch
+npm run seed:demo -- --reset
+```
+
+Both commands are safe to rerun. `--reset` deletes the local data files before
+writing; without it, records are upserted by their fixed IDs.
+
+### Deterministic inputs
+
+| Input | Value |
+| --- | --- |
+| Base epoch | `2024-01-01T00:00:00.000Z` (all fixture timestamps are offsets from this epoch) |
+| Bounty IDs | `bounty-open-0001`, `bounty-reserved-0002`, `bounty-submitted-0003`, `bounty-disputed-0004`, `bounty-refunded-0005` |
+| Contributor actors | `GCONTRIBUTOROPEN`, `GCONTRIBUTORRESERVED`, `GCONTRIBUTORSUBMITTED`, `GCONTRIBUTORDISPUTED`, `GCONTRIBUTORREFUNDED` |
+| Maintainer actor | `GMAINTAINER000000000000000000000000000000000000000000000` |
+| Admin actor | `GADMIN000000000000000000000000000000000000000000000000` |
+
+### Expected fixture status histories
+
+| Fixture | ID | Status history (oldest → newest) |
+| --- | --- | --- |
+| Open | `bounty-open-0001` | `open` |
+| Reserved | `bounty-reserved-0002` | `open` → `reserved` |
+| Submitted | `bounty-submitted-0003` | `open` → `reserved` → `submitted` |
+| Disputed | `bounty-disputed-0004` | `open` → `reserved` → `submitted` → `disputed` |
+| Refunded | `bounty-refunded-0005` | `open` → `reserved` → `refunded` |
+
+Each transition is timestamped at a fixed offset from the base epoch, so audit
+entries and status histories are byte-for-byte reproducible.
+
+### Running the seed-inputs test
+
+```bash
+npm test -- seed-inputs
+```
+
+The test asserts the fixed IDs, the base epoch, and the status histories above
+against a freshly seeded store. It never touches live funds or a live network.
+
+---
+
+## Testnet deployment preflight
+
+`scripts/deploy-testnet.js` runs a preflight check before any transaction is
+built or signed. The check compares the configured network passphrase with the
+contract ID:
+
+- A **testnet** contract ID (`C...` deployed on testnet) must be paired with the
+  testnet passphrase (`Test SDF Network ; September 2015`).
+- If the passphrase is the **mainnet** passphrase
+  (`Public Global Stellar Network ; September 2015`) while the contract ID is a
+  testnet contract, the script **stops immediately** with:
+
+  ```
+  ERROR: network passphrase/contract ID mismatch
+  passphrase: Public Global Stellar Network ; September 2015 (mainnet)
+  contract:   <contract-id> (testnet)
+  Refusing to continue: signing with the wrong passphrase would target mainnet.
+  ```
+
+### Recovery path
+
+1. Fix the environment: set `SOROBAN_NETWORK_PASSPHRASE` to the testnet
+   passphrase, or point `SOROBAN_CONTRACT_ID` at the intended mainnet contract.
+2. Re-run `npm run deploy:testnet`.
+3. The preflight re-runs and only proceeds once the passphrase and contract ID
+   agree.
+
+### Rerun safety
+
+The preflight runs before any key is loaded for signing and before any funds
+move. A mismatched configuration therefore fails safely on every rerun — no
+partial deployment, no signed transaction, and no transferred funds.
+
+---
+
 ## Wave and backlog context
+=======
 
 Deployment-related work is tracked in the current wave backlog,
 [`docs/wave-6.md`](wave-6.md), with earlier waves in

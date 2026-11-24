@@ -105,6 +105,12 @@ impl LcgRng {
 fn matches_documented_refund_error(err_str: &str) -> bool {
     // Contract panics with panic_error(ContractError::Variant) which the Soroban host
     // surfaces either as the named variant, InvokeError::Abort, or Error(Context, InvalidAction).
+    //
+    // Errors actually raised by `refund_bounty`:
+    //   - BountyNotFound (#2)          -> unknown bounty id
+    //   - BountyNotExpiredYet (#25)    -> ledger timestamp <= deadline
+    //   - BountyAlreadyFinalized (#23) -> status is not Open (reserved/released/refunded)
+    //   - MaintainerMismatch (#21)     -> caller is not the bounty maintainer
     let documented = [
         "Error(Contract, #2)",
         "Error(Contract, #25)",
@@ -119,6 +125,55 @@ fn matches_documented_refund_error(err_str: &str) -> bool {
         }
     }
     false
+}
+
+/// Asserts that a failed refund attempt left escrow and bounty state untouched.
+fn assert_refund_rejected_without_moving_funds(
+    fix: &FuzzFixture,
+    bounty_id: u64,
+    caller: &Address,
+    amount: i128,
+    expected_error: &str,
+) {
+    let token_client = StellarAssetClient::new(&fix.env, &fix.token);
+    let caller_before = token_client.balance(caller);
+    let contract_before = token_client.balance(&fix.client.address);
+
+    let res = fix.client.try_refund_bounty(&bounty_id, caller);
+    assert!(
+        res.is_err(),
+        "Refund by unauthorized caller must fail for bounty {}",
+        bounty_id
+    );
+    let err_str = format!("{:?}", res);
+    assert!(
+        matches_documented_refund_error(&err_str),
+        "Error must match documented error: {}",
+        err_str
+    );
+    assert!(
+        err_str.contains(expected_error),
+        "Expected error {} but got {}",
+        expected_error,
+        err_str
+    );
+
+    // No funds may be redirected to the caller or drained from escrow.
+    assert_eq!(
+        token_client.balance(caller),
+        caller_before,
+        "Unauthorized caller balance must not change"
+    );
+    assert_eq!(
+        token_client.balance(&fix.client.address),
+        contract_before,
+        "Contract escrow must not change on rejected refund"
+    );
+    assert_eq!(token_client.balance(&fix.client.address), amount);
+
+    let b = fix.client.get_bounty(&bounty_id);
+    assert_eq!(b.status, BountyStatus::Open);
+    assert_eq!(b.amount, amount);
 }
 
 #[test]
@@ -389,6 +444,204 @@ fn test_fuzz_refund_bounty_numeric_inputs_and_invariants() {
             b.status,
             BountyStatus::Released,
             "Status must remain Released"
+        );
+    }
+
+    // ── 5. Refund Boundaries: Expired, Never-Reserved Bounty ───────────
+    {
+        let fix = setup_fuzz_fixture();
+        let amount = 7_500i128;
+        let fee_bps = 500u32; // 5% fee configured; refunds must NOT deduct it
+        let token_client = StellarAssetClient::new(&fix.env, &fix.token);
+        token_client.mint(&fix.maintainer, &amount);
+
+        let start_time = 30_000u64;
+        fix.env.ledger().set_timestamp(start_time);
+        let deadline = start_time + 1_000;
+
+        let bounty_id = fix.client.create_bounty(
+            &fix.maintainer,
+            &fix.token,
+            &amount,
+            &String::from_str(&fix.env, "repo"),
+            &1,
+            &String::from_str(&fix.env, "title"),
+            &deadline,
+            &fee_bps,
+            &None,
+        );
+
+        // Escrow holds exactly the bounty amount; maintainer holds nothing.
+        assert_eq!(token_client.balance(&fix.maintainer), 0);
+        assert_eq!(token_client.balance(&fix.client.address), amount);
+
+        // Expire the bounty without ever reserving it.
+        fix.env.ledger().set_timestamp(deadline + 1);
+
+        let res = fix.client.try_refund_bounty(&bounty_id, &fix.maintainer);
+        assert!(res.is_ok(), "Refund of expired unreserved bounty must succeed");
+
+        // Exactly one refund, equal to the escrowed amount, with no fee deduction.
+        assert_eq!(
+            token_client.balance(&fix.maintainer),
+            amount,
+            "Maintainer must receive the full escrowed amount (no fee)"
+        );
+        assert_eq!(
+            token_client.balance(&fix.client.address),
+            0,
+            "Escrow must be fully drained by the single refund"
+        );
+
+        let b_after = fix.client.get_bounty(&bounty_id);
+        assert_eq!(b_after.status, BountyStatus::Refunded);
+        assert_eq!(b_after.amount, amount);
+
+        // A second refund must fail and must not mint or move any funds.
+        let res_double = fix.client.try_refund_bounty(&bounty_id, &fix.maintainer);
+        assert!(res_double.is_err(), "Second refund must fail");
+        let err_double_str = format!("{:?}", res_double);
+        assert!(
+            err_double_str.contains("Error(Contract, #23)"),
+            "Second refund must fail with BountyAlreadyFinalized: {}",
+            err_double_str
+        );
+        assert_eq!(token_client.balance(&fix.maintainer), amount);
+        assert_eq!(token_client.balance(&fix.client.address), 0);
+    }
+
+    // ── 6. Refund Authority: Only the Maintainer May Refund ────────────
+    {
+        let fix = setup_fuzz_fixture();
+        let amount = 4_200i128;
+        let token_client = StellarAssetClient::new(&fix.env, &fix.token);
+        token_client.mint(&fix.maintainer, &amount);
+
+        let start_time = 40_000u64;
+        fix.env.ledger().set_timestamp(start_time);
+        let deadline = start_time + 1_000;
+
+        let bounty_id = fix.client.create_bounty(
+            &fix.maintainer,
+            &fix.token,
+            &amount,
+            &String::from_str(&fix.env, "repo"),
+            &1,
+            &String::from_str(&fix.env, "title"),
+            &deadline,
+            &0u32,
+            &None,
+        );
+
+        // Expire the bounty without ever reserving it.
+        fix.env.ledger().set_timestamp(deadline + 1);
+
+        // Contributor (the most likely attacker) cannot refund to themselves.
+        assert_refund_rejected_without_moving_funds(
+            &fix,
+            bounty_id,
+            &fix.contributor,
+            amount,
+            "Error(Contract, #21)",
+        );
+
+        // Arbiter cannot redirect the escrow.
+        assert_refund_rejected_without_moving_funds(
+            &fix,
+            bounty_id,
+            &fix._arbiter,
+            amount,
+            "Error(Contract, #21)",
+        );
+
+        // Admin cannot redirect the escrow.
+        assert_refund_rejected_without_moving_funds(
+            &fix,
+            bounty_id,
+            &fix._admin,
+            amount,
+            "Error(Contract, #21)",
+        );
+
+        // Treasury cannot redirect the escrow.
+        assert_refund_rejected_without_moving_funds(
+            &fix,
+            bounty_id,
+            &fix._treasury,
+            amount,
+            "Error(Contract, #21)",
+        );
+
+        // Random caller cannot redirect the escrow.
+        let random_caller = Address::generate(&fix.env);
+        assert_refund_rejected_without_moving_funds(
+            &fix,
+            bounty_id,
+            &random_caller,
+            amount,
+            "Error(Contract, #21)",
+        );
+
+        // The rightful payee (maintainer) still receives exactly one refund.
+        let res = fix.client.try_refund_bounty(&bounty_id, &fix.maintainer);
+        assert!(res.is_ok(), "Maintainer refund must succeed");
+        assert_eq!(token_client.balance(&fix.maintainer), amount);
+        assert_eq!(token_client.balance(&fix.client.address), 0);
+        assert_eq!(
+            fix.client.get_bounty(&bounty_id).status,
+            BountyStatus::Refunded
+        );
+    }
+
+    // ── 7. Reserved-Then-Expired Bounty Cannot Be Refunded ─────────────
+    {
+        let fix = setup_fuzz_fixture();
+        let amount = 3_300i128;
+        let token_client = StellarAssetClient::new(&fix.env, &fix.token);
+        token_client.mint(&fix.maintainer, &amount);
+
+        let start_time = 50_000u64;
+        fix.env.ledger().set_timestamp(start_time);
+        let deadline = start_time + 1_000;
+
+        let bounty_id = fix.client.create_bounty(
+            &fix.maintainer,
+            &fix.token,
+            &amount,
+            &String::from_str(&fix.env, "repo"),
+            &1,
+            &String::from_str(&fix.env, "title"),
+            &deadline,
+            &0u32,
+            &None,
+        );
+
+        // Reserve (but do not submit or release) before the deadline.
+        fix.client.reserve_bounty(&bounty_id, &fix.contributor);
+        assert_eq!(
+            fix.client.get_bounty(&bounty_id).status,
+            BountyStatus::Reserved
+        );
+
+        // Expire the bounty while it is reserved.
+        fix.env.ledger().set_timestamp(deadline + 1);
+
+        // Even the maintainer cannot refund a reserved bounty.
+        let res = fix.client.try_refund_bounty(&bounty_id, &fix.maintainer);
+        assert!(res.is_err(), "Refund of reserved bounty must fail");
+        let err_str = format!("{:?}", res);
+        assert!(
+            err_str.contains("Error(Contract, #23)"),
+            "Reserved bounty refund must fail with BountyAlreadyFinalized: {}",
+            err_str
+        );
+
+        // Escrow and status are unchanged.
+        assert_eq!(token_client.balance(&fix.maintainer), 0);
+        assert_eq!(token_client.balance(&fix.client.address), amount);
+        assert_eq!(
+            fix.client.get_bounty(&bounty_id).status,
+            BountyStatus::Reserved
         );
     }
 

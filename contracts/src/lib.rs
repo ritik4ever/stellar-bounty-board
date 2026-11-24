@@ -262,12 +262,29 @@ pub struct BountyDeadlineExtended {
 }
 
 /// Emitted when a contributor raises a dispute on a submitted bounty.
+///
+/// This is the single event emitted by `dispute_bounty`, and it is emitted
+/// only after the `Disputed` state has been committed to storage. Consumers
+/// can therefore treat its presence as proof that the bounty is disputed and
+/// that escrow funds are still intact (a dispute moves no tokens).
+///
+/// Fields, in deterministic order:
+/// - `bounty_id`: which bounty was disputed.
+/// - `contributor`: the contributor that raised the dispute.
+/// - `arbiter`: the arbiter that will rule on it.
+/// - `dispute_raised_at`: ledger timestamp recorded in `bounty.dispute_raised_at`;
+///   the dispute window for resolution starts here.
+/// - `deadline`: the bounty deadline at the time of the dispute. The dispute
+///   was raised at or before this timestamp (the last eligible ledger is
+///   exactly `deadline`).
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BountyDisputed {
     pub bounty_id: u64,
     pub contributor: Address,
     pub arbiter: Address,
+    pub dispute_raised_at: u64,
+    pub deadline: u64,
 }
 
 /// Emitted when an arbiter resolves a dispute (release or refund).
@@ -909,3 +926,1643 @@ impl StellarBountyBoardContract {
     /// # Errors & Panic Paths
     /// * [`ContractError::BountyNotFound`] - If no bounty exists with the given `bounty_id` (via `read_bounty`).
     /// * [`ContractError::BountyMustBeReserved`] - If the bounty's status is not [`BountyStatus::Reserved`].
+    /// * [`ContractError::ContributorMismatch`] - If `contributor` does not match the bounty's assigned worker (`bounty.contributor != Some(contributor)`).
+    ///
+    /// # Storage
+    /// * **Read**:
+    ///   - [`DataKey::Bounty(bounty_id)`] - Reads the existing bounty state via `read_bounty`.
+    /// * **Write**:
+    ///   - [`DataKey::Bounty(bounty_id)`] - Updates `bounty.status` to [`BountyStatus::Submitted`].
+    ///
+    /// # Events
+    /// * Emits `(symbol_short!("Bounty"), symbol_short!("Submit"))` with [`BountySubmitted`] payload.
+    pub fn submit_bounty(env: Env, bounty_id: u64, contributor: Address) {
+        contributor.require_auth();
+        let mut bounty = read_bounty(&env, bounty_id);
+        expire_if_needed(&env, &mut bounty);
+
+        if bounty.status == BountyStatus::Expired {
+            panic_error(&env, ContractError::BountyExpired);
+        }
+        if bounty.status != BountyStatus::Reserved {
+            panic_error(&env, ContractError::BountyMustBeReserved);
+        }
+        let assigned = bounty
+            .contributor
+            .as_ref()
+            .unwrap_or_else(|| panic_error(&env, ContractError::MissingContributor));
+        if assigned != &contributor {
+            panic_error(&env, ContractError::ContributorMismatch);
+        }
+
+        bounty.status = BountyStatus::Submitted;
+        write_bounty(&env, bounty_id, &bounty);
+
+        env.events().publish(
+            (symbol_short!("Bounty"), symbol_short!("Submit")),
+            BountySubmitted {
+                bounty_id,
+                contributor,
+            },
+        );
+    }
+
+    /// Releases an escrowed bounty payout to the assigned contributor after deducting protocol fees.
+    ///
+    /// This function is part of the public contract ABI. The bounty maintainer approves
+    /// the submitted work, triggering token transfers from contract escrow: the net payout
+    /// goes to the contributor, and any protocol fee is transferred to the treasury address.
+    ///
+    /// # Parameters
+    /// * `env` - The Soroban contract environment.
+    /// * `bounty_id` - Unique identifier (`u64`) of the bounty being released.
+    /// * `maintainer` - Address of the bounty creator/maintainer approving the release.
+    ///
+    /// # Authorisation
+    /// * Requires authorization from `maintainer` (`maintainer.require_auth()`).
+    ///
+    /// # Errors & Panic Paths
+    /// * [`ContractError::BountyNotFound`] - If no bounty exists with the given `bounty_id` (via `read_bounty`).
+    /// * [`ContractError::MaintainerMismatch`] - If the caller `maintainer` does not match the bounty's registered creator (`bounty.maintainer != maintainer`).
+    /// * [`ContractError::BountyMustBeSubmitted`] - If the bounty's current status is not [`BountyStatus::Submitted`].
+    /// * [`ContractError::MissingContributor`] - If the bounty has no assigned contributor.
+    /// * Contract token client panics if token transfers to contributor or treasury fail.
+    ///
+    /// # Storage
+    /// * **Read**:
+    ///   - [`DataKey::Bounty(bounty_id)`] - Reads the existing bounty state via `read_bounty`.
+    ///   - [`DataKey::Treasury`] - Persistent storage lookup to obtain the protocol treasury address if fees apply.
+    /// * **Write**:
+    ///   - [`DataKey::Bounty(bounty_id)`] - Updates `bounty.status` to [`BountyStatus::Released`] and records `bounty.released_at` timestamp.
+    ///
+    /// # Events
+    /// * Emits `(symbol_short!("Bounty"), symbol_short!("Rel"))` with [`BountyReleased`] payload.
+    pub fn release_bounty(env: Env, bounty_id: u64, maintainer: Address) {
+        maintainer.require_auth();
+        let mut bounty = read_bounty(&env, bounty_id);
+        refresh_bounty_ttl(&env, bounty_id);
+
+        if bounty.maintainer != maintainer {
+            panic_error(&env, ContractError::MaintainerMismatch);
+        }
+        if bounty.status != BountyStatus::Submitted {
+            panic_error(&env, ContractError::BountyMustBeSubmitted);
+        }
+
+        let contributor = bounty
+            .contributor
+            .clone()
+            .unwrap_or_else(|| panic_error(&env, ContractError::MissingContributor));
+
+        let token_client = TokenClient::new(&env, &bounty.token);
+        let contract_address = env.current_contract_address();
+
+        // ── Fee calculation ─────────────────────────────────────────────
+        // Fee is deducted FROM the payout, never added on top.
+        // fee_amount = floor(amount * protocol_fee_bps / 10_000)
+        // net_payout = amount - fee_amount
+        //
+        // Using i128 arithmetic to avoid overflow on large amounts.
+        let fee_amount: i128 = if bounty.protocol_fee_bps == 0 {
+            0
+        } else {
+            (bounty.amount * bounty.protocol_fee_bps as i128) / 10_000
+        };
+
+        let net_payout = bounty.amount - fee_amount;
+
+        // Transfer net payout to contributor
+        if !matches!(
+            token_client.try_transfer(&contract_address, &contributor, &net_payout),
+            Ok(Ok(()))
+        ) {
+            panic_error(&env, ContractError::PayoutTransferFailed);
+        }
+
+        // Transfer fee to recipient (only when fee is non-zero)
+        if fee_amount > 0 {
+            let fee_recipient: Address = env
+                .storage()
+                .persistent()
+                .get(&DataKey::FeeRecipient)
+                .unwrap_or_else(|| panic_error(&env, ContractError::FeeRecipientNotSet));
+            if !matches!(
+                token_client.try_transfer(&contract_address, &fee_recipient, &fee_amount),
+                Ok(Ok(()))
+            ) {
+                panic_error(&env, ContractError::FeeTransferFailed);
+            }
+        }
+        // ─────────────────────────────────────────────────────────────────
+
+        // Atomically update FeeStats
+        accumulate_fee_stats(&env, fee_amount);
+
+        bounty.status = BountyStatus::Released;
+        write_bounty(&env, bounty_id, &bounty);
+
+        env.events().publish(
+            (symbol_short!("Bounty"), symbol_short!("Releas")),
+            BountyReleased {
+                bounty_id,
+                contributor: contributor.clone(),
+                amount: net_payout, // net amount after fee
+                fee_amount,
+            },
+        );
+
+        // Structured, self-contained event scoped to `release_bounty`.
+        // Topic: `(symbol_short!("Bounty"), symbol_short!("RelEvent"))`.
+        // Payload: `BountyReleasedEvent` — sufficient for the indexer worker
+        // to update its view of this bounty without a follow-up contract read.
+        env.events().publish(
+            (symbol_short!("Bounty"), symbol_short!("RelEvent")),
+            BountyReleasedEvent {
+                bounty_id,
+                maintainer: bounty.maintainer.clone(),
+                contributor,
+                token: bounty.token.clone(),
+                amount: net_payout,
+                fee_amount,
+                protocol_fee_bps: bounty.protocol_fee_bps,
+                released_at: env.ledger().timestamp(),
+            },
+        );
+    }
+
+    /// Refunds the entire bounty amount back to the creator (maintainer) if expired and uncompleted.
+    ///
+    /// This function is part of the public contract ABI. A maintainer can reclaim their deposited
+    /// tokens once the bounty deadline has passed, provided the bounty was never reserved and
+    /// was not already released or refunded. The full original amount is returned without any
+    /// protocol fees deducted.
+    ///
+    /// # Refund boundaries
+    ///
+    /// The refund is deliberately narrow. All of the following must hold:
+    ///
+    /// 1. **Expired-only** — the current ledger timestamp must be strictly greater than
+    ///    `bounty.deadline`. A `deadline` of `0` is treated as a sentinel meaning "no deadline":
+    ///    the expiry check is skipped and the refund proceeds regardless of `now`.
+    /// 2. **Never-reserved-only** — a bounty that was ever reserved (i.e. `bounty.contributor`
+    ///    is `Some`, or its status is anything other than [`BountyStatus::Open`] /
+    ///    [`BountyStatus::Expired`]) cannot be refunded through this path. Reserved, submitted,
+    ///    disputed, released and already-refunded bounties are all rejected with
+    ///    [`ContractError::BountyAlreadyFinalized`]. Work that was reserved is settled through
+    ///    [`Self::release_bounty`] or the dispute-resolution paths instead.
+    /// 3. **Single-shot** — the status is moved to [`BountyStatus::Refunded`] and persisted
+    ///    *before* the token transfer, so a second call (or a re-entrant call) fails with
+    ///    [`ContractError::BountyAlreadyFinalized`] rather than paying out twice.
+    /// 4. **Exact-amount** — exactly `bounty.amount` is transferred, with no fee deduction and
+    ///    no rounding.
+    /// 5. **Maintainer-only payee** — the tokens always go to `bounty.maintainer`, the address
+    ///    that funded the escrow. The caller cannot redirect the refund elsewhere.
+    ///
+    /// # Parameters
+    /// * `env` - The Soroban contract environment.
+    /// * `bounty_id` - Unique identifier (`u64`) of the bounty to refund.
+    /// * `maintainer` - Address of the bounty creator requesting the refund.
+    ///
+    /// # Authorisation
+    /// * Requires authorization from the specified `maintainer` (`maintainer.require_auth()`).
+    /// * Only the bounty's registered maintainer may call this. A contributor, the arbiter, or
+    ///   any other address — even one that signs the call — is rejected with
+    ///   [`ContractError::MaintainerMismatch`] and cannot redirect the escrow.
+    ///
+    /// # Errors & Panic Paths
+    /// * [`ContractError::BountyNotFound`] - If no bounty exists with the given `bounty_id` (via `read_bounty`).
+    /// * [`ContractError::MaintainerMismatch`] - If `maintainer` does not match the bounty's registered creator (`bounty.maintainer != maintainer`).
+    /// * [`ContractError::BountyAlreadyFinalized`] - If the bounty was ever reserved, or its status is not [`BountyStatus::Open`] / [`BountyStatus::Expired`] (including already [`BountyStatus::Released`] or [`BountyStatus::Refunded`]).
+    /// * [`ContractError::BountyNotExpiredYet`] - If the current ledger timestamp is less than or equal to `bounty.deadline` (and `bounty.deadline != 0`).
+    /// * [`ContractError::RefundTransferFailed`] - If the token transfer back to the maintainer fails.
+    ///
+    /// # Storage
+    /// * **Read**:
+    ///   - [`DataKey::Bounty(bounty_id)`] - Reads the existing bounty state via `read_bounty`.
+    /// * **Write**:
+    ///   - [`DataKey::Bounty(bounty_id)`] - Updates `bounty.status` to [`BountyStatus::Refunded`] via `write_bounty`, before the transfer.
+    ///
+    /// # Events
+    /// * Emits `(symbol_short!("Bounty"), symbol_short!("Refund"))` with [`BountyRefunded`] payload.
+    pub fn refund_bounty(env: Env, bounty_id: u64, maintainer: Address) {
+        maintainer.require_auth();
+        let mut bounty = read_bounty(&env, bounty_id);
+        refresh_bounty_ttl(&env, bounty_id);
+        expire_if_needed(&env, &mut bounty);
+
+        // Only the bounty's own maintainer may reclaim the escrow. A contributor
+        // or the arbiter signing this call is rejected here, before any state or
+        // funds move.
+        if bounty.maintainer != maintainer {
+            panic_error(&env, ContractError::MaintainerMismatch);
+        }
+
+        // Refunds are for bounties that were never reserved. Once a contributor
+        // is attached (or the bounty left Open/Expired), settlement belongs to
+        // the release or dispute paths, not to the maintainer's refund.
+        if bounty.contributor.is_some()
+            || (bounty.status != BountyStatus::Open && bounty.status != BountyStatus::Expired)
+        {
+            panic_error(&env, ContractError::BountyAlreadyFinalized);
+        }
+
+        let now = env.ledger().timestamp();
+        if now <= bounty.deadline && bounty.deadline != 0 {
+            panic_error(&env, ContractError::BountyNotExpiredYet);
+        }
+
+        // Mark the bounty refunded before moving tokens so a second attempt
+        // fails with `BountyAlreadyFinalized` instead of paying out twice.
+        bounty.status = BountyStatus::Refunded;
+        write_bounty(&env, bounty_id, &bounty);
+
+        let token_client = TokenClient::new(&env, &bounty.token);
+        let contract_address = env.current_contract_address();
+
+        // Commit the terminal state before interacting with the token contract.
+        // If the transfer returns an error, panic_error aborts the invocation,
+        // which rolls back this write and preserves the escrow state atomically.
+        bounty.status = BountyStatus::Refunded;
+        write_bounty(&env, bounty_id, &bounty);
+
+        // Refund returns the FULL original amount there is no fee on refunds
+        if !matches!(
+            token_client.try_transfer(&contract_address, &bounty.maintainer, &bounty.amount),
+            Ok(Ok(()))
+        ) {
+            panic_error(&env, ContractError::RefundTransferFailed);
+        }
+
+        env.events().publish(
+            (symbol_short!("Bounty"), symbol_short!("Refund")),
+            BountyRefunded {
+                bounty_id,
+                maintainer: bounty.maintainer,
+                amount: bounty.amount,
+            },
+        );
+    }
+
+    pub fn cancel_bounty(env: Env, bounty_id: u64, maintainer: Address) {
+        maintainer.require_auth();
+        let mut bounty = read_bounty(&env, bounty_id);
+        refresh_bounty_ttl(&env, bounty_id);
+        expire_if_needed(&env, &mut bounty);
+
+        if bounty.maintainer != maintainer {
+            panic_error(&env, ContractError::MaintainerMismatch);
+        }
+        if bounty.status != BountyStatus::Open {
+            panic_error(&env, ContractError::BountyNotOpen);
+        }
+
+        let token_client = TokenClient::new(&env, &bounty.token);
+        let contract_address = env.current_contract_address();
+        token_client.transfer(&contract_address, &maintainer, &bounty.amount);
+
+        bounty.status = BountyStatus::Refunded;
+        write_bounty(&env, bounty_id, &bounty);
+
+        env.events().publish(
+            (symbol_short!("Bounty"), symbol_short!("Cancel")),
+            BountyCanceled {
+                bounty_id,
+                maintainer,
+                amount: bounty.amount,
+            },
+        );
+    }
+
+    pub fn extend_deadline(env: Env, bounty_id: u64, maintainer: Address, new_deadline: u64) {
+        maintainer.require_auth();
+        let mut bounty = read_bounty(&env, bounty_id);
+        expire_if_needed(&env, &mut bounty);
+
+        if bounty.maintainer != maintainer {
+            panic_error(&env, ContractError::MaintainerMismatch);
+        }
+
+        if bounty.status == BountyStatus::Released
+            || bounty.status == BountyStatus::Refunded
+            || bounty.status == BountyStatus::Expired
+        {
+            panic_error(&env, ContractError::CannotExtendFinalizedBounty);
+        }
+
+        if new_deadline <= bounty.deadline {
+            panic_error(&env, ContractError::DeadlineMustAdvance);
+        }
+
+        bounty.deadline = new_deadline;
+        write_bounty(&env, bounty_id, &bounty);
+
+        env.events().publish(
+            (symbol_short!("Bounty"), symbol_short!("Extnd")),
+            BountyDeadlineExtended {
+                bounty_id,
+                new_deadline,
+            },
+        );
+    }
+
+    /// Raises a dispute on a submitted bounty, transitioning its status to `Disputed`.
+    ///
+    /// This function is part of the public contract ABI. A contributor who has submitted
+    /// work for a bounty can raise a dispute if there is a conflict or disagreement with
+    /// the maintainer before the deadline passes.
+    ///
+    /// # Dispute window semantics
+    ///
+    /// The dispute window is bounded by the bounty `deadline`:
+    /// * The **last eligible ledger** is exactly `deadline` — a dispute raised at
+    ///   `now == deadline` is accepted.
+    /// * The window is **exclusive after** `deadline` — a dispute raised at
+    ///   `now > deadline` is rejected with [`ContractError::BountyExpired`].
+    ///
+    /// The recorded `dispute_raised_at` is the ledger timestamp of the accepted
+    /// call; `resolve_dispute` then requires
+    /// `now >= dispute_raised_at + effective_dispute_window`.
+    ///
+    /// # Single-shot guarantee
+    ///
+    /// Only a bounty in [`BountyStatus::Submitted`] can be disputed. Once the
+    /// transition commits, the status is [`BountyStatus::Disputed`] and any
+    /// further call (including one after a release or refund) is rejected with
+    /// [`ContractError::BountyMustBeSubmitted`]. The state is written exactly
+    /// once and the event is emitted only after the write, so consumers see at
+    /// most one `BountyDisputed` event per bounty.
+    ///
+    /// # Funds
+    ///
+    /// Raising a dispute moves no tokens: escrow remains intact and is only
+    /// settled later by `resolve_dispute` (or the committee vote path).
+    ///
+    /// # Parameters
+    /// * `env` - The Soroban contract environment.
+    /// * `bounty_id` - Unique identifier (`u64`) of the bounty being disputed.
+    /// * `arbiter` - Address of the arbiter handling dispute resolution. Must match
+    ///   the contract's currently configured arbiter stored in persistent storage.
+    ///
+    /// # Authorisation
+    /// * Requires authorization from the bounty's assigned `contributor` (`contributor.require_auth()`).
+    ///
+    /// # Errors & Panic Paths
+    /// * [`ContractError::BountyNotFound`] - If no bounty exists with the given `bounty_id` (via `read_bounty`).
+    /// * [`ContractError::BountyExpired`] - If the current ledger timestamp is past the bounty's `deadline` (`env.ledger().timestamp() > bounty.deadline`).
+    /// * [`ContractError::MissingContributor`] - If the bounty does not have an assigned contributor (`bounty.contributor` is `None`).
+    /// * [`ContractError::BountyMustBeSubmitted`] - If the bounty's current status is not [`BountyStatus::Submitted`]
+    ///   (this also covers already `Disputed`, `Released`, `Refunded`, and `Expired` bounties).
+    /// * [`ContractError::ArbiterNotSet`] - If no arbiter has been configured in persistent storage (`DataKey::Arbiter`).
+    /// * [`ContractError::NotArbiter`] - If the provided `arbiter` argument does not match the stored arbiter address.
+    ///
+    /// # Storage
+    /// * **Read**:
+    ///   - [`DataKey::Bounty(bounty_id)`] - Reads the existing bounty state via `read_bounty`.
+    ///   - [`DataKey::Arbiter`] - Persistent storage lookup to verify the arbiter address.
+    /// * **Write**:
+    ///   - [`DataKey::Bounty(bounty_id)`] - Updates `bounty.status` to [`BountyStatus::Disputed`] and records `bounty.dispute_raised_at` timestamp.
+    ///
+    /// # Events
+    /// * Emits exactly one `(symbol_short!("Bounty"), symbol_short!("Dispt"))` event with the
+    ///   [`BountyDisputed`] payload, after the state write. Fields are ordered
+    ///   `bounty_id`, `contributor`, `arbiter`, `dispute_raised_at`, `deadline`.
+    pub fn dispute_bounty(env: Env, bounty_id: u64, arbiter: Address) {
+        let mut bounty = read_bounty(&env, bounty_id);
+
+        // Last eligible ledger is exactly `deadline`; strictly after is too late.
+        if env.ledger().timestamp() > bounty.deadline {
+            panic_error(&env, ContractError::BountyExpired);
+        }
+
+        let contributor = bounty
+            .contributor
+            .clone()
+            .unwrap_or_else(|| panic_error(&env, ContractError::MissingContributor));
+
+        contributor.require_auth();
+
+        // Single-shot: only a Submitted bounty may transition to Disputed. This
+        // rejects Disputed (double dispute), Released, Refunded, and Expired.
+        if bounty.status != BountyStatus::Submitted {
+            panic_error(&env, ContractError::BountyMustBeSubmitted);
+        }
+
+        let stored_arbiter: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Arbiter)
+            .unwrap_or_else(|| panic_error(&env, ContractError::ArbiterNotSet));
+
+        if arbiter != stored_arbiter {
+            panic_error(&env, ContractError::NotArbiter);
+        }
+
+        let dispute_raised_at = env.ledger().timestamp();
+        bounty.status = BountyStatus::Disputed;
+        bounty.dispute_raised_at = dispute_raised_at;
+        write_bounty(&env, bounty_id, &bounty);
+
+        // Emitted only after the committed state, so the event and storage agree.
+        env.events().publish(
+            (symbol_short!("Bounty"), symbol_short!("Dispt")),
+            BountyDisputed {
+                bounty_id,
+                contributor,
+                arbiter,
+                dispute_raised_at,
+                deadline: bounty.deadline,
+            },
+        );
+    }
+
+    pub fn resolve_dispute(env: Env, bounty_id: u64, release: bool) {
+        let arbiter: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Arbiter)
+            .unwrap_or_else(|| panic_error(&env, ContractError::ArbiterNotSet));
+
+        arbiter.require_auth();
+
+        let mut bounty = read_bounty(&env, bounty_id);
+        refresh_bounty_ttl(&env, bounty_id);
+
+        if bounty.status != BountyStatus::Disputed {
+            panic_error(&env, ContractError::BountyMustBeDisputed);
+        }
+
+        // Use per-bounty override if set, otherwise fall back to global default
+        let effective_dispute_window: u64 = bounty.dispute_window_override.unwrap_or_else(|| {
+            env.storage()
+                .persistent()
+                .get(&DataKey::DisputeWindow)
+                .unwrap_or(0)
+        });
+
+        if env.ledger().timestamp() < bounty.dispute_raised_at + effective_dispute_window {
+            panic_error(&env, ContractError::DisputeWindowNotMet);
+        }
+
+        let token_client = TokenClient::new(&env, &bounty.token);
+        let contract_address = env.current_contract_address();
+
+        if release {
+            let contributor = bounty
+                .contributor
+                .clone()
+                .unwrap_or_else(|| panic_error(&env, ContractError::MissingContributor));
+
+            let fee_amount: i128 = if bounty.protocol_fee_bps == 0 {
+                0
+            } else {
+                (bounty.amount * bounty.protocol_fee_bps as i128) / 10_000
+            };
+
+            let net_payout = bounty.amount - fee_amount;
+
+            token_client.transfer(&contract_address, &contributor, &net_payout);
+
+            if fee_amount > 0 {
+                let fee_recipient: Address = env
+                    .storage()
+                    .persistent()
+                    .get(&DataKey::FeeRecipient)
+                    .unwrap_or_else(|| panic_error(&env, ContractError::FeeRecipientNotSet));
+                token_client.transfer(&contract_address, &fee_recipient, &fee_amount);
+            }
+
+            // Atomically update FeeStats for the dispute-release path
+            accumulate_fee_stats(&env, fee_amount);
+
+            bounty.status = BountyStatus::Released;
+        } else {
+            token_client.transfer(&contract_address, &bounty.maintainer, &bounty.amount);
+            bounty.status = BountyStatus::Refunded;
+        }
+
+        write_bounty(&env, bounty_id, &bounty);
+
+        env.events().publish(
+            (symbol_short!("Bounty"), symbol_short!("Reslv")),
+            BountyResolved {
+                bounty_id,
+                arbiter,
+                release,
+            },
+        );
+    }
+
+    /// Retrieves the current state of a bounty by its unique identifier.
+    ///
+    /// This function is part of the public contract ABI. If the bounty's deadline
+    /// has elapsed and its status is either [`BountyStatus::Open`] or [`BountyStatus::Reserved`],
+    /// the returned in-memory status is updated to [`BountyStatus::Expired`] via `expire_if_needed`.
+    ///
+    /// # Parameters
+    /// * `env` - The Soroban contract environment.
+    /// * `bounty_id` - Unique identifier (`u64`) of the bounty to retrieve.
+    ///
+    /// # Returns
+    /// * [`Bounty`] - The requested bounty struct with lazily-evaluated expiration.
+    ///
+    /// # Authorisation
+    /// * None (public view query; no caller authentication or signatures required).
+    ///
+    /// # Errors & Panic Paths
+    /// * [`ContractError::BountyNotFound`] - If no bounty exists with the given `bounty_id` (raised in `read_bounty`).
+    ///
+    /// # Storage
+    /// * **Read**:
+    ///   - [`DataKey::Bounty(bounty_id)`] - Reads the bounty state from persistent storage via `read_bounty`.
+    /// * **Write**:
+    ///   - None (read-only query; expiration status mutation is purely in-memory).
+    pub fn get_bounty(env: Env, bounty_id: u64) -> Bounty {
+        let mut bounty = read_bounty(&env, bounty_id);
+        expire_if_needed(&env, &mut bounty);
+        bounty
+    }
+
+    // ---------- New Functions ----------
+    pub fn init(env: Env, appeal_window: u64) {
+        // Only allow setting once
+        if env.storage().persistent().has(&DataKey::Config) {
+            panic!("config already set");
+        }
+        let cfg = Config { appeal_window };
+        env.storage().persistent().set(&DataKey::Config, &cfg);
+    }
+
+    /// Schedules a resolution for `bounty_id` and starts the appeal window.
+    ///
+    /// This does not move funds: it records the ruling in
+    /// `DataKey::PendingResolution` so that either party can [`Self::appeal`]
+    /// during the configured `appeal_window`, after which
+    /// [`Self::finalize_resolution`] executes it. The immediate,
+    /// window-enforced path is [`Self::resolve_dispute`], which settles in the
+    /// same call.
+    ///
+    /// Named `propose_resolution` rather than `resolve_dispute` because the
+    /// older dispute-window path already owns that name on this contract, and
+    /// a contract cannot expose two `resolve_dispute` entry points.
+    ///
+    /// # Parameters
+    /// * `bounty_id` - The disputed bounty.
+    /// * `decision` - `0` to release to the contributor, `1` to refund the
+    ///   maintainer. Any other value panics.
+    ///
+    /// Emits `("Dispute", "Scheduled")` through [`Self::finalize_resolution`]'s
+    /// counterpart event.
+    pub fn propose_resolution(env: Env, bounty_id: u64, decision: u32) {
+        let arbiter: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Arbiter)
+            .unwrap_or_else(|| panic_error(&env, ContractError::ArbiterNotSet));
+        arbiter.require_auth();
+        let decision = match decision {
+            0 => DisputeDecision::Release,
+            1 => DisputeDecision::Refund,
+            _ => panic!("invalid decision"),
+        };
+        let timestamp = env.ledger().timestamp();
+        let pending = PendingResolution {
+            decision: decision.clone(),
+            timestamp,
+        };
+        env.storage()
+            .persistent()
+            .set(&DataKey::PendingResolution(bounty_id), &pending);
+        env.events().publish(
+            (symbol_short!("Dispute"), symbol_short!("Scheduled")),
+            DisputeResolutionScheduled {
+                bounty_id,
+                decision,
+                resolve_at: timestamp,
+            },
+        );
+    }
+
+    pub fn finalize_resolution(env: Env, bounty_id: u64) {
+        // Load pending
+        let pending_opt: Option<PendingResolution> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PendingResolution(bounty_id));
+        let pending = pending_opt.expect("no pending resolution");
+        // Load config
+        let cfg: Config = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Config)
+            .expect("config not set");
+        let now = env.ledger().timestamp();
+        if now < pending.timestamp + cfg.appeal_window {
+            panic!("appeal window not elapsed");
+        }
+        // Load bounty
+        let mut bounty = read_bounty(&env, bounty_id);
+        refresh_bounty_ttl(&env, bounty_id);
+        // Resolve based on decision
+        match pending.decision {
+            DisputeDecision::Release => {
+                // transfer to contributor
+                let contributor = bounty
+                    .contributor
+                    .clone()
+                    .unwrap_or_else(|| panic!("missing contributor"));
+                let token_client = TokenClient::new(&env, &bounty.token);
+                token_client.transfer(
+                    &env.current_contract_address(),
+                    &contributor,
+                    &bounty.amount,
+                );
+                bounty.status = BountyStatus::Released;
+                write_bounty(&env, bounty_id, &bounty);
+                env.events().publish(
+                    (symbol_short!("Bounty"), symbol_short!("Releas")),
+                    BountyReleased {
+                        bounty_id,
+                        contributor,
+                        amount: bounty.amount,
+                        // This path pays the contributor the full escrowed
+                        // amount: it takes no protocol fee, so the event
+                        // reports none.
+                        fee_amount: 0,
+                    },
+                );
+            }
+            DisputeDecision::Refund => {
+                let maintainer = bounty.maintainer.clone();
+                let token_client = TokenClient::new(&env, &bounty.token);
+                token_client.transfer(&env.current_contract_address(), &maintainer, &bounty.amount);
+                bounty.status = BountyStatus::Refunded;
+                write_bounty(&env, bounty_id, &bounty);
+                env.events().publish(
+                    (symbol_short!("Bounty"), symbol_short!("Refund")),
+                    BountyRefunded {
+                        bounty_id,
+                        maintainer,
+                        amount: bounty.amount,
+                    },
+                );
+            }
+        }
+        // Remove pending
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PendingResolution(bounty_id));
+    }
+
+    pub fn appeal(env: Env, bounty_id: u64) {
+        let pending_opt: Option<PendingResolution> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PendingResolution(bounty_id));
+        let pending = pending_opt.expect("no pending resolution");
+        let cfg: Config = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Config)
+            .expect("config not set");
+        let now = env.ledger().timestamp();
+        if now >= pending.timestamp + cfg.appeal_window {
+            panic!("appeal window elapsed");
+        }
+        // Verify caller is losing party
+        let bounty = read_bounty(&env, bounty_id);
+        match pending.decision {
+            DisputeDecision::Release => {
+                // loser is maintainer
+                bounty.maintainer.require_auth();
+            }
+            DisputeDecision::Refund => {
+                // loser is contributor
+                if let Some(contrib) = bounty.contributor.clone() {
+                    contrib.require_auth();
+                } else {
+                    panic!("no contributor to appeal");
+                }
+            }
+        }
+        // Remove pending to block finalization until re-resolved
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PendingResolution(bounty_id));
+        env.events().publish(
+            (symbol_short!("Dispute"), symbol_short!("Appealed")),
+            DisputeAppealed { bounty_id },
+        );
+    }
+
+    pub fn get_next_bounty_id(env: Env) -> u64 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::NextBountyId)
+            .unwrap_or(0)
+    }
+
+    /// Read-only view function to enumerate bounties on-chain.
+    pub fn get_all_bounties(env: Env, start: u64, limit: u32) -> Vec<Bounty> {
+        let enforced_limit = if limit > 50 { 50 } else { limit };
+        let mut result = Vec::new(&env);
+
+        let next_id = env
+            .storage()
+            .persistent()
+            .get(&DataKey::NextBountyId)
+            .unwrap_or(0);
+
+        // Return empty Vec immediately if start is out of bounds or invalid
+        if start == 0 || start > next_id || enforced_limit == 0 {
+            return result;
+        }
+
+        let mut id = start;
+        let mut count = 0u32;
+
+        // Loop up to the limit or until we exceed the highest allocated bounty ID
+        while count < enforced_limit && id <= next_id {
+            // Check if the bounty actually exists in storage before reading to prevent a panic
+            if env.storage().persistent().has(&DataKey::Bounty(id)) {
+                let mut bounty = read_bounty(&env, id);
+                expire_if_needed(&env, &mut bounty);
+                result.push_back(bounty);
+            }
+            id += 1;
+            count += 1;
+        }
+
+        result
+    }
+
+    /// Returns all bounties where the contributor field matches the given address,
+    /// using the same start/limit pagination as [`get_all_bounties`].
+    ///
+    /// Only bounties in `Reserved`, `Submitted`, `Released`, or `Disputed` state
+    /// are ever returned — `Open` bounties have no contributor and are always
+    /// excluded.  `Expired` and `Refunded` bounties that were previously reserved
+    /// by this contributor will also appear so callers can see their full history.
+    ///
+    /// The `limit` parameter is capped at 50 matching the rest of the API.
+    pub fn get_bounties_by_contributor(
+        env: Env,
+        contributor: Address,
+        start: u64,
+        limit: u32,
+    ) -> Vec<Bounty> {
+        let enforced_limit = if limit > 50 { 50 } else { limit };
+        let mut result = Vec::new(&env);
+
+        if enforced_limit == 0 {
+            return result;
+        }
+
+        let next_id: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::NextBountyId)
+            .unwrap_or(0);
+
+        if start == 0 || start > next_id {
+            return result;
+        }
+
+        let mut id = start;
+
+        while result.len() < enforced_limit && id <= next_id {
+            if env.storage().persistent().has(&DataKey::Bounty(id)) {
+                let mut bounty = read_bounty(&env, id);
+                expire_if_needed(&env, &mut bounty);
+                // Include the bounty only if this contributor was assigned to it
+                if bounty.contributor.as_ref() == Some(&contributor) {
+                    result.push_back(bounty);
+                }
+            }
+            id += 1;
+        }
+
+        result
+    }
+
+    /// Returns the cumulative fee statistics for the contract.
+    ///
+    /// Returns a [`FeeStats`] with `total_collected = 0` and `bounty_count = 0`
+    /// if no bounties have been released yet.
+    pub fn get_fee_stats(env: Env) -> FeeStats {
+        env.storage()
+            .persistent()
+            .get(&DataKey::FeeStats)
+            .unwrap_or(FeeStats {
+                total_collected: 0,
+                bounty_count: 0,
+            })
+    }
+
+    /// Returns the effective dispute window for a bounty.
+    /// If the bounty has a per-bounty override, returns that value.
+    /// Otherwise returns the global DisputeWindow configured at initialization.
+    pub fn get_effective_dispute_window(env: Env, bounty_id: u64) -> u64 {
+        let bounty = read_bounty(&env, bounty_id);
+        bounty.dispute_window_override.unwrap_or_else(|| {
+            env.storage()
+                .persistent()
+                .get(&DataKey::DisputeWindow)
+                .unwrap_or(0)
+        })
+    }
+    // ─── Arbiter Bond ───────────────────────────────────────────────────
+    /// Bonds `amount` of `token` as the calling address's arbiter stake.
+    ///
+    /// # Why a bond at all
+    ///
+    /// An arbiter decides who gets paid when a bounty is disputed, which is a
+    /// decision about someone else's money that the contract cannot second-guess
+    /// on-chain. A bond is what turns that decision into a cost: the arbiter has
+    /// funds sitting in this contract, in a token it chose to stake, that the
+    /// admin can forfeit to the treasury with `slash_arbiter` if the ruling was
+    /// bad. The bond is therefore required *before* taking office — a candidate
+    /// with nothing at stake has nothing to lose by ruling badly, and a bond
+    /// posted after the fact would be paid only by arbiters who expect to be
+    /// slashed anyway.
+    ///
+    /// # Parameters
+    /// * `arbiter` - The address bonding. Must authorize this call.
+    /// * `token` - The token the bond is paid in. The contract handles several
+    ///   tokens (each bounty escrows its own), so a bond states the one it is
+    ///   denominated in; topping up an existing bond must use the same token.
+    /// * `amount` - Amount bonded by this call, in that token's stroops.
+    ///
+    /// # Panics
+    /// * `InvalidAmount` - If `amount` is zero or negative.
+    /// * `StakeTokenMismatch` - If the address already bonded in another token.
+    /// * Token client panics if the transfer from `arbiter` fails.
+    ///
+    /// Emits [`ArbiterBonded`] with the amount added and the resulting total.
+    pub fn bond_arbiter_stake(env: Env, arbiter: Address, token: Address, amount: i128) {
+        arbiter.require_auth();
+
+        if amount <= 0 {
+            panic_error(&env, ContractError::InvalidAmount);
+        }
+
+        let key = DataKey::ArbiterStake(arbiter.clone());
+        let existing: Option<ArbiterStake> = env.storage().persistent().get(&key);
+
+        let total = match &existing {
+            Some(stake) => {
+                if stake.token != token {
+                    panic_error(&env, ContractError::StakeTokenMismatch);
+                }
+                stake
+                    .amount
+                    .checked_add(amount)
+                    .unwrap_or_else(|| panic_error(&env, ContractError::InvalidAmount))
+            }
+            None => amount,
+        };
+
+        // The tokens move into the contract, not merely into storage: a slash is
+        // only credible if the funds to pay it are already escrowed here.
+        let token_client = TokenClient::new(&env, &token);
+        token_client.transfer(&arbiter, &env.current_contract_address(), &amount);
+
+        env.storage().persistent().set(
+            &key,
+            &ArbiterStake {
+                token: token.clone(),
+                amount: total,
+            },
+        );
+
+        env.events().publish(
+            (symbol_short!("Arbiter"), symbol_short!("Bonded")),
+            ArbiterBonded {
+                arbiter,
+                token,
+                amount,
+                total,
+            },
+        );
+    }
+
+    /// Returns the bond currently held for `arbiter`, if they ever bonded.
+    pub fn get_arbiter_stake(env: Env, arbiter: Address) -> Option<ArbiterStake> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ArbiterStake(arbiter))
+    }
+
+    /// Returns the bond an arbitration candidate must hold to take office.
+    pub fn get_min_arbiter_stake(env: Env) -> i128 {
+        read_min_arbiter_stake(&env)
+    }
+
+    /// Returns the address currently holding the arbiter role.
+    ///
+    /// Rotation is timelocked, so between `set_arbiter` and `confirm_arbiter`
+    /// the proposed candidate is not yet the arbiter; `get_arbiter` answers
+    /// "who can rule today", which is the question the bond gates.
+    pub fn get_arbiter(env: Env) -> Address {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Arbiter)
+            .unwrap_or_else(|| panic_error(&env, ContractError::ArbiterNotSet))
+    }
+
+    /// Allows the arbiter to update the minimum bond required of candidates.
+    ///
+    /// Only callable by the configured arbiter, mirroring
+    /// `set_min_bounty_amount`. Raising it does not evict the arbiter in office:
+    /// the rotation path (`set_arbiter` / `confirm_arbiter`) is what enforces it,
+    /// so an incumbent that falls below a raised minimum stays in place until the
+    /// next rotation.
+    pub fn set_min_arbiter_stake(env: Env, new_min: i128) {
+        let arbiter: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Arbiter)
+            .unwrap_or_else(|| panic!("arbiter not set"));
+        arbiter.require_auth();
+
+        if new_min <= 0 {
+            panic_error(&env, ContractError::InvalidAmount);
+        }
+        if new_min > MAX_BOUNTY_AMOUNT {
+            panic_error(&env, ContractError::InvalidAmount);
+        }
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::MinArbiterStake, &new_min);
+    }
+
+    /// Forfeits part of an arbiter's bond to the protocol treasury.
+    ///
+    /// Admin-gated: the same account that proposes arbiters is the one that can
+    /// make a bad ruling cost them. The tokens were escrowed by
+    /// `bond_arbiter_stake`, so the contract can pay without the arbiter's
+    /// cooperation — which is the whole point of holding them.
+    ///
+    /// An arbiter slashed below the minimum is left in office rather than
+    /// removed: removing them would bypass the two-day rotation timelock, and a
+    /// slashed-but-incumbent arbiter has no influence over the next rotation.
+    /// Their shortfall is visible to anyone through `get_arbiter_stake`, and it
+    /// stops the next `set_arbiter` / `confirm_arbiter` for that address.
+    ///
+    /// # Parameters
+    /// * `arbiter` - The address whose bond is forfeited.
+    /// * `amount` - Amount to forfeit, in stroops of the bonded token.
+    /// * `reason` - Free-form reason, carried in the event for indexers.
+    ///
+    /// # Panics
+    /// * `NotAdmin` - If the stored admin did not authorize this call.
+    /// * `InvalidAmount` - If `amount` is zero or negative.
+    /// * `NoArbiterStake` - If the address holds no bond.
+    /// * `SlashExceedsStake` - If `amount` is greater than the bond held.
+    /// * `FeeRecipientNotSet` - If the contract has no treasury configured.
+    ///
+    /// Emits [`ArbiterSlashed`] with the amount forfeited and what remains.
+    pub fn slash_arbiter(env: Env, arbiter: Address, amount: i128, reason: String) {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_error(&env, ContractError::NotAdmin));
+        admin.require_auth();
+
+        if amount <= 0 {
+            panic_error(&env, ContractError::InvalidAmount);
+        }
+
+        let key = DataKey::ArbiterStake(arbiter.clone());
+        let mut stake: ArbiterStake = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| panic_error(&env, ContractError::NoArbiterStake));
+
+        if amount > stake.amount {
+            panic_error(&env, ContractError::SlashExceedsStake);
+        }
+
+        // The treasury is the fee recipient already configured on this contract;
+        // protocol funds have one destination rather than two.
+        let treasury: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::FeeRecipient)
+            .unwrap_or_else(|| panic_error(&env, ContractError::FeeRecipientNotSet));
+
+        stake.amount -= amount;
+        env.storage().persistent().set(&key, &stake);
+
+        let token_client = TokenClient::new(&env, &stake.token);
+        token_client.transfer(&env.current_contract_address(), &treasury, &amount);
+
+        env.events().publish(
+            (symbol_short!("Arbiter"), symbol_short!("Slashed")),
+            ArbiterSlashed {
+                arbiter,
+                token: stake.token,
+                amount,
+                remaining: stake.amount,
+                treasury,
+                reason,
+            },
+        );
+    }
+
+    pub fn set_arbiter(env: Env, new_arbiter: Address) {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_error(&env, ContractError::NotAdmin));
+        admin.require_auth();
+
+        // A candidate takes office bonded, or not at all. Checked here as well as
+        // at confirmation: the bond can be slashed during the two-day wait.
+        require_min_arbiter_stake(&env, &new_arbiter);
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::PendingArbiter, &new_arbiter);
+
+        let timelock = env.ledger().timestamp() + 86400 * 2; // 2 days delay
+        env.storage()
+            .persistent()
+            .set(&DataKey::ArbiterRotationTimelock, &timelock);
+
+        env.events().publish(
+            (symbol_short!("Arbiter"), symbol_short!("Proposed")),
+            ArbiterRotationProposed {
+                new_arbiter,
+                unlock_time: timelock,
+            },
+        );
+    }
+
+    pub fn confirm_arbiter(env: Env) {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_error(&env, ContractError::NotAdmin));
+        admin.require_auth();
+
+        let pending_arbiter: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PendingArbiter)
+            .unwrap_or_else(|| panic_error(&env, ContractError::NoPendingArbiter));
+
+        let timelock: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::ArbiterRotationTimelock)
+            .unwrap_or_else(|| panic_error(&env, ContractError::NoPendingArbiter));
+
+        if env.ledger().timestamp() < timelock {
+            panic_error(&env, ContractError::TimelockNotElapsed);
+        }
+
+        // Re-checked here: a slash during the timelock must not let an
+        // under-bonded address into office through the back door.
+        require_min_arbiter_stake(&env, &pending_arbiter);
+
+        let old_arbiter: Address = env.storage().persistent().get(&DataKey::Arbiter).unwrap();
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Arbiter, &pending_arbiter);
+        env.storage().persistent().remove(&DataKey::PendingArbiter);
+        env.storage()
+            .persistent()
+            .remove(&DataKey::ArbiterRotationTimelock);
+
+        env.events().publish(
+            (symbol_short!("Arbiter"), symbol_short!("Confirmd")),
+            ArbiterRotationConfirmed {
+                old_arbiter,
+                new_arbiter: pending_arbiter,
+            },
+        );
+    }
+
+    /// Admin: set allowlist enabled state
+    pub fn set_allowlist_enabled(env: Env, admin: Address, enabled: bool) {
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_error(&env, ContractError::NotAdmin));
+        if admin != stored_admin {
+            panic_error(&env, ContractError::NotAdmin);
+        }
+        admin.require_auth();
+        let mut config = get_allowlist_config(&env);
+        config.enabled = enabled;
+        env.storage()
+            .instance()
+            .set(&DataKey::AllowlistConfig, &config);
+    }
+
+    /// Admin: add a token to the allowlist
+    pub fn add_allowed_token(env: Env, admin: Address, token: Address) {
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_error(&env, ContractError::NotAdmin));
+        if admin != stored_admin {
+            panic_error(&env, ContractError::NotAdmin);
+        }
+        admin.require_auth();
+        let mut config = get_allowlist_config(&env);
+        if !config.allowed_tokens.contains(&token) {
+            config.allowed_tokens.push_back(token.clone());
+            env.storage()
+                .instance()
+                .set(&DataKey::AllowlistConfig, &config);
+            env.events()
+                .publish((symbol_short!("allowlist"), symbol_short!("add")), token);
+        }
+    }
+
+    /// Admin: remove a token from the allowlist
+    pub fn remove_allowed_token(env: Env, admin: Address, token: Address) {
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_error(&env, ContractError::NotAdmin));
+        if admin != stored_admin {
+            panic_error(&env, ContractError::NotAdmin);
+        }
+        admin.require_auth();
+        let mut config = get_allowlist_config(&env);
+
+        if let Some(index) = config.allowed_tokens.first_index_of(&token) {
+            config.allowed_tokens.remove(index);
+            env.storage()
+                .instance()
+                .set(&DataKey::AllowlistConfig, &config);
+            env.events()
+                .publish((symbol_short!("allowlist"), symbol_short!("remove")), token);
+        }
+    }
+
+    // ─── Contract Upgrade ────────────────────────────────────────────────
+    /// Upgrades the contract's executable WASM bytecode to the version
+    /// identified by `new_wasm_hash`.
+    ///
+    /// # High-Level Procedure
+    ///
+    /// 1. **Authorization**.  The caller is looked up from persistent
+    ///    `DataKey::Admin` and its `require_auth()` is invoked, which
+    ///    enforces that a valid signature / soroban-auth envelope for
+    ///    the admin address.  **Only the stored admin may call this
+    ///    function; any other caller panics with
+    ///    `ContractError::NotAdmin`.
+    ///
+    /// 2. **Capture previous WASM hash**.  Before performing the upgrade,
+    ///    `env.deployer().get_contract_info(...)` is used to
+    ///    record the current WASM hash so it can be emitted in the
+    ///    [`ContractUpgraded`] event.  If the host cannot resolve
+    ///    the hash (which should never happen on a live network, but can
+    ///    may happen in unusual test configurations) the field is set to a zero-filled
+    ///    `BytesN<32>` and the event is still emitted.
+    ///
+    /// 3. **Perform the upgrade**.  `env.deployer().update_current_contract_wasm(new_wasm_hash)`
+    ///    is invoked.  This is the single operation on the host that atomically
+    ///    replaces the WASM backing this contract ID.  The hash **must** already
+    ///    be a WASM previously uploaded to the network via `DeployerContract::install`,
+    ///    otherwise the host will trap.
+    ///
+    /// 4. **Emit event**.  A `ContractUpgraded event is published with
+    ///    `(symbol_short!("Cntrct"), symbol_short!("Upgrade")) topics
+    ///    containing the admin address, the previous WASM hash, and the
+    ///    new WASM hash for indexers and clients.
+    ///
+    /// # ⚠️ Storage Compatibility Requirements (CRITICAL)
+    ///
+    /// This function performs a **hot-swap of the executable** — **without** any
+    /// migration of the on-chain storage**.  All bytes previously written by the old
+    /// contract remain in place and are interpreted by the new WASM.  If the
+    /// new WASM uses incompatible type definitions, **every stored value of that
+    /// type becomes silently corrupted and the contract will trap on next
+    /// read.
+    ///
+    /// Therefore the following rules MUST be followed for every upgrade:
+    ///
+    /// ## 1. `#[contracttype]` **Structs** — Append-Only Fields
+    ///
+    /// - ✅ **ALLOWED**: Append **new fields at the END** of the struct
+    ///   declaration.  The Soroban host tolerates trailing fields.  The new optional /
+    ///   will be zero-value (zero for numerics, `None` for `Option`, empty
+    ///   for `Vec`/`Map`, etc) when a record written by the old
+    ///   WASM is read by the new WASM.
+    ///
+    /// - ❌ **FORBIDDEN**:
+    ///   - Reordering existing fields.
+    ///   - Renaming existing fields (the field name is not stored, but the
+    ///     ordinal position **is**; renaming and keeping position is
+    ///     *accidentally* safe but extremely fragile and must never be relied
+    ///     upon; prefer append with a `_v2` field instead).
+    ///   - Changing the type of an existing field (e.g. `u64` → `u128`,
+    ///     or `Address` → `BytesN<32>`).
+    ///   - Inserting a new field **before** an existing field.
+    ///   - Deleting any existing field.
+    ///
+    /// ## 2. `#[contracttype]` **Enums** — Append-Only Variants
+    ///
+    /// - ✅ **ALLOWED**: Append **new variants at the END** of the
+    ///   enum declaration.  The discriminant is implicit `Nth variant
+    ///   value, so inserting in the middle corrupts every subsequent
+    ///   discriminant.
+    ///
+    /// - ❌ **FORBIDDEN**:
+    ///   - Reordering existing variants.
+    ///   - Inserting a new variant anywhere except the last position.
+    ///   - Removing an existing variant.
+    ///   - Changing the **arity** or **tuple/struct-body type layout of an
+    ///     existing variant (e.g. `Vote(Address)` →
+    ///     `Vote(Address, u64)` or `Vote { voter: Address }`).
+    ///
+    /// ## 3. `DataKey` Enum — Same Rules, and Never Reuse Discriminants
+    ///
+    /// The `DataKey` enum is the root of every persisted key and obeys the
+    /// same append-only rules.  In addition:
+    ///
+    /// - NEVER repurpose a removed `DataKey::Foo(u64)` variant; even if
+    ///   no writes to `Foo` exist, a future migration code may collide
+    ///   with stale tombstones.  Always append a brand new variant.
+    ///
+    /// ## 4. `Vec`, `Map`, `BytesN<N>` Types
+    ///
+    /// - The length prefix is part of the on wire format; **N is fixed.**
+    ///   cannot widen (e.g. `BytesN<32>` → `BytesN<64>`); that is a
+    ///   different type.  Introduce a new field / new variant.
+    ///
+    /// ## 5. Semver Discipline
+    ///
+    /// Before deploying a breaking storage change (i.e., anything other than a
+    /// struct/enum append), the safe path is:
+    ///
+    /// 1. Deploy a **new contract new contract ID (fresh storage).
+    /// 2. Add a migration entry-point callable only by admin that reads
+    ///    state from the legacy contract and writes it into the new one
+    ///    in a bounded batch.
+    /// 3. Redirect integrators the new contract address.
+    ///
+    /// # Arguments
+    ///
+    /// - `env`: The host environment.
+    /// - `new_wasm_hash`: The 32-byte SHA-256 hash of the new WASM
+    ///   bytecode, as returned by the `Deployer` when the WASM was
+    ///   installed on-chain.  The hash **must** match an installed
+    ///   WASM on the same network, else the host traps.
+    ///
+    /// # Panics
+    ///
+    /// Panics with `ContractError::NotAdmin` if the caller is not
+    /// the stored admin.  Panics propagated from
+    /// `deployer().update_current_contract_wasm` when the hash does not
+    /// correspond to a currently installed WASM.
+    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_error(&env, ContractError::NotAdmin));
+        admin.require_auth();
+
+        // The host exposes no "what wasm am I running" query through
+        // `Deployer`, so the contract records the hash it last upgraded to and
+        // reports that. Before the first upgrade the value is unknown, which is
+        // the same fallback this function used when introspection was
+        // unavailable.
+        let previous_wasm_hash: BytesN<32> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::WasmHash)
+            .unwrap_or_else(|| BytesN::from_array(&env, &[0u8; 32]));
+
+        env.deployer()
+            .update_current_contract_wasm(new_wasm_hash.clone());
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::WasmHash, &new_wasm_hash);
+
+        env.events().publish(
+            (symbol_short!("Cntrct"), symbol_short!("Upgrade")),
+            ContractUpgraded {
+                admin: admin.clone(),
+                new_wasm_hash,
+                previous_wasm_hash,
+            },
+        );
+    }
+
+    // ─── Multi-Arbiter Committee Voting (Issue #727) ─────────────────────────
+
+    /// Configures the multi-arbiter dispute committee members (up to 3 addresses).
+    ///
+    /// Requires authorization from the contract admin.
+    /// Rejects more than 3 members or duplicate addresses.
+    pub fn set_arbiter_committee(env: Env, arbiters: Vec<Address>) {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_error(&env, ContractError::NotAdmin));
+        admin.require_auth();
+
+        if arbiters.len() > 3 {
+            panic_error(&env, ContractError::CommitteeSizeExceeded);
+        }
+
+        // Ensure all member addresses are distinct
+        for i in 0..arbiters.len() {
+            for j in (i + 1)..arbiters.len() {
+                if arbiters.get(i).unwrap() == arbiters.get(j).unwrap() {
+                    panic_error(&env, ContractError::DuplicateCommitteeMember);
+                }
+            }
+        }
+
+        let committee = ArbiterCommittee { members: arbiters };
+        env.storage()
+            .persistent()
+            .set(&DataKey::ArbiterCommittee, &committee);
+    }
+
+    /// Returns the registered dispute committee members.
+    pub fn get_arbiter_committee(env: Env) -> Vec<Address> {
+        env.storage()
+            .persistent()
+            .get::<_, ArbiterCommittee>(&DataKey::ArbiterCommittee)
+            .map(|c| c.members)
+            .unwrap_or_else(|| Vec::new(&env))
+    }
+
+    /// Returns all votes cast so far on a disputed bounty.
+    pub fn get_dispute_votes(env: Env, bounty_id: u64) -> Vec<DisputeVote> {
+        env.storage()
+            .persistent()
+            .get::<_, Vec<DisputeVote>>(&DataKey::DisputeVotes(bounty_id))
+            .unwrap_or_else(|| Vec::new(&env))
+    }
+
+    /// Casts a vote by a committee arbiter on a disputed bounty.
+    ///
+    /// # Parameters
+    /// * `bounty_id` - The ID of the disputed bounty.
+    /// * `arbiter` - The committee arbiter casting the vote.
+    /// * `decision` - `true` to release funds to the contributor, `false` to refund to maintainer.
+    ///
+    /// # Rules & Guarantees
+    /// * Requires authentication from `arbiter` (`arbiter.require_auth()`).
+    /// * Arbiter must be in the registered `ArbiterCommittee`.
+    /// * Rejects duplicate votes from the same committee member.
+    /// * Emits a `DisputeVoteCast` event for every recorded vote.
+    /// * Tallies votes; once 2 matching votes are recorded (2-of-3 quorum):
+    ///   - Executes token transfer:
+    ///     - If release (`true`): net amount to contributor, protocol fee to fee recipient, updates FeeStats.
+    ///     - If refund (`false`): full amount to maintainer.
+    ///   - Sets status to `Released` or `Refunded`.
+    ///   - Emits a `DisputeResolved` event.
+    ///   - Returns `true`.
+    /// * If quorum is not yet reached (e.g. 1st vote or 1-1 split):
+    ///   - Funds remain in escrow, status remains `Disputed`.
+    ///   - Returns `false`.
+    pub fn vote_resolve_dispute(
+        env: Env,
+        bounty_id: u64,
+        arbiter: Address,
+        decision: bool,
+    ) -> bool {
+        let committee: ArbiterCommittee = env
+            .storage()
+            .persistent()
+            .get(&DataKey::ArbiterCommittee)
+            .unwrap_or_else(|| panic_error(&env, ContractError::CommitteeNotConfigured));
+
+        if !committee.members.contains(&arbiter) {
+            panic_error(&env, ContractError::NotCommitteeMember);
+        }
+
+        arbiter.require_auth();
+
+        let mut bounty = read_bounty(&env, bounty_id);
+        if bounty.status != BountyStatus::Disputed {
+            panic_error(&env, ContractError::BountyMustBeDisputed);
+        }
+
+        let mut votes: Vec<DisputeVote> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::DisputeVotes(bounty_id))
+            .unwrap_or_else(|| Vec::new(&env));
+
+        // Check for duplicate vote
+        for v in votes.iter() {
+            if v.arbiter == arbiter {
+                panic_error(&env, ContractError::DuplicateCommitteeVote);
+            }
+        }
+
+        votes.push_back(DisputeVote {
+            arbiter: arbiter.clone(),
+            decision,
+        });
+        env.storage()
+            .persistent()
+            .set(&DataKey::DisputeVotes(bounty_id), &votes);
+
+        // Emit DisputeVoteCast
+        env.events().publish(
+            (symbol_short!("Dispute"), symbol_short!("Vote")),
+            DisputeVoteCast {
+                bounty_id,
+                arbiter,
+                decision,
+            },
+        );
+
+        // Tally votes
+        let mut release_votes = 0u32;
+        let mut refund_votes = 0u32;
+        for v in votes.iter() {
+            if v.decision {
+                release_votes += 1;
+            } else {
+                refund_votes += 1;
+            }
+        }
+
+        if release_votes >= 2 {
+            let contributor = bounty
+                .contributor
+                .clone()
+                .unwrap_or_else(|| panic_error(&env, ContractError::MissingContributor));
+
+            let fee_amount: i128 = if bounty.protocol_fee_bps == 0 {
+                0
+            } else {
+                (bounty.amount * bounty.protocol_fee_bps as i128) / 10_000
+            };
+            let net_payout = bounty.amount - fee_amount;
+
+            let token_client = TokenClient::new(&env, &bounty.token);
+            let contract_address = env.current_contract_address();
+
+            token_client.transfer(&contract_address, &contributor, &net_payout);
+
+            if fee_amount > 0 {
+                let fee_recipient: Address = env
+                    .storage()
+                    .persistent()
+                    .get(&DataKey::FeeRecipient)
+                    .unwrap_or_else(|| panic_error(&env, ContractError::FeeRecipientNotSet));
+                token_client.transfer(&contract_address, &fee_recipient, &fee_amount);
+            }
+
+            accumulate_fee_stats(&env, fee_amount);
+
+            bounty.status = BountyStatus::Released;
+            write_bounty(&env, bounty_id, &bounty);
+
+            env.events().publish(
+                (symbol_short!("Dispute"), symbol_short!("Reslvd")),
+                DisputeResolved {
+                    bounty_id,
+                    decision: true,
+                },
+            );
+
+            true
+        } else if refund_votes >= 2 {
+            let token_client = TokenClient::new(&env, &bounty.token);
+            let contract_address = env.current_contract_address();
+
+            token_client.transfer(&contract_address, &bounty.maintainer, &bounty.amount);
+
+            bounty.status = BountyStatus::Refunded;
+            write_bounty(&env, bounty_id, &bounty);
+
+            env.events().publish(
+                (symbol_short!("Dispute"), symbol_short!("Reslvd")),
+                DisputeResolved {
+                    bounty_id,
+                    decision: false,
+                },
+            );
+
+            true
+        } else {
+            false
+        }
+    }
+}
+
+// ─── Helper Functions ────────────────────────────────────────────────────────
+
+fn read_bounty(env: &Env, bounty_id: u64) -> Bounty {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Bounty(bounty_id))
+        .unwrap_or_else(|| panic_error(env, ContractError::BountyNotFound))
+}
+
+fn refresh_bounty_ttl(env: &Env, bounty_id: u64) {
+    env.storage().persistent().extend_ttl(
+        &DataKey::Bounty(bounty_id),
+        BOUNTY_STORAGE_TTL_THRESHOLD,
+        BOUNTY_STORAGE_TTL_EXTEND_TO,
+    );
+}
+
+fn write_bounty(env: &Env, bounty_id: u64, bounty: &Bounty) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::Bounty(bounty_id), bounty);
+}
+
+fn expire_if_needed(env: &Env, bounty: &mut Bounty) {
+    let now = env.ledger().timestamp();
+    if now > bounty.deadline
+        && (bounty.status == BountyStatus::Open || bounty.status == BountyStatus::Reserved)
+    {
+        bounty.status = BountyStatus::Expired;
+    }
+}
+
+fn get_allowlist_config(env: &Env) -> AllowlistConfig {
+    env.storage()
+        .instance()
+        .get::<_, AllowlistConfig>(&DataKey::AllowlistConfig)
+        .unwrap_or_else(|| AllowlistConfig {
+            enabled: false,
+            allowed_tokens: Vec::new(env),
+        })
+}
+
+/// The minimum bond an arbitration candidate must hold, defaulting to
+/// [`DEFAULT_MIN_ARBITER_STAKE`] on a contract written before the key existed.
+fn read_min_arbiter_stake(env: &Env) -> i128 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::MinArbiterStake)
+        .unwrap_or(DEFAULT_MIN_ARBITER_STAKE)
+}
+
+/// Panics unless `arbiter` holds at least the configured minimum bond.
+///
+/// This is the gate the acceptance criteria describe: an address that has not
+/// bonded (or has been slashed below the minimum) cannot be made the active
+/// arbiter.
+fn require_min_arbiter_stake(env: &Env, arbiter: &Address) {
+    let min = read_min_arbiter_stake(env);
+    let held: i128 = env
+        .storage()
+        .persistent()
+        .get::<_, ArbiterStake>(&DataKey::ArbiterStake(arbiter.clone()))
+        .map(|stake| stake.amount)
+        .unwrap_or(0);
+
+    if held < min {
+        panic_error(env, ContractError::InsufficientArbiterStake);
+    }
+}
+
+/// Check if a token is allowed to fund bounties
+fn is_token_allowed(env: &Env, token: Address) -> bool {
+    let config = get_allowlist_config(env);
+    if !config.enabled {
+        return true;
+    }
+    config.allowed_tokens.contains(token)
+}
+
+/// Atomically add `fee_amount` to the cumulative [`FeeStats`] in persistent storage.
+///
+/// Called after every payout (normal release and dispute-release). When `fee_amount`
+/// is zero the stats are still updated so that `bounty_count` always reflects the
+/// total number of released bounties, not just fee-paying ones.
+fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
+    let mut stats: FeeStats = env
+        .storage()
+        .persistent()
+        .get(&DataKey::FeeStats)
+        .unwrap_or(FeeStats {
+            total_collected: 0,
+            bounty_count: 0,
+        });
+
+    stats.total_collected += fee_amount;
+    stats.bounty_count += 1;
+
+    env.storage().persistent().set(&DataKey::FeeStats, &stats);
+}
