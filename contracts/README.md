@@ -20,12 +20,29 @@ The contract uses named error codes for all invalid operations. These codes are 
 - `initialize(admin, fee_recipient, arbiter, dispute_window)` - one-time contract initialization that stores `Admin`, `FeeRecipient`, `Arbiter`, `DisputeWindow`, `MinBountyAmount` (`DEFAULT_MIN_BOUNTY_AMOUNT`), and `MinArbiterStake` without moving tokens or emitting events. Any subsequent call panics with `"already initialized"`, keeping the configured arbiter identity and initialized state immutable.
 - `create_bounty(maintainer, token, amount, repo, issue_number, title, deadline, protocol_fee_bps, dispute_window_override)` - funds and opens a new bounty in escrow. Requires explicit authorization from `maintainer` before any validation or transfer (rejecting signed contributor, arbiter, or outsider callers), enforces `amount >= min_bounty_amount` (`DEFAULT_MIN_BOUNTY_AMOUNT`) and allowlist membership for `token`, and reverts atomically with `EscrowTransferFailed` without storing bounty state or incrementing `NextBountyId` if the token transfer fails after validation.
 - `cancel_bounty(bounty_id, maintainer)` - cancels an **Open** bounty before reservation; returns full escrow (no fee), sets status to **Refunded**, and emits a `BountyCanceled` event. Only the original maintainer may call this. Terminal state is committed before the token transfer; if the transfer fails, the call aborts atomically leaving status Open and escrow intact.
-- `submit_bounty(bounty_id, contributor)` - transitions a reserved bounty to the **Submitted** state and emits the `(Bounty, Submit)` event. Its `BountySubmitted` payload contains `bounty_id` and `contributor`, allowing indexer workers to process the state change without a follow-up contract read.
+- `submit_bounty(bounty_id, contributor)` - transitions a reserved bounty to the **Submitted** state and emits the `(Bounty, Submit)` event. Submission is accepted strictly while `timestamp <= deadline`, including at the exact boundary (`timestamp == deadline`). Submissions attempted when `timestamp > deadline` are rejected with `BountyExpired` (#22). Caller authorization is enforced (`contributor.require_auth()`), rejecting mismatched or unauthorized callers with `ContributorMismatch` (#26). Token balances remain completely untouched (zero tokens moved), preserving exact integer escrow units. Once submitted, subsequent ledger timestamp advances past the deadline do not expire the bounty. Its `BountySubmitted` payload contains `bounty_id` and `contributor`, allowing indexer workers to process the state change without a follow-up contract read.
 - `refund_bounty(bounty_id, maintainer)` - returns escrow after the deadline has passed and emits exactly one `(Bounty, Refund)` event. Its `BountyRefunded` payload, in field order, contains `bounty_id`, `maintainer`, `token`, full refunded `amount`, and `refunded_at`; indexers can reconstruct the committed refund without a follow-up contract read. The `Refunded` status is committed before the token call, and a failed transfer or unauthorized contributor call aborts atomically, leaving both balances and bounty status unchanged.
 - `dispute_bounty(bounty_id, arbiter)` - transitions a submitted bounty to the **Disputed** state and emits the `(Bounty, Dispt)` event. Its `BountyDisputed` payload contains `bounty_id`, `contributor`, and `arbiter`, allowing indexer workers to process the state change without a follow-up contract read.
 - `resolve_dispute(bounty_id, release)` - allows the arbiter to settle a disputed bounty by releasing funds to contributor (minus protocol fee) or refunding maintainer. Emits the single `(Bounty, Reslv)` event with `BountyResolved` containing `bounty_id`, `arbiter`, `release`, and the settled `amount` strictly after terminal state is committed. Failed transfers abort atomically leaving dispute state and escrow intact.
 - `NewDeadlineMustBeGreaterThanCurrentDeadline` - extend_deadline requires a later deadline.
 - `BountyNotFound` - referenced bounty does not exist.
+
+## Contract Submission Boundaries
+
+The contract specifies and enforces strict boundaries for submitting reserved bounties:
+
+- **Exact Ledger Timestamp Boundary (`now <= deadline`)**:
+  - Authorized contributors can submit work up to and including the exact deadline timestamp (`ledger.timestamp() == bounty.deadline`). At `now == deadline`, `expire_if_needed` evaluates `now > deadline` as false; the bounty is not expired, status transitions from `Reserved` to `Submitted`, and `BountySubmitted` is emitted.
+  - Submissions attempted when `ledger.timestamp() > bounty.deadline` (even by a single ledger second, `deadline + 1`) trigger `expire_if_needed`, which sets status to `Expired`, and the call fails with `ContractError::BountyExpired` (#13).
+- **Escrow Balance Invariance**:
+  - `submit_bounty` is an escrow-preserving lifecycle operation: zero tokens are transferred or moved between accounts on submission.
+  - The contract escrow address retains 100% of the locked token units down to the exact integer unit (e.g., `1_234_567` stroops). Contributor and maintainer balances remain completely unaffected before and after submission.
+- **Authority & Role Enforcement**:
+  - Requires explicit Soroban authorization from the assigned contributor (`contributor.require_auth()`).
+  - Outsiders, unauthenticated callers, or the maintainer attempting to submit on behalf of another contributor fail with `ContractError::ContributorMismatch` (#18) without mutating state or moving escrow tokens.
+  - Non-reserved bounties (`Open`, already `Submitted`, `Disputed`, `Released`, `Refunded`) are rejected with `ContractError::BountyMustBeReserved` (#19).
+- **Post-Submission Expiration Immunity**:
+  - Once transitioned to `Submitted` at or before the deadline, subsequent advances of the ledger timestamp past the deadline (e.g. `deadline + 10_000`) do not expire the bounty. `expire_if_needed` only applies to `Open` and `Reserved` statuses, protecting legitimate submitted work from stale-deadline expiration during maintainer review or dispute windows.
 
 ## Storage Lifetime & Authority Enforcement
 

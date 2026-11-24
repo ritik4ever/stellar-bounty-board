@@ -937,17 +937,26 @@ impl StellarBountyBoardContract {
     /// This function is part of the public contract ABI. The assigned contributor notifies
     /// the contract and maintainer that the deliverables for the bounty have been completed.
     ///
+    /// # Submission Boundaries & Expiration Semantics
+    /// * Submission is permitted strictly while `ledger.timestamp() <= bounty.deadline`.
+    /// * At the exact boundary (`now == deadline`), authorized submission succeeds and transitions status to [`BountyStatus::Submitted`].
+    /// * Once `now > deadline`, [`expire_if_needed`] marks the bounty as [`BountyStatus::Expired`] and submission is rejected with [`ContractError::BountyExpired`].
+    /// * In both successful and failed paths, escrow and participant token balances remain invariant (zero tokens moved).
+    /// * Once transitioned to [`BountyStatus::Submitted`], subsequent ledger timestamp advances past the deadline do not expire the bounty.
+    ///
     /// # Parameters
     /// * `env` - The Soroban contract environment.
     /// * `bounty_id` - Unique identifier (`u64`) of the bounty being submitted.
     /// * `contributor` - Address of the assigned contributor submitting the work.
     ///
     /// # Authorisation
-    /// * Requires authorization from `contributor` (`contributor.require_auth()`).
+    /// * Requires authorization from `contributor` (`contributor.require_auth()`). Mismatched or unauthorized callers fail with [`ContractError::ContributorMismatch`].
     ///
     /// # Errors & Panic Paths
     /// * [`ContractError::BountyNotFound`] - If no bounty exists with the given `bounty_id` (via `read_bounty`).
+    /// * [`ContractError::BountyExpired`] - If the bounty deadline has strictly passed (`now > deadline`).
     /// * [`ContractError::BountyMustBeReserved`] - If the bounty's status is not [`BountyStatus::Reserved`].
+    /// * [`ContractError::MissingContributor`] - If the reserved bounty has no assigned contributor.
     /// * [`ContractError::ContributorMismatch`] - If `contributor` does not match the bounty's assigned worker (`bounty.contributor != Some(contributor)`).
     ///
     /// # Storage

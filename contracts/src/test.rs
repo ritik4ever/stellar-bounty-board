@@ -5540,3 +5540,150 @@ fn test_bounty_storage_lifetime_boundary_exact_ledger_and_token_units() {
     assert_eq!(token.balance(&client.address), 0);
     assert_eq!(client.get_bounty(&refund_id).status, BountyStatus::Refunded);
 }
+
+// ─── SBB-2026-416 (#1885): Contract Submission Boundaries ────────────────────
+
+#[test]
+fn test_contract_submission_boundary_exact_ledger_and_token_units() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, maintainer, contributor, token_id, _fee_recipient, _arbiter) =
+        setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    let token = TokenClient::new(&env, &token_id);
+
+    // Exact non-round token units to ensure no dust loss or balance drift
+    let amount_exact_1 = 1_234_567i128;
+    let amount_exact_2 = 987_654i128;
+    token_admin.mint(&maintainer, &(amount_exact_1 + amount_exact_2));
+
+    let initial_timestamp = 10_000u64;
+    env.ledger().set_timestamp(initial_timestamp);
+    let deadline_1 = initial_timestamp + 1_000; // 11_000
+    let deadline_2 = initial_timestamp + 2_000; // 12_000
+
+    // Create and fund Bounty 1
+    let bounty_1_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &amount_exact_1,
+        &String::from_str(&env, "ritik4ever/stellar-bounty-board"),
+        &18851,
+        &String::from_str(&env, "Exact-unit boundary submission at deadline"),
+        &deadline_1,
+        &250u32,
+        &None,
+    );
+
+    // Create and fund Bounty 2
+    let bounty_2_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &amount_exact_2,
+        &String::from_str(&env, "ritik4ever/stellar-bounty-board"),
+        &18852,
+        &String::from_str(&env, "Exact-unit boundary submission past deadline"),
+        &deadline_2,
+        &0u32,
+        &None,
+    );
+
+    // Both bounties are reserved by contributor
+    client.reserve_bounty(&bounty_1_id, &contributor);
+    client.reserve_bounty(&bounty_2_id, &contributor);
+
+    let initial_escrow_balance = amount_exact_1 + amount_exact_2;
+    assert_eq!(token.balance(&client.address), initial_escrow_balance);
+    assert_eq!(token.balance(&contributor), 0);
+    assert_eq!(token.balance(&maintainer), 0);
+
+    // 1. Advance timestamp to exact deadline: now == deadline_1 (11_000)
+    env.ledger().set_timestamp(deadline_1);
+
+    // An unauthorized outsider attempting submit_bounty at the deadline must fail with ContributorMismatch (#26)
+    let outsider = Address::generate(&env);
+    let outsider_res = client.try_submit_bounty(&bounty_1_id, &outsider);
+    let outsider_err = outsider_res
+        .err()
+        .expect("outsider submission should fail")
+        .expect("expected typed contract error");
+    assert_eq!(
+        outsider_err,
+        soroban_sdk::Error::from_contract_error(ContractError::ContributorMismatch as u32)
+    );
+
+    // Balance invariant check: escrow and participant balances remain exactly unchanged
+    assert_eq!(token.balance(&client.address), initial_escrow_balance);
+    assert_eq!(token.balance(&contributor), 0);
+    assert_eq!(token.balance(&maintainer), 0);
+    assert_eq!(client.get_bounty(&bounty_1_id).status, BountyStatus::Reserved);
+
+    // 2. Legitimate authorized contributor submits at exact deadline (now == deadline_1)
+    // expire_if_needed checks `now > deadline_1`. Since now == deadline_1, it does NOT expire.
+    client.submit_bounty(&bounty_1_id, &contributor);
+
+    // Event verification immediately after submission: BountySubmitted emitted with exact payload
+    let events = env.events().all().filter_by_contract(&client.address);
+    let event = events.events().last().unwrap();
+    let soroban_sdk::xdr::ContractEventBody::V0(body) = &event.body;
+    let t0 = soroban_sdk::Symbol::from_val(&env, &body.topics[0]);
+    let t1 = soroban_sdk::Symbol::from_val(&env, &body.topics[1]);
+    assert_eq!(t0, symbol_short!("Bounty"));
+    assert_eq!(t1, symbol_short!("Submit"));
+    let event_payload = BountySubmitted::from_val(&env, &body.data);
+    assert_eq!(
+        event_payload,
+        BountySubmitted {
+            bounty_id: bounty_1_id,
+            contributor: contributor.clone(),
+        }
+    );
+
+    // State assertions: status transitions to Submitted with contributor assigned
+    let submitted_bounty = client.get_bounty(&bounty_1_id);
+    assert_eq!(submitted_bounty.status, BountyStatus::Submitted);
+    assert_eq!(submitted_bounty.contributor, Some(contributor.clone()));
+
+    // Balance invariant check: escrow balance remains exactly unchanged (0 tokens moved)
+    assert_eq!(token.balance(&client.address), initial_escrow_balance);
+    assert_eq!(token.balance(&contributor), 0);
+    assert_eq!(token.balance(&maintainer), 0);
+
+    // 3. Subsequent timestamp advances past deadline do NOT expire the Submitted bounty
+    env.ledger().set_timestamp(deadline_1 + 500);
+    let bounty_1_after = client.get_bounty(&bounty_1_id);
+    assert_eq!(bounty_1_after.status, BountyStatus::Submitted);
+
+    // Resubmitting an already-submitted bounty at deadline_1 + 500 fails with BountyMustBeReserved (#19)
+    let resubmit_res = client.try_submit_bounty(&bounty_1_id, &contributor);
+    let resubmit_err = resubmit_res
+        .err()
+        .expect("resubmission should fail")
+        .expect("expected typed contract error");
+    assert_eq!(
+        resubmit_err,
+        soroban_sdk::Error::from_contract_error(ContractError::BountyMustBeReserved as u32)
+    );
+
+    // 4. Exercise Bounty 2 submitted past deadline: now == deadline_2 + 1 (12_001)
+    env.ledger().set_timestamp(deadline_2 + 1);
+
+    // Attempting submit_bounty strictly after deadline must fail with BountyExpired (#22)
+    let past_deadline_res = client.try_submit_bounty(&bounty_2_id, &contributor);
+    let past_deadline_err = past_deadline_res
+        .err()
+        .expect("past-deadline submission should fail")
+        .expect("expected typed contract error");
+    assert_eq!(
+        past_deadline_err,
+        soroban_sdk::Error::from_contract_error(ContractError::BountyExpired as u32)
+    );
+
+    // Balance invariant check: escrow balance remains 100% intact down to the token unit
+    assert_eq!(token.balance(&client.address), initial_escrow_balance);
+    assert_eq!(token.balance(&contributor), 0);
+    assert_eq!(token.balance(&maintainer), 0);
+
+    // Storage rollback on failure preserves status as Reserved
+    assert_eq!(client.get_bounty(&bounty_2_id).status, BountyStatus::Expired);
+}
