@@ -113,11 +113,15 @@ When an alert fires indicating a webhook was rejected with `revoked_secret` or H
 
 ## Focused deterministic tests
 
+Run from a clean checkout without live funds or network access:
+
 ```bash
 node --test scripts/webhook-secret-rotation.test.cjs
 # Optional, using the project's existing backend dependencies:
 cd backend && npx vitest run test/webhookSecretRotationReruns.test.ts test/webhookSecretValidation.test.ts
 ```
+
+Both suites exercise deterministic overlap fixtures (old + new secrets during the bounded grace window) and revoked-secret deliveries (after expiry).
 
 ### Configuration Validation Guardrails (#1967)
 

@@ -1,5 +1,6 @@
 'use strict';
 const assert = require('node:assert/strict');
+const { spawnSync } = require('node:child_process');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -95,4 +96,72 @@ test('zero or same secret is invalid', (t) => {
   const file = fixture(t);
   assert.throws(() => startRotation(file, { oldSecret: '', newSecret }), /non-empty/);
   assert.throws(() => startRotation(file, { oldSecret, newSecret: oldSecret }), /different/);
+});
+
+test('clean-environment CLI verifies overlap and revoked-secret fixtures end-to-end (#1969)', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sbb-webhook-cli-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const stateFile = path.join(dir, 'rotation.json');
+  const payloadFile = path.join(dir, 'delivery.json');
+  fs.writeFileSync(payloadFile, bytes);
+
+  const cliPath = path.join(__dirname, 'webhook-secret-rotation.cjs');
+  const cleanEnv = {
+    PATH: process.env.PATH,
+    WEBHOOK_ROTATION_OLD_SECRET: oldSecret,
+    WEBHOOK_ROTATION_NEW_SECRET: newSecret,
+  };
+
+  // 1. Start bounded rotation in a clean environment (no pre-existing state)
+  const startRes = spawnSync(
+    process.execPath,
+    [cliPath, 'start', '--state', stateFile, '--grace-ms', '60000'],
+    { env: cleanEnv, encoding: 'utf8' },
+  );
+  assert.equal(startRes.status, 0, startRes.stderr);
+  const startOut = JSON.parse(startRes.stdout);
+  assert.equal(startOut.status, 'grace');
+  const recorded = readState(stateFile);
+  assert.equal(recorded.expiresAt - recorded.startedAt, 60_000);
+
+  // 2. Overlap delivery signed with old secret is accepted (exit 0)
+  const checkOld = spawnSync(
+    process.execPath,
+    [cliPath, 'check', '--state', stateFile, '--payload', payloadFile, '--signature', sign(oldSecret)],
+    { env: cleanEnv, encoding: 'utf8' },
+  );
+  assert.equal(checkOld.status, 0, checkOld.stderr);
+  assert.deepEqual(JSON.parse(checkOld.stdout), {
+    accepted: true,
+    reason: 'grace_period_previous_secret',
+  });
+
+  // 3. Overlap delivery signed with new secret is accepted (exit 0)
+  const checkNew = spawnSync(
+    process.execPath,
+    [cliPath, 'check', '--state', stateFile, '--payload', payloadFile, '--signature', sign(newSecret)],
+    { env: cleanEnv, encoding: 'utf8' },
+  );
+  assert.equal(checkNew.status, 0, checkNew.stderr);
+  assert.deepEqual(JSON.parse(checkNew.stdout), {
+    accepted: true,
+    reason: 'active_secret',
+  });
+
+  // 4. Write an expired state file to simulate post-window delivery signed with revoked secret (exit 2)
+  const expiredStateFile = path.join(dir, 'expired-rotation.json');
+  const pastStart = Date.now() - 120_000;
+  startRotation(expiredStateFile, { oldSecret, newSecret, graceMs: 60_000, now: pastStart });
+
+  const checkRevoked = spawnSync(
+    process.execPath,
+    [cliPath, 'check', '--state', expiredStateFile, '--payload', payloadFile, '--signature', sign(oldSecret)],
+    { env: cleanEnv, encoding: 'utf8' },
+  );
+  assert.equal(checkRevoked.status, 2);
+  assert.deepEqual(JSON.parse(checkRevoked.stdout), {
+    accepted: false,
+    reason: 'revoked_secret',
+  });
 });
