@@ -4774,3 +4774,508 @@ fn test_escrow_asset_accounting_create_bounty_requires_maintainer_auth() {
         &None,
     );
 }
+
+// ─── SBB-2026-443 (#1912): Escrow Asset Accounting Authority ──────────────────
+
+#[test]
+fn test_escrow_accounting_authority_signed_roles_two_tokens_different_precision() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarBountyBoardContract);
+    let client = StellarBountyBoardContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let maintainer = Address::generate(&env);
+    let contributor = Address::generate(&env);
+    let fee_recipient = Address::generate(&env);
+    let arbiter = Address::generate(&env);
+
+    // Token 1: 7-decimal precision (e.g. XLM-style)
+    let token_admin_1 = Address::generate(&env);
+    let token_id_1 = env
+        .register_stellar_asset_contract_v2(token_admin_1.clone())
+        .address();
+    let token_admin_client_1 = soroban_sdk::token::StellarAssetClient::new(&env, &token_id_1);
+    let token_client_1 = TokenClient::new(&env, &token_id_1);
+
+    // Token 2: 6-decimal precision (e.g. USDC-style)
+    let token_admin_2 = Address::generate(&env);
+    let token_id_2 = env
+        .register_stellar_asset_contract_v2(token_admin_2.clone())
+        .address();
+    let token_admin_client_2 = soroban_sdk::token::StellarAssetClient::new(&env, &token_id_2);
+    let token_client_2 = TokenClient::new(&env, &token_id_2);
+
+    // Initialize and configure allowlist with explicit admin auth
+    client.initialize(&admin, &fee_recipient, &arbiter, &600);
+
+    env.mock_auths(&[MockAuth {
+        address: &admin,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "set_allowlist_enabled",
+            args: (admin.clone(), true).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.set_allowlist_enabled(&admin, &true);
+
+    env.mock_auths(&[MockAuth {
+        address: &admin,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "add_allowed_token",
+            args: (admin.clone(), token_id_1.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.add_allowed_token(&admin, &token_id_1);
+
+    env.mock_auths(&[MockAuth {
+        address: &admin,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "add_allowed_token",
+            args: (admin.clone(), token_id_2.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.add_allowed_token(&admin, &token_id_2);
+
+    // Mint tokens to maintainer
+    env.mock_all_auths();
+    let mint_1 = 100_000_000i128; // 10.0 (7 decimals)
+    let mint_2 = 50_000_000i128; // 50.0 (6 decimals)
+    token_admin_client_1.mint(&maintainer, &mint_1);
+    token_admin_client_2.mint(&maintainer, &mint_2);
+    env.set_auths(&[]);
+
+    let deadline = env.ledger().timestamp() + 10_000;
+    let repo = String::from_str(&env, "ritik4ever/stellar-bounty-board");
+    let title_1 = String::from_str(&env, "Signed 7-decimal Bounty");
+    let title_2 = String::from_str(&env, "Signed 6-decimal Bounty");
+
+    let amount_1 = 25_000_000i128;
+    let fee_bps_1 = 200u32; // 2%
+    let amount_2 = 12_500_000i128;
+    let fee_bps_2 = 400u32; // 4%
+
+    // Maintainer creates Bounty 1 with explicit signed auth (and nested token transfer sub-invoke)
+    env.mock_auths(&[MockAuth {
+        address: &maintainer,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "create_bounty",
+            args: (
+                maintainer.clone(),
+                token_id_1.clone(),
+                amount_1,
+                repo.clone(),
+                301u32,
+                title_1.clone(),
+                deadline,
+                fee_bps_1,
+                Option::<u64>::None,
+            )
+                .into_val(&env),
+            sub_invokes: &[MockAuthInvoke {
+                contract: &token_id_1,
+                fn_name: "transfer",
+                args: (maintainer.clone(), client.address.clone(), amount_1).into_val(&env),
+                sub_invokes: &[],
+            }],
+        },
+    }]);
+    let b1_id = client.create_bounty(
+        &maintainer,
+        &token_id_1,
+        &amount_1,
+        &repo,
+        &301,
+        &title_1,
+        &deadline,
+        &fee_bps_1,
+        &None,
+    );
+
+    // Maintainer creates Bounty 2 with explicit signed auth
+    env.mock_auths(&[MockAuth {
+        address: &maintainer,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "create_bounty",
+            args: (
+                maintainer.clone(),
+                token_id_2.clone(),
+                amount_2,
+                repo.clone(),
+                302u32,
+                title_2.clone(),
+                deadline,
+                fee_bps_2,
+                Option::<u64>::None,
+            )
+                .into_val(&env),
+            sub_invokes: &[MockAuthInvoke {
+                contract: &token_id_2,
+                fn_name: "transfer",
+                args: (maintainer.clone(), client.address.clone(), amount_2).into_val(&env),
+                sub_invokes: &[],
+            }],
+        },
+    }]);
+    let b2_id = client.create_bounty(
+        &maintainer,
+        &token_id_2,
+        &amount_2,
+        &repo,
+        &302,
+        &title_2,
+        &deadline,
+        &fee_bps_2,
+        &None,
+    );
+
+    assert_eq!(token_client_1.balance(&client.address), amount_1);
+    assert_eq!(token_client_2.balance(&client.address), amount_2);
+
+    // Contributor reserves & submits Bounty 1 with explicit contributor auth
+    env.mock_auths(&[MockAuth {
+        address: &contributor,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "reserve_bounty",
+            args: (b1_id, contributor.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.reserve_bounty(&b1_id, &contributor);
+
+    env.mock_auths(&[MockAuth {
+        address: &contributor,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "submit_bounty",
+            args: (b1_id, contributor.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.submit_bounty(&b1_id, &contributor);
+
+    // Maintainer releases Bounty 1 with explicit maintainer auth
+    mock_release_auth(&env, &client, &maintainer, b1_id, &maintainer);
+    client.release_bounty(&b1_id, &maintainer);
+
+    let fee_1 = (amount_1 * fee_bps_1 as i128) / 10_000; // 500_000
+    let payout_1 = amount_1 - fee_1; // 24_500_000
+    assert_eq!(token_client_1.balance(&contributor), payout_1);
+    assert_eq!(token_client_1.balance(&fee_recipient), fee_1);
+    assert_eq!(token_client_1.balance(&client.address), 0);
+
+    // Contributor reserves, submits, and disputes Bounty 2 with explicit contributor auth
+    env.mock_auths(&[MockAuth {
+        address: &contributor,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "reserve_bounty",
+            args: (b2_id, contributor.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.reserve_bounty(&b2_id, &contributor);
+
+    env.mock_auths(&[MockAuth {
+        address: &contributor,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "submit_bounty",
+            args: (b2_id, contributor.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.submit_bounty(&b2_id, &contributor);
+
+    env.mock_auths(&[MockAuth {
+        address: &contributor,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "dispute_bounty",
+            args: (b2_id, arbiter.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.dispute_bounty(&b2_id, &arbiter);
+
+    // Advance past dispute window (600s) and resolve via signed arbiter auth
+    env.ledger().set_timestamp(env.ledger().timestamp() + 601);
+    env.mock_auths(&[MockAuth {
+        address: &arbiter,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "resolve_dispute",
+            args: (b2_id, true).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.resolve_dispute(&b2_id, &true);
+
+    let fee_2 = (amount_2 * fee_bps_2 as i128) / 10_000; // 500_000
+    let payout_2 = amount_2 - fee_2; // 12_000_000
+    assert_eq!(token_client_2.balance(&contributor), payout_2);
+    assert_eq!(token_client_2.balance(&fee_recipient), fee_2);
+    assert_eq!(token_client_2.balance(&client.address), 0);
+}
+
+#[test]
+fn test_escrow_accounting_unauthorized_caller_cannot_redirect_funds() {
+    let env = Env::default();
+    let (client, bounty_id, maintainer, contributor, token_id, _admin, arbiter) =
+        release_auth_fixture(&env);
+    let attacker = Address::generate(&env);
+    let token = TokenClient::new(&env, &token_id);
+
+    // 1. Contributor signing for themselves as maintainer fails MaintainerMismatch (#25)
+    mock_release_auth(&env, &client, &contributor, bounty_id, &contributor);
+    let err_contrib = client.try_release_bounty(&bounty_id, &contributor);
+    assert!(err_contrib.is_err());
+
+    // 2. Arbiter signing for maintainer fails Auth
+    mock_release_auth(&env, &client, &arbiter, bounty_id, &maintainer);
+    let err_arbiter = client.try_release_bounty(&bounty_id, &maintainer);
+    assert!(err_arbiter.is_err());
+
+    // 3. Attacker calling cancel_bounty fails MaintainerMismatch
+    env.mock_auths(&[MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "cancel_bounty",
+            args: (bounty_id, attacker.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    let err_cancel = client.try_cancel_bounty(&bounty_id, &attacker);
+    assert!(err_cancel.is_err());
+
+    // Escrow funds and bounty status are completely untouched
+    assert_eq!(token.balance(&client.address), 500);
+    assert_eq!(token.balance(&attacker), 0);
+    assert_eq!(token.balance(&contributor), 0);
+    assert_eq!(
+        client.get_bounty(&bounty_id).status,
+        BountyStatus::Submitted
+    );
+}
+
+#[test]
+fn test_escrow_accounting_unauthorized_caller_cannot_change_decisions() {
+    let env = Env::default();
+    let (client, bounty_id, maintainer, contributor, token_id, _admin, arbiter) =
+        release_auth_fixture(&env);
+    let attacker = Address::generate(&env);
+    let fake_arbiter = Address::generate(&env);
+    let token = TokenClient::new(&env, &token_id);
+
+    // Wrong arbiter address cannot open a dispute (#7 NotArbiter)
+    env.mock_auths(&[MockAuth {
+        address: &contributor,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "dispute_bounty",
+            args: (bounty_id, fake_arbiter.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    let err_fake_arb = client.try_dispute_bounty(&bounty_id, &fake_arbiter);
+    assert!(err_fake_arb.is_err());
+
+    // Legitimate contributor disputes using real arbiter
+    env.mock_auths(&[MockAuth {
+        address: &contributor,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "dispute_bounty",
+            args: (bounty_id, arbiter.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.dispute_bounty(&bounty_id, &arbiter);
+    env.ledger().set_timestamp(env.ledger().timestamp() + 601);
+
+    // Maintainer cannot resolve dispute (must be arbiter)
+    env.mock_auths(&[MockAuth {
+        address: &maintainer,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "resolve_dispute",
+            args: (bounty_id, false).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    let err_maint_resolve = client.try_resolve_dispute(&bounty_id, &false);
+    assert!(err_maint_resolve.is_err());
+
+    // Attacker cannot propose a resolution (must be arbiter)
+    env.mock_auths(&[MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "propose_resolution",
+            args: (bounty_id, 0u32).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    let err_propose = client.try_propose_resolution(&bounty_id, &0u32);
+    assert!(err_propose.is_err());
+
+    // Bounty remains Disputed and escrow balance untouched
+    assert_eq!(client.get_bounty(&bounty_id).status, BountyStatus::Disputed);
+    assert_eq!(token.balance(&client.address), 500);
+}
+
+#[test]
+fn test_escrow_accounting_signed_maintainer_rejects_unallowlisted_token_or_overflow() {
+    let env = Env::default();
+    let (client, admin, maintainer, _, allowed_token, _, _) = setup_test(&env);
+
+    let unallowed_admin = Address::generate(&env);
+    let unallowed_token = env
+        .register_stellar_asset_contract_v2(unallowed_admin)
+        .address();
+    let invalid_token = Address::generate(&env);
+
+    // Enable allowlist and add allowed_token only
+    env.mock_auths(&[MockAuth {
+        address: &admin,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "set_allowlist_enabled",
+            args: (admin.clone(), true).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.set_allowlist_enabled(&admin, &true);
+
+    env.mock_auths(&[MockAuth {
+        address: &admin,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "add_allowed_token",
+            args: (admin.clone(), allowed_token.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.add_allowed_token(&admin, &allowed_token);
+
+    let deadline = env.ledger().timestamp() + 10_000;
+    let repo = String::from_str(&env, "ritik4ever/stellar-bounty-board");
+    let title = String::from_str(&env, "Auth Validation Bounty");
+
+    // 1. Unallowlisted token rejected even when signed by maintainer (#16 TokenNotAllowed)
+    env.mock_auths(&[MockAuth {
+        address: &maintainer,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "create_bounty",
+            args: (
+                maintainer.clone(),
+                unallowed_token.clone(),
+                1_000i128,
+                repo.clone(),
+                303u32,
+                title.clone(),
+                deadline,
+                0u32,
+                Option::<u64>::None,
+            )
+                .into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(client
+        .try_create_bounty(
+            &maintainer,
+            &unallowed_token,
+            &1_000,
+            &repo,
+            &303,
+            &title,
+            &deadline,
+            &0,
+            &None,
+        )
+        .is_err());
+
+    // 2. Invalid/non-contract token address rejected (#16 or #42)
+    env.mock_auths(&[MockAuth {
+        address: &maintainer,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "create_bounty",
+            args: (
+                maintainer.clone(),
+                invalid_token.clone(),
+                1_000i128,
+                repo.clone(),
+                304u32,
+                title.clone(),
+                deadline,
+                0u32,
+                Option::<u64>::None,
+            )
+                .into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(client
+        .try_create_bounty(
+            &maintainer,
+            &invalid_token,
+            &1_000,
+            &repo,
+            &304,
+            &title,
+            &deadline,
+            &0,
+            &None,
+        )
+        .is_err());
+
+    // 3. Overflowed amount rejected (#11 InvalidAmount)
+    let overflow_amount = MAX_BOUNTY_AMOUNT + 1;
+    env.mock_auths(&[MockAuth {
+        address: &maintainer,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "create_bounty",
+            args: (
+                maintainer.clone(),
+                allowed_token.clone(),
+                overflow_amount,
+                repo.clone(),
+                305u32,
+                title.clone(),
+                deadline,
+                0u32,
+                Option::<u64>::None,
+            )
+                .into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(client
+        .try_create_bounty(
+            &maintainer,
+            &allowed_token,
+            &overflow_amount,
+            &repo,
+            &305,
+            &title,
+            &deadline,
+            &0,
+            &None,
+        )
+        .is_err());
+
+    // No bounty was created
+    assert_eq!(client.get_next_bounty_id(), 0);
+}
