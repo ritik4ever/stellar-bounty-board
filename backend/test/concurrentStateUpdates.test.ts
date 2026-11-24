@@ -382,3 +382,155 @@ describe("worker boundary — reservation expiry", () => {
     }
   });
 });
+
+describe("worker failure, restart and replay boundary", () => {
+  it("preserves monotonic version and single legal transition when one worker fails after another commits and work is replayed", async () => {
+    const store = await loadStore();
+    const bounty = await createOpenBounty(store, 101);
+    expect(bounty.version).toBe(1);
+
+    // Two workers attempt competing transitions at version 1.
+    // Lock serializes them: exactly one commits, and the loser fails with version conflict.
+    const [w1, w2] = await Promise.allSettled([
+      store.reserveBounty(bounty.id, CONTRIBUTOR, bounty.version),
+      store.refundBounty(bounty.id, MAINTAINER, undefined, bounty.version),
+    ]);
+
+    const winner = [w1, w2].find((r): r is PromiseFulfilledResult<any> => r.status === "fulfilled");
+    const loser = [w1, w2].find((r): r is PromiseRejectedResult => r.status === "rejected");
+
+    expect(winner).toBeDefined();
+    expect(loser).toBeDefined();
+    expect(winner!.value.version).toBe(2);
+    expect(loser!.reason).toMatchObject({
+      code: "BOUNTY_VERSION_CONFLICT",
+      currentVersion: 2,
+    });
+
+    // Verify disk state before restart: exactly one legal transition committed
+    const beforeRestart = readRecord(bounty.id);
+    expect(beforeRestart.version).toBe(2);
+    expect(beforeRestart.events).toHaveLength(2); // created + winner
+
+    // Simulate complete process/worker restart by resetting modules and re-reading store
+    vi.resetModules();
+    const restartedStore = await loadStore();
+
+    // Replay the failed worker request with its stale expectedVersion: 1
+    // It must consistently fail without altering store state or regressing version
+    const replayedPromise =
+      w1.status === "rejected"
+        ? restartedStore.reserveBounty(bounty.id, CONTRIBUTOR, bounty.version)
+        : restartedStore.refundBounty(bounty.id, MAINTAINER, undefined, bounty.version);
+
+    await expect(replayedPromise).rejects.toMatchObject({
+      code: "BOUNTY_VERSION_CONFLICT",
+      currentVersion: 2,
+    });
+
+    // Verify disk state after replaying failed work: version remains strictly monotonic (2)
+    const afterReplay = readRecord(bounty.id);
+    expect(afterReplay.version).toBe(2);
+    expect(afterReplay.events).toHaveLength(2);
+
+    // If reserve won first, refund can now legally commit on retry at current version 2
+    if (winner!.value.status === "reserved") {
+      const recoveredRefund = await restartedStore.refundBounty(
+        bounty.id,
+        MAINTAINER,
+        undefined,
+        afterReplay.version
+      );
+      expect(recoveredRefund.status).toBe("refunded");
+      expect(recoveredRefund.version).toBe(3);
+
+      const finalRecord = readRecord(bounty.id);
+      expect(finalRecord.version).toBe(3);
+      expect(finalRecord.status).toBe("refunded");
+      expect(finalRecord.events).toHaveLength(3);
+    }
+  });
+
+  it("asserts monotonic version and single transition when refund commits and replayed reserve is rejected after restart", async () => {
+    const store = await loadStore();
+    const bounty = await createOpenBounty(store, 102);
+
+    // Worker 1 refunds at version 1
+    const refunded = await store.refundBounty(bounty.id, MAINTAINER, undefined, 1);
+    expect(refunded.version).toBe(2);
+    expect(refunded.status).toBe("refunded");
+
+    // Worker 2 failed mid-stream before executing its reservation.
+    // Worker restarts.
+    vi.resetModules();
+    const restartedStore = await loadStore();
+
+    // Worker 2 replays its reservation at the stale version 1
+    await expect(
+      restartedStore.reserveBounty(bounty.id, CONTRIBUTOR, 1)
+    ).rejects.toMatchObject({
+      code: "BOUNTY_VERSION_CONFLICT",
+      currentVersion: 2,
+      currentStatus: "refunded",
+    });
+
+    // Worker 2 also cannot reserve even without expectedVersion because bounty is already refunded
+    await expect(
+      restartedStore.reserveBounty(bounty.id, CONTRIBUTOR)
+    ).rejects.toThrow(/Only open bounties can be reserved/);
+
+    // Record on disk remains at version 2, exactly one transition ("refunded")
+    const after = readRecord(bounty.id);
+    expect(after.version).toBe(2);
+    expect(after.status).toBe("refunded");
+    expect(after.events.filter((e) => e.type === "refunded")).toHaveLength(1);
+    expect(after.events.filter((e) => e.type === "reserved")).toHaveLength(0);
+  });
+
+  it("handles expiry worker restart and replay gracefully when competing refund already committed", async () => {
+    const store = await loadStore();
+    const now = Math.floor(Date.now() / 1000);
+    const staleBounty = {
+      id: "BNT-REPLAY-EXP-001",
+      repo: "owner/repo-name",
+      issueNumber: 103,
+      title: "Stale bounty racing refund",
+      summary: "Simulating worker crash and restart while competing transition commits.",
+      maintainer: MAINTAINER,
+      contributor: CONTRIBUTOR,
+      tokenSymbol: "XLM",
+      tokenAddress: "CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA",
+      amount: 100,
+      labels: [],
+      status: "reserved" as const,
+      createdAt: now - 9 * 24 * 60 * 60,
+      deadlineAt: now + 9999999,
+      reservedAt: now - 8 * 24 * 60 * 60,
+      version: 1,
+      events: [
+        { type: "created" as const, timestamp: now - 9 * 24 * 60 * 60 },
+        { type: "reserved" as const, timestamp: now - 8 * 24 * 60 * 60, actor: CONTRIBUTOR },
+      ],
+      reservationTimeoutSeconds: 999999999,
+    };
+    fs.writeFileSync(storeFile, JSON.stringify([staleBounty], null, 2));
+
+    // Maintainer commits refund first
+    const refund = await store.refundBounty(staleBounty.id, MAINTAINER, undefined, 1);
+    expect(refund.status).toBe("refunded");
+    expect(refund.version).toBe(2);
+
+    // Expiry worker crashed before execution. Now worker restarts and replays expiry job.
+    vi.resetModules();
+    const restartedStore = await loadStore();
+    const expiryResult = await restartedStore.expireStaleReservations(7 * 24 * 60 * 60);
+
+    // Replay sees that the bounty is no longer reserved and does not touch it
+    expect(expiryResult.expiredBountyIds).not.toContain(staleBounty.id);
+
+    const record = readRecord(staleBounty.id);
+    expect(record.status).toBe("refunded");
+    expect(record.version).toBe(2);
+    expect(record.events).toHaveLength(3); // created, reserved, refunded
+  });
+});

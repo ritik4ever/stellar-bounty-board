@@ -69,6 +69,17 @@ store, so a worker tick can never write a snapshot that predates a request:
 - a caller still holding the pre-expiry version gets `409` on its next
   transition instead of silently overwriting the expiry.
 
+## Worker failure, restart, and replay
+
+When concurrent workers contend for the same bounty version (e.g. one worker reserving and another refunding) and one worker fails or crashes mid-stream while the other commits:
+
+1. **Exactly one legal transition commits:** File lock serialization ensures only the winning worker executes its transition and increments the bounty version monotonically.
+2. **Crash & restart safety:** Upon process or worker restart, the persisted JSON store reflects the single committed state with its updated version.
+3. **Replay protection:** When the failed worker restarts and replays its original mutation with the stale `expectedVersion`:
+   - It is rejected with `BOUNTY_VERSION_CONFLICT` (409) identifying the updated current version and status.
+   - The bounty's persisted version and events remain intact without duplicate side-effects.
+   - If the transition remains legal in the current status, the worker can refresh the current version and successfully commit `version + 1`.
+
 ## HTTP contract summary
 
 | Situation                                              | Status                            |
