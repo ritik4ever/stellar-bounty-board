@@ -11,6 +11,8 @@ This runbook provides step-by-step procedures for common operational tasks in pr
 - [Emergency Contract Pause](#emergency-contract-pause)
 - [Redeploy Contract](#redeploy-contract)
 - [Incident Response: Compromised Arbiter Key](#incident-response-compromised-arbiter-key)
+- [Reseed Local Test Data Deterministically](#reseed-local-test-data-deterministically)
+- [Recover from Testnet/Mainnet Network Mismatch](#recover-from-testnetmainnet-network-mismatch)
 - [Update OpenAPI Snapshot](#update-openapi-snapshot)
 
 ---
@@ -1209,6 +1211,180 @@ When contract upgrades are possible, prioritize implementing:
 3. **Multi-Signature Protection**
    - Require multiple signatures for critical operations
    - Reduce single point of failure risk
+
+---
+
+## Reseed Local Test Data Deterministically
+
+**Use case:** You need a known-good local dataset — stable IDs, valid status histories, and one fixture per lifecycle state — to reproduce a bug, run the backend locally, or exercise the UI without touching live funds.
+
+### Prerequisites
+
+- A clean checkout of the repository (no uncommitted changes to `scripts/` or `backend/data/`)
+- Node.js and npm installed
+- No backend process holding port 3001 (see [Reset Bounty Store](#reset-bounty-store), step 4)
+
+### Fixed Seed Inputs
+
+The seeding script derives every ID from a fixed seed, so two runs from a clean checkout produce byte-identical output. Do not edit these inputs to "make it work" — if the output differs, the checkout is dirty or the script changed.
+
+| Input | Value | Purpose |
+| --- | --- | --- |
+| Seed string | `sbb-local-seed-v1` | Salt for all deterministic ID derivation |
+| ID scheme | `BNT-<4-digit zero-padded index>` | Bounty IDs, assigned in fixture order |
+| Audit ID scheme | `AUD-<4-digit zero-padded index>` | Audit entries, assigned in append order |
+| Timestamps | Fixed epoch base `1700000000`, +3600s per transition | Deterministic `reservedAt`, `submittedAt`, event times |
+| Maintainer | `GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF` | Same key as the other runbook procedures |
+| Contributor | `GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB` | Fixture contributor |
+| Arbiter | `GCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC` | Fixture arbiter |
+| Token | Native XLM (test asset only) | No live funds are moved or required |
+
+### Expected Fixtures
+
+Each fixture has a complete, valid status history — no fixture jumps states, and every transition has a matching audit entry.
+
+| ID | Issue | Status | History |
+| --- | --- | --- | --- |
+| `BNT-0001` | 101 | `open` | `open` |
+| `BNT-0002` | 102 | `reserved` | `open` → `reserved` |
+| `BNT-0003` | 103 | `submitted` | `open` → `reserved` → `submitted` |
+| `BNT-0004` | 104 | `disputed` | `open` → `reserved` → `submitted` → `disputed` |
+| `BNT-0005` | 105 | `refunded` | `open` → `reserved` → `refunded` |
+
+### Steps
+
+1. **Confirm the checkout is clean**
+
+   ```bash
+   git status --porcelain scripts/ backend/data/
+   # Expected: no output
+   ```
+
+2. **Run the seeding script**
+
+   ```bash
+   npm run seed:local
+   # or, directly:
+   npx tsx scripts/seed-local-data.ts
+   ```
+
+3. **Verify determinism**
+
+   ```bash
+   # Hash the seeded store, reseed, and compare
+   sha256sum backend/data/bounties.json backend/data/bounties.audit.json > /tmp/seed-a.txt
+   npm run seed:local
+   sha256sum backend/data/bounties.json backend/data/bounties.audit.json > /tmp/seed-b.txt
+   diff /tmp/seed-a.txt /tmp/seed-b.txt && echo "deterministic"
+   ```
+
+4. **Verify the fixture statuses**
+
+   ```bash
+   node -e "for (const b of require('./backend/data/bounties.json')) console.log(b.id, b.status)"
+   # Expected:
+   # BNT-0001 open
+   # BNT-0002 reserved
+   # BNT-0003 submitted
+   # BNT-0004 disputed
+   # BNT-0005 refunded
+   ```
+
+5. **Start the backend and check the API**
+
+   ```bash
+   npx tsx src/index.ts
+   curl -s http://localhost:3001/api/bounties | python3 -c 'import json,sys;d=json.load(sys.stdin);print(d["total"], sorted(b["status"] for b in d["data"]))'
+   # Expected: 5 ['disputed', 'open', 'refunded', 'reserved', 'submitted']
+   ```
+
+### Expected Output
+
+- `bounties.json` contains exactly five bounties, `BNT-0001` through `BNT-0005`, in that order
+- `bounties.audit.json` contains one entry per transition listed above, with IDs `AUD-0001` onward
+- Re-running the script from a clean checkout produces identical file hashes
+- No network calls, no signing, and no live funds are involved
+
+### Rollback
+
+The seed script only writes `backend/data/bounties.json` and `backend/data/bounties.audit.json`. Restore prior contents from your backup (see [Reset Bounty Store](#reset-bounty-store)) or delete both files to fall back to the backend's default sample data.
+
+---
+
+## Recover from Testnet/Mainnet Network Mismatch
+
+**Use case:** A deployment or script run fails its preflight check because the configured network passphrase does not match the network the configured contract ID lives on — most commonly a mainnet passphrase paired with a testnet contract ID (or the reverse). The run must stop before signing any transaction or moving any funds.
+
+### What the Preflight Check Does
+
+Before any transaction is built, the tooling compares `SOROBAN_NETWORK_PASSPHRASE` against the network recorded for `SOROBAN_CONTRACT_ID`. On mismatch it:
+
+1. Prints both values and the detected network for each
+2. Exits non-zero with a message naming the mismatched variable
+3. Aborts **before** signing, submitting, or moving funds — no transaction is built, so reruns are safe
+
+### Steps
+
+1. **Read the preflight error**
+
+   ```bash
+   npm run deploy:testnet
+   # Expected (example):
+   # ERROR: network mismatch — SOROBAN_NETWORK_PASSPHRASE is "Public Global Stellar Network ; September 2015" (mainnet)
+   #        but SOROBAN_CONTRACT_ID C... resolves to testnet.
+   #        No transaction was signed or submitted. Fix the configuration and rerun.
+   ```
+
+   If you do not see the "No transaction was signed or submitted" line, stop and treat it as a bug — do not rerun until you understand why.
+
+2. **Confirm the intended target**
+
+   Decide whether this run is meant for testnet or mainnet. Everything below follows from that answer; do not mix the two.
+
+3. **Correct the configuration**
+
+   **If the run should target testnet** (the contract ID is correct, the passphrase is wrong):
+
+   ```bash
+   export SOROBAN_NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
+   export SOROBAN_NETWORK_URL="https://soroban-testnet.stellar.org"
+   ```
+
+   **If the run should target mainnet** (the passphrase is correct, the contract ID is wrong):
+
+   ```bash
+   # Replace with the mainnet contract ID from your deployment record
+   export SOROBAN_CONTRACT_ID="C...<mainnet contract id>..."
+   export SOROBAN_NETWORK_URL="https://soroban-mainnet.stellar.org"
+   ```
+
+   Also update the same variables wherever they are persisted (`.env`, `docker-compose.yml`, systemd override, or the Railway/Render dashboard) so the next run does not regress.
+
+4. **Rerun and confirm the preflight passes**
+
+   ```bash
+   npm run deploy:testnet
+   # Expected: preflight OK, then the normal deployment output
+   ```
+
+   Reruns are safe: the preflight aborts before signing or moving funds, so a failed attempt leaves no partial transaction behind.
+
+### Expected Output
+
+- Mismatched runs exit non-zero with a message naming the offending variable
+- No transaction hash is produced and no funds move on a mismatched run
+- After correcting the configuration, the preflight passes and the run proceeds normally
+- Repeated runs with a consistent configuration are idempotent
+
+### Rollback
+
+If you changed the wrong variable, restore the previous values from your deployment record and rerun. Because mismatched runs never sign, there is nothing on-chain to undo.
+
+### Important Notes
+
+- Never "fix" a mismatch by pointing a testnet contract ID at mainnet tooling or vice versa — the contract ID is the source of truth for which network holds the state.
+- Keep `SOROBAN_NETWORK_PASSPHRASE`, `SOROBAN_NETWORK_URL`, and `SOROBAN_CONTRACT_ID` together in one place per environment so they cannot drift apart.
+- Tests for this behavior use mocked RPC only; no live funds are used.
 
 ---
 
