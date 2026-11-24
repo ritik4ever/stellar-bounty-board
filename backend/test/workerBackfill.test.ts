@@ -151,6 +151,118 @@ describe('Soroban indexer backfill checkpoints', () => {
   });
 });
 
+describe('Soroban indexer cursor replay and failure (#1934)', () => {
+  beforeEach(() => {
+    directory = fs.mkdtempSync(path.join(os.tmpdir(), 'soroban-cursor-replay-'));
+    indexFile = path.join(directory, 'indexed-events.json');
+    cursorFile = path.join(directory, 'indexed-events.cursor.json');
+    post.mockReset();
+  });
+
+  afterEach(() => {
+    fs.rmSync(directory, { recursive: true, force: true });
+  });
+
+  it('applies two same-ledger events once in order across restart between event write and cursor persistence', async () => {
+    // Poll 1: establish committed checkpoint at ledger 99
+    post.mockResolvedValueOnce(
+      rpcResult([{ id: 'ledger-99-evt-1', ledger: 99, event_index: 0 } as { id: string }], 'cursor-99'),
+    );
+    await poll();
+    expect(readCursor()).toBe('cursor-99');
+
+    // Simulate worker crash/restart after writing ledger 100's two events to indexFile,
+    // BEFORE cursorFile was updated (cursorFile still holds cursor-99).
+    const preCrashEvents = readEvents();
+    preCrashEvents.push(
+      { id: 'ledger-100-evt-1', ledger: 100, event_index: 0 },
+      { id: 'ledger-100-evt-2', ledger: 100, event_index: 1 },
+    );
+    fs.writeFileSync(indexFile, JSON.stringify(preCrashEvents, null, 2));
+    expect(readCursor()).toBe('cursor-99');
+
+    // Restart: RPC replays ledger 100's two events from cursor-99, followed by ledger 101
+    post.mockResolvedValueOnce(
+      rpcResult(
+        [
+          { id: 'ledger-100-evt-1', ledger: 100, event_index: 0 } as { id: string },
+          { id: 'ledger-100-evt-2', ledger: 100, event_index: 1 } as { id: string },
+          { id: 'ledger-101-evt-1', ledger: 101, event_index: 0 } as { id: string },
+        ],
+        'cursor-101',
+      ),
+    );
+    await poll();
+
+    expect(post.mock.calls[1][1].params.pagination).toEqual({ cursor: 'cursor-99', limit: 100 });
+    expect(readEvents().map((e: { id: string }) => e.id)).toEqual([
+      'ledger-99-evt-1',
+      'ledger-100-evt-1',
+      'ledger-100-evt-2',
+      'ledger-101-evt-1',
+    ]);
+    expect(readCursor()).toBe('cursor-101');
+  });
+
+  it('recovers when cursorFile is missing or corrupt after two same-ledger events were written', async () => {
+    // Two events from ledger 100 persisted, cursorFile missing (crash before first cursor write)
+    fs.writeFileSync(
+      indexFile,
+      JSON.stringify(
+        [
+          { id: 'evt-100-a', ledger: 100, event_index: 0 },
+          { id: 'evt-100-b', ledger: 100, event_index: 1 },
+        ],
+        null,
+        2,
+      ),
+    );
+
+    // Restarted poll resumes from fallback evt-100-b and receives replay + new event
+    post.mockResolvedValueOnce(
+      rpcResult(
+        [
+          { id: 'evt-100-a', ledger: 100, event_index: 0 } as { id: string },
+          { id: 'evt-100-b', ledger: 100, event_index: 1 } as { id: string },
+          { id: 'evt-100-c', ledger: 100, event_index: 2 } as { id: string },
+        ],
+        'cursor-100-healed',
+      ),
+    );
+    await poll();
+
+    expect(post.mock.calls[0][1].params.pagination).toEqual({ cursor: 'evt-100-b', limit: 100 });
+    expect(readEvents().map((e: { id: string }) => e.id)).toEqual([
+      'evt-100-a',
+      'evt-100-b',
+      'evt-100-c',
+    ]);
+    expect(readCursor()).toBe('cursor-100-healed');
+
+    // Corrupt cursorFile + malformed RPC error response: leaves events & previous cursor intact
+    fs.writeFileSync(cursorFile, '{not-valid-json');
+    post.mockResolvedValueOnce({ data: { error: { message: 'RPC timeout' } } });
+    await poll();
+    expect(readEvents().map((e: { id: string }) => e.id)).toEqual([
+      'evt-100-a',
+      'evt-100-b',
+      'evt-100-c',
+    ]);
+
+    // Subsequent poll heals corrupt cursorFile via fallback to evt-100-c
+    post.mockResolvedValueOnce(
+      rpcResult([{ id: 'evt-100-c', ledger: 100, event_index: 2 } as { id: string }], 'cursor-100-final'),
+    );
+    await poll();
+    expect(readCursor()).toBe('cursor-100-final');
+    expect(readEvents().map((e: { id: string }) => e.id)).toEqual([
+      'evt-100-a',
+      'evt-100-b',
+      'evt-100-c',
+    ]);
+  });
+});
+
 describe('Soroban event backfill replay, overlapping live polling, and failure isolation (#1939)', () => {
   let backfillDir: string;
   let backfillIndexFile: string;
