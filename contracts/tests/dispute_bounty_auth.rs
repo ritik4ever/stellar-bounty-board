@@ -11,7 +11,8 @@ use soroban_sdk::{
     Address, Env, Error, FromVal, IntoVal, String,
 };
 use stellar_bounty_board::{
-    BountyDisputed, BountyStatus, StellarBountyBoardContract, StellarBountyBoardContractClient,
+    BountyDisputed, BountyStatus, Error as ContractError, StellarBountyBoardContract,
+    StellarBountyBoardContractClient,
 };
 
 #[contract]
@@ -31,6 +32,12 @@ impl PermissiveToken {
             .get(&symbol_short!("COUNT"))
             .unwrap_or(0)
     }
+}
+
+#[soroban_sdk::contractclient(name = "PermissiveTokenClient")]
+trait PermissiveTokenInterface {
+    fn transfer(env: Env, from: Address, to: Address, amount: i128);
+    fn transfer_count(env: Env) -> u32;
 }
 
 struct Fixture {
@@ -174,6 +181,8 @@ fn only_the_contributor_can_dispute_a_bounty() {
             bounty_id,
             contributor: f.contributor.clone(),
             arbiter: f.arbiter.clone(),
+            dispute_raised_at: f.env.ledger().timestamp(),
+            deadline: f.env.ledger().timestamp() + 1_000,
         }
     );
 
@@ -356,4 +365,129 @@ fn dispute_bounty_unauthenticated_panics() {
     f.env.mock_auths(&[]);
 
     f.client.dispute_bounty(&bounty_id, &f.arbiter);
+}
+
+/// Returns the number of `transfer` calls observed by the permissive token.
+fn token_transfer_count(f: &Fixture) -> u32 {
+    let token_client = PermissiveTokenClient::new(&f.env, &f.token);
+    token_client.transfer_count()
+}
+
+/// Disputing at the last eligible ledger timestamp (`deadline`) must succeed,
+/// commit exactly one `Disputed` state, emit exactly one `BountyDisputed` event
+/// and leave token balances untouched (no transfers occur on dispute).
+#[test]
+fn dispute_at_last_eligible_timestamp_succeeds() {
+    let f = setup();
+    let bounty_id = create_submitted_bounty(&f);
+
+    let bounty = f.client.get_bounty(&bounty_id);
+    let deadline = bounty.deadline;
+
+    // Move the ledger to the last eligible timestamp for disputing.
+    f.env.ledger().set_timestamp(deadline);
+
+    let transfers_before = token_transfer_count(&f);
+
+    let invoke = MockAuthInvoke {
+        contract: &f.client.address,
+        fn_name: "dispute_bounty",
+        args: (&bounty_id, &f.arbiter).into_val(&f.env),
+        sub_invokes: &[],
+    };
+    f.env.mock_auths(&[MockAuth {
+        address: &f.contributor,
+        invoke: &invoke,
+    }]);
+
+    f.client.dispute_bounty(&bounty_id, &f.arbiter);
+
+    // Exactly one dispute event, with the committed schema.
+    let events = f.env.events().all().filter_by_contract(&f.client.address);
+    let dispute_events: Vec<_> = events
+        .events()
+        .iter()
+        .filter(|e| {
+            let soroban_sdk::xdr::ContractEventBody::V0(body) = &e.body;
+            body.topics.len() == 2
+                && soroban_sdk::Symbol::from_val(&f.env, &body.topics[0]) == symbol_short!("Bounty")
+                && soroban_sdk::Symbol::from_val(&f.env, &body.topics[1]) == symbol_short!("Dispt")
+        })
+        .collect();
+    assert_eq!(dispute_events.len(), 1, "exactly one dispute event");
+
+    let soroban_sdk::xdr::ContractEventBody::V0(body) = &dispute_events[0].body;
+    let payload = BountyDisputed::from_val(&f.env, &body.data);
+    assert_eq!(
+        payload,
+        BountyDisputed {
+            bounty_id,
+            contributor: f.contributor.clone(),
+            arbiter: f.arbiter.clone(),
+            dispute_raised_at: deadline,
+            deadline,
+        }
+    );
+
+    // Single valid disputed state.
+    let bounty = f.client.get_bounty(&bounty_id);
+    assert_eq!(bounty.status, BountyStatus::Disputed);
+    assert_eq!(bounty.dispute_raised_at, deadline);
+    assert_eq!(bounty.contributor, Some(f.contributor.clone()));
+
+    // Funds intact: dispute performs no token transfers.
+    assert_eq!(token_transfer_count(&f), transfers_before);
+}
+
+/// Disputing one ledger timestamp after `deadline` must be rejected with
+/// `BountyExpired`, leaving the bounty `Submitted`, emitting no dispute event
+/// and leaving token balances untouched.
+#[test]
+fn dispute_after_deadline_is_rejected() {
+    let f = setup();
+    let bounty_id = create_submitted_bounty(&f);
+
+    let bounty = f.client.get_bounty(&bounty_id);
+    let deadline = bounty.deadline;
+
+    // One ledger past the last eligible timestamp.
+    f.env.ledger().set_timestamp(deadline + 1);
+
+    let transfers_before = token_transfer_count(&f);
+
+    let invoke = MockAuthInvoke {
+        contract: &f.client.address,
+        fn_name: "dispute_bounty",
+        args: (&bounty_id, &f.arbiter).into_val(&f.env),
+        sub_invokes: &[],
+    };
+    f.env.mock_auths(&[MockAuth {
+        address: &f.contributor,
+        invoke: &invoke,
+    }]);
+
+    let result = f.client.try_dispute_bounty(&bounty_id, &f.arbiter);
+    assert_eq!(result, Err(Ok(ContractError::BountyExpired)));
+
+    // No dispute event was emitted.
+    let events = f.env.events().all().filter_by_contract(&f.client.address);
+    let dispute_events = events
+        .events()
+        .iter()
+        .filter(|e| {
+            let soroban_sdk::xdr::ContractEventBody::V0(body) = &e.body;
+            body.topics.len() == 2
+                && soroban_sdk::Symbol::from_val(&f.env, &body.topics[0]) == symbol_short!("Bounty")
+                && soroban_sdk::Symbol::from_val(&f.env, &body.topics[1]) == symbol_short!("Dispt")
+        })
+        .count();
+    assert_eq!(dispute_events, 0, "no dispute event after deadline");
+
+    // State remains Submitted and not disputed.
+    let bounty = f.client.get_bounty(&bounty_id);
+    assert_eq!(bounty.status, BountyStatus::Submitted);
+    assert_eq!(bounty.dispute_raised_at, 0);
+
+    // Funds intact.
+    assert_eq!(token_transfer_count(&f), transfers_before);
 }
