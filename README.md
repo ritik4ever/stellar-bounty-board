@@ -127,6 +127,13 @@ Stellar Bounty Board provides an opt-in notification system to notify maintainer
 - **Email:** Delivers templated alerts via SendGrid when `SENDGRID_API_KEY` and `NOTIFICATION_CHANNEL=EMAIL` are configured.
 - **Opt-In Preferences:** Users opt in or out via `POST /api/notifications/opt-in` and check status via `GET /api/notifications/opt-in/:address`.
 
+### Delivery Worker Outcome Tracing (#1948)
+
+The notification delivery worker emits structured, single-line telemetry records for operators to trace dispatch progression:
+
+- **Pending vs Committed Distinction**: A `pending` outcome record is emitted before external dispatch begins. A `committed` record is emitted upon verified provider acceptance (HTTP 200/202). An interrupted worker or crash leaves `pending` without `committed`, allowing operators to distinguish pending events from committed transitions.
+- **Webhook Timeout & SendGrid 429 Tracing**: Failures emit a `failed` record with the specific failure cause (`reason: "webhook_timeout"` or `reason: "sendgrid_429"`), status code, and scrubbed error messages.
+- **Redacted References**: Event IDs, delivery IDs, and cursors are hashed into stable truncated digests (`eventRef`, `deliveryRef`, `cursorRef` formatted as `sha256:` + 16 hex chars). Raw secrets, SendGrid API keys, Bearer tokens, recipient emails, and webhook payloads are never leaked into logs.
 ### Opt-out between enqueue and send
 
 Opt-out is re-checked per recipient immediately before each send, so a user who opts out after a notification was queued is not alerted. `sendNotification` returns one outcome per recipient, each keeping the channel that was used:

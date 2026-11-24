@@ -168,6 +168,30 @@ invocation stays bounded; use several runs for larger ranges.
 - Add more robust error handling and alerting as needed.
 - Integrate with backend API or event consumers if required.
 
+## Notification delivery worker tracing (#1948)
+
+The backend notification delivery worker fires asynchronously across bounty lifecycle transitions (funding `bounty_created`, reservation `bounty_reserved`, submission `bounty_submitted`, payout `bounty_released` / `bounty_refunded`, and dispute `bounty_disputed`).
+
+To give operators clear visibility into dispatch progression and failures without leaking sensitive credentials or PII, every delivery attempt emits structured, single-line trace records prefixed with `[NotificationWorker][delivery-trace]`:
+
+```json
+[NotificationWorker][delivery-trace] {"event":"notification_delivery","outcome":"pending","at":"2026-11-24T16:50:00.000Z","channel":"EMAIL","lifecycleEvent":"bounty_reserved","bountyId":"BNT-0042","eventRef":"sha256:8b4f1c9902ad5e31","deliveryRef":"sha256:a1e2f3c4d5b67890","cursorRef":"sha256:4d87a9b0c1e2f3a4","recipientCount":1,"statusCode":null,"reason":null,"error":null}
+```
+
+### Trace outcomes
+
+| Outcome | Meaning | Operator interpretation |
+|---------|---------|-------------------------|
+| `pending` | Delivery dispatch initiated, in-flight to external provider (SendGrid or Webhook). | Uncommitted event in flight. If followed by a crash, operators know the transition was not completed. |
+| `committed` | External delivery completed successfully (HTTP 200/202). | Transition committed and received by provider/webhook. |
+| `failed` | Delivery failed due to provider error or timeout. | Uncommitted transition with failure cause (e.g. `sendgrid_429`, `webhook_timeout`). Correlated by `deliveryRef` and `eventRef`. |
+
+### Failure modes & Redacted references
+
+- **SendGrid 429**: When SendGrid responds with rate limit `429 Too Many Requests`, a `failed` record is emitted with `reason: "sendgrid_429"` and `statusCode: 429`.
+- **Webhook timeout**: When the webhook endpoint times out (`NOTIFICATION_WEBHOOK_TIMEOUT_MS`, default 10,000 ms, or HTTP 408/504), a `failed` record is emitted with `reason: "webhook_timeout"` and `statusCode: 504`.
+- **Redaction**: All event IDs, delivery IDs, and cursors are hashed to truncated SHA-256 digests (`sha256:` + 16 hex characters). SendGrid API keys, Bearer tokens, recipient email addresses, and webhook signatures are scrubbed and never appear in trace output.
+
 ---
 
 For questions, see the main [README.md](../READMEO.md) or open an issue.
