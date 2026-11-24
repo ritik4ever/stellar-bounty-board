@@ -95,7 +95,7 @@ function startIndexerWorker() {
 // Only start the indexer and background jobs when running the main server (not in tests)
 if (process.env.NODE_ENV !== "test") {
   startIndexerWorker();
-  startExpirationJob();
+  void startExpirationJob();
   startDisputeAlertJob();
   startRecurringBountyScheduler();
   startArchiveJob();

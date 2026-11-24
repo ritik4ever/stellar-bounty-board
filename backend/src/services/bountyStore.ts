@@ -6,7 +6,7 @@ import { sendNotification, type NotificationRecipient } from './notificationServ
 import { logger, logStructured } from '../logger';
 import { getCache, type CacheAdapter } from './cache';
 import { getServicesConfig } from './config';
-import { wrapServiceError } from './errors';
+import { BountyTransitionConflictError, wrapServiceError } from './errors';
 import { bountiesCreatedTotal, bountiesReleasedTotal } from '../metrics';
 import { validateGithubPrUrlForRepo } from '../validation/prUrl';
 import { resolveTokenAddress } from '../utils';
@@ -463,6 +463,9 @@ function normalizeRecords(records: BountyRecord[]): BountyRecord[] {
       return {
         ...record,
         status: 'expired' as const,
+        // Every committed transition advances the version exactly once, so a
+        // caller holding the previous version is told its view is stale.
+        version: (record.version ?? 1) + 1,
         events: [...events, { type: 'expired' as const, timestamp: now }],
       };
     }
@@ -480,6 +483,7 @@ function normalizeRecords(records: BountyRecord[]): BountyRecord[] {
         status: 'open' as const,
         contributor: undefined,
         reservedAt: undefined,
+        version: (record.version ?? 1) + 1,
         events: [
           ...events,
           {
@@ -732,11 +736,21 @@ export async function invalidateBountyCache(cache: CacheAdapter = getCache()): P
 async function withStoreLock<T>(fn: () => T | Promise<T>): Promise<T> {
   const storePath = getStorePath();
   let release: () => Promise<void>;
+  const lockTimeoutMs = getLockTimeoutMs();
   try {
     release = await lockfile.lock(storePath, {
       stale: 10000,
       update: 5000,
-      retries: 0, // Fail fast - concurrent requests get immediate error
+      // Queue concurrent writers instead of failing them: a waiting caller must
+      // reach the status/version guard and get an answer (409 or 400), not a 503. The
+      // retry budget is bounded by STORE_LOCK_TIMEOUT_MS so a stuck lock still fails.
+      retries: {
+        retries: Math.max(1, Math.ceil(lockTimeoutMs / 25)),
+        factor: 1.2,
+        minTimeout: 10,
+        maxTimeout: 50,
+        randomize: true,
+      },
     });
   } catch (err) {
     throw wrapServiceError(
@@ -761,24 +775,32 @@ async function withStoreLock<T>(fn: () => T | Promise<T>): Promise<T> {
   }
 }
 
-let globalLock: Promise<void> = Promise.resolve();
-
 /**
- * Simple in-process promise-chain mutex used by operations that have not yet
- * been migrated to the cross-process {@link withStoreLock} file lock.
+ * Rejects a transition whose caller raced another writer (Issue #1925).
+ *
+ * `expectedVersion` is optional: callers that read a bounty and then act on it
+ * can pass the version they read, and a concurrent reserve/refund that already
+ * committed turns this request into a retryable 409 instead of a silent
+ * last-write-wins overwrite.
  */
-async function withGlobalLock<T>(fn: () => T | Promise<T>): Promise<T> {
-  const previousLock = globalLock;
-  let resolve: () => void;
-  globalLock = new Promise<void>((r) => {
-    resolve = r;
-  });
-  await previousLock;
-  try {
-    return await fn();
-  } finally {
-    resolve!();
+function assertExpectedVersion(
+  bounty: BountyRecord,
+  expectedVersion?: number,
+  blockedReason?: string
+): void {
+  if (expectedVersion === undefined || bounty.version === expectedVersion) {
+    return;
   }
+
+  const reason = blockedReason ? `${blockedReason} ` : '';
+  throw new BountyTransitionConflictError({
+    code: 'BOUNTY_VERSION_CONFLICT',
+    message:
+      `${reason}Bounty is at version ${bounty.version}, not the expected version ` +
+      `${expectedVersion}. Refresh the bounty and retry.`,
+    currentVersion: bounty.version,
+    currentStatus: bounty.status,
+  });
 }
 
 /**
@@ -868,13 +890,14 @@ export async function reserveBounty(
     const records = listBounties();
     const bounty = findBounty(records, id);
 
-    if (bounty.status !== 'open') {
-      throw new Error('Only open bounties can be reserved.');
-    }
+    // Version first: a stale writer gets the defined 409 even if the winning
+    // transition (reserve or refund) also changed the status. The status
+    // reason is folded into the 409 so the caller sees why it cannot proceed.
+    const blockedReason = bounty.status !== 'open' ? 'Only open bounties can be reserved.' : undefined;
+    assertExpectedVersion(bounty, expectedVersion, blockedReason);
 
-    // Race condition prevention: check version if provided
-    if (expectedVersion !== undefined && bounty.version !== expectedVersion) {
-      throw new Error('Bounty was just reserved by someone else. Please refresh and try again.');
+    if (blockedReason) {
+      throw new Error(blockedReason);
     }
 
     const now = nowInSeconds();
@@ -1072,7 +1095,10 @@ export async function releaseBounty(
  * @param {string} id - The unique ID of the bounty.
  * @param {string} maintainer - The Stellar address of the maintainer requesting the refund.
  * @param {string} [transactionHash] - Optional Stellar transaction hash for the refund transaction.
+ * @param {number} [expectedVersion] - Optional version the caller read; a
+ *   mismatch is rejected with a retryable `BountyTransitionConflictError` (409).
  * @returns {Promise<BountyRecord>} A promise that resolves to the updated bounty record.
+ * @throws {BountyTransitionConflictError} If `expectedVersion` no longer matches.
  * @throws {Error} If the bounty is not found.
  * @throws {Error} If the maintainer address does not match the maintainer of the bounty.
  * @throws {Error} If the bounty is already finalized ("released" or "refunded").
@@ -1081,7 +1107,8 @@ export async function releaseBounty(
 export async function refundBounty(
   id: string,
   maintainer: string,
-  transactionHash?: string
+  transactionHash?: string,
+  expectedVersion?: number
 ): Promise<BountyRecord> {
   return withStoreLock(async () => {
     const records = listBounties();
@@ -1090,11 +1117,19 @@ export async function refundBounty(
     if (bounty.maintainer !== maintainer) {
       throw new Error('Maintainer address does not match this bounty.');
     }
-    if (bounty.status === 'released' || bounty.status === 'refunded') {
-      throw new Error('This bounty is already finalized.');
-    }
-    if (bounty.status === 'submitted') {
-      throw new Error('Submitted bounties must be reviewed before refund.');
+
+    // Version check before the status guard so a reserve that committed first
+    // turns this refund into a 409 with the current version, not a stale view.
+    const blockedReason =
+      bounty.status === 'released' || bounty.status === 'refunded'
+        ? 'This bounty is already finalized.'
+        : bounty.status === 'submitted'
+          ? 'Submitted bounties must be reviewed before refund.'
+          : undefined;
+    assertExpectedVersion(bounty, expectedVersion, blockedReason);
+
+    if (blockedReason) {
+      throw new Error(blockedReason);
     }
 
     const now = nowInSeconds();
@@ -1141,6 +1176,88 @@ export async function refundBounty(
   });
 }
 
+export interface ExpireReservationsResult {
+  /** IDs whose reservation was released back to `open` by this run. */
+  expiredBountyIds: string[];
+  /** Unix timestamp in seconds the run evaluated staleness against. */
+  checkedAt: number;
+}
+
+/**
+ * Expire reservations older than `ttlSeconds` (worker boundary, Issue #1925).
+ *
+ * Runs under the same file lock as reserve/refund and re-reads the store inside
+ * that lock, so a worker tick can never overwrite a bounty a request committed
+ * while the worker was deciding. Each expired record advances the version
+ * exactly once and appends one audit entry.
+ *
+ * @param ttlSeconds - Age after which a reservation is considered stale.
+ * @returns The IDs that were expired and the timestamp used for the decision.
+ */
+export async function expireStaleReservations(
+  ttlSeconds: number
+): Promise<ExpireReservationsResult> {
+  return withStoreLock(async () => {
+    const checkedAt = nowInSeconds();
+    // Raw read: listBounties() would also normalize unrelated records mid-run.
+    const records = readStore();
+    const expiredBountyIds: string[] = [];
+    const auditEntries: CreateAuditLogInput[] = [];
+
+    const next = records.map((bounty) => {
+      const isStaleReservation =
+        bounty.status === 'reserved' &&
+        typeof bounty.reservedAt === 'number' &&
+        checkedAt - bounty.reservedAt > ttlSeconds;
+
+      if (!isStaleReservation) {
+        return bounty;
+      }
+
+      logger.info(
+        { bountyId: bounty.id, contributor: bounty.contributor },
+        '[ExpirationJob] Expiring stale reservation'
+      );
+      expiredBountyIds.push(bounty.id);
+      auditEntries.push({
+        bountyId: bounty.id,
+        fromStatus: 'reserved',
+        toStatus: 'open',
+        transition: 'expire',
+        actor: 'system',
+        timestamp: checkedAt,
+        metadata: { reason: 'reservation_ttl_exceeded', ttlSeconds },
+      });
+
+      return {
+        ...bounty,
+        status: 'open' as const,
+        contributor: undefined,
+        reservedAt: undefined,
+        version: (bounty.version ?? 1) + 1,
+        events: [
+          ...(bounty.events ?? []),
+          {
+            type: 'expired' as const,
+            timestamp: checkedAt,
+            details: { reason: 'reservation_ttl_exceeded', ttlSeconds },
+          },
+        ],
+      };
+    });
+
+    if (expiredBountyIds.length === 0) {
+      return { expiredBountyIds, checkedAt };
+    }
+
+    writeStore(next);
+    appendAuditLogs(auditEntries);
+    await invalidateBountyCache();
+
+    return { expiredBountyIds, checkedAt };
+  });
+}
+
 /**
  * Cancels an open bounty before reservation, returning escrow to the maintainer.
  *
@@ -1159,7 +1276,9 @@ export async function cancelBounty(
   maintainer: string,
   transactionHash?: string
 ): Promise<BountyRecord> {
-  return withGlobalLock(async () => {
+  // Cancelling refunds escrow, so it shares the store lock with reserve/refund:
+  // all writes to a record serialize on one cross-process boundary.
+  return withStoreLock(async () => {
     const records = listBounties();
     const bounty = findBounty(records, id);
 
@@ -1516,7 +1635,7 @@ export async function extendDeadline(
   maintainer: string,
   newDeadline: number
 ): Promise<BountyRecord> {
-  return withGlobalLock(async () => {
+  return withStoreLock(async () => {
     const records = listBounties();
     const bounty = findBounty(records, id);
 

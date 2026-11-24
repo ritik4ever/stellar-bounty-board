@@ -53,6 +53,7 @@ import {
   extendDeadlineSchema,
   resolveDisputeBountySchema,
   maintainerActionSchema,
+  refundBountyBodySchema,
   bulkActionSchema,
   reserveBountyRequestSchema,
   submitBountySchema,
@@ -87,7 +88,11 @@ import {
   MiddlewareDependencyError,
   INTERNAL_ERROR_MESSAGE,
 } from './middleware/errors';
-import { ServiceDependencyError, wrapServiceError } from './services/errors';
+import {
+  BountyTransitionConflictError,
+  ServiceDependencyError,
+  wrapServiceError,
+} from './services/errors';
 import { handleGitHubPrEvent } from './webhooks/githubPrHandler';
 import { draining } from './shutdown';
 import { applyBountyTemplate, listBountyTemplates } from './services/bountyTemplates';
@@ -731,6 +736,26 @@ export function sendError(res: Response, req: Request, error: unknown, statusCod
       'service_dependency_failure'
     );
     jsonError(res, req, error.statusCode, error.publicMessage);
+    return;
+  }
+
+  if (error instanceof BountyTransitionConflictError) {
+    log.warn(
+      {
+        code: error.code,
+        currentVersion: error.currentVersion,
+        currentStatus: error.currentStatus,
+        requestId,
+      },
+      'bounty_transition_conflict'
+    );
+    res.status(error.statusCode).json({
+      error: error.message,
+      code: error.code,
+      currentVersion: error.currentVersion,
+      currentStatus: error.currentStatus,
+      requestId,
+    });
     return;
   }
 
@@ -1405,7 +1430,7 @@ const releaseBountyRequestSchema = z.object({
 const refundBountyRequestSchema = z.object({
   params: z.object({ id: bountyIdSchema }),
   query: z.object({}).strict(),
-  body: maintainerActionSchema,
+  body: refundBountyBodySchema,
 });
 
 app.post(
@@ -1477,7 +1502,8 @@ app.post(
       const bounty = await refundBounty(
         parseId(req.params.id),
         req.body.maintainer,
-        req.body.transactionHash
+        req.body.transactionHash,
+        req.body.expectedVersion
       );
       res.json({ data: bounty });
     } catch (error) {

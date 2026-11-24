@@ -759,7 +759,27 @@ exports[`OpenAPI spec snapshot test > generated OpenAPI spec matches snapshot 1`
         ],
         "type": "object",
       },
+      "RefundBountyRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MaintainerActionRequest",
+          },
+          {
+            "default": undefined,
+            "properties": {
+              "expectedVersion": {
+                "description": "Optional version read by the client. A mismatch is rejected with 409 and the current version.",
+                "example": 2,
+                "exclusiveMinimum": 0,
+                "type": "integer",
+              },
+            },
+            "type": "object",
+          },
+        ],
+      },
       "ReserveBountyRequest": {
+        "additionalProperties": false,
         "properties": {
           "contributor": {
             "description": "Stellar public key of the contributor reserving the bounty.",
@@ -767,8 +787,9 @@ exports[`OpenAPI spec snapshot test > generated OpenAPI spec matches snapshot 1`
             "type": "string",
           },
           "expectedVersion": {
-            "description": "Optional version number for race condition prevention. If provided, must match current bounty version.",
+            "description": "Optional positive version number for race condition prevention. If provided, must match current bounty version.",
             "example": 1,
+            "exclusiveMinimum": 0,
             "type": "integer",
           },
         },
@@ -1376,7 +1397,7 @@ Maintainers may \`cancel\` an \`open\` bounty before reservation, or \`refund\` 
     },
     "/api/bounties/:id/refund": {
       "post": {
-        "description": "Transitions an \`open\` or \`reserved\` bounty to \`refunded\`. Cannot be called on \`submitted\`, \`released\`, or already \`refunded\` bounties. Only the maintainer address recorded on the bounty may call this endpoint. Rate-limited to **5 requests per IP per minute**.",
+        "description": "Transitions an \`open\` or \`reserved\` bounty to \`refunded\`. Cannot be called on \`submitted\`, \`released\`, or already \`refunded\` bounties. Only the maintainer address recorded on the bounty may call this endpoint. Send the version you read in \`expectedVersion\` to make a race with a reservation arrive as a defined \`409\` instead of a silent overwrite. Rate-limited to **5 requests per IP per minute**.",
         "parameters": [
           {
             "in": "path",
@@ -1392,7 +1413,7 @@ Maintainers may \`cancel\` an \`open\` bounty before reservation, or \`refund\` 
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/MaintainerActionRequest",
+                "$ref": "#/components/schemas/RefundBountyRequest",
               },
             },
           },
@@ -1426,6 +1447,16 @@ Maintainers may \`cancel\` an \`open\` bounty before reservation, or \`refund\` 
               },
             },
             "description": "Bounty not found, already finalised, maintainer mismatch, or validation failed.",
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse",
+                },
+              },
+            },
+            "description": "\`expectedVersion\` no longer matches the stored bounty; the response carries the current version and status.",
           },
         },
         "summary": "Refund a bounty",
@@ -1757,6 +1788,7 @@ Maintainers may \`cancel\` an \`open\` bounty before reservation, or \`refund\` 
             "required": true,
             "schema": {
               "example": "BNT-0001",
+              "minLength": 1,
               "type": "string",
             },
           },
@@ -1798,7 +1830,7 @@ Maintainers may \`cancel\` an \`open\` bounty before reservation, or \`refund\` 
                 },
               },
             },
-            "description": "Bounty not found, not open, or validation failed.",
+            "description": "Bounty not found, not open, or request input is invalid (\`BOUNTY_RESERVE_INVALID_INPUT\`).",
           },
         },
         "summary": "Reserve a bounty",
@@ -2067,7 +2099,7 @@ Response is cached with \`Cache-Control: public, max-age=300\` (5 min) since the
     },
     "/api/health/deep": {
       "get": {
-        "description": "Extended health check that verifies all external dependencies. Checks JSON store read/write, Soroban RPC reachability, contract ID configuration, and auth configuration (MAINTAINER_PUBLIC_KEY and ARBITER_ADDRESS). Each component check has a configurable timeout via DEEP_HEALTH_CHECK_TIMEOUT_MS (default 5000 ms); a timed-out component is reported as down. Excluded from rate limiting. Returns HTTP 503 when any critical component is down.",
+        "description": "Extended health check that verifies all external dependencies. Checks JSON store read/write, Soroban RPC reachability, contract ID configuration, and auth configuration (MAINTAINER_PUBLIC_KEY and ARBITER_ADDRESS). Each component check has a configurable timeout via DEEP_HEALTH_CHECK_TIMEOUT_MS (default 5000 ms); a timed-out component is reported as down. Limited to 10 requests per minute per IP by default (configurable with RATE_LIMIT_DEEP_HEALTH_MAX and RATE_LIMIT_DEEP_HEALTH_WINDOW_MS). Returns HTTP 503 when any critical component is down.",
         "responses": {
           "200": {
             "content": {
@@ -2088,6 +2120,39 @@ Response is cached with \`Cache-Control: public, max-age=300\` (5 min) since the
               },
             },
             "description": "Invalid input: the route accepts no path parameters, query string, or request body.",
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                    },
+                    "requestId": {
+                      "type": "string",
+                    },
+                    "retryAfter": {
+                      "type": "number",
+                    },
+                  },
+                  "required": [
+                    "error",
+                    "retryAfter",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Rate limit exceeded. Retry after the number of seconds in Retry-After.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
           },
           "503": {
             "content": {

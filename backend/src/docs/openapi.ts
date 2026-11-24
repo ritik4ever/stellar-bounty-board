@@ -10,6 +10,7 @@ import {
   healthResponseSchema,
   deepHealthResponseSchema,
   maintainerActionSchema,
+  refundBountyBodySchema,
   openIssueSchema,
   bountyIdSchema,
   reserveBountySchema,
@@ -31,6 +32,7 @@ registry.register("CreateBountyRequest", createBountySchema);
 registry.register("ReserveBountyRequest", reserveBountySchema);
 registry.register("SubmitBountyRequest", submitBountySchema);
 registry.register("MaintainerActionRequest", maintainerActionSchema);
+registry.register("RefundBountyRequest", refundBountyBodySchema);
 registry.register("UpdateNotesRequest", updateNotesSchema);
 registry.register("ErrorResponse", errorResponseSchema);
 registry.register("OpenIssue", openIssueSchema);
@@ -445,14 +447,19 @@ registry.registerPath({
     "Transitions an `open` or `reserved` bounty to `refunded`. " +
     "Cannot be called on `submitted`, `released`, or already `refunded` bounties. " +
     "Only the maintainer address recorded on the bounty may call this endpoint. " +
+    "Send the version you read in `expectedVersion` to make a race with a " +
+    "reservation arrive as a defined `409` instead of a silent overwrite. " +
     "Rate-limited to **5 requests per IP per minute**.",
   request: {
     params: z.object({ id: z.string().openapi(bountyIdParam.schema) }),
-    body: jsonBody(maintainerActionSchema),
+    body: jsonBody(refundBountyBodySchema),
   },
   responses: {
     200: bountyDataResponse("Bounty refunded."),
     400: errorResponse("Bounty not found, already finalised, maintainer mismatch, or validation failed."),
+    409: errorResponse(
+      "`expectedVersion` no longer matches the stored bounty; the response carries the current version and status."
+    ),
   },
 });
 

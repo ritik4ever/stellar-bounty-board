@@ -265,6 +265,24 @@ export const maintainerActionSchema = z
   .openapi('MaintainerActionRequest');
 
 /**
+ * Request body for `POST /api/bounties/:id/refund` (Issue #1925).
+ *
+ * Extends the maintainer action with an optional optimistic-concurrency
+ * version. When `expectedVersion` is present and the bounty has moved on (for
+ * example a reserve committed first), the store answers 409 with the version it
+ * currently holds so the caller can refresh and retry.
+ */
+export const refundBountyBodySchema = maintainerActionSchema
+  .extend({
+    expectedVersion: z.number().int().positive().optional().openapi({
+      example: 2,
+      description:
+        'Optional version read by the client. A mismatch is rejected with 409 and the current version.',
+    }),
+  })
+  .openapi('RefundBountyRequest');
+
+/**
  * Request for `POST /api/bounties/:id/release`.
  *
  * Validates the route param (`id`), any query string, and the body in one
