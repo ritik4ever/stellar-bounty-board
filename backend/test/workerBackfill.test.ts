@@ -9,6 +9,7 @@ import {
   runEventBackfill,
   BackfillError,
   backfillEventKey,
+  redactBackfillRef,
   // @ts-expect-error — plain JS worker module
 } from '../worker/eventBackfill.js';
 
@@ -515,5 +516,144 @@ describe('Soroban event backfill replay, overlapping live polling, and failure i
       'submit',
       'release',
     ]);
+  });
+
+  it('traces pending vs committed transitions with redacted event and cursor refs (#1938)', async () => {
+    const store = createFileBackfillStore(backfillIndexFile, backfillCursorFile);
+    const evt = createBountyEvent({ id: 'evt-trace-secret-id', ledger: 100, eventIndex: 0 });
+    const rawCursor = 'sensitive-paging-cursor-xyz';
+    const logs: string[] = [];
+    const observed: Array<Record<string, unknown>> = [];
+
+    const result = await runEventBackfill({
+      token: OPERATOR_TOKEN,
+      request: { startLedger: 100, endLedger: 100, cursor: rawCursor },
+      env: testEnv,
+      fetchPage: async () => rpcPage([evt], 100),
+      store,
+      logger: {
+        log: (msg: string) => logs.push(msg),
+        error: () => {},
+      },
+      onTrace: (trace: Record<string, unknown>) => observed.push(trace),
+    });
+
+    expect(result.traces).toHaveLength(2);
+    expect(observed).toHaveLength(2);
+
+    // Operators can distinguish pending (before merge/commit) from committed transition
+    expect(observed[0]).toMatchObject({
+      phase: 'backfill_page',
+      status: 'pending',
+      reason: 'page_fetched',
+      page: 1,
+      eventCount: 1,
+      cursorRef: redactBackfillRef(rawCursor),
+      eventRefs: [redactBackfillRef('id:evt-trace-secret-id')],
+    });
+    expect(observed[1]).toMatchObject({
+      phase: 'backfill_page',
+      status: 'committed',
+      reason: 'page_committed',
+      page: 1,
+      eventsAdded: 1,
+      eventsSkipped: 0,
+      cursorRef: redactBackfillRef(rawCursor),
+      committedCursor: { ledger: 100, eventIndex: 0 },
+    });
+
+    // Raw cursor, raw event ID, and operator token must never appear in trace logs
+    const joinedLogs = logs.join('\n');
+    expect(joinedLogs).toContain('[BackfillTrace]');
+    expect(joinedLogs).not.toContain(rawCursor);
+    expect(joinedLogs).not.toContain('evt-trace-secret-id');
+    expect(joinedLogs).not.toContain(OPERATOR_TOKEN);
+  });
+
+  it('records a failed trace with redacted cursor reference on missing RPC page (#1938)', async () => {
+    const store = createFileBackfillStore(backfillIndexFile, backfillCursorFile);
+    store.saveCursor({ ledger: 99, eventIndex: 2 });
+
+    const rawCursor = 'missing-page-cursor-secret';
+    const errorLogs: string[] = [];
+    const observed: Array<Record<string, unknown>> = [];
+
+    await expect(
+      runEventBackfill({
+        token: OPERATOR_TOKEN,
+        request: { startLedger: 100, endLedger: 102, cursor: rawCursor },
+        env: testEnv,
+        fetchPage: async () => ({ result: { latestLedger: 102 } }), // missing events array
+        store,
+        logger: {
+          log: () => {},
+          error: (msg: string) => errorLogs.push(msg),
+        },
+        onTrace: (trace: Record<string, unknown>) => observed.push(trace),
+      }),
+    ).rejects.toMatchObject({ code: 'missing_rpc_page' });
+
+    expect(observed).toHaveLength(1);
+    expect(observed[0]).toMatchObject({
+      phase: 'backfill_page',
+      status: 'failed',
+      reason: 'missing_rpc_page',
+      errorCode: 'missing_rpc_page',
+      cursorRef: redactBackfillRef(rawCursor),
+      storedCursor: { ledger: 99, eventIndex: 2 },
+    });
+    expect(observed.some((t) => t.status === 'committed')).toBe(false);
+    expect(errorLogs.join('\n')).not.toContain(rawCursor);
+    expect(errorLogs.join('\n')).not.toContain(OPERATOR_TOKEN);
+  });
+
+  it('traces whole-ledger retry as pending then committed deduplicated transition (#1938)', async () => {
+    const store = createFileBackfillStore(backfillIndexFile, backfillCursorFile);
+    const evt1 = createBountyEvent({ id: 'evt-retry-1', ledger: 100, eventIndex: 0 });
+    const evt2 = reserveBountyEvent({ id: 'evt-retry-2', ledger: 100, eventIndex: 1 });
+
+    // First run commits ledger 100
+    await runEventBackfill({
+      token: OPERATOR_TOKEN,
+      request: { startLedger: 100, endLedger: 100 },
+      env: testEnv,
+      fetchPage: async () => rpcPage([evt1, evt2], 100),
+      store,
+      logger: { log: () => {}, error: () => {} },
+    });
+
+    // Retry whole ledger 100 with a stored cursor at ledger 100
+    const retryTraces: Array<Record<string, unknown>> = [];
+    const retryResult = await runEventBackfill({
+      token: OPERATOR_TOKEN,
+      request: { startLedger: 100, endLedger: 100, cursor: 'retry-cursor-abc' },
+      env: testEnv,
+      fetchPage: async () => rpcPage([evt1, evt2], 100),
+      store,
+      logger: { log: () => {}, error: () => {} },
+      onTrace: (trace: Record<string, unknown>) => retryTraces.push(trace),
+    });
+
+    expect(retryResult.eventsProcessed).toBe(0);
+    expect(retryResult.eventsSkipped).toBe(2);
+    expect(retryTraces[0]).toMatchObject({
+      phase: 'backfill_page',
+      status: 'pending',
+      reason: 'whole_ledger_retry',
+      cursorRef: redactBackfillRef('retry-cursor-abc'),
+      storedCursor: { ledger: 100, eventIndex: 1 },
+    });
+    expect(retryTraces[1]).toMatchObject({
+      phase: 'backfill_page',
+      status: 'pending',
+      reason: 'page_fetched',
+    });
+    expect(retryTraces[2]).toMatchObject({
+      phase: 'backfill_page',
+      status: 'committed',
+      reason: 'whole_ledger_retry_deduped',
+      eventsAdded: 0,
+      eventsSkipped: 2,
+    });
   });
 });

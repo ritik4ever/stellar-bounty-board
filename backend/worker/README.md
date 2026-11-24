@@ -161,6 +161,14 @@ invocation stays bounded; use several runs for larger ranges.
 - **Missing RPC page and failure isolation:** If an RPC page fails or omits the `events` field, backfill rejects with `missing_rpc_page` or `malformed_rpc_response`. Partial or unverified events are never written to disk, and the sidecar cursor remains anchored at the last verified ledger boundary.
 - **Whole-ledger retry across restarts:** When retrying after a failure or process restart, backfill re-reads from the last committed ledger. Events already present in the store are deduplicated by chain position and event ID (`backfillEventKey`), allowing the remaining events to be merged safely without duplicating any lifecycle transition.
 
+### Backfill outcome tracing (#1938)
+
+`runEventBackfill` records structured `[BackfillTrace]` entries (returned in `result.traces`, emitted via `onTrace`, and logged via `logger`) so operators can distinguish pending events from committed transitions without exposing raw tokens or RPC secrets:
+
+- **`pending` (`whole_ledger_retry` / `page_fetched`):** Emitted before any store merge or cursor commit, recording redacted SHA-256 references (`redactBackfillRef`) for the paging cursor (`cursorRef`) and normalized event keys (`eventRefs`).
+- **`committed` (`page_committed` / `whole_ledger_retry_deduped`):** Emitted only after `store.merge` and `store.saveCursor` succeed, recording `eventsAdded`, `eventsSkipped`, and `committedCursor`.
+- **`failed` (`missing_rpc_page` / `rpc_request_failed` / `page_validation_failed`):** Emitted when an RPC page is missing or invalid, recording `errorCode`, `cursorRef`, and `storedCursor` before rejecting, so a missing page is never mistaken for a committed transition.
+
 ## Architecture
 
 - The worker is completely isolated from the main API server.

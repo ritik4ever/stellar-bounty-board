@@ -324,6 +324,37 @@ export function createRpcPageFetcher(env = process.env) {
 }
 
 /**
+ * Produces a redacted, non-reversible reference for a cursor, event ID, or
+ * delivery token so operators can correlate retries and missing pages without
+ * exposing raw tokens or endpoint secrets in logs.
+ *
+ * @param {string | null | undefined} value
+ * @returns {string | null}
+ */
+export function redactBackfillRef(value) {
+  if (typeof value !== "string" || value.length === 0) return null;
+  const digest = crypto.createHash("sha256").update(value, "utf8").digest("hex").slice(0, 12);
+  return `sha256:${digest}`;
+}
+
+function recordTrace(trace, { logger, onTrace, traces }) {
+  const entry = {
+    timestamp: new Date().toISOString(),
+    ...trace,
+  };
+  traces.push(entry);
+  if (typeof onTrace === "function") {
+    onTrace(entry);
+  }
+  const line = `[BackfillTrace] ${JSON.stringify(entry)}`;
+  if (entry.status === "failed" && typeof logger.error === "function") {
+    logger.error(line);
+  } else if (typeof logger.log === "function") {
+    logger.log(line);
+  }
+}
+
+/**
  * Runs one authenticated, validated backfill.
  *
  * @param {{
@@ -333,10 +364,11 @@ export function createRpcPageFetcher(env = process.env) {
  *   fetchPage?: (args: { startLedger: number, cursor: string | null }) => Promise<unknown>,
  *   store?: ReturnType<typeof createFileBackfillStore>,
  *   logger?: Pick<Console, 'log' | 'error'>,
+ *   onTrace?: (trace: Record<string, unknown>) => void,
  * }} options
  */
 export async function runEventBackfill(options) {
-  const { token, request, env = process.env, logger = console } = options;
+  const { token, request, env = process.env, logger = console, onTrace } = options;
   authenticateBackfill(token, env);
   const validated = validateBackfillRequest(request);
 
@@ -349,10 +381,22 @@ export async function runEventBackfill(options) {
 
   const stored = store.readCursor();
   let startLedger = validated.startLedger;
-  if (stored && stored.ledger > startLedger) {
+  const traces = [];
+  if (stored && stored.ledger >= startLedger) {
     // Re-read the whole stored ledger: the cursor records the last position
     // merged, and deduplication makes replaying it a no-op.
     startLedger = stored.ledger;
+    recordTrace(
+      {
+        phase: "backfill_page",
+        status: "pending",
+        reason: "whole_ledger_retry",
+        ledgerRange: { start: startLedger, end: validated.endLedger },
+        cursorRef: redactBackfillRef(validated.cursor),
+        storedCursor: { ledger: stored.ledger, eventIndex: stored.eventIndex },
+      },
+      { logger, onTrace, traces },
+    );
   }
   let cursor = validated.cursor;
 
@@ -371,13 +415,70 @@ export async function runEventBackfill(options) {
     try {
       body = await fetchPage({ startLedger, cursor });
     } catch {
+      recordTrace(
+        {
+          phase: "backfill_page",
+          status: "failed",
+          reason: "rpc_request_failed",
+          errorCode: "malformed_rpc_response",
+          page: pages + 1,
+          ledgerRange: { start: startLedger, end: validated.endLedger },
+          cursorRef: redactBackfillRef(cursor),
+          storedCursor: lastCursor
+            ? { ledger: lastCursor.ledger, eventIndex: lastCursor.eventIndex }
+            : null,
+        },
+        { logger, onTrace, traces },
+      );
       throw new BackfillError("RPC request failed", "malformed_rpc_response");
     }
-    const page = validateRpcPage(body, contractId);
-    pages += 1;
 
-    const inRange = page.events.filter((event) => Number(event.ledger) <= validated.endLedger);
-    const normalized = inRange.map(normalizePageEvent);
+    let page;
+    let normalized;
+    try {
+      page = validateRpcPage(body, contractId);
+      pages += 1;
+
+      const inRange = page.events.filter((event) => Number(event.ledger) <= validated.endLedger);
+      normalized = inRange.map(normalizePageEvent);
+    } catch (err) {
+      const errorCode = err instanceof BackfillError ? err.code : "malformed_rpc_response";
+      recordTrace(
+        {
+          phase: "backfill_page",
+          status: "failed",
+          reason: errorCode === "missing_rpc_page" ? "missing_rpc_page" : "page_validation_failed",
+          errorCode,
+          page: pages + 1,
+          ledgerRange: { start: startLedger, end: validated.endLedger },
+          cursorRef: redactBackfillRef(cursor),
+          storedCursor: lastCursor
+            ? { ledger: lastCursor.ledger, eventIndex: lastCursor.eventIndex }
+            : null,
+        },
+        { logger, onTrace, traces },
+      );
+      throw err;
+    }
+
+    const eventRefs = normalized
+      .map((event) => redactBackfillRef(backfillEventKey(event)))
+      .filter(Boolean);
+
+    recordTrace(
+      {
+        phase: "backfill_page",
+        status: "pending",
+        reason: "page_fetched",
+        page: pages,
+        ledgerRange: { start: startLedger, end: validated.endLedger },
+        eventCount: normalized.length,
+        eventRefs,
+        cursorRef: redactBackfillRef(page.pagingToken ?? cursor),
+      },
+      { logger, onTrace, traces },
+    );
+
     const merged = store.merge(normalized);
     eventsProcessed += merged.added;
     eventsSkipped += merged.skipped;
@@ -394,6 +495,25 @@ export async function runEventBackfill(options) {
       lastCursor = tail;
       store.saveCursor(lastCursor);
     }
+
+    recordTrace(
+      {
+        phase: "backfill_page",
+        status: "committed",
+        reason:
+          merged.added === 0 && merged.skipped > 0 ? "whole_ledger_retry_deduped" : "page_committed",
+        page: pages,
+        ledgerRange: { start: startLedger, end: validated.endLedger },
+        eventsAdded: merged.added,
+        eventsSkipped: merged.skipped,
+        eventRefs,
+        cursorRef: redactBackfillRef(page.pagingToken ?? cursor),
+        committedCursor: lastCursor
+          ? { ledger: lastCursor.ledger, eventIndex: lastCursor.eventIndex }
+          : null,
+      },
+      { logger, onTrace, traces },
+    );
 
     if (page.events.length === 0) break;
     const highestLedger = Math.max(...page.events.map((event) => Number(event.ledger)));
@@ -419,6 +539,7 @@ export async function runEventBackfill(options) {
     eventsProcessed,
     eventsSkipped,
     cursor: lastCursor,
+    traces,
   };
 }
 
