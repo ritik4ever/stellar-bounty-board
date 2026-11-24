@@ -134,11 +134,22 @@ pub struct BountyCreatedEvent {
     pub created_at: u64,
 }
 
+/// Payload for the `(Bounty, Reserv)` event emitted when an open bounty is reserved.
+///
+/// Fields, in deterministic order:
+/// - `bounty_id`: the bounty that was reserved.
+/// - `contributor`: the single contributor assigned to the reservation.
+/// - `token`: the token contract holding the locked escrow.
+/// - `amount`: the locked escrow amount for this bounty.
+/// - `reserved_at`: the ledger timestamp of the committed reservation.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BountyReserved {
     pub bounty_id: u64,
     pub contributor: Address,
+    pub token: Address,
+    pub amount: i128,
+    pub reserved_at: u64,
 }
 
 #[contracttype]
@@ -860,7 +871,9 @@ impl StellarBountyBoardContract {
     ///   - [`DataKey::Bounty(bounty_id)`] - Assigns `bounty.contributor` and transitions status to [`BountyStatus::Reserved`] via `write_bounty`.
     ///
     /// # Events
-    /// * Emits `(symbol_short!("Bounty"), symbol_short!("Reserv"))` with [`BountyReserved`] payload.
+    /// * Emits exactly one `(symbol_short!("Bounty"), symbol_short!("Reserv"))`
+    ///   event with [`BountyReserved`] only after `bounty.contributor` and
+    ///   [`BountyStatus::Reserved`] are committed, with the locked escrow intact.
     pub fn reserve_bounty(env: Env, bounty_id: u64, contributor: Address) {
         contributor.require_auth();
 
@@ -890,6 +903,9 @@ impl StellarBountyBoardContract {
             BountyReserved {
                 bounty_id,
                 contributor,
+                token: bounty.token,
+                amount: bounty.amount,
+                reserved_at: env.ledger().timestamp(),
             },
         );
     }

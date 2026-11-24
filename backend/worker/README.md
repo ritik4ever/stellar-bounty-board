@@ -19,7 +19,7 @@ stable event type string:
 |------------|--------------|------------------|---------------------------------------------------|
 | `Create`   | `create`      | `BountyCreated`    | bounty ID, maintainer, amount 
 |CrtEvent	created	BountyCreatedEvent	bounty ID, maintainer, token, amount, repo, issue number, title, deadline, protocol fee bps, dispute window override, created at
-| `Reserv`   | `reserve`     | `BountyReserved`   | bounty ID, contributor                            |
+| `Reserv`   | `reserve`     | `BountyReserved`   | bounty ID, contributor, token, amount, reserved_at |
 | `Submit`   | `submit`      | `BountySubmitted`  | bounty ID, contributor                            |
 | `Releas`   | `release`      | `BountyReleased`   | bounty ID, contributor, maintainer, amount           |
 | `Refund`   | `refunde`      | `BountyRefunded`   | bounty ID, maintainer, token, amount, refunded_at  |

@@ -1136,6 +1136,89 @@ fn test_refund_expired_unreserved_commits_one_rightful_payee_event() {
 }
 
 #[test]
+fn test_reserve_bounty_commits_one_contributor_locked_escrow_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _admin, maintainer, contributor, token_id, _fee_recipient, _arbiter) =
+        setup_test(&env);
+    let second_contributor = Address::generate(&env);
+    let token = TokenClient::new(&env, &token_id);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    let amount = 1_250i128;
+    token_admin.mint(&maintainer, &amount);
+
+    let deadline = env.ledger().timestamp() + 1_000;
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &amount,
+        &String::from_str(&env, "repo"),
+        &414,
+        &String::from_str(&env, "Contract reservation event alignment"),
+        &deadline,
+        &500u32,
+        &None,
+    );
+
+    assert_eq!(token.balance(&maintainer), 0);
+    assert_eq!(token.balance(&client.address), amount);
+    assert_eq!(token.balance(&contributor), 0);
+
+    let reserve_ts = env.ledger().timestamp() + 42;
+    env.ledger().set_timestamp(reserve_ts);
+    client.reserve_bounty(&bounty_id, &contributor);
+
+    let committed = client.get_bounty(&bounty_id);
+    assert_eq!(committed.status, BountyStatus::Reserved);
+    assert_eq!(committed.contributor, Some(contributor.clone()));
+    assert_eq!(token.balance(&client.address), amount);
+    assert_eq!(token.balance(&contributor), 0);
+    assert_eq!(token.balance(&second_contributor), 0);
+
+    let events = env.events().all().filter_by_contract(&client.address);
+    let mut reserve_events = 0u32;
+    let mut reserve_payload = None;
+    for event in events.events().iter() {
+        let soroban_sdk::xdr::ContractEventBody::V0(body) = &event.body;
+        if body.topics.len() < 2 {
+            continue;
+        }
+        let t0 = soroban_sdk::Symbol::from_val(&env, &body.topics[0]);
+        let t1 = soroban_sdk::Symbol::from_val(&env, &body.topics[1]);
+        if t0 == symbol_short!("Bounty") && t1 == symbol_short!("Reserv") {
+            reserve_events += 1;
+            reserve_payload = Some(BountyReserved::from_val(&env, &body.data));
+        }
+    }
+
+    assert_eq!(reserve_events, 1);
+    assert_eq!(
+        reserve_payload,
+        Some(BountyReserved {
+            bounty_id,
+            contributor: contributor.clone(),
+            token: token_id,
+            amount,
+            reserved_at: reserve_ts,
+        })
+    );
+
+    // A competing reservation attempt must fail without altering contributor,
+    // locked escrow, or emitting another reservation event.
+    let competing = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.reserve_bounty(&bounty_id, &second_contributor);
+    }));
+    assert!(competing.is_err());
+
+    let after_competing = client.get_bounty(&bounty_id);
+    assert_eq!(after_competing.status, BountyStatus::Reserved);
+    assert_eq!(after_competing.contributor, Some(contributor.clone()));
+    assert_eq!(token.balance(&client.address), amount);
+    assert_eq!(token.balance(&second_contributor), 0);
+}
+
+#[test]
 fn test_cancel_bounty_success() {
     let env = Env::default();
     env.mock_all_auths();
