@@ -93,6 +93,119 @@ describe('GitHub signature verification across repeated rotation checks', () => 
     expect(() => checkSignature(previousSecret)).toThrow(WebhookSignatureError);
   });
 
+  it('status code is 401 (not 500) when the previous secret is revoked after expiry', () => {
+    // 401 = client signed with a revoked key; 500 would imply server misconfiguration.
+    vi.setSystemTime(startedAt + gracePeriodMs + 1);
+    let caught: unknown;
+    try {
+      checkSignature(previousSecret);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(WebhookSignatureError);
+    expect((caught as WebhookSignatureError).statusCode).toBe(401);
+  });
+
+  it('status code is 500 when newSecret is empty (server misconfiguration, not a bad client request)', () => {
+    vi.setSystemTime(startedAt + 1);
+    let caught: unknown;
+    try {
+      verifyWithSecretRotation({
+        ...githubWebhookSignatureProfile,
+        payload,
+        signatureHeader: signWebhookPayload({ payload, secret: newSecret, algorithm: 'sha256', prefix: 'sha256=' }),
+        newSecret: '',
+        previousSecret,
+        rotationStartedAt: startedAt,
+        gracePeriodMs,
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(WebhookSignatureError);
+    expect((caught as WebhookSignatureError).statusCode).toBe(500);
+  });
+
+  it('gracePeriodMs minimum boundary (1 ms): old secret accepted before expiry, rejected at exact expiry', () => {
+    // At startedAt + 0 the window is open.
+    vi.setSystemTime(startedAt);
+    expect(() =>
+      verifyWithSecretRotation({
+        ...githubWebhookSignatureProfile,
+        payload,
+        signatureHeader: signWebhookPayload({ payload, secret: previousSecret, algorithm: 'sha256', prefix: 'sha256=' }),
+        newSecret,
+        previousSecret,
+        gracePeriodMs: 1,
+        rotationStartedAt: startedAt,
+      }),
+    ).not.toThrow();
+
+    // At startedAt + 1 (the expiry instant) the window is closed.
+    vi.setSystemTime(startedAt + 1);
+    expect(() =>
+      verifyWithSecretRotation({
+        ...githubWebhookSignatureProfile,
+        payload,
+        signatureHeader: signWebhookPayload({ payload, secret: previousSecret, algorithm: 'sha256', prefix: 'sha256=' }),
+        newSecret,
+        previousSecret,
+        gracePeriodMs: 1,
+        rotationStartedAt: startedAt,
+      }),
+    ).toThrow(WebhookSignatureError);
+  });
+
+  it('gracePeriodMs maximum boundary (300_000 ms): old secret accepted at last ms, rejected at exact expiry, exceeded value is 500', () => {
+    const MAX = 300_000;
+
+    // Last millisecond inside the maximum window: accepted.
+    vi.setSystemTime(startedAt + MAX - 1);
+    expect(() =>
+      verifyWithSecretRotation({
+        ...githubWebhookSignatureProfile,
+        payload,
+        signatureHeader: signWebhookPayload({ payload, secret: previousSecret, algorithm: 'sha256', prefix: 'sha256=' }),
+        newSecret,
+        previousSecret,
+        gracePeriodMs: MAX,
+        rotationStartedAt: startedAt,
+      }),
+    ).not.toThrow();
+
+    // Exactly at expiry: rejected (401).
+    vi.setSystemTime(startedAt + MAX);
+    expect(() =>
+      verifyWithSecretRotation({
+        ...githubWebhookSignatureProfile,
+        payload,
+        signatureHeader: signWebhookPayload({ payload, secret: previousSecret, algorithm: 'sha256', prefix: 'sha256=' }),
+        newSecret,
+        previousSecret,
+        gracePeriodMs: MAX,
+        rotationStartedAt: startedAt,
+      }),
+    ).toThrow(WebhookSignatureError);
+
+    // Exceeding the cap is a misconfiguration: status 500.
+    let caught: unknown;
+    try {
+      verifyWithSecretRotation({
+        ...githubWebhookSignatureProfile,
+        payload,
+        signatureHeader: signWebhookPayload({ payload, secret: newSecret, algorithm: 'sha256', prefix: 'sha256=' }),
+        newSecret,
+        previousSecret,
+        gracePeriodMs: MAX + 1,
+        rotationStartedAt: startedAt,
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(WebhookSignatureError);
+    expect((caught as WebhookSignatureError).statusCode).toBe(500);
+  });
+
   it('verifies deterministic overlap and revoked-secret fixtures from a clean environment (#1969)', () => {
     const cleanPayload = Buffer.from(
       JSON.stringify({ action: 'closed', pull_request: { number: 1969, merged: true } }),
