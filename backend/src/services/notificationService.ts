@@ -1,12 +1,19 @@
 import crypto from 'node:crypto';
 import { logger } from '../logger';
+import {
+  NotificationDeliveryTrace,
+  NotificationChannel,
+  getGlobalNotificationDeliveryTrace,
+  redactNotificationReference,
+  scrubSensitiveData,
+} from './notificationDeliveryTrace';
+
+export * from './notificationDeliveryTrace';
 
 export interface NotificationRecipient {
   role: string;
   address: string;
 }
-
-export type NotificationChannel = 'EMAIL' | 'WEBHOOK';
 
 /**
  * Standard bounty lifecycle transitions that trigger notification hooks.
@@ -80,7 +87,7 @@ export function isNotificationOptedIn(address: string): boolean {
 
 function getChannel(): NotificationChannel | null {
   const ch = process.env.NOTIFICATION_CHANNEL?.trim().toUpperCase();
-  if (ch === 'EMAIL' || ch === 'WEBHOOK') return ch;
+  if (ch === 'EMAIL' || ch === 'WEBHOOK') return ch as NotificationChannel;
   return null;
 }
 
@@ -173,7 +180,9 @@ async function dispatchEmail(
 
       if (!response.ok) {
         const body = await response.text();
-        throw new Error(`SendGrid responded ${response.status}: ${body}`);
+        const err = new Error(`SendGrid responded ${response.status}: ${body}`);
+        (err as Error & { statusCode?: number }).statusCode = response.status;
+        throw err;
       }
     })
   );
@@ -182,7 +191,8 @@ async function dispatchEmail(
 async function dispatchWebhook(
   recipients: NotificationRecipient[],
   event: string,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  options?: NotificationDispatchOptions
 ): Promise<void> {
   const webhookUrl = process.env.NOTIFICATION_WEBHOOK_URL?.trim();
 
@@ -201,22 +211,68 @@ async function dispatchWebhook(
     headers['X-Bounty-Signature'] = `sha256=${sig}`;
   }
 
-  const response = await fetch(webhookUrl, { method: 'POST', headers, body });
+  const timeoutMs =
+    options?.timeoutMs ??
+    Number(process.env.NOTIFICATION_WEBHOOK_TIMEOUT_MS ?? 10_000);
+
+  let response: Response;
+  try {
+    const signal =
+      typeof AbortSignal?.timeout === 'function'
+        ? AbortSignal.timeout(timeoutMs)
+        : undefined;
+    response = await fetch(webhookUrl, { method: 'POST', headers, body, signal });
+  } catch (err: unknown) {
+    const errObj = err as { name?: string; code?: string; message?: string };
+    if (
+      errObj?.name === 'TimeoutError' ||
+      errObj?.name === 'AbortError' ||
+      errObj?.code === 'ETIMEDOUT' ||
+      errObj?.code === 'ECONNABORTED' ||
+      errObj?.message?.toLowerCase().includes('timeout')
+    ) {
+      const timeoutErr = new Error(`Webhook request timed out after ${timeoutMs}ms`);
+      (timeoutErr as Error & { isTimeout?: boolean; statusCode?: number }).isTimeout = true;
+      (timeoutErr as Error & { isTimeout?: boolean; statusCode?: number }).statusCode = 504;
+      throw timeoutErr;
+    }
+    throw err;
+  }
 
   if (!response.ok) {
     const responseBody = await response.text();
-    throw new Error(`Webhook responded ${response.status}: ${responseBody}`);
+    const isTimeout = response.status === 408 || response.status === 504;
+    const err = new Error(
+      isTimeout
+        ? `Webhook request timed out with status ${response.status}`
+        : `Webhook responded ${response.status}: ${responseBody}`
+    );
+    (err as Error & { isTimeout?: boolean; statusCode?: number }).statusCode = response.status;
+    if (isTimeout) {
+      (err as Error & { isTimeout?: boolean; statusCode?: number }).isTimeout = true;
+    }
+    throw err;
   }
+}
+
+export interface NotificationDispatchOptions {
+  trace?: NotificationDeliveryTrace;
+  deliveryId?: string;
+  eventId?: string;
+  cursor?: string;
+  timeoutMs?: number;
 }
 
 /**
  * Dispatch notification for a bounty lifecycle transition to eligible recipients.
  * Enforces opt-in verification so notifications are not forced on any user.
+ * Emits redacted pending, committed, and failed trace records for operator observability (#1948).
  */
 export async function sendNotification(
   recipients: NotificationRecipient[],
   event: string,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  options?: NotificationDispatchOptions
 ): Promise<void> {
   const channel = getChannel();
   if (!channel) return;
@@ -225,13 +281,113 @@ export async function sendNotification(
   const optedInRecipients = recipients.filter((r) => isNotificationOptedIn(r.address));
   if (optedInRecipients.length === 0) return;
 
+  const trace = options?.trace ?? getGlobalNotificationDeliveryTrace();
+  const bountyId =
+    payload.bountyId != null && payload.bountyId !== '' ? String(payload.bountyId) : null;
+
+  const deliveryId =
+    options?.deliveryId ??
+    (typeof payload.deliveryId === 'string' ? payload.deliveryId : undefined) ??
+    crypto.randomUUID();
+
+  const eventId =
+    options?.eventId ??
+    (typeof payload.eventId === 'string'
+      ? payload.eventId
+      : typeof payload.id === 'string'
+        ? payload.id
+        : undefined) ??
+    (bountyId ? `${event}:${bountyId}` : event);
+
+  const cursor =
+    options?.cursor ??
+    (typeof payload.cursor === 'string'
+      ? payload.cursor
+      : typeof payload.pagingToken === 'string'
+        ? payload.pagingToken
+        : undefined);
+
+  const eventRef = redactNotificationReference(eventId);
+  const deliveryRef = redactNotificationReference(deliveryId);
+  const cursorRef = redactNotificationReference(cursor);
+
+  // 1. Emit pending trace outcome before initiating delivery
+  trace.pending({
+    channel,
+    lifecycleEvent: event,
+    bountyId,
+    eventRef,
+    deliveryRef,
+    cursorRef,
+    recipientCount: optedInRecipients.length,
+  });
+
   try {
     if (channel === 'EMAIL') {
       await dispatchEmail(optedInRecipients, event, payload);
     } else {
-      await dispatchWebhook(optedInRecipients, event, payload);
+      await dispatchWebhook(optedInRecipients, event, payload, options);
     }
-  } catch (err) {
-    logger.error({ event, err }, 'Notification dispatch failed');
+
+    // 2. Emit committed trace outcome upon successful delivery
+    trace.committed({
+      channel,
+      lifecycleEvent: event,
+      bountyId,
+      eventRef,
+      deliveryRef,
+      cursorRef,
+      statusCode: channel === 'EMAIL' ? 202 : 200,
+      recipientCount: optedInRecipients.length,
+    });
+  } catch (err: unknown) {
+    const errObj = err as {
+      statusCode?: number;
+      isTimeout?: boolean;
+      name?: string;
+      code?: string;
+      message?: string;
+    };
+    const statusCode = typeof errObj?.statusCode === 'number' ? errObj.statusCode : null;
+    const isSendGrid429 =
+      channel === 'EMAIL' && (statusCode === 429 || errObj?.message?.includes('429'));
+    const isWebhookTimeout =
+      channel === 'WEBHOOK' &&
+      (errObj?.isTimeout ||
+        statusCode === 504 ||
+        statusCode === 408 ||
+        errObj?.name === 'TimeoutError' ||
+        errObj?.name === 'AbortError' ||
+        errObj?.code === 'ETIMEDOUT' ||
+        errObj?.code === 'ECONNABORTED' ||
+        errObj?.message?.toLowerCase().includes('timeout'));
+
+    let reason: string;
+    if (isSendGrid429) {
+      reason = 'sendgrid_429';
+    } else if (isWebhookTimeout) {
+      reason = 'webhook_timeout';
+    } else {
+      reason = 'dispatch_error';
+    }
+
+    // 3. Emit failed trace outcome recording redacted eventRef, deliveryRef, cursorRef
+    trace.failed({
+      channel,
+      lifecycleEvent: event,
+      bountyId,
+      eventRef,
+      deliveryRef,
+      cursorRef,
+      recipientCount: optedInRecipients.length,
+      statusCode: isWebhookTimeout && !statusCode ? 504 : statusCode,
+      reason,
+      error: scrubSensitiveData(errObj?.message ?? String(err)),
+    });
+
+    logger.error(
+      { event, deliveryRef, eventRef, cursorRef, reason, statusCode, err },
+      'Notification dispatch failed'
+    );
   }
 }
