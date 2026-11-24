@@ -121,7 +121,10 @@ describe("sendNotification — EMAIL channel", () => {
     // Should resolve without throwing
     await expect(
       sendNotification([RECIPIENTS[0]], "bounty_created", PAYLOAD),
-    ).resolves.toBeUndefined();
+    ).resolves.toMatchObject({
+      channel: "EMAIL",
+      outcomes: [expect.objectContaining({ status: "failed" })],
+    });
   });
 
   it("uses default subject for unknown events", async () => {
@@ -229,7 +232,13 @@ describe("sendNotification — WEBHOOK channel", () => {
 
     await expect(
       sendNotification(RECIPIENTS, "bounty_released", PAYLOAD),
-    ).resolves.toBeUndefined();
+    ).resolves.toMatchObject({
+      channel: "WEBHOOK",
+      outcomes: [
+        expect.objectContaining({ status: "failed" }),
+        expect.objectContaining({ status: "failed" }),
+      ],
+    });
   });
 });
 
@@ -265,5 +274,85 @@ describe("sendNotification — no channel", () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     delete process.env.NOTIFICATION_CHANNEL;
+  });
+});
+
+// ── Opt-out between enqueue and send ─────────────────────────────────────────
+
+describe("sendNotification — opt-out boundary", () => {
+  const fetchMock = vi.fn<typeof fetch>();
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+    process.env.SENDGRID_API_KEY = "SG.test-key";
+    process.env.NOTIFICATION_WEBHOOK_URL = "https://hooks.test/notify";
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.NOTIFICATION_CHANNEL;
+    delete process.env.SENDGRID_API_KEY;
+    delete process.env.NOTIFICATION_WEBHOOK_URL;
+  });
+
+  it("skips a recipient who opts out after an earlier send in the same batch", async () => {
+    process.env.NOTIFICATION_CHANNEL = "EMAIL";
+    const mod = await import("../src/services/notificationService");
+    fetchMock.mockImplementationOnce(async () => {
+      mod.setNotificationOptIn(RECIPIENTS[1].address, false);
+      return okResponse();
+    });
+    fetchMock.mockResolvedValue(okResponse());
+
+    const result = await mod.sendNotification(RECIPIENTS, "bounty_created", PAYLOAD);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.channel).toBe("EMAIL");
+    expect(result.outcomes).toEqual([
+      { address: RECIPIENTS[0].address, channel: "EMAIL", status: "sent" },
+      { address: RECIPIENTS[1].address, channel: "EMAIL", status: "skipped", reason: "opted_out" },
+    ]);
+  });
+
+  it("reports opted-out recipients as skipped without sending, keeping the channel", async () => {
+    process.env.NOTIFICATION_CHANNEL = "EMAIL";
+    const mod = await import("../src/services/notificationService");
+    mod.setNotificationOptIn(RECIPIENTS[0].address, false);
+    mod.setNotificationOptIn(RECIPIENTS[1].address, false);
+
+    const result = await mod.sendNotification(RECIPIENTS, "bounty_created", PAYLOAD);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.outcomes.every((o) => o.status === "skipped" && o.channel === "EMAIL")).toBe(true);
+  });
+
+  it("does not re-send to a recipient already alerted, and records failures per recipient", async () => {
+    process.env.NOTIFICATION_CHANNEL = "EMAIL";
+    const mod = await import("../src/services/notificationService");
+    fetchMock.mockResolvedValueOnce(errResponse(500, "boom")).mockResolvedValue(okResponse());
+
+    const result = await mod.sendNotification(RECIPIENTS, "bounty_created", PAYLOAD);
+
+    expect(fetchMock).toHaveBeenCalledTimes(RECIPIENTS.length);
+    expect(result.outcomes.map((o) => o.status)).toEqual(["failed", "sent"]);
+  });
+
+  it("excludes opted-out recipients from the webhook body", async () => {
+    process.env.NOTIFICATION_CHANNEL = "WEBHOOK";
+    const mod = await import("../src/services/notificationService");
+    mod.setNotificationOptIn(RECIPIENTS[1].address, false);
+    fetchMock.mockResolvedValue(okResponse(200));
+
+    const result = await mod.sendNotification(RECIPIENTS, "bounty_created", PAYLOAD);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const sentBody = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(sentBody.recipients).toEqual([RECIPIENTS[0]]);
+    expect(result.outcomes).toEqual([
+      { address: RECIPIENTS[1].address, channel: "WEBHOOK", status: "skipped", reason: "opted_out" },
+      { address: RECIPIENTS[0].address, channel: "WEBHOOK", status: "sent" },
+    ]);
   });
 });
