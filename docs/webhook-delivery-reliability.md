@@ -166,10 +166,35 @@ Untrusted input arriving at `POST /api/webhooks/github` is strictly validated to
 
 ## Tests
 
-- `backend/test/webhookDeliveryResume.test.ts` — restart persistence, interrupted
-  claim resumption, out-of-order merged event, startup resume, idempotent replay,
-  two distinct delivery IDs for one merged PR, manual-release race, invalid HMAC
-  retry, deferred retry accounting.
-- `backend/test/githubPrWebhook.test.ts` — end-to-end PR auto-release and
-  duplicate-delivery behaviour.
-- `backend/test/webhooks.comprehensive.test.ts` — handler and journal units.
+Run from a clean checkout without live funds or network access:
+
+```bash
+cd backend && node_modules/.bin/vitest run \
+  test/githubPrWebhookScenarios.test.ts \
+  test/githubPrWebhook.test.ts \
+  test/webhookDeliveryResume.test.ts \
+  test/webhookSecurityValidation.test.ts \
+  test/webhooks.comprehensive.test.ts
+```
+
+| File | Focus |
+|---|---|
+| `test/githubPrWebhookScenarios.test.ts` | **Focused scenarios** (SBB-2026-475): two deliveries for the same merged PR (concurrent and across restart), invalid HMAC leaves delivery ID unconsumed, out-of-order close deferred through restart and applied by startup resume. Uses named JSON fixtures from `test/fixtures/webhookPayloads.ts`. |
+| `test/webhookDeliveryResume.test.ts` | Restart persistence, interrupted claim resumption, out-of-order merged event, startup resume, idempotent replay, two distinct delivery IDs for one merged PR, manual-release race, invalid HMAC retry, deferred retry accounting. |
+| `test/githubPrWebhook.test.ts` | End-to-end PR auto-release and duplicate-delivery behaviour. |
+| `test/webhooks.comprehensive.test.ts` | Handler and journal unit coverage. |
+| `test/webhookSecurityValidation.test.ts` | Input validation, HMAC rejection, delivery header enforcement. |
+
+### Observable assertions covered by focused scenarios
+
+| Scenario | Assertion |
+|---|---|
+| Two deliveries, same merged PR, sequential | Second delivery gets `reason: 'already_applied'`; bounty version unchanged; exactly one `pr_merged` and one `released` event. |
+| Two deliveries, same merged PR, concurrent | Both requests return 2xx; still exactly one `pr_merged` and one `released` event. |
+| Two deliveries, same merged PR, across restart | Post-restart second delivery gets `reason: 'already_applied'`; bounty state unchanged from before restart. |
+| Invalid HMAC (401) | No journal entry written; delivery ID reusable; valid retry applies release normally. |
+| Invalid HMAC, restart, valid retry | Journal still empty after restart; retry succeeds; response body never contains the webhook secret. |
+| Out-of-order close: deferred | Response `deferred: true, reason: 'no_matching_bounty'`; journal entry `status: 'pending'` with PR URL stored. |
+| Out-of-order close: startup resume | After restart and submission, `resumePendingDeliveries()` returns `completed ≥ 1`; bounty released; journal entry `status: 'completed'`. |
+| Out-of-order close: redelivery | Same delivery ID retried after submission returns 202 without `duplicate`; bounty released; no duplicate events. |
+| Out-of-order close: second redelivery of already-applied event | Returns 200 `duplicate: true`; version and event counts unchanged. |
