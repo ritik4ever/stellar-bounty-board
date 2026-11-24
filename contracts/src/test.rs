@@ -5687,3 +5687,190 @@ fn test_contract_submission_boundary_exact_ledger_and_token_units() {
     // Storage rollback on failure preserves status as Reserved
     assert_eq!(client.get_bounty(&bounty_2_id).status, BountyStatus::Expired);
 }
+
+// ─── SBB-2026-407 (#1876): Bounty Escrow Funding Atomicity ─────────────────
+
+#[contract]
+struct MockFailingTransferToken;
+
+#[contractimpl]
+impl MockFailingTransferToken {
+    pub fn transfer(_env: Env, _from: Address, _to: Address, _amount: i128) {
+        panic!("simulated token transfer failure");
+    }
+}
+
+#[test]
+fn test_bounty_escrow_funding_failure_after_validation_preserves_storage_and_balances_atomically() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) =
+        setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    let token = TokenClient::new(&env, &token_id);
+
+    // Initial state: no bounties, zero escrow balance
+    assert_eq!(client.get_next_bounty_id(), 0);
+    assert_eq!(token.balance(&client.address), 0);
+
+    // 1. Legitimate funding of Bounty 1 succeeds and assigns ID 1
+    let amount_1 = 5_000i128;
+    token_admin.mint(&maintainer, &amount_1);
+    let deadline_1 = env.ledger().timestamp() + 3_600;
+    let repo = String::from_str(&env, "ritik4ever/stellar-bounty-board");
+    let title_1 = String::from_str(&env, "Bounty 1: successful initial escrow funding");
+
+    let bounty_1_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &amount_1,
+        &repo,
+        &18761,
+        &title_1,
+        &deadline_1,
+        &0u32,
+        &None,
+    );
+    assert_eq!(bounty_1_id, 1);
+    assert_eq!(client.get_next_bounty_id(), 1);
+    assert_eq!(token.balance(&client.address), amount_1);
+    assert_eq!(token.balance(&maintainer), 0);
+    let bounty_1 = client.get_bounty(&bounty_1_id);
+    assert_eq!(bounty_1.status, BountyStatus::Open);
+    assert_eq!(bounty_1.amount, amount_1);
+
+    // 2. Maintainer attempts to create Bounty 2 with all validations passing,
+    // but maintainer possesses 1 stroop LESS than the required escrow amount.
+    // Bounty validations (bounds, min_amount, deadline, allowlist, fee) all pass,
+    // and then token_client.try_transfer fails.
+    let amount_2 = 10_000i128;
+    token_admin.mint(&maintainer, &(amount_2 - 1)); // exactly 9_999 units
+    let deadline_2 = env.ledger().timestamp() + 7_200;
+    let title_2 = String::from_str(&env, "Bounty 2: failed escrow transfer atomic rollback");
+
+    let try_res = client.try_create_bounty(
+        &maintainer,
+        &token_id,
+        &amount_2,
+        &repo,
+        &18762,
+        &title_2,
+        &deadline_2,
+        &200u32,
+        &None,
+    );
+    let err = try_res
+        .err()
+        .expect("bounty creation should fail on token transfer")
+        .expect("expected typed contract error");
+    assert_eq!(
+        err,
+        soroban_sdk::Error::from_contract_error(ContractError::EscrowTransferFailed as u32)
+    );
+
+    // INVARIANT ASSERTIONS AFTER FAILURE:
+    // a. NextBountyId is NOT incremented; remains 1
+    assert_eq!(client.get_next_bounty_id(), 1);
+
+    // b. Bounty 2 was never stored in persistent storage
+    assert_eq!(
+        client.try_get_bounty(&2),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            ContractError::BountyNotFound as u32
+        )))
+    );
+
+    // c. Bounty 1 is completely invariant
+    let bounty_1_after = client.get_bounty(&bounty_1_id);
+    assert_eq!(bounty_1_after.status, BountyStatus::Open);
+    assert_eq!(bounty_1_after.amount, amount_1);
+
+    // d. Escrow funds cannot be stranded or multiplied:
+    // Contract balance remains strictly equal to Bounty 1's escrow (amount_1)
+    assert_eq!(token.balance(&client.address), amount_1);
+    // Maintainer balance is completely untouched (no partial debit)
+    assert_eq!(token.balance(&maintainer), amount_2 - 1);
+
+    // 3. Sequential Retry: Maintainer tops up the missing 1 stroop and retries.
+    // The retry MUST succeed and receive sequential ID 2, proving no ID counter leakage.
+    token_admin.mint(&maintainer, &1i128); // maintainer now has exact amount_2
+    let retry_bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &amount_2,
+        &repo,
+        &18762,
+        &title_2,
+        &deadline_2,
+        &200u32,
+        &None,
+    );
+    assert_eq!(retry_bounty_id, 2);
+    assert_eq!(client.get_next_bounty_id(), 2);
+
+    // Balances and storage reflect both bounties accurately:
+    assert_eq!(token.balance(&client.address), amount_1 + amount_2);
+    assert_eq!(token.balance(&maintainer), 0);
+    assert_eq!(client.get_bounty(&2).status, BountyStatus::Open);
+    assert_eq!(client.get_bounty(&2).amount, amount_2);
+}
+
+#[test]
+fn test_bounty_escrow_funding_failure_with_failing_token_contract_preserves_atomicity() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, maintainer, _contributor, valid_token, _fee_recipient, _arbiter) =
+        setup_test(&env);
+    let valid_asset = soroban_sdk::token::StellarAssetClient::new(&env, &valid_token);
+    let valid_token_client = TokenClient::new(&env, &valid_token);
+
+    // Fund Bounty 1 in valid_token
+    let amount_1 = 3_000i128;
+    valid_asset.mint(&maintainer, &amount_1);
+    let repo = String::from_str(&env, "ritik4ever/stellar-bounty-board");
+    let deadline = env.ledger().timestamp() + 5_000;
+    let b1 = client.create_bounty(
+        &maintainer,
+        &valid_token,
+        &amount_1,
+        &repo,
+        &18763,
+        &String::from_str(&env, "Valid token bounty"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+    assert_eq!(b1, 1);
+    assert_eq!(valid_token_client.balance(&client.address), amount_1);
+
+    // Register and allowlist MockFailingTransferToken
+    let failing_token = env.register(MockFailingTransferToken, ());
+    client.add_allowed_token(&admin, &failing_token);
+
+    // Attempt create_bounty with allowlisted failing token:
+    // All validations pass, but transfer fails.
+    let fail_res = client.try_create_bounty(
+        &maintainer,
+        &failing_token,
+        &DEFAULT_MIN_BOUNTY_AMOUNT,
+        &repo,
+        &18764,
+        &String::from_str(&env, "Failing token bounty"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+    let err = fail_res
+        .err()
+        .expect("should fail")
+        .expect("expected contract error");
+    assert_eq!(
+        err,
+        soroban_sdk::Error::from_contract_error(ContractError::EscrowTransferFailed as u32)
+    );
+
+    // Invariants preserved:
+    assert_eq!(client.get_next_bounty_id(), 1);
+    assert!(client.try_get_bounty(&2).is_err());
+    assert_eq!(valid_token_client.balance(&client.address), amount_1);
+}
