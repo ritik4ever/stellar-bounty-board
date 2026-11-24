@@ -5443,3 +5443,100 @@ fn test_bounty_storage_lifetime_claim_after_related_entry_expires_fails_atomical
     assert_eq!(token.balance(&contributor), 0);
     assert_eq!(token.balance(&client.address), amount * 2);
 }
+
+// ─── SBB-2026-446 (#1915): Bounty Storage Lifetime Boundaries ────────────────
+
+#[test]
+fn test_bounty_storage_lifetime_boundary_exact_ledger_and_token_units() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, maintainer, contributor, token_id, fee_recipient, _) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    let token = TokenClient::new(&env, &token_id);
+
+    // Exact non-round token units (1_234_567) and 350 bps fee (3.5%)
+    let amount_release = 1_234_567i128;
+    let fee_bps = 350u32;
+    let amount_refund = 987_654i128;
+    token_admin.mint(&maintainer, &(amount_release + amount_refund));
+
+    // Set minimum persistent TTL to 1 ledger so both bounties sit at the TTL expiry boundary
+    env.ledger().set_min_persistent_entry_ttl(1);
+    let initial_seq = env.ledger().sequence();
+    let deadline = env.ledger().timestamp() + 2_000;
+
+    let release_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &amount_release,
+        &String::from_str(&env, "ritik4ever/stellar-bounty-board"),
+        &4461,
+        &String::from_str(&env, "Exact-unit near-TTL release"),
+        &deadline,
+        &fee_bps,
+        &None,
+    );
+    client.reserve_bounty(&release_id, &contributor);
+    client.submit_bounty(&release_id, &contributor);
+
+    let refund_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &amount_refund,
+        &String::from_str(&env, "ritik4ever/stellar-bounty-board"),
+        &4462,
+        &String::from_str(&env, "Exact-unit near-TTL refund"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+
+    // Verify both entries sit at <= 1 ledger TTL before settlement
+    let release_ttl_before = env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .get_ttl(&DataKey::Bounty(release_id))
+    });
+    let refund_ttl_before = env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .get_ttl(&DataKey::Bounty(refund_id))
+    });
+    assert!(release_ttl_before <= 1);
+    assert!(refund_ttl_before <= 1);
+    assert_eq!(env.ledger().sequence(), initial_seq);
+
+    // 1. Settle unresolved Submitted bounty near TTL expiry via release_bounty
+    client.release_bounty(&release_id, &maintainer);
+    let release_ttl_after = env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .get_ttl(&DataKey::Bounty(release_id))
+    });
+    assert!(release_ttl_after >= BOUNTY_STORAGE_TTL_EXTEND_TO);
+
+    let expected_fee = (amount_release * fee_bps as i128) / 10_000; // 43_209
+    let expected_payout = amount_release - expected_fee; // 1_191_358
+    assert_eq!(expected_fee, 43_209);
+    assert_eq!(expected_payout, 1_191_358);
+    assert_eq!(token.balance(&contributor), expected_payout);
+    assert_eq!(token.balance(&fee_recipient), expected_fee);
+    assert_eq!(token.balance(&client.address), amount_refund);
+    assert_eq!(
+        client.get_bounty(&release_id).status,
+        BountyStatus::Released
+    );
+
+    // 2. Advance timestamp to exact deadline + 1 and settle near-TTL Open bounty via refund_bounty
+    env.ledger().set_timestamp(deadline + 1);
+    client.refund_bounty(&refund_id, &maintainer);
+    let refund_ttl_after = env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .get_ttl(&DataKey::Bounty(refund_id))
+    });
+    assert!(refund_ttl_after >= BOUNTY_STORAGE_TTL_EXTEND_TO);
+    assert_eq!(token.balance(&maintainer), amount_refund);
+    assert_eq!(token.balance(&client.address), 0);
+    assert_eq!(client.get_bounty(&refund_id).status, BountyStatus::Refunded);
+}
