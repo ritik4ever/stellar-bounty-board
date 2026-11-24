@@ -128,6 +128,16 @@ monitor delivery outcomes and distinguish pending work from committed transition
    Operators can correlate events by matching `deliveryRef` and directly check
    whether a delivery is still in `pending` status or has advanced to `committed`.
 
+### Security input validation (#1942)
+
+Untrusted input arriving at `POST /api/webhooks/github` is strictly validated to prevent unauthorized bounty state manipulation, denial of service, or secret leakage:
+
+- **Unauthenticated payloads:** Missing or invalid `X-Hub-Signature-256` signatures fail closed with `401 Unauthorized`. Delivery IDs are never recorded into the journal for unauthenticated requests, and secrets are never echoed in errors or responses.
+- **Header validation:** The `X-GitHub-Delivery` header is constrained to valid identifiers (`/^[a-zA-Z0-9_-]{1,256}$/`). Headers containing control characters, path traversal (`../`), or excessive length are rejected with `400 Bad Request`.
+- **Payload structure:** Incoming JSON must be a valid non-null object; malformed JSON or arrays return `400 Bad Request`.
+- **PR URL schema enforcement:** In closed/merged PR deliveries, `pull_request.html_url` is validated against `githubPrUrlSchema`. Malformed URLs (such as `javascript:...`, non-GitHub hostnames, or invalid structures) are rejected with `400 Bad Request` and logged at `warn` level; they are never deferred into the journal as pending retries.
+- **Two deliveries for the same merged PR:** When two deliveries arrive for the same merged PR, the bounty store guards ensure transitions (`pr_merged`, `released`) occur exactly once. Untrusted or tampered subsequent deliveries are rejected without altering bounty state.
+
 ---
 
 ## Configuration

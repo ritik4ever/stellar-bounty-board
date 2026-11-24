@@ -155,6 +155,12 @@ invocation stays bounded; use several runs for larger ranges.
   `missing_rpc_page`, `malformed_rpc_response`, `malformed_event`,
   `store_error`).
 
+### Lifecycle replay and failure verification (#1939)
+
+- **Complete events without duplicate transitions:** Under concurrency between live polling and operator backfill, events across the full bounty lifecycle (`created`, `reserve`, `submit`, `release`) are verified. When live polling has already indexed initial transitions (e.g., `created` and `reserve` in ledger 100), and backfill subsequently processes an overlapping range (ledgers 100-101) containing `submit` and `release`, existing events are preserved and the remaining transitions are appended in strict chronological order with zero duplicate transitions.
+- **Missing RPC page and failure isolation:** If an RPC page fails or omits the `events` field, backfill rejects with `missing_rpc_page` or `malformed_rpc_response`. Partial or unverified events are never written to disk, and the sidecar cursor remains anchored at the last verified ledger boundary.
+- **Whole-ledger retry across restarts:** When retrying after a failure or process restart, backfill re-reads from the last committed ledger. Events already present in the store are deduplicated by chain position and event ID (`backfillEventKey`), allowing the remaining events to be merged safely without duplicating any lifecycle transition.
+
 ## Architecture
 
 - The worker is completely isolated from the main API server.

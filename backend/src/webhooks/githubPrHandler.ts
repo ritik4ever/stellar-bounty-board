@@ -1,6 +1,7 @@
 import { listBounties, releaseBounty, markBountyPrMerged } from '../services/bountyStore';
 import { logStructured } from '../logger';
 import { traceWebhookOutcome } from '../services/stateUpdateTrace';
+import { githubPrUrlSchema } from '../validation/prUrl';
 import {
   beginDelivery,
   deferDelivery,
@@ -293,6 +294,24 @@ export async function handleGitHubPrEvent(
       });
       if (deliveryId) deferDelivery(deliveryId, { reason: 'missing_pr_url' });
       return { duplicate: false, deferred: true, reason: 'missing_pr_url' };
+    }
+
+    if (!githubPrUrlSchema.safeParse(prUrl).success) {
+      logStructured('warn', 'github_webhook_pr_malformed_url', {
+        deliveryId,
+        prUrl,
+        reason: 'pull_request.html_url is malformed; delivery rejected',
+      });
+      traceWebhookOutcome({
+        outcome: 'failed',
+        bountyId: 'unmatched',
+        transition: 'pr_merged',
+        deliveryRef: deliveryId,
+        error: 'malformed_pr_url',
+        reason: 'invalid_pr_url_format',
+      });
+      if (deliveryId) markAsProcessed(deliveryId, { prUrl, reason: 'malformed_pr_url' });
+      return { duplicate: false, deferred: false, reason: 'malformed_pr_url' };
     }
 
     return await applyMergedPr(prUrl, deliveryId);
