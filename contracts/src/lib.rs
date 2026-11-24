@@ -23,6 +23,12 @@ pub const MIN_DISPUTE_WINDOW_OVERRIDE: u64 = 60;
 /// Maximum allowed per-bounty dispute window override (30 days in seconds).
 pub const MAX_DISPUTE_WINDOW_OVERRIDE: u64 = 2_592_000;
 
+/// Keep bounty records alive while a state-changing operation is using them.
+/// These values are deliberately below the network maximum so a mutation can
+/// refresh an entry without making its rent horizon unbounded.
+const BOUNTY_STORAGE_TTL_THRESHOLD: u32 = 1_000;
+const BOUNTY_STORAGE_TTL_EXTEND_TO: u32 = 4_096;
+
 #[contracttype]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BountyStatus {
@@ -977,6 +983,7 @@ impl StellarBountyBoardContract {
     pub fn release_bounty(env: Env, bounty_id: u64, maintainer: Address) {
         maintainer.require_auth();
         let mut bounty = read_bounty(&env, bounty_id);
+        refresh_bounty_ttl(&env, bounty_id);
 
         if bounty.maintainer != maintainer {
             panic_error(&env, ContractError::MaintainerMismatch);
@@ -1099,6 +1106,7 @@ impl StellarBountyBoardContract {
     pub fn refund_bounty(env: Env, bounty_id: u64, maintainer: Address) {
         maintainer.require_auth();
         let mut bounty = read_bounty(&env, bounty_id);
+        refresh_bounty_ttl(&env, bounty_id);
 
         if bounty.maintainer != maintainer {
             panic_error(&env, ContractError::MaintainerMismatch);
@@ -1139,6 +1147,7 @@ impl StellarBountyBoardContract {
     pub fn cancel_bounty(env: Env, bounty_id: u64, maintainer: Address) {
         maintainer.require_auth();
         let mut bounty = read_bounty(&env, bounty_id);
+        refresh_bounty_ttl(&env, bounty_id);
         expire_if_needed(&env, &mut bounty);
 
         if bounty.maintainer != maintainer {
@@ -1281,6 +1290,7 @@ impl StellarBountyBoardContract {
         arbiter.require_auth();
 
         let mut bounty = read_bounty(&env, bounty_id);
+        refresh_bounty_ttl(&env, bounty_id);
 
         if bounty.status != BountyStatus::Disputed {
             panic_error(&env, ContractError::BountyMustBeDisputed);
@@ -1456,6 +1466,7 @@ impl StellarBountyBoardContract {
         }
         // Load bounty
         let mut bounty = read_bounty(&env, bounty_id);
+        refresh_bounty_ttl(&env, bounty_id);
         // Resolve based on decision
         match pending.decision {
             DisputeDecision::Release => {
@@ -2368,6 +2379,14 @@ fn read_bounty(env: &Env, bounty_id: u64) -> Bounty {
         .persistent()
         .get(&DataKey::Bounty(bounty_id))
         .unwrap_or_else(|| panic_error(env, ContractError::BountyNotFound))
+}
+
+fn refresh_bounty_ttl(env: &Env, bounty_id: u64) {
+    env.storage().persistent().extend_ttl(
+        &DataKey::Bounty(bounty_id),
+        BOUNTY_STORAGE_TTL_THRESHOLD,
+        BOUNTY_STORAGE_TTL_EXTEND_TO,
+    );
 }
 
 fn write_bounty(env: &Env, bounty_id: u64, bounty: &Bounty) {
