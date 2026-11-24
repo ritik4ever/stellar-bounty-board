@@ -15,6 +15,9 @@ const SOROBAN_RPC_URL = process.env.SOROBAN_RPC_URL || "https://rpc-futurenet.st
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const INDEX_FILE = path.join(__dirname, "indexed-events.json");
+const CURSOR_FILE =
+  process.env.SOROBAN_INDEXER_CURSOR_FILE || path.join(__dirname, "indexed-events.cursor.json");
+const PAGE_LIMIT = 100;
 
 // Operational settings are env-driven (see indexerConfig.js for the variables
 // and their defaults, which match the values previously hardcoded here).
@@ -133,52 +136,109 @@ export function normalizeEvent(event) {
   return normalized;
 }
 
-// Save events to file (or replace with DB logic)
-function saveEvents(events) {
-  if (parentPort) {
-    // In worker mode, send events to the main thread instead of persisting locally
-    parentPort.postMessage({ type: "indexedEvents", events });
-  } else {
-    fs.writeFileSync(INDEX_FILE, JSON.stringify(events, null, 2));
-  }
+function writeJsonAtomic(file, value) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(value, null, 2));
+  fs.renameSync(tmp, file);
 }
 
-// Load last indexed event (for polling)
-function loadLastEventId() {
-  if (!fs.existsSync(INDEX_FILE)) return null;
-  const events = JSON.parse(fs.readFileSync(INDEX_FILE, "utf-8"));
-  return events.length ? events[events.length - 1].id : null;
+function readEvents(indexFile) {
+  if (!fs.existsSync(indexFile)) return [];
+  const parsed = JSON.parse(fs.readFileSync(indexFile, "utf-8"));
+  return Array.isArray(parsed) ? parsed : [];
 }
 
-// Poll Soroban contract events
-async function pollEvents() {
-  let lastEventId = loadLastEventId();
-  try {
-    const res = await retryWithBackoff(() =>
-      axios.get(`${SOROBAN_RPC_URL}/events`, {
-        params: {
-          contract_id: CONTRACT_ID,
-          from_id: lastEventId,
-        },
-      })
-    );
-    const events = res.data.events || [];
-    if (events.length) {
-      const normalized = events.map(normalizeEvent);
-      let allEvents = [];
-      if (!parentPort) {
-        if (fs.existsSync(INDEX_FILE)) {
-          allEvents = JSON.parse(fs.readFileSync(INDEX_FILE, "utf-8"));
-        }
-        allEvents.push(...normalized);
-      } else {
-        allEvents = normalized;
-      }
-      saveEvents(allEvents);
-      console.log(`[Indexer] Indexed ${events.length} new events.`);
-    } else {
-      console.log("[Indexer] No new events.");
+function loadCursor(cursorFile, events) {
+  if (fs.existsSync(cursorFile)) {
+    try {
+      const cursor = JSON.parse(fs.readFileSync(cursorFile, "utf-8")).cursor;
+      if (typeof cursor === "string" && cursor) return cursor;
+    } catch (err) {
+      console.warn(`[Indexer] Ignoring unreadable cursor checkpoint: ${err.message}`);
     }
+  }
+  // Backward compatibility: older installs only have the events file.
+  return events.length ? events[events.length - 1].id ?? null : null;
+}
+
+// Poll one page of Soroban contract events.
+//
+// The cursor is committed only after the page's events are on disk, so a
+// crash or RPC failure replays the page instead of skipping it. Replayed event
+// IDs are deduplicated, so the events file gains each effect at most once.
+async function pollEvents(options = {}) {
+  const indexFile = options.indexFile ?? INDEX_FILE;
+  const cursorFile = options.cursorFile ?? CURSOR_FILE;
+  const rpcUrl = options.rpcUrl ?? SOROBAN_RPC_URL;
+  const contractId = options.contractId ?? CONTRACT_ID;
+  const maxRetries = options.maxRetries ?? MAX_RETRIES;
+  const events = readEvents(indexFile);
+  const cursor = loadCursor(cursorFile, events);
+  const startLedger = options.startLedger ?? process.env.SOROBAN_START_LEDGER;
+
+  if (!cursor && startLedger === undefined) {
+    console.error("[Indexer] No cursor checkpoint or SOROBAN_START_LEDGER; skipping poll.");
+    return;
+  }
+
+  const params = {
+    filters: [{ type: "contract", contractIds: [contractId] }],
+  };
+  if (cursor) {
+    params.pagination = { cursor, limit: PAGE_LIMIT };
+  } else {
+    params.startLedger = Number(startLedger);
+    if (!Number.isFinite(params.startLedger)) {
+      console.error("[Indexer] SOROBAN_START_LEDGER is not a number; skipping poll.");
+      return;
+    }
+  }
+
+  try {
+    const res = await retryWithBackoff(
+      () =>
+        axios.post(rpcUrl, {
+          jsonrpc: "2.0",
+          id: "indexer",
+          method: "getEvents",
+          params,
+        }),
+      maxRetries,
+    );
+    const result = res?.data?.result;
+    if (!result) {
+      throw new Error(res?.data?.error?.message ?? "Malformed getEvents response");
+    }
+
+    const page = Array.isArray(result.events) ? result.events : [];
+    const knownIds = new Set(events.map((event) => event.id).filter(Boolean));
+    const newEvents = page.map(normalizeEvent).filter((event) => {
+      if (!event.id) return true;
+      if (knownIds.has(event.id)) return false;
+      knownIds.add(event.id);
+      return true;
+    });
+    const nextEvents = events.concat(newEvents);
+    const lastPageEvent = page[page.length - 1];
+    const nextCursor =
+      (typeof result.cursor === "string" && result.cursor) ||
+      lastPageEvent?.cursor ||
+      lastPageEvent?.id ||
+      cursor;
+
+    if (newEvents.length || nextCursor !== cursor) {
+      writeJsonAtomic(indexFile, nextEvents);
+      if (nextCursor && nextCursor !== cursor) {
+        writeJsonAtomic(cursorFile, { cursor: nextCursor });
+      }
+    }
+
+    if (parentPort) {
+      parentPort.postMessage({ type: "indexedEvents", events: newEvents, cursor: nextCursor });
+    }
+
+    console.log(`[Indexer] Indexed ${newEvents.length} new events; cursor=${nextCursor ?? "none"}.`);
   } catch (err) {
     console.error("[Indexer] Polling failed after all retries:", err.message);
   }
@@ -189,7 +249,7 @@ function startWorker() {
   // Deliberately omits SOROBAN_RPC_URL: some RPC providers embed an API key in it.
   console.log(
     `[Indexer] Effective config: pollIntervalMs=${POLL_INTERVAL_MS} ` +
-      `maxRetries=${MAX_RETRIES} initialBackoffMs=${INITIAL_BACKKOFF_MS}`,
+      `maxRetries=${MAX_RETRIES} initialBackoffMs=${INITIAL_BACKOFF_MS}`,
   );
   setInterval(pollEvents, POLL_INTERVAL_MS);
 }
