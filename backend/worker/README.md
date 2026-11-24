@@ -78,6 +78,73 @@ are neither lost nor duplicated.
 `backend/test/workerBackfill.test.ts` covers overlapping pages, a failure
 between pages, and resumption from the stored cursor.
 
+## Event backfill
+
+`eventBackfill.js` re-reads a bounded ledger range and merges the events into
+the same `indexed-events.json` file the live worker uses. It is an operator
+tool, not a public endpoint.
+
+### Security model
+
+Backfill input is untrusted, so every run must be authenticated and validated
+before any RPC call:
+
+- `SOROBAN_BACKFILL_TOKEN` must be set; if it is missing, **every** request is
+  rejected (fail closed).
+- The operator token is supplied only through the environment, never through
+  `--input` or the command line, so it does not land in shell history or
+  process listings. It is compared in constant time and never appears in logs
+  or error messages.
+- The request may contain only `startLedger`, `endLedger` and `cursor`.
+  Unknown fields (an `rpcUrl`, `contractId`, `events`, …) are rejected so a
+  caller cannot redirect the job or inject events.
+- The RPC endpoint and contract ID come from the environment
+  (`SOROBAN_RPC_URL`, `SOROBAN_CONTRACT_ID`). RPC failures are reported as a
+  generic message because providers may embed an API key in the endpoint URL.
+- A response is validated before anything is written: `result.latestLedger`
+  must be present, `result.events` must be an array (a missing page is an
+  error, not an empty page), and every event must belong to the configured
+  contract, have a usable id, an integer ledger and an XDR topic list. An
+  undecodable event rejects the whole page.
+
+### Usage
+
+```bash
+SOROBAN_BACKFILL_TOKEN=... SOROBAN_CONTRACT_ID=C... node eventBackfill.js \
+  --input '{"startLedger": 1000, "endLedger": 1500}'
+```
+
+`--input` also accepts `@path/to/request.json`. The request schema:
+
+| Field        | Type                     | Rules                                                  |
+|--------------|--------------------------|--------------------------------------------------------|
+| `startLedger`| positive integer         | Inclusive start of the range                           |
+| `endLedger`  | positive integer         | Inclusive end; `startLedger <= endLedger`             |
+| `cursor`     | short paging token       | Optional, max 256 chars of `[A-Za-z0-9+/=_-]`         |
+
+The range is capped at 5,000 ledgers and 50 RPC pages per run so a single
+invocation stays bounded; use several runs for larger ranges.
+
+### Overlap, retries and failure isolation
+
+- **Overlapping live polling:** events are deduplicated by chain identity
+  (`id`, or ledger + event index when there is no id). Existing entries in
+  `indexed-events.json`, including those written by live polling, are never
+  removed or rewritten; only unseen events are appended.
+- **Whole-ledger retry:** a page is merged and the sidecar cursor
+  (`indexed-events.json.backfill-cursor.json`) advanced only after the merge
+  succeeds. If the RPC page, decoding, or the merge fails, the cursor stays at
+  the last fully merged ledger and the next run re-reads that ledger from the
+  start. Deduplication makes the re-read a no-op.
+- **Crash between merge and cursor write:** the events are already durable and
+  uniquely identified; the retry counts them as skipped and advances the
+  cursor.
+- **Out-of-range events:** events newer than `endLedger` are not persisted.
+- The exit code is non-zero for any rejected or failed run, and the error
+  message includes a stable code (`unauthorized`, `invalid_request`,
+  `missing_rpc_page`, `malformed_rpc_response`, `malformed_event`,
+  `store_error`).
+
 ## Architecture
 
 - The worker is completely isolated from the main API server.

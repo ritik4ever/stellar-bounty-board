@@ -38,6 +38,47 @@ Run Playwright end-to-end tests (requires the backend + frontend running):
 npx playwright test
 ```
 
+### Bounty lifecycle fixtures (#1952)
+
+`playwright/tests/bounty-lifecycle.spec.ts` drives create → reserve → submit →
+release through the real UI on **testnet doubles**:
+
+- `playwright/support/lifecycle-api-double.ts` is an in-memory API/escrow double
+  that validates each transition and the release signature. No backend, Soroban
+  RPC, or funded account is involved.
+- `playwright/support/lifecycle-fixtures.ts` installs a connected Freighter
+  double whose signatures are deterministic and stay inside the browser.
+
+Only the frontend dev server is required:
+
+```bash
+npm --prefix frontend run dev -- --config vite.config.ts
+npx playwright test playwright/tests/bounty-lifecycle.spec.ts playwright/tests/lifecycle-fixtures.spec.ts
+```
+
+The explicit `--config vite.config.ts` avoids the stale, checked-in
+`frontend/vite.config.js`, which Vite otherwise prefers over the TypeScript
+config.
+
+Setup is validated before a page is opened or the wallet can sign anything.
+Invalid input throws `LifecycleFixtureError` while the spec loads, with one of
+these codes: `invalid_identity`, `duplicate_identity`, `invalid_network`,
+`unsafe_environment`, `invalid_url`, `wallet_mismatch`.
+
+| Variable | Default | Validation |
+| -------- | ------- | ---------- |
+| `E2E_MAINTAINER_ADDRESS` | `GB5IWB…JOOK` | Valid Stellar Ed25519 StrKey (G + 55 base32 chars, CRC-16 checksum) |
+| `E2E_CONTRIBUTOR_ADDRESS` | `GBE6AZ…YWSF` | Same, and must differ from the maintainer |
+| `VITE_STELLAR_NETWORK` | `TESTNET` | Only `TESTNET` is accepted |
+| `VITE_STELLAR_NETWORK_PASSPHRASE` | `Test SDF Network ; September 2015` | The public-network passphrase is rejected |
+| `BASE_URL` | `http://localhost:3000` | `http(s)` URL on a loopback or explicitly allowed host |
+| `API_URL` | `http://localhost:3001` | Same; embedded credentials are rejected |
+| `E2E_ALLOWED_HOSTS` | _(empty)_ | Comma-separated extra hosts, e.g. `frontend,backend` for CI service names |
+
+The wallet double only accepts the validated maintainer key, and the API double
+asserts `x-stellar-public-key`, the signed payload, and the signature header on
+release. A mismatched signer therefore fails before any signature is produced.
+
 ## Test File Conventions
 
 - Test files live next to the source they cover, mirrored under the `test/` folder.

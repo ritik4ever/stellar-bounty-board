@@ -646,32 +646,35 @@ function App() {
     }
   }
 
-  const renderActionButton = useCallback(
-    (bounty: Bounty, action: { action: BountyAction; label: string; title: string }) => {
-      const onClick = (event: React.MouseEvent<HTMLButtonElement>) => {
-        event.stopPropagation();
-        if (action.action === 'reserve') void handleReserve(bounty);
-        else if (action.action === 'submit') void handleSubmit(bounty);
-        else if (action.action === 'release') void handleRelease(bounty);
-        else if (action.action === 'refund') void handleRefund(bounty);
-      };
+  // Deliberately not memoized: these handlers read the live Freighter state, so
+  // a memoized renderer would keep calling the handlers captured on first
+  // render (when the wallet was still disconnected).
+  function renderActionButton(
+    bounty: Bounty,
+    action: { action: BountyAction; label: string; title: string }
+  ) {
+    const onClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      if (action.action === 'reserve') void handleReserve(bounty);
+      else if (action.action === 'submit') void handleSubmit(bounty);
+      else if (action.action === 'release') void handleRelease(bounty);
+      else if (action.action === 'refund') void handleRefund(bounty);
+    };
 
-      return (
-        <button
-          key={action.action}
-          type="button"
-          className={action.action === 'refund' ? 'ghost-button' : 'secondary-button'}
-          title={action.title}
-          aria-label={`${action.label}: ${action.title}`}
-          data-testid={`action-button-${action.action}`}
-          onClick={onClick}
-        >
-          {action.label}
-        </button>
-      );
-    },
-    [refresh]
-  );
+    return (
+      <button
+        key={action.action}
+        type="button"
+        className={action.action === 'refund' ? 'ghost-button' : 'secondary-button'}
+        title={action.title}
+        aria-label={`${action.label}: ${action.title}`}
+        data-testid={`action-button-${action.action}`}
+        onClick={onClick}
+      >
+        {action.label}
+      </button>
+    );
+  }
 
   const repoRoute = useMemo(() => {
     const match = pathname.match(/^\/repo\/([^/]+)\/([^/]+)$/);
