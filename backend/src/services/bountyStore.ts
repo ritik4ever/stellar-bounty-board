@@ -357,9 +357,28 @@ function readStore(): BountyRecord[] {
   }
 }
 
+function atomicWriteJson(targetPath: string, data: unknown): void {
+  const dir = path.dirname(targetPath);
+  const base = path.basename(targetPath);
+  const tempPath = path.join(dir, `.${base}.tmp-${process.pid}-${Date.now()}`);
+  try {
+    fs.writeFileSync(tempPath, JSON.stringify(data, null, 2));
+    fs.renameSync(tempPath, targetPath);
+  } catch (err) {
+    try {
+      if (fs.existsSync(tempPath)) {
+        fs.unlinkSync(tempPath);
+      }
+    } catch {
+      // Best-effort temp cleanup
+    }
+    throw err;
+  }
+}
+
 function writeStore(records: BountyRecord[]): void {
   try {
-    fs.writeFileSync(getStorePath(), JSON.stringify(records, null, 2));
+    atomicWriteJson(getStorePath(), records);
   } catch (err) {
     throw wrapServiceError('bounty_store.write_store', 'json-store', err);
   }
@@ -376,7 +395,7 @@ function readAuditStore(): BountyAuditLogRecord[] {
 
 function writeAuditStore(records: BountyAuditLogRecord[]): void {
   try {
-    fs.writeFileSync(getAuditStorePath(), JSON.stringify(records, null, 2));
+    atomicWriteJson(getAuditStorePath(), records);
   } catch (err) {
     throw wrapServiceError('bounty_store.write_audit_store', 'json-store', err);
   }
