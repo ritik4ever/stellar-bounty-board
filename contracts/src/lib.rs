@@ -26,8 +26,8 @@ pub const MAX_DISPUTE_WINDOW_OVERRIDE: u64 = 2_592_000;
 /// Keep bounty records alive while a state-changing operation is using them.
 /// These values are deliberately below the network maximum so a mutation can
 /// refresh an entry without making its rent horizon unbounded.
-const BOUNTY_STORAGE_TTL_THRESHOLD: u32 = 1_000;
-const BOUNTY_STORAGE_TTL_EXTEND_TO: u32 = 4_096;
+pub const BOUNTY_STORAGE_TTL_THRESHOLD: u32 = 1_000;
+pub const BOUNTY_STORAGE_TTL_EXTEND_TO: u32 = 4_096;
 
 #[contracttype]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -908,6 +908,7 @@ impl StellarBountyBoardContract {
         if bounty.maintainer != maintainer {
             panic_error(&env, ContractError::MaintainerMismatch);
         }
+        refresh_bounty_ttl(&env, bounty_id);
 
         if bounty.status != BountyStatus::Reserved {
             panic_error(&env, ContractError::BountyMustBeReserved);
@@ -1021,11 +1022,11 @@ impl StellarBountyBoardContract {
     pub fn release_bounty(env: Env, bounty_id: u64, maintainer: Address) {
         maintainer.require_auth();
         let mut bounty = read_bounty(&env, bounty_id);
-        refresh_bounty_ttl(&env, bounty_id);
 
         if bounty.maintainer != maintainer {
             panic_error(&env, ContractError::MaintainerMismatch);
         }
+        refresh_bounty_ttl(&env, bounty_id);
         if bounty.status != BountyStatus::Submitted {
             panic_error(&env, ContractError::BountyMustBeSubmitted);
         }
@@ -1170,7 +1171,6 @@ impl StellarBountyBoardContract {
     pub fn refund_bounty(env: Env, bounty_id: u64, maintainer: Address) {
         maintainer.require_auth();
         let mut bounty = read_bounty(&env, bounty_id);
-        refresh_bounty_ttl(&env, bounty_id);
         expire_if_needed(&env, &mut bounty);
 
         // Only the bounty's own maintainer may reclaim the escrow. A contributor
@@ -1179,6 +1179,7 @@ impl StellarBountyBoardContract {
         if bounty.maintainer != maintainer {
             panic_error(&env, ContractError::MaintainerMismatch);
         }
+        refresh_bounty_ttl(&env, bounty_id);
 
         // Refunds are for bounties that were never reserved. Once a contributor
         // is attached (or the bounty left Open/Expired), settlement belongs to
@@ -1225,12 +1226,12 @@ impl StellarBountyBoardContract {
     pub fn cancel_bounty(env: Env, bounty_id: u64, maintainer: Address) {
         maintainer.require_auth();
         let mut bounty = read_bounty(&env, bounty_id);
-        refresh_bounty_ttl(&env, bounty_id);
         expire_if_needed(&env, &mut bounty);
 
         if bounty.maintainer != maintainer {
             panic_error(&env, ContractError::MaintainerMismatch);
         }
+        refresh_bounty_ttl(&env, bounty_id);
         if bounty.status != BountyStatus::Open {
             panic_error(&env, ContractError::BountyNotOpen);
         }
@@ -1269,6 +1270,7 @@ impl StellarBountyBoardContract {
         if bounty.maintainer != maintainer {
             panic_error(&env, ContractError::MaintainerMismatch);
         }
+        refresh_bounty_ttl(&env, bounty_id);
 
         if bounty.status == BountyStatus::Released
             || bounty.status == BountyStatus::Refunded
