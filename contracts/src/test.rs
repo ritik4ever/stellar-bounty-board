@@ -3903,3 +3903,340 @@ fn test_release_bounty_auth_self_signed_stranger_rejected() {
     mock_release_auth(&env, &client, &stranger, bounty_id, &stranger);
     client.release_bounty(&bounty_id, &stranger);
 }
+
+// ─── refund_bounty boundaries & authorization ───────────────────────────
+// `refund_bounty` is maintainer-only and only valid for an expired bounty
+// that was never reserved. These tests pin the exact-unit refund, the
+// single-refund guarantee, and the signer/role checks.
+
+type RefundAuthFixture = (
+    StellarBountyBoardContractClient<'static>,
+    u64,
+    Address, // maintainer
+    Address, // contributor
+    Address, // token_id
+    Address, // admin
+    Address, // arbiter
+);
+
+/// Builds an Open bounty (never reserved) that has just expired, with the
+/// maintainer funded by exactly `amount` tokens.
+fn refund_auth_fixture(env: &Env, amount: i128) -> RefundAuthFixture {
+    env.mock_all_auths();
+    let (client, admin, maintainer, contributor, token_id, _fee_recipient, arbiter) =
+        setup_test(env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(env, &token_id);
+    token_admin.mint(&maintainer, &amount);
+
+    let deadline = env.ledger().timestamp() + 1_000;
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &amount,
+        &String::from_str(env, "repo"),
+        &1,
+        &String::from_str(env, "title"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+    env.ledger().set_timestamp(deadline + 1);
+
+    (
+        client,
+        bounty_id,
+        maintainer,
+        contributor,
+        token_id,
+        admin,
+        arbiter,
+    )
+}
+
+/// Authorizes exactly `refund_bounty(bounty_id, arg)` for `signer`.
+fn mock_refund_auth(
+    env: &Env,
+    client: &StellarBountyBoardContractClient<'static>,
+    signer: &Address,
+    bounty_id: u64,
+    arg: &Address,
+) {
+    env.mock_auths(&[MockAuth {
+        address: signer,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "refund_bounty",
+            args: (bounty_id, arg.clone()).into_val(env),
+            sub_invokes: &[],
+        },
+    }]);
+}
+
+#[test]
+fn test_refund_expired_unreserved_exact_units() {
+    let env = Env::default();
+    let amount = 777i128;
+    let (client, bounty_id, maintainer, _contributor, token_id, _admin, _arbiter) =
+        refund_auth_fixture(&env, amount);
+    let token = soroban_sdk::token::TokenClient::new(&env, &token_id);
+    let contract_id = client.address.clone();
+
+    // Escrow holds exactly the bounty amount before the refund.
+    assert_eq!(token.balance(&contract_id), amount);
+    assert_eq!(token.balance(&maintainer), 0);
+
+    client.refund_bounty(&bounty_id, &maintainer);
+
+    assert_eq!(token.balance(&maintainer), amount);
+    assert_eq!(token.balance(&contract_id), 0);
+    assert_eq!(client.get_bounty(&bounty_id).status, BountyStatus::Refunded);
+}
+
+#[test]
+fn test_refund_expired_unreserved_is_single_refund() {
+    let env = Env::default();
+    let amount = 500i128;
+    let (client, bounty_id, maintainer, _contributor, token_id, _admin, _arbiter) =
+        refund_auth_fixture(&env, amount);
+    let token = soroban_sdk::token::TokenClient::new(&env, &token_id);
+    let contract_id = client.address.clone();
+
+    client.refund_bounty(&bounty_id, &maintainer);
+    assert_eq!(token.balance(&maintainer), amount);
+    assert_eq!(token.balance(&contract_id), 0);
+
+    // A second refund must fail with BountyAlreadyFinalized (#23) and must
+    // not move any funds.
+    let retry = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.refund_bounty(&bounty_id, &maintainer);
+    }));
+    let payload = retry.expect_err("second refund must panic");
+    let msg = if let Some(s) = payload.downcast_ref::<std::string::String>() {
+        s.clone()
+    } else if let Some(s) = payload.downcast_ref::<&str>() {
+        std::string::String::from(*s)
+    } else {
+        std::string::String::new()
+    };
+    let expected = std::format!("Error(Contract, #{})", ContractError::BountyAlreadyFinalized as u32);
+    assert!(msg.contains(&expected), "unexpected panic: {}", msg);
+
+    assert_eq!(token.balance(&maintainer), amount);
+    assert_eq!(token.balance(&contract_id), 0);
+    assert_eq!(client.get_bounty(&bounty_id).status, BountyStatus::Refunded);
+}
+
+#[test]
+fn test_refund_bounty_auth_correct_maintainer_succeeds() {
+    let env = Env::default();
+    let amount = 500i128;
+    let (client, bounty_id, maintainer, _contributor, token_id, _admin, _arbiter) =
+        refund_auth_fixture(&env, amount);
+    let token = soroban_sdk::token::TokenClient::new(&env, &token_id);
+
+    mock_refund_auth(&env, &client, &maintainer, bounty_id, &maintainer);
+    client.refund_bounty(&bounty_id, &maintainer);
+
+    assert_eq!(client.get_bounty(&bounty_id).status, BountyStatus::Refunded);
+    assert_eq!(token.balance(&maintainer), amount);
+    assert_eq!(token.balance(&client.address), 0);
+}
+
+#[test]
+#[should_panic(expected = "Error(Auth, InvalidAction)")]
+fn test_refund_bounty_auth_missing_signer_rejected() {
+    let env = Env::default();
+    let (client, bounty_id, maintainer, _contributor, _token_id, _admin, _arbiter) =
+        refund_auth_fixture(&env, 500);
+
+    env.set_auths(&[]);
+    client.refund_bounty(&bounty_id, &maintainer);
+}
+
+#[test]
+#[should_panic(expected = "Error(Auth, InvalidAction)")]
+fn test_refund_bounty_auth_wrong_signer_contributor_rejected() {
+    let env = Env::default();
+    let (client, bounty_id, maintainer, contributor, _token_id, _admin, _arbiter) =
+        refund_auth_fixture(&env, 500);
+
+    mock_refund_auth(&env, &client, &contributor, bounty_id, &maintainer);
+    client.refund_bounty(&bounty_id, &maintainer);
+}
+
+#[test]
+#[should_panic(expected = "Error(Auth, InvalidAction)")]
+fn test_refund_bounty_auth_wrong_signer_arbiter_rejected() {
+    let env = Env::default();
+    let (client, bounty_id, maintainer, _contributor, _token_id, _admin, arbiter) =
+        refund_auth_fixture(&env, 500);
+
+    mock_refund_auth(&env, &client, &arbiter, bounty_id, &maintainer);
+    client.refund_bounty(&bounty_id, &maintainer);
+}
+
+#[test]
+#[should_panic(expected = "Error(Auth, InvalidAction)")]
+fn test_refund_bounty_auth_wrong_signer_admin_rejected() {
+    let env = Env::default();
+    let (client, bounty_id, maintainer, _contributor, _token_id, admin, _arbiter) =
+        refund_auth_fixture(&env, 500);
+
+    mock_refund_auth(&env, &client, &admin, bounty_id, &maintainer);
+    client.refund_bounty(&bounty_id, &maintainer);
+}
+
+#[test]
+#[should_panic(expected = "Error(Auth, InvalidAction)")]
+fn test_refund_bounty_auth_wrong_signer_stranger_rejected() {
+    let env = Env::default();
+    let (client, bounty_id, maintainer, _contributor, _token_id, _admin, _arbiter) =
+        refund_auth_fixture(&env, 500);
+    let stranger = Address::generate(&env);
+
+    mock_refund_auth(&env, &client, &stranger, bounty_id, &maintainer);
+    client.refund_bounty(&bounty_id, &maintainer);
+}
+
+// Self-signed wrong caller: authorized for themselves but not the bounty's
+// maintainer, so the contract rejects with `MaintainerMismatch` (#25) and
+// leaves funds and status untouched.
+
+#[test]
+#[should_panic(expected = "Error(Contract, #25)")]
+fn test_refund_bounty_auth_self_signed_contributor_rejected() {
+    let env = Env::default();
+    let amount = 500i128;
+    let (client, bounty_id, maintainer, contributor, token_id, _admin, _arbiter) =
+        refund_auth_fixture(&env, amount);
+    let token = soroban_sdk::token::TokenClient::new(&env, &token_id);
+
+    mock_refund_auth(&env, &client, &contributor, bounty_id, &contributor);
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.refund_bounty(&bounty_id, &contributor);
+    }));
+    assert!(outcome.is_err());
+    assert_eq!(token.balance(&contributor), 0);
+    assert_eq!(token.balance(&maintainer), 0);
+    assert_eq!(token.balance(&client.address), amount);
+    assert_eq!(client.get_bounty(&bounty_id).status, BountyStatus::Expired);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #25)")]
+fn test_refund_bounty_auth_self_signed_arbiter_rejected() {
+    let env = Env::default();
+    let (client, bounty_id, _maintainer, _contributor, _token_id, _admin, arbiter) =
+        refund_auth_fixture(&env, 500);
+
+    mock_refund_auth(&env, &client, &arbiter, bounty_id, &arbiter);
+    client.refund_bounty(&bounty_id, &arbiter);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #25)")]
+fn test_refund_bounty_auth_self_signed_admin_rejected() {
+    let env = Env::default();
+    let (client, bounty_id, _maintainer, _contributor, _token_id, admin, _arbiter) =
+        refund_auth_fixture(&env, 500);
+
+    mock_refund_auth(&env, &client, &admin, bounty_id, &admin);
+    client.refund_bounty(&bounty_id, &admin);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #25)")]
+fn test_refund_bounty_auth_self_signed_stranger_rejected() {
+    let env = Env::default();
+    let (client, bounty_id, _maintainer, _contributor, _token_id, _admin, _arbiter) =
+        refund_auth_fixture(&env, 500);
+    let stranger = Address::generate(&env);
+
+    mock_refund_auth(&env, &client, &stranger, bounty_id, &stranger);
+    client.refund_bounty(&bounty_id, &stranger);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #21)")]
+fn test_refund_at_exact_deadline_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) =
+        setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &500);
+
+    let deadline = env.ledger().timestamp() + 1_000;
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+
+    // Exactly at the deadline the bounty is not yet expired (strict `>`).
+    env.ledger().set_timestamp(deadline);
+    client.refund_bounty(&bounty_id, &maintainer);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #23)")]
+fn test_refund_reserved_after_deadline_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, maintainer, contributor, token_id, _fee_recipient, _arbiter) =
+        setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &500);
+
+    let deadline = env.ledger().timestamp() + 1_000;
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+    client.reserve_bounty(&bounty_id, &contributor);
+
+    env.ledger().set_timestamp(deadline + 1);
+    client.refund_bounty(&bounty_id, &maintainer);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #23)")]
+fn test_refund_submitted_after_deadline_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, maintainer, contributor, token_id, _fee_recipient, _arbiter) =
+        setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &500);
+
+    let deadline = env.ledger().timestamp() + 1_000;
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+    client.reserve_bounty(&bounty_id, &contributor);
+    client.submit_bounty(&bounty_id, &contributor);
+
+    env.ledger().set_timestamp(deadline + 1);
+    client.refund_bounty(&bounty_id, &maintainer);
+}
