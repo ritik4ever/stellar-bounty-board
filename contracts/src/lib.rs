@@ -1123,6 +1123,13 @@ impl StellarBountyBoardContract {
 
         let token_client = TokenClient::new(&env, &bounty.token);
         let contract_address = env.current_contract_address();
+
+        // Commit the terminal state before interacting with the token contract.
+        // If the transfer returns an error, panic_error aborts the invocation,
+        // which rolls back this write and preserves the escrow state atomically.
+        bounty.status = BountyStatus::Refunded;
+        write_bounty(&env, bounty_id, &bounty);
+
         // Refund returns the FULL original amount there is no fee on refunds
         if !matches!(
             token_client.try_transfer(&contract_address, &maintainer, &bounty.amount),
@@ -1130,9 +1137,6 @@ impl StellarBountyBoardContract {
         ) {
             panic_error(&env, ContractError::RefundTransferFailed);
         }
-
-        bounty.status = BountyStatus::Refunded;
-        write_bounty(&env, bounty_id, &bounty);
 
         env.events().publish(
             (symbol_short!("Bounty"), symbol_short!("Refund")),
