@@ -56,16 +56,60 @@ Results:
 | `invalid_signature`, exit 1 | No matching valid signature | Stop and investigate; do not act on the payload |
 | `Rotation stopped`, exit 1 | Missing/corrupt state, mismatched keys, or clock rollback | Stop and recover a trusted record/configuration |
 
-### Recovery after a revoked-secret delivery
+## Runbook: Bounded rotation window, verifiable signatures, and revoked-secret outcomes (#1968)
 
-1. **Reject the delivery** and leave bounty/funding/escrow state untouched. This is not evidence of a valid user instruction after revocation.
-2. Record the GitHub delivery ID, UTC time, status and reason in incident logs. **Never log raw secrets or sensitive payloads**. Check if a valid delivery of the same ID was already processed through the webhook delivery deduplication/journal system.
-3. Confirm GitHub's configured webhook secret and the backend's current `GITHUB_WEBHOOK_SECRET` match. Verify the rotation record's original expiry and check for clock skew across hosts.
-4. If needed, request an **authentic provider redelivery signed with the current configured secret** and process it through the normal signature verification and idempotent delivery path. Do not create a signature yourself for an untrusted old payload or temporarily reenable a revoked secret.
-5. If a properly authenticated redelivery is unavailable, investigate and reconcile state using independently verified GitHub/bounty records and the project's established administrative process. Do not replay financial actions just to clear an alert.
-6. Remove access to the old secret in secret management after the window has ended. Keep an audit trail of the rotation; do not delete the metadata simply to start the window again.
+This runbook details how to operate within bounded rotation windows, verify signatures, detect observable failure signals, and resolve deliveries signed with revoked secrets.
 
-For a **compromised** previous secret, revoke access immediately at the service/provider boundary; do not grant it an additional grace period. Note that the planning tool cannot change the live backend configuration.
+### Bounded rotation window mechanics
+
+- **Mathematical bounds:** The grace period window begins at `rotationStartedAt` and ends strictly at `expiresAt = rotationStartedAt + gracePeriodMs`. The maximum allowed grace period is 5 minutes (`300,000 ms`), defaulting to 5 minutes if unspecified.
+- **Strict immutability:** The rotation state file is written exclusively using the `wx` file flag. Repeated execution of `node scripts/webhook-secret-rotation.cjs start` returns `rotation_unchanged` and leaves the original timestamp and expiration unmodified. Rerunning never shifts or extends the deadline.
+- **Fail-closed expiration:** At the exact millisecond `Date.now() >= expiresAt`, the previous secret is deemed permanently revoked. The verifier transitions immediately from `grace` to `expired` phase.
+
+### Verifiable signature evaluation order
+
+1. **Active Secret (New):** Evaluated first using constant-time comparison (`crypto.timingSafeEqual`). If it matches, the delivery is authenticated immediately (`active_secret`), regardless of whether the rotation is in progress or has expired.
+2. **Previous Secret (Old):** Evaluated only if the active secret does not match AND the current time is within the active grace period (`Date.now() < expiresAt`). If it matches during grace, it returns `grace_period_previous_secret`.
+3. **Revoked Secret:** If the payload was signed with the previous secret but evaluated after `expiresAt`, the tool halts with `revoked_secret` (exit code 2).
+4. **Invalid Signature:** If the signature matches neither secret, or if the payload was modified, verification fails with `invalid_signature` (exit code 1).
+
+### Observable failure signals
+
+| Component | Failure scenario | Observable signal | Exit code / Status |
+|---|---|---|---|
+| **Rotation tool (`check`)** | Delivery signed with revoked secret | `{"accepted": false, "reason": "revoked_secret"}` | **Exit code 2** |
+| **Rotation tool (`check`)** | Malformed signature or tampered payload | `{"accepted": false, "reason": "invalid_signature"}` | **Exit code 1** |
+| **Rotation tool (`start`)** | Conflicting secret pair or modified grace period | `Rotation stopped: Active secret does not match the recorded rotation` | **Exit code 1** |
+| **Backend verifier** | Expired previous secret or untrusted signature | `WebhookSignatureError: Invalid GitHub webhook signature.` | **HTTP 401 Unauthorized** |
+| **Backend middleware** | Missing raw body or misconfigured secret | `WebhookSignatureError: Missing GitHub webhook secret configuration.` | **HTTP 500 Internal Server Error** |
+
+### Step-by-step incident runbook: Resolving a revoked-secret delivery
+
+When an alert fires indicating a webhook was rejected with `revoked_secret` or HTTP 401 during/after a secret rotation:
+
+1. **Quarantine and Preserve:**
+   - Immediately reject the delivery. Do **not** process the webhook payload or trigger any downstream bounty/escrow actions.
+   - Extract and save the raw webhook delivery payload, the `X-GitHub-Delivery` GUID, and the `X-Hub-Signature-256` header into your secure incident audit record. Do not alter or pretty-print the JSON bytes.
+2. **Inspect with Verification Tool:**
+   - Execute the check tool against the saved delivery:
+     ```bash
+     node scripts/webhook-secret-rotation.cjs check \
+       --payload /path/to/raw-delivery.json \
+       --signature 'sha256=<X-Hub-Signature-256-hex>'
+     ```
+   - Confirm the tool outputs `{"accepted": false, "reason": "revoked_secret"}` with exit code 2. This confirms the signature was authentic to the previous secret, but dispatched or received outside the valid rotation window.
+3. **Check Delivery Deduplication Journal:**
+   - Query backend webhook logs or database using the `X-GitHub-Delivery` GUID.
+   - Determine whether an identical delivery was already received and processed earlier during the grace period. If already journaled, mark the incident as a benign late replay and take no further action.
+4. **Audit GitHub Webhook Settings:**
+   - Check the GitHub repository / organization Webhook settings.
+   - Confirm that GitHub's webhook secret has been updated to the new secret (`WEBHOOK_ROTATION_NEW_SECRET`). If GitHub is still sending deliveries signed with the old secret, update GitHub's configuration immediately.
+5. **Request Authentic Provider Redelivery:**
+   - In GitHub Webhook settings → Recent Deliveries, locate the failed delivery and click **Redeliver**.
+   - Because GitHub now signs with the active secret, the redelivered payload will verify cleanly under `active_secret` and process through standard idempotent channels.
+   - **Critical:** Never manually sign an old payload or re-open the rotation window to clear an error.
+6. **Decommission Previous Secret:**
+   - After verifying all webhooks are successfully arriving with the active secret and no valid deliveries remain pending, remove the previous secret from secret managers and operator keyrings.
 
 ## Focused deterministic tests
 

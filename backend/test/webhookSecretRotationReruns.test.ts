@@ -3,6 +3,7 @@ import {
   githubWebhookSignatureProfile,
   signWebhookPayload,
   verifyWithSecretRotation,
+  WebhookSignatureError,
 } from '../src/webhooks/signatureVerification';
 
 const previousSecret = 'previous-secret-for-deterministic-fixtures';
@@ -69,5 +70,26 @@ describe('GitHub signature verification across repeated rotation checks', () => 
       rotationStartedAt: startedAt,
       gracePeriodMs,
     })).toThrow(/Invalid GitHub webhook signature/);
+  });
+
+  it('throws WebhookSignatureError with status 401 when verifying a delivery signed with an expired/revoked secret', () => {
+    vi.setSystemTime(startedAt + gracePeriodMs + 100);
+    try {
+      checkSignature(previousSecret);
+      expect.fail('Should have thrown WebhookSignatureError');
+    } catch (err) {
+      expect(err).toBeInstanceOf(WebhookSignatureError);
+      const sigErr = err as WebhookSignatureError;
+      expect(sigErr.statusCode).toBe(401);
+      expect(sigErr.message).toBe('Invalid GitHub webhook signature.');
+    }
+  });
+
+  it('preserves valid verification for active secret while revoked secret is rejected simultaneously', () => {
+    vi.setSystemTime(startedAt + gracePeriodMs + 500);
+    // Active secret signature passes
+    expect(() => checkSignature(newSecret)).not.toThrow();
+    // Revoked previous secret signature fails closed
+    expect(() => checkSignature(previousSecret)).toThrow(WebhookSignatureError);
   });
 });

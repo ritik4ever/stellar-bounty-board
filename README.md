@@ -138,6 +138,12 @@ Opt-out is re-checked per recipient immediately before each send, so a user who 
 
 Skipped and failed recipients are never retried by this function, so no recipient is alerted twice.
 
+### Worker replay and failure handling
+
+- **SendGrid 429 (Rate Limiting):** When SendGrid responds with HTTP 429 Too Many Requests, the outcome records `status: 'failed'` with the status code and provider response. The channel choice (`EMAIL`) is preserved, allowing workers to inspect rate limit failures without terminating un-sent batches.
+- **Webhook Timeouts:** When dispatching webhooks to `NOTIFICATION_WEBHOOK_URL`, request timeouts or connection aborts are caught and mapped to `status: 'failed'` for each eligible recipient. The delivery worker process remains running.
+- **Worker Replay and Restart:** During worker restart and batch replay, opt-out preferences are evaluated afresh at the send boundary. A recipient who opted out between an initial attempt and a replay is recorded as `skipped: 'opted_out'`, ensuring no duplicate or unwanted alerts are generated upon replaying event logs. Channel selection remains deterministic and immutable across replays.
+
 ## Deployment Guide
 
 See [docs/deployment.md](docs/deployment.md) for step-by-step instructions to deploy the backend on Render and the frontend on Vercel, including required environment variables, health check paths, and troubleshooting tips.

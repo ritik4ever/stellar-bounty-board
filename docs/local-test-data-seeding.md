@@ -67,6 +67,33 @@ npx playwright test playwright/tests/local-bounty-lifecycle-fixtures.spec.ts
 
 The delayed-release case tests the **mock API transport**, not a real Freighter signature or a live on-chain confirmation. Full wallet-signing E2E verification remains out of scope without the appropriate contract mocks and frontend integration. Real workflow correctness should also be tested through the backend's existing lifecycle tests.
 
+## Runbook: Inspecting and resolving lifecycle fixture outcomes (#1953)
+
+This runbook guides operators and test authors through verifying deterministic state transitions without live funds, identifying observable failure signals, and resolving wallet or confirmation blockers.
+
+### Repeatable state transitions without live funds
+
+All lifecycle testing with local fixtures runs entirely in simulated offline environments. At each stage, the record version increments monotonically and a timestamped event is recorded:
+
+1. **`open`:** Created with a valid title, description, reward amount, and token symbol. The bounty is available for reservation.
+2. **`reserved`:** A contributor reserves the bounty via prompt dialog. The maintainer and contributor identifiers are validated public keys.
+3. **`submitted`:** The contributor submits a pull request URL along with verification checklist checkboxes (`PR linked`, `PR description`, `CI checks pass`). The bounty enters the review phase.
+4. **`released`:** The maintainer approves work and releases funds. This step requires wallet authentication and contract confirmation.
+
+### Observable failure signals, inspection, and resolution
+
+| Failure scenario | Observable signal | Root cause | Inspection method | Resolution |
+|---|---|---|---|---|
+| **Wallet rejection / Disconnection** | UI text: *"connect your Freighter wallet first"* appears; release action aborted; 0 calls to `/api/bounties/:id/release`. | Frontend checks `window.freighter` or connected wallet state before initiating escrow release. When absent or unapproved, UI halts submission. | 1. Check browser console for missing wallet warnings.<br>2. Inspect DevTools Network tab: confirm 0 POST requests were sent.<br>3. Verify bounty status remains `submitted` with unchanged `version`. | In manual/E2E testing, unlock the Freighter browser extension and approve site connection. In fixture tests, use mock wallet providers or verify client-side rejection behavior. |
+| **Delayed contract confirmation** | Release button stays in loading/disabled state; bounty status remains `submitted`; pending HTTP POST request in Network tab. | Soroban RPC confirmation latency or simulated server gate (`releaseGate`) held open pending ledger inclusion. | 1. Inspect Network tab for long-running pending fetch to `/api/bounties/:id/release`.<br>2. In fixture double, check whether `fake.confirmRelease()` has been called.<br>3. In live testnet, inspect Soroban RPC `getTransaction` status (`NOT_FOUND` or `PENDING`). | In fixture tests, trigger `fake.confirmRelease()` to complete the simulated round-trip. On testnet, wait for Soroban consensus ledger close; do not resubmit redundant release transactions while confirmation is pending. |
+| **Confirmation failure / Gateway timeout** | HTTP 504 / 500 returned to release fetch; error toast displayed in UI; bounty remains `submitted`. | RPC node timeout, transient network failure, or contract execution abort. | 1. Check Network tab for HTTP status 504/500.<br>2. Inspect `bounty.events`: verify no `released` event was appended.<br>3. Verify `bounty.version` did not increment. | Because state updates are atomic, failure leaves the bounty cleanly in `submitted` status without corrupting the store. Re-verify backend/RPC health and safely retry the release. |
+
+### Diagnostic checklist for test authors
+
+- **No live funds:** Never configure real mainnet or testnet seed phrases in E2E fixture environments.
+- **State isolation:** Verify `fake.releaseCalls` counter to ensure release attempts are not silently dropped or doubled.
+- **Event stream integrity:** Assert that `bounty.events.map(e => e.type)` matches the exact expected transition array (`['created', 'reserved', 'submitted', 'released']`).
+
 ## Verification and limitations
 
 - The standalone Node suite checks configuration fail-fast, invalid public keys and passphrases, deterministic statuses, duplicate IDs, reruns, partial valid output, malformed JSON, conflicting history and concurrent-run locks.
