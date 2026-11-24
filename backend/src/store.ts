@@ -85,16 +85,16 @@ export function loadBounties<T = unknown>(storePath?: string): T[] {
   // Main file is missing or corrupt – try the backup.
   const bak = tryParse<T[]>(backup);
   if (bak !== null) {
-    console.warn(
-      `[store] WARNING: "${store}" is missing or contains invalid JSON. ` +
+    logger.warn(
+      `"${store}" is missing or contains invalid JSON. ` +
         `Restored ${bak.length} bounties from backup "${backup}".`
     );
     // Restore the main file from the backup so future reads succeed.
     try {
       fs.writeFileSync(store, JSON.stringify(bak, null, 2), "utf8");
     } catch (writeErr) {
-      console.warn(
-        `[store] WARNING: Could not restore main store from backup: ${writeErr}`
+      logger.warn(
+        `Could not restore main store from backup: ${writeErr}`
       );
     }
     return bak;

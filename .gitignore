@@ -6,6 +6,8 @@ frontend/storybook-static/
 .DS_Store
 backend/data/*.local.json
 backend/data/*.archive.json
+backend/data/*.webhook-deliveries.json
+backend/data/*.webhook-deliveries.json.*.tmp
 contracts/target/
 contracts/.stellar/
 
