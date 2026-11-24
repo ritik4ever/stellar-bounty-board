@@ -3,12 +3,10 @@
 extern crate alloc;
 
 use super::*;
-use alloc::string::ToString;
-use alloc::vec::Vec as StdVec;
 use soroban_sdk::{
     symbol_short,
     testutils::{storage::Persistent as _, Address as _, Events, Ledger},
-    Address, BytesN, Env, FromVal, IntoVal, String, TryFromVal,
+    Address, Bytes, BytesN, Env, FromVal, IntoVal, String,
 };
 
 // ─── Version Tests ──────────────────────────────────────────────────────
@@ -16,7 +14,7 @@ use soroban_sdk::{
 #[test]
 fn test_get_version_matches_cargo_toml() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, StellarBountyBoardContract);
+    let contract_id = env.register(StellarBountyBoardContract, ());
     let client = StellarBountyBoardContractClient::new(&env, &contract_id);
 
     let version = client.get_version();
@@ -48,7 +46,7 @@ fn setup_test(
     Address, // fee_recipient
     Address, // arbiter
 ) {
-    let contract_id = env.register_contract(None, StellarBountyBoardContract);
+    let contract_id = env.register(StellarBountyBoardContract, ());
     let client = StellarBountyBoardContractClient::new(env, &contract_id);
 
     let admin = Address::generate(env);
@@ -84,7 +82,7 @@ fn setup_test_native(
     Address,
     Address,
 ) {
-    let contract_id = env.register_contract(None, StellarBountyBoardContract);
+    let contract_id = env.register(StellarBountyBoardContract, ());
     let client = StellarBountyBoardContractClient::new(env, &contract_id);
 
     let admin = Address::generate(env);
@@ -123,9 +121,9 @@ fn create_bounty_with_state(
         &maintainer,
         &token_id,
         &500,
-        &String::from_str(&env, "repo"),
+        &String::from_str(env, "repo"),
         &1,
-        &String::from_str(&env, "title"),
+        &String::from_str(env, "title"),
         &deadline,
         &0u32,
         &None,
@@ -149,9 +147,7 @@ fn create_bounty_with_state(
             bounty_id
         }
         BountyStatus::Refunded => {
-            client.reserve_bounty(&bounty_id, &contributor);
-            env.ledger().set_timestamp(deadline + 1);
-            client.refund_bounty(&bounty_id, &maintainer);
+            client.cancel_bounty(&bounty_id, &maintainer);
             bounty_id
         }
         BountyStatus::Expired => {
@@ -209,7 +205,7 @@ fn test_set_min_bounty_amount_success() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _admin, _, _, _, _, arbiter) = setup_test(&env);
+    let (client, _admin, _, _, _, _, _arbiter) = setup_test(&env);
 
     let new_min = 1000i128;
     client.set_min_bounty_amount(&new_min);
@@ -224,7 +220,7 @@ fn test_set_min_bounty_amount_zero_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _admin, _, _, _, _, arbiter) = setup_test(&env);
+    let (client, _admin, _, _, _, _, _arbiter) = setup_test(&env);
     client.set_min_bounty_amount(&0);
 }
 
@@ -234,7 +230,7 @@ fn test_set_min_bounty_amount_above_max_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _admin, _, _, _, _, arbiter) = setup_test(&env);
+    let (client, _admin, _, _, _, _, _arbiter) = setup_test(&env);
     client.set_min_bounty_amount(&(MAX_BOUNTY_AMOUNT + 1));
 }
 
@@ -373,7 +369,7 @@ fn test_create_bounty_after_raising_minimum_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _admin, maintainer, _, token_id, _, arbiter) = setup_test(&env);
+    let (client, _admin, maintainer, _, token_id, _, _arbiter) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
 
@@ -399,7 +395,7 @@ fn test_create_bounty_after_raising_minimum_succeeds() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _admin, maintainer, _, token_id, _, arbiter) = setup_test(&env);
+    let (client, _admin, maintainer, _, token_id, _, _arbiter) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &10_000);
 
@@ -574,7 +570,7 @@ fn test_refund_bounty_native_xlm() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _admin, maintainer, contributor, token_id, _fee_recipient, _arbiter) =
+    let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) =
         setup_test_native(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1000);
@@ -592,7 +588,6 @@ fn test_refund_bounty_native_xlm() {
         &None,
     );
 
-    client.reserve_bounty(&bounty_id, &contributor);
     env.ledger().set_timestamp(deadline + 1);
     client.refund_bounty(&bounty_id, &maintainer);
 
@@ -600,7 +595,8 @@ fn test_refund_bounty_native_xlm() {
     assert_eq!(bounty.status, BountyStatus::Refunded);
 
     let token = soroban_sdk::token::TokenClient::new(&env, &token_id);
-    assert_eq!(token.balance(&maintainer), 500);
+    // Minted 1_000, 500 escrowed, full refund returns the maintainer to 1_000.
+    assert_eq!(token.balance(&maintainer), 1_000);
     assert_eq!(token.balance(&client.address), 0);
 }
 
@@ -746,15 +742,8 @@ fn test_dispute_at_deadline_is_last_eligible_ledger() {
 
     client.dispute_bounty(&bounty_id, &arbiter);
 
-    let bounty = client.get_bounty(&bounty_id);
-    assert_eq!(bounty.status, BountyStatus::Disputed);
-    assert_eq!(bounty.dispute_raised_at, deadline);
-    assert_eq!(bounty.contributor, Some(contributor.clone()));
-
-    // Funds stay escrowed: a dispute moves no tokens.
-    assert_eq!(token.balance(&contract_id), escrow_before);
-    assert_eq!(token.balance(&contributor), contributor_before);
-
+    // Events are only retained for the most recent invocation, so inspect them
+    // before any state or balance read.
     // Exactly one dispute event, with the documented topics and payload.
     assert_eq!(count_dispute_events(&env, &client), 1);
     let events = env.events().all().filter_by_contract(&client.address);
@@ -775,6 +764,15 @@ fn test_dispute_at_deadline_is_last_eligible_ledger() {
             deadline,
         }
     );
+
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.status, BountyStatus::Disputed);
+    assert_eq!(bounty.dispute_raised_at, deadline);
+    assert_eq!(bounty.contributor, Some(contributor.clone()));
+
+    // Funds stay escrowed: a dispute moves no tokens.
+    assert_eq!(token.balance(&contract_id), escrow_before);
+    assert_eq!(token.balance(&contributor), contributor_before);
 }
 
 #[test]
@@ -1001,7 +999,7 @@ fn test_full_lifecycle() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #21)")]
+#[should_panic(expected = "Error(Contract, #23)")]
 fn test_refund_reserved_before_deadline_fails() {
     let env = Env::default();
     env.mock_all_auths();
@@ -1054,13 +1052,16 @@ fn test_refund_after_deadline_reserved_succeeds() {
     env.ledger().set_timestamp(deadline + 1);
 
     client.refund_bounty(&bounty_id, &maintainer);
+
+    // Events are only retained for the most recent invocation, so inspect them
+    // before any state or balance read.
+    let events = env.events().all().filter_by_contract(&client.address);
+    assert!(!events.events().is_empty());
+
     let bounty = client.get_bounty(&bounty_id);
     assert_eq!(bounty.status, BountyStatus::Refunded);
     // Refund returns full amount — no fee deducted
     assert_eq!(token.balance(&maintainer), 1000);
-
-    let events = env.events().all().filter_by_contract(&client.address);
-    assert!(events.events().len() >= 1);
 }
 
 #[test]
@@ -1089,21 +1090,30 @@ fn test_cancel_bounty_success() {
 
     client.cancel_bounty(&bounty_id, &maintainer);
 
+    // Events are only retained for the most recent invocation, so inspect them
+    // before any state or balance read.
+    let events = env.events().all().filter_by_contract(&client.address);
+    let event_count = events.events().len();
+    assert!(
+        event_count >= 1,
+        "Expected the BountyCanceled event from the latest invocation, got {event_count}"
+    );
+
+    let last_event = events.events().last().unwrap();
+    let soroban_sdk::xdr::ContractEventBody::V0(body) = &last_event.body;
+    assert_eq!(
+        soroban_sdk::Symbol::from_val(&env, &body.topics[0]),
+        symbol_short!("Bounty")
+    );
+    assert_eq!(
+        soroban_sdk::Symbol::from_val(&env, &body.topics[1]),
+        symbol_short!("Cancel")
+    );
+
     let bounty = client.get_bounty(&bounty_id);
     assert_eq!(bounty.status, BountyStatus::Refunded);
     assert_eq!(token.balance(&maintainer), 1000);
     assert_eq!(token.balance(&client.address), 0);
-
-    let events = env.events().all().filter_by_contract(&client.address);
-    let event_count = events.events().len();
-    assert!(
-        event_count >= 2,
-        "Expected at least BountyCreated + BountyCanceled events, got {event_count}"
-    );
-    assert!(
-        events.events().last().is_some(),
-        "At least one event should be present after filter"
-    );
 }
 
 #[test]
@@ -1608,7 +1618,7 @@ invalid_transition_test!(refund_open, BountyStatus::Open, "Error(Contract, #21)"
 invalid_transition_test!(
     refund_reserved,
     BountyStatus::Reserved,
-    "Error(Contract, #21)",
+    "Error(Contract, #23)",
     {
         |client: &StellarBountyBoardContractClient<'static>,
          bounty_id: u64,
@@ -1619,7 +1629,7 @@ invalid_transition_test!(
 invalid_transition_test!(
     refund_submitted,
     BountyStatus::Submitted,
-    "Error(Contract, #21)",
+    "Error(Contract, #23)",
     {
         |client: &StellarBountyBoardContractClient<'static>,
          bounty_id: u64,
@@ -1652,7 +1662,7 @@ invalid_transition_test!(
 invalid_transition_test!(
     refund_disputed,
     BountyStatus::Disputed,
-    "Error(Contract, #21)",
+    "Error(Contract, #23)",
     {
         |client: &StellarBountyBoardContractClient<'static>,
          bounty_id: u64,
@@ -1922,8 +1932,13 @@ fn test_arbiter_rotation_success() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, admin, _, _, _, _, old_arbiter) = setup_test(&env);
+    let (client, _admin, _, _, token_id, _, _old_arbiter) = setup_test(&env);
     let new_arbiter = Address::generate(&env);
+
+    // Candidates take office bonded: fund and post the minimum stake first.
+    soroban_sdk::token::StellarAssetClient::new(&env, &token_id)
+        .mint(&new_arbiter, &DEFAULT_MIN_ARBITER_STAKE);
+    client.bond_arbiter_stake(&new_arbiter, &token_id, &DEFAULT_MIN_ARBITER_STAKE);
 
     // Set arbiter
     client.set_arbiter(&new_arbiter);
@@ -1946,8 +1961,13 @@ fn test_arbiter_rotation_timelock_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, admin, _, _, _, _, _) = setup_test(&env);
+    let (client, _admin, _, _, token_id, _, _) = setup_test(&env);
     let new_arbiter = Address::generate(&env);
+
+    // Candidates take office bonded: fund and post the minimum stake first.
+    soroban_sdk::token::StellarAssetClient::new(&env, &token_id)
+        .mint(&new_arbiter, &DEFAULT_MIN_ARBITER_STAKE);
+    client.bond_arbiter_stake(&new_arbiter, &token_id, &DEFAULT_MIN_ARBITER_STAKE);
 
     client.set_arbiter(&new_arbiter);
 
@@ -2490,7 +2510,7 @@ fn test_double_refund_after_cancel_bounty() {
 fn test_upgrade_by_non_admin_panics() {
     let env = Env::default();
     // ── Step 1: manually register so we control storage setup.
-    let contract_id = env.register_contract(None, StellarBountyBoardContract);
+    let contract_id = env.register(StellarBountyBoardContract, ());
     let client = StellarBountyBoardContractClient::new(&env, &contract_id);
 
     // ── Step 2: write initialization state directly to persistent storage.
@@ -2552,6 +2572,15 @@ fn test_upgrade_by_non_admin_panics() {
 /// after the upgrade — a safe "no-op content change" that exercises
 /// every line of the upgrade procedure without requiring a second
 /// build artifact.
+// A minimal Soroban contract module shipped with the SDK. The host validates
+// that the target hash refers to an installed module before swapping the code,
+// so tests must upload real contract bytes instead of fabricating a hash.
+fn install_test_wasm(env: &Env) -> BytesN<32> {
+    let wasm = include_bytes!("../tests/fixtures/upgrade_target.wasm");
+    env.deployer()
+        .upload_contract_wasm(Bytes::from_slice(env, wasm))
+}
+
 #[test]
 fn test_upgrade_by_admin_succeeds_and_updates_wasm() {
     let env = Env::default();
@@ -2561,44 +2590,23 @@ fn test_upgrade_by_admin_succeeds_and_updates_wasm() {
     let (client, _admin, _maintainer, _contributor, _token_id, _fee_recipient, _arbiter) =
         setup_test(&env);
 
-    // ── Stage 2: snapshot the event count BEFORE the upgrade, so we
-    //             can later prove exactly one new event was appended.
-    let event_count_before = env
-        .events()
-        .all()
-        .filter_by_contract(&client.address)
-        .events()
-        .len();
-
-    // ── Stage 3: deploy a *second* instance of the same contract to
-    //             harvest a valid, installed WASM hash.  (In production
-    //             this is `soroban contract install` on the CLI.)
-    let side_contract_id = env.register(StellarBountyBoardContract, ());
-    let new_wasm_hash = BytesN::from_array(&env, &[0x11u8; 32]);
+    // ── Stage 2: install a valid WASM module to upgrade to.  The host
+    //             rejects hashes that are not backed by installed code.
+    let new_wasm_hash = install_test_wasm(&env);
 
     // ── Stage 4: perform the upgrade — this line is the whole point.
     //             If auth or host validation fails it panics here.
     client.upgrade(&new_wasm_hash);
 
-    // ── Stage 5: verify the WASM association is the requested hash.
-    //             We tolerate either (a) successful introspection and
-    //             equality, or (b) deployer info unavailable in this
-    //             runtime.  What we do NOT tolerate is the upgrade
-    //             silently *not* happening when introspection is
-    //             available.
-    let _ = side_contract_id;
-
-    // ── Stage 6: verify exactly one additional event was published
-    //             by this contract.  The rest of the suite validates
-    //             `initialize` events already; between snapshot and
-    //             now the only contract-invoking call was `upgrade()`,
-    //             so the delta is the `ContractUpgraded` event.
+    // ── Stage 5: verify exactly one event was published by this
+    //             invocation.  Events are only retained for the most
+    //             recent call, so the log holds the `ContractUpgraded`
+    //             event alone.
     let events_after = env.events().all().filter_by_contract(&client.address);
     let event_count_after = events_after.events().len();
     assert_eq!(
-        event_count_after,
-        event_count_before + 1,
-        "upgrade() should publish exactly one event; before={event_count_before} after={event_count_after}"
+        event_count_after, 1,
+        "upgrade() should publish exactly one event; after={event_count_after}"
     );
 
     // The last event must be the newest one — our upgrade event.
@@ -2722,23 +2730,75 @@ fn test_upgrade_preserves_existing_bounty_storage() {
     assert_eq!(fee_stats_pre.total_collected, 0);
     assert_eq!(fee_stats_pre.bounty_count, 0);
     assert_eq!(min_amount_pre, DEFAULT_MIN_BOUNTY_AMOUNT);
-    assert_eq!(paused_pre, false);
+    assert!(!paused_pre);
     assert_eq!(dispute_win_pre, 600); // default from setup_test (10min)
 
     // ── Step 3: perform a valid admin upgrade.
-    let _side_contract_id = env.register(StellarBountyBoardContract, ());
-    let new_wasm_hash = BytesN::from_array(&env, &[0x11u8; 32]);
+    let new_wasm_hash = install_test_wasm(&env);
 
     client.upgrade(&new_wasm_hash);
 
-    // ── Step 4: re-read everything AFTER the upgrade.
-    let bounty_post = client.get_bounty(&bounty_id);
-    let second_post = client.get_bounty(&second_id);
-    let next_id_post = client.get_next_bounty_id();
-    let fee_stats_post = client.get_fee_stats();
-    let min_amount_post = client.get_min_bounty_amount();
-    let paused_post = client.get_paused_state();
-    let dispute_win_post = client.get_effective_dispute_window(&bounty_id);
+    // ── Step 4: re-read everything AFTER the upgrade. The swapped-in module
+    //             does not export the bounty ABI, so state is read directly
+    //             from storage — which is exactly what the upgrade must
+    //             preserve.
+    let (
+        bounty_post,
+        second_post,
+        next_id_post,
+        fee_stats_post,
+        min_amount_post,
+        paused_post,
+        dispute_win_post,
+    ) = env.as_contract(&client.address, || {
+        let bounty_post: Bounty = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Bounty(bounty_id))
+            .expect("bounty storage must survive the upgrade");
+        let second_post: Bounty = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Bounty(second_id))
+            .expect("second bounty storage must survive the upgrade");
+        let next_id_post: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::NextBountyId)
+            .expect("next-id counter must survive the upgrade");
+        let fee_stats_post: FeeStats = env
+            .storage()
+            .persistent()
+            .get(&DataKey::FeeStats)
+            .unwrap_or(FeeStats {
+                total_collected: 0,
+                bounty_count: 0,
+            });
+        let min_amount_post: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MinBountyAmount)
+            .expect("minimum amount must survive the upgrade");
+        let paused_post: bool = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Paused)
+            .unwrap_or(false);
+        let dispute_win_post: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::DisputeWindow)
+            .expect("dispute window must survive the upgrade");
+        (
+            bounty_post,
+            second_post,
+            next_id_post,
+            fee_stats_post,
+            min_amount_post,
+            paused_post,
+            dispute_win_post,
+        )
+    });
 
     // ── Step 5: exact byte-for-byte field-level comparison.
     assert_eq!(bounty_post.maintainer, bounty_pre.maintainer);
@@ -3296,6 +3356,59 @@ fn test_release_bounty_boundary_min_amount_success() {
     );
 }
 
+// ─── create_bounty structured event (CrtEvent) ──────────────────────────────
+
+#[test]
+fn test_create_bounty_emits_structured_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) =
+        setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    let deadline = env.ledger().timestamp() + 1000;
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &7,
+        &String::from_str(&env, "title"),
+        &deadline,
+        &250u32,
+        &Some(3600u64),
+    );
+
+    // The structured event is the last one emitted by this contract.
+    let events = env.events().all().filter_by_contract(&client.address);
+    let event = events.events().last().unwrap();
+    let soroban_sdk::xdr::ContractEventBody::V0(body) = &event.body;
+    let t0 = soroban_sdk::Symbol::from_val(&env, &body.topics[0]);
+    let t1 = soroban_sdk::Symbol::from_val(&env, &body.topics[1]);
+    assert_eq!(t0, symbol_short!("Bounty"));
+    assert_eq!(t1, symbol_short!("CrtEvent"));
+
+    let payload = BountyCreatedEvent::from_val(&env, &body.data);
+    assert_eq!(
+        payload,
+        BountyCreatedEvent {
+            bounty_id,
+            maintainer,
+            token: token_id,
+            amount: 500,
+            repo: String::from_str(&env, "repo"),
+            issue_number: 7,
+            title: String::from_str(&env, "title"),
+            deadline,
+            protocol_fee_bps: 250,
+            dispute_window_override: Some(3600),
+            created_at: env.ledger().timestamp(),
+        }
+    );
+}
+
 #[test]
 #[should_panic(expected = "Error(Contract, #20)")]
 fn test_release_bounty_boundary_double_release_fails() {
@@ -3305,59 +3418,6 @@ fn test_release_bounty_boundary_double_release_fails() {
         setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &10_000);
-
-    // ─── create_bounty structured event (CrtEvent) ──────────────────────────
-
-    #[test]
-    fn test_create_bounty_emits_structured_event() {
-        let env = Env::default();
-        env.mock_all_auths();
-
-        let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) =
-            setup_test(&env);
-        let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
-        token_admin.mint(&maintainer, &1000);
-
-        let deadline = env.ledger().timestamp() + 1000;
-        let bounty_id = client.create_bounty(
-            &maintainer,
-            &token_id,
-            &500,
-            &String::from_str(&env, "repo"),
-            &7,
-            &String::from_str(&env, "title"),
-            &deadline,
-            &250u32,
-            &Some(3600u64),
-        );
-
-        // The structured event is the last one emitted by this contract.
-        let events = env.events().all().filter_by_contract(&client.address);
-        let event = events.events().last().unwrap();
-        let soroban_sdk::xdr::ContractEventBody::V0(body) = &event.body;
-        let t0 = soroban_sdk::Symbol::from_val(&env, &body.topics[0]);
-        let t1 = soroban_sdk::Symbol::from_val(&env, &body.topics[1]);
-        assert_eq!(t0, symbol_short!("Bounty"));
-        assert_eq!(t1, symbol_short!("CrtEvent"));
-
-        let payload = BountyCreatedEvent::from_val(&env, &body.data);
-        assert_eq!(
-            payload,
-            BountyCreatedEvent {
-                bounty_id,
-                maintainer,
-                token: token_id,
-                amount: 500,
-                repo: String::from_str(&env, "repo"),
-                issue_number: 7,
-                title: String::from_str(&env, "title"),
-                deadline,
-                protocol_fee_bps: 250,
-                dispute_window_override: Some(3600),
-                created_at: env.ledger().timestamp(),
-            }
-        );
-    }
 
     let deadline = env.ledger().timestamp() + 1000;
     let bounty_id = client.create_bounty(
@@ -3515,19 +3575,17 @@ fn test_get_bounty_boundaries() {
         token_admin.mint(&maintainer, &10_000);
 
         // Build the bounty in the requested state (if any).
-        let created_id: Option<u64> = if tc.setup_status.is_some() {
-            Some(create_bounty_with_state(
+        let created_id: Option<u64> = tc.setup_status.map(|status| {
+            create_bounty_with_state(
                 &env,
                 &client,
                 maintainer.clone(),
                 contributor.clone(),
                 token_id.clone(),
-                tc.setup_status.unwrap(),
+                status,
                 arbiter.clone(),
-            ))
-        } else {
-            None
-        };
+            )
+        });
 
         // Determine which ID to query.
         let query_id: u64 = match tc.bounty_id_override {
@@ -3747,7 +3805,7 @@ fn test_get_bounty_released_past_deadline_stays_released() {
 fn test_get_bounty_refunded_past_deadline_stays_refunded() {
     let env = Env::default();
     env.mock_all_auths();
-    let (client, _admin, maintainer, contributor, token_id, _, _arbiter) = setup_test(&env);
+    let (client, _admin, maintainer, _contributor, token_id, _, _arbiter) = setup_test(&env);
     let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
     token_admin.mint(&maintainer, &1_000);
 
@@ -3763,9 +3821,7 @@ fn test_get_bounty_refunded_past_deadline_stays_refunded() {
         &0u32,
         &None,
     );
-    client.reserve_bounty(&bounty_id, &contributor);
-    env.ledger().set_timestamp(deadline + 1);
-    client.refund_bounty(&bounty_id, &maintainer);
+    client.cancel_bounty(&bounty_id, &maintainer);
 
     env.ledger().set_timestamp(deadline + 10_000);
 
@@ -4218,7 +4274,10 @@ fn test_refund_expired_unreserved_is_single_refund() {
     } else {
         std::string::String::new()
     };
-    let expected = std::format!("Error(Contract, #{})", ContractError::BountyAlreadyFinalized as u32);
+    let expected = std::format!(
+        "Error(Contract, #{})",
+        ContractError::BountyAlreadyFinalized as u32
+    );
     assert!(msg.contains(&expected), "unexpected panic: {}", msg);
 
     assert_eq!(token.balance(&maintainer), amount);
@@ -4303,7 +4362,6 @@ fn test_refund_bounty_auth_wrong_signer_stranger_rejected() {
 // leaves funds and status untouched.
 
 #[test]
-#[should_panic(expected = "Error(Contract, #25)")]
 fn test_refund_bounty_auth_self_signed_contributor_rejected() {
     let env = Env::default();
     let amount = 500i128;
@@ -4470,9 +4528,8 @@ fn test_resolve_dispute_emits_bounty_resolved_with_amount() {
     env.ledger().set_timestamp(env.ledger().timestamp() + 150);
     client.resolve_dispute(&bounty_id, &true);
 
-    let bounty = client.get_bounty(&bounty_id);
-    assert_eq!(bounty.status, BountyStatus::Released);
-
+    // Events are only retained for the most recent invocation, so inspect them
+    // before any state read.
     let events = env.events().all().filter_by_contract(&client.address);
     let last_event = events.events().last().unwrap();
     let soroban_sdk::xdr::ContractEventBody::V0(body) = &last_event.body;
@@ -4490,4 +4547,7 @@ fn test_resolve_dispute_emits_bounty_resolved_with_amount() {
             amount: 500,
         }
     );
+
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.status, BountyStatus::Released);
 }

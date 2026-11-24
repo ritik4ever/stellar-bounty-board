@@ -114,7 +114,7 @@ jobs:
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          target: wasm32-unknown-unknown
+          target: wasm32v1-none
 
       - name: Cache Rust dependencies
         uses: actions/cache@v4
@@ -131,7 +131,24 @@ jobs:
         run: cargo install cargo-audit --version "=0.21.2" --locked
 
       - name: Cargo audit contract
-        run: cd contracts && cargo audit > ../contract-audit.log
+        # Advisories transitively pinned by soroban-sdk 27; see the allowlist
+        # rationale in .github/workflows/soroban-contract-ci.yml.
+        run: |
+          cd contracts
+          cargo audit \
+            --ignore RUSTSEC-2026-0387 \
+            --ignore RUSTSEC-2026-0543 \
+            --ignore RUSTSEC-2024-0436 \
+            --ignore RUSTSEC-2026-0574 \
+            --ignore RUSTSEC-2026-0575 \
+            --ignore RUSTSEC-2026-0576 \
+            --ignore RUSTSEC-2026-0577 \
+            --ignore RUSTSEC-2026-0578 \
+            --ignore RUSTSEC-2026-0579 \
+            --ignore RUSTSEC-2026-0580 \
+            --ignore RUSTSEC-2026-0581 \
+            --ignore RUSTSEC-2026-0582 \
+            > ../contract-audit.log
 
       - name: Upload contract audit artifact
         uses: actions/upload-artifact@v4
@@ -141,4 +158,4 @@ jobs:
           path: contract-audit.log
 
       - name: Build Soroban contract
-        run: cd contracts && cargo build --target wasm32-unknown-unknown --release
+        run: cd contracts && cargo build --target wasm32v1-none --release

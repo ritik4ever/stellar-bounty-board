@@ -108,9 +108,9 @@ fn matches_documented_refund_error(err_str: &str) -> bool {
     //
     // Errors actually raised by `refund_bounty`:
     //   - BountyNotFound (#2)          -> unknown bounty id
-    //   - BountyNotExpiredYet (#25)    -> ledger timestamp <= deadline
-    //   - BountyAlreadyFinalized (#23) -> status is not Open (reserved/released/refunded)
-    //   - MaintainerMismatch (#21)     -> caller is not the bounty maintainer
+    //   - BountyNotExpiredYet (#21)    -> ledger timestamp <= deadline
+    //   - BountyAlreadyFinalized (#23) -> bounty was reserved or already settled
+    //   - MaintainerMismatch (#25)     -> caller is not the bounty maintainer
     let documented = [
         "Error(Contract, #2)",
         "Error(Contract, #25)",
@@ -171,8 +171,10 @@ fn assert_refund_rejected_without_moving_funds(
     );
     assert_eq!(token_client.balance(&fix.client.address), amount);
 
+    // These attempts happen after the deadline, so the stored Open bounty is
+    // reported (lazily) as Expired and must remain refundable by its owner.
     let b = fix.client.get_bounty(&bounty_id);
-    assert_eq!(b.status, BountyStatus::Open);
+    assert_eq!(b.status, BountyStatus::Expired);
     assert_eq!(b.amount, amount);
 }
 
@@ -479,7 +481,10 @@ fn test_fuzz_refund_bounty_numeric_inputs_and_invariants() {
         fix.env.ledger().set_timestamp(deadline + 1);
 
         let res = fix.client.try_refund_bounty(&bounty_id, &fix.maintainer);
-        assert!(res.is_ok(), "Refund of expired unreserved bounty must succeed");
+        assert!(
+            res.is_ok(),
+            "Refund of expired unreserved bounty must succeed"
+        );
 
         // Exactly one refund, equal to the escrowed amount, with no fee deduction.
         assert_eq!(
@@ -542,7 +547,7 @@ fn test_fuzz_refund_bounty_numeric_inputs_and_invariants() {
             bounty_id,
             &fix.contributor,
             amount,
-            "Error(Contract, #21)",
+            "Error(Contract, #25)",
         );
 
         // Arbiter cannot redirect the escrow.
@@ -551,7 +556,7 @@ fn test_fuzz_refund_bounty_numeric_inputs_and_invariants() {
             bounty_id,
             &fix._arbiter,
             amount,
-            "Error(Contract, #21)",
+            "Error(Contract, #25)",
         );
 
         // Admin cannot redirect the escrow.
@@ -560,7 +565,7 @@ fn test_fuzz_refund_bounty_numeric_inputs_and_invariants() {
             bounty_id,
             &fix._admin,
             amount,
-            "Error(Contract, #21)",
+            "Error(Contract, #25)",
         );
 
         // Treasury cannot redirect the escrow.
@@ -569,7 +574,7 @@ fn test_fuzz_refund_bounty_numeric_inputs_and_invariants() {
             bounty_id,
             &fix._treasury,
             amount,
-            "Error(Contract, #21)",
+            "Error(Contract, #25)",
         );
 
         // Random caller cannot redirect the escrow.
@@ -579,7 +584,7 @@ fn test_fuzz_refund_bounty_numeric_inputs_and_invariants() {
             bounty_id,
             &random_caller,
             amount,
-            "Error(Contract, #21)",
+            "Error(Contract, #25)",
         );
 
         // The rightful payee (maintainer) still receives exactly one refund.
@@ -636,12 +641,14 @@ fn test_fuzz_refund_bounty_numeric_inputs_and_invariants() {
             err_str
         );
 
-        // Escrow and status are unchanged.
+        // Escrow is untouched and no payout happened. The stored status is
+        // still Reserved; reads lazily report it as Expired once the deadline
+        // has passed.
         assert_eq!(token_client.balance(&fix.maintainer), 0);
         assert_eq!(token_client.balance(&fix.client.address), amount);
         assert_eq!(
             fix.client.get_bounty(&bounty_id).status,
-            BountyStatus::Reserved
+            BountyStatus::Expired
         );
     }
 

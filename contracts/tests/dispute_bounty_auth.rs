@@ -6,12 +6,12 @@
 
 use soroban_sdk::{
     contract, contractimpl, symbol_short,
-    testutils::{Address as _, Events, MockAuth, MockAuthInvoke},
+    testutils::{Address as _, Events, Ledger, MockAuth, MockAuthInvoke},
     xdr::{ScErrorCode, ScErrorType},
     Address, Env, Error, FromVal, IntoVal, String,
 };
 use stellar_bounty_board::{
-    BountyDisputed, BountyStatus, Error as ContractError, StellarBountyBoardContract,
+    BountyDisputed, BountyStatus, ContractError, StellarBountyBoardContract,
     StellarBountyBoardContractClient,
 };
 
@@ -32,12 +32,6 @@ impl PermissiveToken {
             .get(&symbol_short!("COUNT"))
             .unwrap_or(0)
     }
-}
-
-#[soroban_sdk::contractclient(name = "PermissiveTokenClient")]
-trait PermissiveTokenInterface {
-    fn transfer(env: Env, from: Address, to: Address, amount: i128);
-    fn transfer_count(env: Env) -> u32;
 }
 
 struct Fixture {
@@ -467,7 +461,13 @@ fn dispute_after_deadline_is_rejected() {
     }]);
 
     let result = f.client.try_dispute_bounty(&bounty_id, &f.arbiter);
-    assert_eq!(result, Err(Ok(ContractError::BountyExpired)));
+    let error = result
+        .expect_err("dispute past the deadline must be rejected")
+        .expect("expected a typed contract error, not a host abort");
+    assert_eq!(
+        ContractError::try_from(error),
+        Ok(ContractError::BountyExpired)
+    );
 
     // No dispute event was emitted.
     let events = f.env.events().all().filter_by_contract(&f.client.address);
