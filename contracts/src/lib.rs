@@ -194,12 +194,21 @@ pub struct BountyReleasedEvent {
 }
 
 /// Payload for the `(Bounty, Refund)` event emitted when escrow is refunded.
+///
+/// Fields, in deterministic order:
+/// - `bounty_id`: the refund being emitted.
+/// - `maintainer`: the rightful payee that received the escrow.
+/// - `token`: the token contract used for the refund.
+/// - `amount`: the full escrow amount refunded.
+/// - `refunded_at`: the ledger timestamp of the committed refund.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BountyRefunded {
     pub bounty_id: u64,
     pub maintainer: Address,
+    pub token: Address,
     pub amount: i128,
+    pub refunded_at: u64,
 }
 
 #[contracttype]
@@ -1155,7 +1164,9 @@ impl StellarBountyBoardContract {
     ///   - [`DataKey::Bounty(bounty_id)`] - Updates `bounty.status` to [`BountyStatus::Refunded`] via `write_bounty`, before the transfer.
     ///
     /// # Events
-    /// * Emits `(symbol_short!("Bounty"), symbol_short!("Refund"))` with [`BountyRefunded`] payload.
+    /// * Emits exactly one `(symbol_short!("Bounty"), symbol_short!("Refund"))`
+    ///   event with [`BountyRefunded`] only after `BountyStatus::Refunded` is
+    ///   committed and the full escrow transfer succeeds.
     pub fn refund_bounty(env: Env, bounty_id: u64, maintainer: Address) {
         maintainer.require_auth();
         let mut bounty = read_bounty(&env, bounty_id);
@@ -1191,12 +1202,6 @@ impl StellarBountyBoardContract {
         let token_client = TokenClient::new(&env, &bounty.token);
         let contract_address = env.current_contract_address();
 
-        // Commit the terminal state before interacting with the token contract.
-        // If the transfer returns an error, panic_error aborts the invocation,
-        // which rolls back this write and preserves the escrow state atomically.
-        bounty.status = BountyStatus::Refunded;
-        write_bounty(&env, bounty_id, &bounty);
-
         // Refund returns the FULL original amount there is no fee on refunds
         if !matches!(
             token_client.try_transfer(&contract_address, &bounty.maintainer, &bounty.amount),
@@ -1209,8 +1214,10 @@ impl StellarBountyBoardContract {
             (symbol_short!("Bounty"), symbol_short!("Refund")),
             BountyRefunded {
                 bounty_id,
-                maintainer: bounty.maintainer,
+                maintainer: bounty.maintainer.clone(),
+                token: bounty.token,
                 amount: bounty.amount,
+                refunded_at: env.ledger().timestamp(),
             },
         );
     }
@@ -1634,15 +1641,26 @@ impl StellarBountyBoardContract {
             DisputeDecision::Refund => {
                 let maintainer = bounty.maintainer.clone();
                 let token_client = TokenClient::new(&env, &bounty.token);
-                token_client.transfer(&env.current_contract_address(), &maintainer, &bounty.amount);
                 bounty.status = BountyStatus::Refunded;
                 write_bounty(&env, bounty_id, &bounty);
+                if !matches!(
+                    token_client.try_transfer(
+                        &env.current_contract_address(),
+                        &maintainer,
+                        &bounty.amount,
+                    ),
+                    Ok(Ok(()))
+                ) {
+                    panic_error(&env, ContractError::RefundTransferFailed);
+                }
                 env.events().publish(
                     (symbol_short!("Bounty"), symbol_short!("Refund")),
                     BountyRefunded {
                         bounty_id,
-                        maintainer,
+                        maintainer: maintainer.clone(),
+                        token: bounty.token,
                         amount: bounty.amount,
+                        refunded_at: env.ledger().timestamp(),
                     },
                 );
             }

@@ -1064,6 +1064,78 @@ fn test_refund_after_deadline_reserved_succeeds() {
 }
 
 #[test]
+fn test_refund_expired_unreserved_commits_one_rightful_payee_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _admin, maintainer, contributor, token_id, _fee_recipient, _arbiter) =
+        setup_test(&env);
+    let token = TokenClient::new(&env, &token_id);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    let amount = 777i128;
+    token_admin.mint(&maintainer, &amount);
+
+    let deadline = env.ledger().timestamp() + 1_000;
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &amount,
+        &String::from_str(&env, "repo"),
+        &1899,
+        &String::from_str(&env, "Contract refund regression"),
+        &deadline,
+        &500u32,
+        &None,
+    );
+
+    assert_eq!(token.balance(&maintainer), 0);
+    assert_eq!(token.balance(&client.address), amount);
+
+    env.ledger().set_timestamp(deadline + 1);
+    client.refund_bounty(&bounty_id, &maintainer);
+
+    assert_eq!(client.get_bounty(&bounty_id).status, BountyStatus::Refunded);
+    assert_eq!(token.balance(&maintainer), amount);
+    assert_eq!(token.balance(&contributor), 0);
+    assert_eq!(token.balance(&client.address), 0);
+
+    let events = env.events().all().filter_by_contract(&client.address);
+    let mut refund_events = 0u32;
+    let mut refund_payload = None;
+    for event in events.events().iter() {
+        let soroban_sdk::xdr::ContractEventBody::V0(body) = &event.body;
+        if body.topics.len() < 2 {
+            continue;
+        }
+        let t0 = soroban_sdk::Symbol::from_val(&env, &body.topics[0]);
+        let t1 = soroban_sdk::Symbol::from_val(&env, &body.topics[1]);
+        if t0 == symbol_short!("Bounty") && t1 == symbol_short!("Refund") {
+            refund_events += 1;
+            refund_payload = Some(BountyRefunded::from_val(&env, &body.data));
+        }
+    }
+
+    assert_eq!(refund_events, 1);
+    assert_eq!(
+        refund_payload,
+        Some(BountyRefunded {
+            bounty_id,
+            maintainer: maintainer.clone(),
+            token: token_id,
+            amount,
+            refunded_at: env.ledger().timestamp(),
+        })
+    );
+
+    let retry = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.refund_bounty(&bounty_id, &maintainer);
+    }));
+    assert!(retry.is_err());
+    assert_eq!(token.balance(&maintainer), amount);
+    assert_eq!(token.balance(&client.address), 0);
+}
+
+#[test]
 fn test_cancel_bounty_success() {
     let env = Env::default();
     env.mock_all_auths();
