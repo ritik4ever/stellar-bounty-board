@@ -116,6 +116,8 @@ Each log line is emitted as a structured JSON record prefixed with `[StateUpdate
 ### Distinguishing pending events from committed transitions
 
 - **Clean commit:** An operator sees `pending` followed by `committed` sharing the same `eventRef`.
+- **GitHub webhook out-of-order close (#1943):** An operator sees an initial `pending` record with `transition: 'pr_merged'`, `bountyId: 'unmatched'`, and a redacted `deliveryRef: 'sha256:...'`. When the bounty submission is recorded and the delivery is applied, the operator sees matching `committed` records with the exact same `deliveryRef`, confirming the transition committed.
+- **Invalid HMAC signature (#1943):** When webhook verification fails, a `failed` record is emitted with `transition: 'webhook_signature_verify'`, `error: 'invalid_hmac_signature'`, and redacted `deliveryRef` and `eventRef`.
 - **Worker failure after another commits:** When two workers race on version 1:
   - Both emit `pending` with distinct `eventRef` digests.
   - The winning worker acquires the lock, advances the version to 2, and emits `committed`.

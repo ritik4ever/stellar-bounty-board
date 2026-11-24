@@ -105,6 +105,29 @@ handler with the original delivery ID, so duplicate suppression and idempotent
 transitions behave exactly as for a live request. Replay failures leave the
 record pending for the next attempt; nothing is thrown.
 
+### Outcome tracing for GitHub webhooks (#1943)
+
+Every webhook lifecycle event emits structured trace records so operators can
+monitor delivery outcomes and distinguish pending work from committed transitions:
+
+1. **Invalid HMAC signatures (`outcome: 'failed'`):**
+   When incoming signature verification fails (HTTP 401), a trace record is emitted
+   recording a redacted delivery reference (`deliveryRef: sha256:...`), a redacted
+   event/signature reference (`eventRef: sha256:...`), and error `'invalid_hmac_signature'`.
+   Raw secret keys, tokens, and delivery GUIDs are never leaked in log lines.
+2. **Out-of-order close events (`outcome: 'pending'`):**
+   When a merged PR arrives before the corresponding bounty submission exists, the
+   delivery is deferred and a trace is emitted with `outcome: 'pending'`,
+   `bountyId: 'unmatched'`, `transition: 'pr_merged'`, `deliveryRef: sha256:...`,
+   and `reason: 'out_of_order_close_event'`.
+3. **Committed transitions (`outcome: 'committed'`):**
+   When the bounty submission is recorded and the delivery is applied (on redelivery or
+   startup resume), `markBountyPrMerged` and `releaseBounty` emit `committed` trace
+   records with the matching `deliveryRef: sha256:...`.
+4. **Distinguishing pending from committed work:**
+   Operators can correlate events by matching `deliveryRef` and directly check
+   whether a delivery is still in `pending` status or has advanced to `committed`.
+
 ---
 
 ## Configuration

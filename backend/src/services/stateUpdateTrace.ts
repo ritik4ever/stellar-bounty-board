@@ -43,7 +43,7 @@ export interface TransitionOptions {
  */
 export interface StateUpdateTraceInput {
   outcome: StateUpdateOutcome;
-  bountyId: string;
+  bountyId?: string | null;
   transition: BountyTransitionType | string;
   eventRef?: string | null;
   deliveryRef?: string | null;
@@ -126,10 +126,11 @@ export function buildStateUpdateTrace(input: StateUpdateTraceInput): StateUpdate
   }
 
   const at = input.at ?? new Date().toISOString();
+  const bountyId = input.bountyId ? String(input.bountyId) : 'unmatched';
   let eventRef = redactReference(input.eventRef);
   if (!eventRef) {
     // Generate deterministic fallback event reference from transition metadata
-    const seed = `${input.bountyId}:${input.transition}:${input.expectedVersion ?? 'none'}:${at}`;
+    const seed = `${bountyId}:${input.transition}:${input.expectedVersion ?? 'none'}:${at}`;
     eventRef = redactReference(seed)!;
   }
 
@@ -139,7 +140,7 @@ export function buildStateUpdateTrace(input: StateUpdateTraceInput): StateUpdate
     event: STATE_UPDATE_TRACE_EVENT,
     outcome: input.outcome,
     at,
-    bountyId: String(input.bountyId),
+    bountyId,
     transition: String(input.transition),
     eventRef,
     deliveryRef: redactReference(input.deliveryRef),
@@ -204,3 +205,53 @@ export function createStateUpdateTrace(customSink?: TraceSink): StateUpdateTrace
  * Default trace emitter used by bounty store and worker methods.
  */
 export const defaultStateUpdateTrace = createStateUpdateTrace();
+
+/**
+ * Parameters for tracing GitHub webhook processing outcomes (#1943).
+ */
+export interface WebhookTraceInput {
+  outcome: StateUpdateOutcome;
+  deliveryRef?: string | null;
+  eventRef?: string | null;
+  cursorRef?: string | null;
+  bountyId?: string | null;
+  transition?: string;
+  expectedVersion?: number | null;
+  currentVersion?: number | null;
+  error?: string | null;
+  reason?: string | null;
+  workerId?: string | null;
+  actorRef?: string | null;
+}
+
+/**
+ * Emits a structured trace record for GitHub webhook lifecycle outcomes (#1943),
+ * including invalid HMAC signatures (outcome: 'failed') and out-of-order close events
+ * (outcome: 'pending'). Redacts delivery and event references with SHA-256 digests.
+ */
+export function traceWebhookOutcome(input: WebhookTraceInput): StateUpdateTraceRecord {
+  const transition =
+    input.transition ?? (input.outcome === 'failed' ? 'webhook_signature_verify' : 'pr_merged');
+  const record = buildStateUpdateTrace({
+    outcome: input.outcome,
+    bountyId: input.bountyId ?? 'unmatched',
+    transition,
+    deliveryRef: input.deliveryRef,
+    eventRef: input.eventRef ?? (input.deliveryRef ? `delivery:${input.deliveryRef}` : undefined),
+    cursorRef: input.cursorRef,
+    expectedVersion: input.expectedVersion,
+    currentVersion: input.currentVersion,
+    error: input.error,
+    reason: input.reason,
+    workerId: input.workerId,
+    actorRef: input.actorRef,
+  });
+
+  if (globalTraceSink) {
+    globalTraceSink(record);
+  } else {
+    logger.info(record, `[StateUpdate][trace] ${JSON.stringify(record)}`);
+  }
+  return record;
+}
+

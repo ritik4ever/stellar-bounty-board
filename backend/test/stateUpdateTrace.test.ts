@@ -9,6 +9,7 @@ import {
   createStateUpdateTrace,
   redactReference,
   setGlobalStateUpdateTraceSink,
+  traceWebhookOutcome,
   type StateUpdateTraceRecord,
 } from '../src/services/stateUpdateTrace';
 
@@ -373,5 +374,170 @@ describe('concurrent bounty state update tracing integration (#1928)', () => {
     expect(committed!.cursorRef).toBe(pending!.cursorRef);
     expect(committed!.currentVersion).toBe(2);
     expect(committed!.toStatus).toBe('open');
+  });
+});
+
+describe('GitHub webhook processing outcome tracing (#1943)', () => {
+  let capturedTraces: StateUpdateTraceRecord[] = [];
+  let storeFile: string;
+  let dedupFile: string;
+
+  beforeEach(() => {
+    storeFile = path.join(os.tmpdir(), `webhook-trace-bounties-${randomUUID()}.json`);
+    dedupFile = path.join(os.tmpdir(), `webhook-trace-dedup-${randomUUID()}.json`);
+    fs.writeFileSync(storeFile, '[]', 'utf8');
+    fs.writeFileSync(dedupFile, JSON.stringify({ version: 1, deliveries: {} }), 'utf8');
+
+    process.env.BOUNTY_STORE_PATH = storeFile;
+    process.env.BOUNTY_AUDIT_STORE_PATH = storeFile.replace(/\.json$/i, '.audit.json');
+    process.env.WEBHOOK_DELIVERY_STORE_PATH = dedupFile;
+    process.env.STORE_LOCK_TIMEOUT_MS = '5000';
+
+    capturedTraces = [];
+    setGlobalStateUpdateTraceSink((rec) => capturedTraces.push(rec));
+  });
+
+  afterEach(() => {
+    setGlobalStateUpdateTraceSink(null);
+    delete process.env.BOUNTY_STORE_PATH;
+    delete process.env.BOUNTY_AUDIT_STORE_PATH;
+    delete process.env.WEBHOOK_DELIVERY_STORE_PATH;
+    for (const f of [storeFile, storeFile?.replace(/\.json$/i, '.audit.json'), dedupFile]) {
+      try {
+        if (f && fs.existsSync(f)) fs.unlinkSync(f);
+      } catch {}
+    }
+  });
+
+  it('records a redacted failed trace on invalid HMAC signature without leaking tokens', () => {
+    const rawDelivery = 'deliv-raw-secret-123456';
+    const rawSignature = 'sha256=invalid-signature-hex-value-999';
+
+    const record = traceWebhookOutcome({
+      outcome: 'failed',
+      deliveryRef: rawDelivery,
+      eventRef: rawSignature,
+      error: 'invalid_hmac_signature',
+      reason: 'Invalid GitHub webhook signature.',
+    });
+
+    expect(record.outcome).toBe('failed');
+    expect(record.transition).toBe('webhook_signature_verify');
+    expect(record.deliveryRef).toMatch(/^sha256:[0-9a-f]{16}$/);
+    expect(record.eventRef).toMatch(/^sha256:[0-9a-f]{16}$/);
+    expect(record.error).toBe('invalid_hmac_signature');
+
+    // Never leak raw tokens
+    const json = JSON.stringify(record);
+    expect(json).not.toContain(rawDelivery);
+    expect(json).not.toContain(rawSignature);
+  });
+
+  it('records a pending trace for an out-of-order close event', async () => {
+    vi.resetModules();
+    const traceMod = await import('../src/services/stateUpdateTrace');
+    traceMod.setGlobalStateUpdateTraceSink((rec) => capturedTraces.push(rec));
+    const { handleGitHubPrEvent } = await import('../src/webhooks/githubPrHandler');
+
+    const prUrl = 'https://github.com/owner/repo/pull/777';
+    const rawDeliveryId = 'github-delivery-out-of-order-001';
+
+    // Event arrives before any bounty references this PR URL
+    const result = await handleGitHubPrEvent(
+      {
+        action: 'closed',
+        pull_request: { html_url: prUrl, merged: true },
+      },
+      rawDeliveryId
+    );
+
+    expect(result.deferred).toBe(true);
+    expect(result.reason).toBe('no_matching_bounty');
+
+    const pendingTrace = capturedTraces.find(
+      (t) => t.outcome === 'pending' && t.reason === 'out_of_order_close_event'
+    );
+    expect(pendingTrace).toBeDefined();
+    expect(pendingTrace!.deliveryRef).toBe(redactReference(rawDeliveryId));
+    expect(pendingTrace!.bountyId).toBe('unmatched');
+    expect(pendingTrace!.transition).toBe('pr_merged');
+  });
+
+  it('allows operators to distinguish a pending event from a committed transition', async () => {
+    vi.resetModules();
+    const traceMod = await import('../src/services/stateUpdateTrace');
+    traceMod.setGlobalStateUpdateTraceSink((rec) => capturedTraces.push(rec));
+    const store = await import('../src/services/bountyStore');
+    const { handleGitHubPrEvent } = await import('../src/webhooks/githubPrHandler');
+
+    const prUrl = 'https://github.com/owner/repo/pull/888';
+    const rawDeliveryId = 'github-delivery-distinguish-002';
+    const expectedDeliveryRef = redactReference(rawDeliveryId);
+
+    // Step 1: Out-of-order close event arrives
+    const step1Result = await handleGitHubPrEvent(
+      {
+        action: 'closed',
+        pull_request: { html_url: prUrl, merged: true },
+      },
+      rawDeliveryId
+    );
+    expect(step1Result.deferred).toBe(true);
+
+    // Operator inspects traces at Step 1: Exactly one pending trace exists for this deliveryRef
+    const tracesForDeliveryStep1 = capturedTraces.filter((t) => t.deliveryRef === expectedDeliveryRef);
+    expect(tracesForDeliveryStep1).toHaveLength(1);
+    expect(tracesForDeliveryStep1[0].outcome).toBe('pending');
+    expect(tracesForDeliveryStep1[0].reason).toBe('out_of_order_close_event');
+
+    // Step 2: Bounty is created and solution is submitted with this PR URL
+    const bounty = await store.createBounty({
+      repo: 'owner/repo',
+      issueNumber: 888,
+      title: 'Distinguish pending vs committed',
+      summary: 'Observability verification',
+      maintainer: MAINTAINER,
+      tokenSymbol: 'XLM',
+      amount: 200,
+      deadlineDays: 7,
+      labels: ['obs'],
+    });
+    await store.reserveBounty(bounty.id, CONTRIBUTOR);
+    await store.submitBounty(bounty.id, CONTRIBUTOR, prUrl);
+
+    // Clear trace log buffer to isolate Step 3 commits
+    capturedTraces.length = 0;
+
+    // Step 3: Webhook delivery is replayed / resumed with the same deliveryId
+    const step3Result = await handleGitHubPrEvent(
+      {
+        action: 'closed',
+        pull_request: { html_url: prUrl, merged: true },
+      },
+      rawDeliveryId
+    );
+    expect(step3Result.deferred).toBeUndefined();
+    expect(step3Result.duplicate).toBe(false);
+
+    // Operator inspects traces at Step 3:
+    // Transitions have outcome 'committed' and match the exact same deliveryRef!
+    const tracesForDeliveryStep3 = capturedTraces.filter((t) => t.deliveryRef === expectedDeliveryRef);
+    const committedPrMerged = tracesForDeliveryStep3.find(
+      (t) => t.outcome === 'committed' && t.transition === 'pr_merged'
+    );
+    const committedRelease = tracesForDeliveryStep3.find(
+      (t) => t.outcome === 'committed' && t.transition === 'release'
+    );
+
+    expect(committedPrMerged).toBeDefined();
+    expect(committedPrMerged!.bountyId).toBe(bounty.id);
+    expect(committedRelease).toBeDefined();
+    expect(committedRelease!.bountyId).toBe(bounty.id);
+    expect(committedRelease!.currentVersion).toBe(5); // create(1) -> reserve(2) -> submit(3) -> pr_merged(4) -> release(5)
+
+    // Operator can correlate the sequence:
+    // deliveryRef 'sha256:...' was 'pending' before submission, and transitioned to 'committed' after submission
+    expect(committedPrMerged!.deliveryRef).toBe(expectedDeliveryRef);
+    expect(committedRelease!.deliveryRef).toBe(expectedDeliveryRef);
   });
 });
