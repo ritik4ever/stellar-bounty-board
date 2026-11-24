@@ -579,6 +579,39 @@ function persistUpdated(records: BountyRecord[], updated: BountyRecord): BountyR
   return updated;
 }
 
+/**
+ * Atomically persists a bounty status/version/event update alongside its
+ * audit log append at the JSON store boundary. If the audit store is unreadable
+ * or fails to write, `bounties.json` is rolled back to `records` so one durable
+ * version and complete event history are preserved.
+ */
+function persistTransitionWithAudit(
+  records: BountyRecord[],
+  updated: BountyRecord,
+  auditInputs: CreateAuditLogInput[],
+): BountyRecord {
+  if (auditInputs.length > 0) {
+    readAuditStore();
+  }
+  const persisted = persistUpdated(records, updated);
+  if (auditInputs.length > 0) {
+    try {
+      appendAuditLogs(auditInputs);
+    } catch (err) {
+      try {
+        writeStore(records);
+      } catch (rollbackErr) {
+        logStructured('error', 'bounty_store_rollback_failed', {
+          bountyId: updated.id,
+          error: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+        });
+      }
+      throw err;
+    }
+  }
+  return persisted;
+}
+
 export interface ListBountiesOptions {
   /** Case-insensitive substring filter applied to bounty text and repository. */
   q?: string;
@@ -978,8 +1011,7 @@ export async function reserveBounty(
         events: [...bounty.events, { type: 'reserved', timestamp: now, actor: contributor }],
       };
 
-      const persisted = persistUpdated(records, updated);
-      appendAuditLogs([
+      const persisted = persistTransitionWithAudit(records, updated, [
         {
           bountyId: id,
           fromStatus: bounty.status,
@@ -1099,8 +1131,7 @@ export async function submitBounty(
         events: [...bounty.events, { type: 'submitted', timestamp: now, actor: contributor }],
       };
 
-      const persisted = persistUpdated(records, updated);
-      appendAuditLogs([
+      const persisted = persistTransitionWithAudit(records, updated, [
         {
           bountyId: id,
           fromStatus: bounty.status,
@@ -1217,8 +1248,7 @@ export async function releaseBounty(
         events: [...bounty.events, { type: 'released', timestamp: now, actor: maintainer }],
       };
 
-      const persisted = persistUpdated(records, updated);
-      appendAuditLogs([
+      const persisted = persistTransitionWithAudit(records, updated, [
         {
           bountyId: id,
           fromStatus: bounty.status,
@@ -1353,8 +1383,7 @@ export async function refundBounty(
         events: [...bounty.events, { type: 'refunded', timestamp: now, actor: maintainer }],
       };
 
-      const persisted = persistUpdated(records, updated);
-      appendAuditLogs([
+      const persisted = persistTransitionWithAudit(records, updated, [
         {
           bountyId: id,
           fromStatus: bounty.status,
