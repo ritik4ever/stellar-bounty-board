@@ -31,12 +31,14 @@ function createApiDouble(initial: MockBounty[] = []) {
   const calls: string[] = [];
   let unblockRelease: (() => void) | undefined;
   let releaseGate: Promise<void> | undefined;
+  let releaseError: { status: number; message: string } | undefined;
   return {
     bounties,
     calls,
     get releaseCalls() { return releaseCalls; },
     delayRelease() { releaseGate = new Promise<void>((resolve) => { unblockRelease = resolve; }); },
     confirmRelease() { unblockRelease?.(); },
+    failRelease(status = 504, message = 'Gateway Timeout') { releaseError = { status, message }; },
     async install(page: Page) {
       await page.route('**/api/**', async (route) => {
         const request = route.request();
@@ -82,6 +84,9 @@ function createApiDouble(initial: MockBounty[] = []) {
             bounty.submissionUrl = payload.submissionUrl;
           } else if (action === 'release' && bounty.status === 'submitted') {
             releaseCalls += 1;
+            if (releaseError) {
+              return send({ error: releaseError.message }, releaseError.status);
+            }
             // Simulated *server* confirmation: never invoke a real wallet.
             if (releaseGate) await releaseGate;
             bounty.status = 'released';
@@ -163,4 +168,31 @@ test('mock release stays submitted until simulated confirmation arrives', async 
   fake.confirmRelease();
   await expect.poll(() => fake.bounties[0].status).toBe('released');
   expect(fake.bounties[0].events.map((event) => event.type)).toEqual(['created', 'reserved', 'submitted', 'released']);
+});
+
+test('failed contract confirmation or gateway timeout leaves bounty in submitted status', async ({ page }) => {
+  const fake = createApiDouble([{
+    id: 'BNT-9599', repo: 'local/seed-fixtures', issueNumber: 9599,
+    title: 'Failed release fixture', summary: 'No live funds', maintainer: MAINTAINER,
+    contributor: CONTRIBUTOR, tokenSymbol: 'XLM', amount: 10, labels: [],
+    status: 'submitted', createdAt: now, deadlineAt: 1893456000, version: 3,
+    events: ['created', 'reserved', 'submitted'].map((type, i) => ({ type, timestamp: now + i * 60 })),
+  }]);
+  fake.failRelease(504, 'Gateway Timeout');
+  await fake.install(page);
+  await page.goto('/');
+
+  const status = await page.evaluate(async () => {
+    const res = await fetch('/api/bounties/BNT-9599/release', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ simulated: true }),
+    });
+    return res.status;
+  });
+
+  expect(status).toBe(504);
+  expect(fake.releaseCalls).toBe(1);
+  expect(fake.bounties[0].status).toBe('submitted');
+  expect(fake.bounties[0].version).toBe(3);
+  expect(fake.bounties[0].events.map((event) => event.type)).toEqual(['created', 'reserved', 'submitted']);
 });

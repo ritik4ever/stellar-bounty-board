@@ -355,4 +355,113 @@ describe("sendNotification — opt-out boundary", () => {
       { address: RECIPIENTS[0].address, channel: "WEBHOOK", status: "sent" },
     ]);
   });
+
+  it("records per-recipient failure and preserves channel on SendGrid 429 rate limit", async () => {
+    process.env.NOTIFICATION_CHANNEL = "EMAIL";
+    const mod = await import("../src/services/notificationService");
+    fetchMock.mockResolvedValueOnce(
+      errResponse(429, JSON.stringify({ errors: [{ message: "Too many requests" }] }))
+    );
+
+    const result = await mod.sendNotification([RECIPIENTS[0]], "bounty_created", PAYLOAD);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.channel).toBe("EMAIL");
+    expect(result.outcomes).toEqual([
+      {
+        address: RECIPIENTS[0].address,
+        channel: "EMAIL",
+        status: "failed",
+        error: expect.stringContaining("SendGrid responded 429"),
+      },
+    ]);
+  });
+
+  it("records per-recipient failure and preserves channel on webhook timeout", async () => {
+    process.env.NOTIFICATION_CHANNEL = "WEBHOOK";
+    const mod = await import("../src/services/notificationService");
+    fetchMock.mockRejectedValueOnce(new Error("The operation was aborted due to timeout"));
+
+    const result = await mod.sendNotification(RECIPIENTS, "bounty_released", PAYLOAD);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.channel).toBe("WEBHOOK");
+    expect(result.outcomes).toEqual([
+      {
+        address: RECIPIENTS[0].address,
+        channel: "WEBHOOK",
+        status: "failed",
+        error: expect.stringMatching(/timeout|aborted/i),
+      },
+      {
+        address: RECIPIENTS[1].address,
+        channel: "WEBHOOK",
+        status: "failed",
+        error: expect.stringMatching(/timeout|aborted/i),
+      },
+    ]);
+  });
+
+  it("prevents duplicate alerts across worker restart and replay when recipient opts out after initial failure", async () => {
+    process.env.NOTIFICATION_CHANNEL = "EMAIL";
+    const mod = await import("../src/services/notificationService");
+
+    // Pass 1: Recipient 0 succeeds, Recipient 1 fails with SendGrid 429
+    fetchMock
+      .mockResolvedValueOnce(okResponse())
+      .mockResolvedValueOnce(errResponse(429, "Too many requests"));
+
+    const initialResult = await mod.sendNotification(RECIPIENTS, "bounty_created", PAYLOAD);
+    expect(initialResult.channel).toBe("EMAIL");
+    expect(initialResult.outcomes).toEqual([
+      { address: RECIPIENTS[0].address, channel: "EMAIL", status: "sent" },
+      {
+        address: RECIPIENTS[1].address,
+        channel: "EMAIL",
+        status: "failed",
+        error: expect.stringContaining("SendGrid responded 429"),
+      },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    // Between passes: worker restarts, and recipient 1 opts out before replay
+    fetchMock.mockClear();
+    mod.setNotificationOptIn(RECIPIENTS[1].address, false);
+
+    // Replay pass: remaining un-sent recipient 1 is skipped at the send boundary
+    const replayResult = await mod.sendNotification([RECIPIENTS[1]], "bounty_created", PAYLOAD);
+    expect(replayResult.channel).toBe("EMAIL");
+    expect(replayResult.outcomes).toEqual([
+      { address: RECIPIENTS[1].address, channel: "EMAIL", status: "skipped", reason: "opted_out" },
+    ]);
+    // SendGrid API not invoked for opted-out recipient; no duplicate alert sent
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("handles webhook restart and replay: excludes newly opted-out recipient and sends only to remaining", async () => {
+    process.env.NOTIFICATION_CHANNEL = "WEBHOOK";
+    const mod = await import("../src/services/notificationService");
+
+    // Pass 1: Webhook encounters timeout
+    fetchMock.mockRejectedValueOnce(new Error("The operation was aborted due to timeout"));
+    const failResult = await mod.sendNotification(RECIPIENTS, "bounty_submitted", PAYLOAD);
+    expect(failResult.outcomes.every((o) => o.status === "failed" && o.channel === "WEBHOOK")).toBe(true);
+
+    // Recipient 0 opts out before worker replays
+    fetchMock.mockClear();
+    mod.setNotificationOptIn(RECIPIENTS[0].address, false);
+    fetchMock.mockResolvedValueOnce(okResponse(200));
+
+    // Pass 2 (Replay):
+    const replayResult = await mod.sendNotification(RECIPIENTS, "bounty_submitted", PAYLOAD);
+    expect(replayResult.channel).toBe("WEBHOOK");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const sentBody = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(sentBody.recipients).toEqual([RECIPIENTS[1]]);
+    expect(replayResult.outcomes).toEqual([
+      { address: RECIPIENTS[0].address, channel: "WEBHOOK", status: "skipped", reason: "opted_out" },
+      { address: RECIPIENTS[1].address, channel: "WEBHOOK", status: "sent" },
+    ]);
+  });
 });
