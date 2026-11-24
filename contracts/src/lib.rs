@@ -695,6 +695,15 @@ impl StellarBountyBoardContract {
     /// * [`ContractError::TokenNotAllowed`] - If `token` is not in the allowed token whitelist.
     /// * [`ContractError::DisputeWindowOverrideTooSmall`] - If `dispute_window_override` is provided and `< MIN_DISPUTE_WINDOW_OVERRIDE`.
     /// * [`ContractError::DisputeWindowOverrideTooLarge`] - If `dispute_window_override` is provided and `> MAX_DISPUTE_WINDOW_OVERRIDE`.
+    /// * [`ContractError::EscrowTransferFailed`] - If the token transfer from maintainer to contract escrow fails.
+    /// * [`ContractError::BountyIdOverflow`] - If `NextBountyId` counter overflows `u64`.
+    ///
+    /// # Atomicity & Escrow Funding Failure Guarantees
+    /// * Parameter validation and maintainer authorization execute strictly before token transfer.
+    /// * Token transfer occurs strictly prior to storage mutation and event emission.
+    /// * If token transfer fails, the transaction aborts with [`ContractError::EscrowTransferFailed`], rolling back
+    ///   cleanly without mutating [`DataKey::NextBountyId`] or storing [`DataKey::Bounty(id)`].
+    /// * A failed call cannot strand or multiply escrow funds; retrying after funding will allocate the unconsumed sequential ID.
     ///
     /// # Storage
     /// * **Read**:

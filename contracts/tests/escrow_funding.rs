@@ -580,3 +580,159 @@ fn failing_token_contract_after_validation_and_role_auth_precedence() {
     );
     assert!(f.client.try_get_bounty(&1).is_err());
 }
+
+#[test]
+fn token_transfer_failure_with_existing_bounties_does_not_strand_or_multiply_funds_or_skip_ids() {
+    let f = setup();
+    let min_amount = DEFAULT_MIN_BOUNTY_AMOUNT;
+    let repo = String::from_str(&f.env, "org/repo");
+    let deadline = f.env.ledger().timestamp() + 1_000;
+
+    // 1. Legitimate creation of Bounty 1 succeeds
+    mint_token(&f.env, &f.accepted_token, &f.maintainer, min_amount);
+    let transfer_sub_1 = MockAuthInvoke {
+        contract: &f.accepted_token,
+        fn_name: "transfer",
+        args: (&f.maintainer, &f.client.address, &min_amount).into_val(&f.env),
+        sub_invokes: &[],
+    };
+    f.env.mock_auths(&[MockAuth {
+        address: &f.maintainer,
+        invoke: &MockAuthInvoke {
+            contract: &f.client.address,
+            fn_name: "create_bounty",
+            args: (
+                &f.maintainer,
+                &f.accepted_token,
+                &min_amount,
+                &repo,
+                &101u32,
+                &String::from_str(&f.env, "Bounty 1"),
+                &deadline,
+                &0u32,
+                &None::<u64>,
+            )
+                .into_val(&f.env),
+            sub_invokes: &[transfer_sub_1],
+        },
+    }]);
+    let bounty_1_id = f.client.create_bounty(
+        &f.maintainer,
+        &f.accepted_token,
+        &min_amount,
+        &repo,
+        &101,
+        &String::from_str(&f.env, "Bounty 1"),
+        &deadline,
+        &0,
+        &None,
+    );
+    assert_eq!(bounty_1_id, 1);
+
+    let accepted = TokenClient::new(&f.env, &f.accepted_token);
+    assert_eq!(accepted.balance(&f.client.address), min_amount);
+    assert_eq!(accepted.balance(&f.maintainer), 0);
+    assert_eq!(f.client.get_bounty(&1).status, BountyStatus::Open);
+
+    // 2. Attempt Bounty 2 with failing token transfer (maintainer has 1 stroop less than required)
+    let bounty_2_amount = min_amount * 2;
+    mint_token(&f.env, &f.accepted_token, &f.maintainer, bounty_2_amount - 1);
+
+    let transfer_sub_2 = MockAuthInvoke {
+        contract: &f.accepted_token,
+        fn_name: "transfer",
+        args: (&f.maintainer, &f.client.address, &bounty_2_amount).into_val(&f.env),
+        sub_invokes: &[],
+    };
+    f.env.mock_auths(&[MockAuth {
+        address: &f.maintainer,
+        invoke: &MockAuthInvoke {
+            contract: &f.client.address,
+            fn_name: "create_bounty",
+            args: (
+                &f.maintainer,
+                &f.accepted_token,
+                &bounty_2_amount,
+                &repo,
+                &102u32,
+                &String::from_str(&f.env, "Bounty 2"),
+                &deadline,
+                &0u32,
+                &None::<u64>,
+            )
+                .into_val(&f.env),
+            sub_invokes: &[transfer_sub_2],
+        },
+    }]);
+
+    assert_eq!(
+        f.client.try_create_bounty(
+            &f.maintainer,
+            &f.accepted_token,
+            &bounty_2_amount,
+            &repo,
+            &102,
+            &String::from_str(&f.env, "Bounty 2"),
+            &deadline,
+            &0,
+            &None,
+        ),
+        Err(Ok(Error::from_contract_error(
+            ContractError::EscrowTransferFailed as u32
+        )))
+    );
+
+    // Invariants:
+    // Contract balance remains untouched (only Bounty 1 funds)
+    assert_eq!(accepted.balance(&f.client.address), min_amount);
+    // Maintainer balance retained completely (no partial deduction)
+    assert_eq!(accepted.balance(&f.maintainer), bounty_2_amount - 1);
+    // Bounty 1 unaffected
+    assert_eq!(f.client.get_bounty(&1).status, BountyStatus::Open);
+    // Bounty 2 not created
+    assert!(f.client.try_get_bounty(&2).is_err());
+
+    // 3. Top up 1 stroop and retry Bounty 2 -> succeeds with sequential ID 2
+    mint_token(&f.env, &f.accepted_token, &f.maintainer, 1);
+    let transfer_sub_retry = MockAuthInvoke {
+        contract: &f.accepted_token,
+        fn_name: "transfer",
+        args: (&f.maintainer, &f.client.address, &bounty_2_amount).into_val(&f.env),
+        sub_invokes: &[],
+    };
+    f.env.mock_auths(&[MockAuth {
+        address: &f.maintainer,
+        invoke: &MockAuthInvoke {
+            contract: &f.client.address,
+            fn_name: "create_bounty",
+            args: (
+                &f.maintainer,
+                &f.accepted_token,
+                &bounty_2_amount,
+                &repo,
+                &102u32,
+                &String::from_str(&f.env, "Bounty 2"),
+                &deadline,
+                &0u32,
+                &None::<u64>,
+            )
+                .into_val(&f.env),
+            sub_invokes: &[transfer_sub_retry],
+        },
+    }]);
+    let bounty_2_id = f.client.create_bounty(
+        &f.maintainer,
+        &f.accepted_token,
+        &bounty_2_amount,
+        &repo,
+        &102,
+        &String::from_str(&f.env, "Bounty 2"),
+        &deadline,
+        &0,
+        &None,
+    );
+    assert_eq!(bounty_2_id, 2);
+    assert_eq!(accepted.balance(&f.client.address), min_amount + bounty_2_amount);
+    assert_eq!(accepted.balance(&f.maintainer), 0);
+    assert_eq!(f.client.get_bounty(&2).status, BountyStatus::Open);
+}
