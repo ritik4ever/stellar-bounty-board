@@ -153,11 +153,11 @@ For detailed architecture diagrams and data flow documentation, see [docs/ARCHIT
 
 For the persistence decision (JSON vs database) see the ADR: [docs/adr/0001-json-file-persistence.md](docs/adr/0001-json-file-persistence.md).
 
-For integrating GitHub webhooks — including the HMAC-SHA256 algorithm, Node.js and Python verification examples, timing-safe comparison guidance, and troubleshooting — see [docs/webhook-signatures.md](docs/webhook-signatures.md).
+For integrating GitHub webhooks — including the HMAC-SHA256 algorithm, Node.js and Python verification examples, timing-safe comparison guidance, and troubleshooting — see [docs/webhook-signatures.md](docs/webhook-signatures.md). For delivery journal resumption, retry reliability, and input validation (#1942), see [docs/webhook-delivery-reliability.md](docs/webhook-delivery-reliability.md).
 
 ## Contract Event Indexer Worker
 
-The backend includes an isolated worker for indexing Soroban contract events. See [backend/worker/README.md](backend/worker/README.md) for details on running and extending the indexer.
+The backend includes an isolated worker for indexing Soroban contract events and an operator backfill tool. See [backend/worker/README.md](backend/worker/README.md) for details on running the indexer, backfill operations, and event replay and failure verification (#1939).
 
 ## API Overview
 

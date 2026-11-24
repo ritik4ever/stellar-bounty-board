@@ -309,6 +309,23 @@ describe('Webhooks Module — githubPrHandler', () => {
         expect(result.duplicate).toBe(false);
       });
 
+      it('rejects malformed PR URLs without altering state or deferring into journal (#1942)', async () => {
+        const malformedBodies = [
+          { action: 'closed', pull_request: { merged: true, html_url: 'javascript:alert(1)' } },
+          { action: 'closed', pull_request: { merged: true, html_url: 'http://insecure.test/owner/repo/pull/1' } },
+          { action: 'closed', pull_request: { merged: true, html_url: 'not-a-url' } },
+          { action: 'closed', pull_request: { merged: true, html_url: 'https://evil.example.com/owner/repo/pull/1' } },
+        ];
+        for (let i = 0; i < malformedBodies.length; i++) {
+          const body = malformedBodies[i];
+          const deliveryId = `malformed-pr-url-delivery-${i}`;
+          const result = await handleGitHubPrEvent(body, deliveryId);
+          expect(result.duplicate).toBe(false);
+          expect(result.deferred).toBe(false);
+          expect(result.reason).toBe('malformed_pr_url');
+        }
+      });
+
       it('always returns object with duplicate property', async () => {
         const validBodies = [
           'invalid',

@@ -122,6 +122,7 @@ describe('POST /api/webhooks/github', () => {
         authenticated: true,
         provider: 'github',
         received: true,
+        deferred: false,
       },
     });
   });
