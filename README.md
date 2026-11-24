@@ -127,6 +127,17 @@ Stellar Bounty Board provides an opt-in notification system to notify maintainer
 - **Email:** Delivers templated alerts via SendGrid when `SENDGRID_API_KEY` and `NOTIFICATION_CHANNEL=EMAIL` are configured.
 - **Opt-In Preferences:** Users opt in or out via `POST /api/notifications/opt-in` and check status via `GET /api/notifications/opt-in/:address`.
 
+### Opt-out between enqueue and send
+
+Opt-out is re-checked per recipient immediately before each send, so a user who opts out after a notification was queued is not alerted. `sendNotification` returns one outcome per recipient, each keeping the channel that was used:
+
+- `sent`: the alert was delivered.
+- `skipped` with reason `opted_out`: the recipient opted out before the send. Nothing is sent.
+- `skipped` with reason `not_configured`: the channel is missing its credentials or URL.
+- `failed`: the provider returned an error. The error is recorded in the outcome.
+
+Skipped and failed recipients are never retried by this function, so no recipient is alerted twice.
+
 ## Deployment Guide
 
 See [docs/deployment.md](docs/deployment.md) for step-by-step instructions to deploy the backend on Render and the frontend on Vercel, including required environment variables, health check paths, and troubleshooting tips.
