@@ -1,4 +1,7 @@
 import crypto from "node:crypto";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -463,5 +466,185 @@ describe("sendNotification — opt-out boundary", () => {
       { address: RECIPIENTS[0].address, channel: "WEBHOOK", status: "skipped", reason: "opted_out" },
       { address: RECIPIENTS[1].address, channel: "WEBHOOK", status: "sent" },
     ]);
+  });
+});
+
+// ── Notification delivery worker resumption and retry safety (#1946) ───────────
+
+describe("Notification delivery worker resumption and retry safety (#1946)", () => {
+  const fetchMock = vi.fn<typeof fetch>();
+  let tempJournalPath: string;
+
+  beforeEach(async () => {
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+    tempJournalPath = path.join(os.tmpdir(), `notif-journal-${crypto.randomUUID()}.json`);
+    process.env.NOTIFICATION_DELIVERY_STORE_PATH = tempJournalPath;
+    process.env.NOTIFICATION_CHANNEL = "EMAIL";
+    process.env.SENDGRID_API_KEY = "SG.test-key";
+    process.env.NOTIFICATION_WEBHOOK_URL = "https://hooks.test/notify";
+    vi.resetModules();
+    const mod = await import("../src/services/notificationService");
+    mod.clearNotificationDeliveryJournal();
+    mod.clearNotificationOptIns();
+  });
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    delete process.env.NOTIFICATION_CHANNEL;
+    delete process.env.SENDGRID_API_KEY;
+    delete process.env.NOTIFICATION_WEBHOOK_URL;
+    delete process.env.NOTIFICATION_DELIVERY_STORE_PATH;
+    try {
+      if (fs.existsSync(tempJournalPath)) {
+        fs.unlinkSync(tempJournalPath);
+      }
+    } catch {}
+  });
+
+  it("reproduces SendGrid 429 interruption and safely resumes without duplicate alerts", async () => {
+    const mod = await import("../src/services/notificationService");
+    const deliveryRef = "bounty-created-batch-001";
+
+    // Pass 1: Recipient 0 succeeds, Recipient 1 fails with SendGrid 429 rate limit
+    fetchMock
+      .mockResolvedValueOnce(okResponse(202))
+      .mockResolvedValueOnce(errResponse(429, JSON.stringify({ errors: [{ message: "Too many requests" }] })));
+
+    const pass1 = await mod.sendNotification(RECIPIENTS, "bounty_created", PAYLOAD, { deliveryRef });
+    expect(pass1.outcomes).toEqual([
+      { address: RECIPIENTS[0].address, channel: "EMAIL", status: "sent" },
+      {
+        address: RECIPIENTS[1].address,
+        channel: "EMAIL",
+        status: "failed",
+        error: expect.stringContaining("SendGrid responded 429"),
+      },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    // Journal verifies delivery is left 'pending' for worker resumption
+    const pendingList = mod.getPendingNotificationDeliveries();
+    expect(pendingList).toHaveLength(1);
+    expect(pendingList[0].deliveryId).toBe(deliveryRef);
+    expect(pendingList[0].status).toBe("pending");
+    expect(pendingList[0].attempts).toBe(1);
+
+    // Pass 2: Resume worker ticks (e.g. at startup or cron worker retry)
+    fetchMock.mockClear();
+    // SendGrid rate limit clears: provider returns 202
+    fetchMock.mockResolvedValueOnce(okResponse(202));
+
+    const resumeSummary = await mod.resumePendingNotificationDeliveries();
+    expect(resumeSummary).toEqual({
+      resumed: 1,
+      completed: 1,
+      failed: 0,
+      remaining: 0,
+    });
+
+    // CRITICAL: SendGrid was called ONLY ONCE for recipient 1. Recipient 0 was NOT re-sent!
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Final journal state is completed
+    const finalDelivery = mod.getNotificationDelivery(deliveryRef);
+    expect(finalDelivery?.status).toBe("completed");
+    expect(finalDelivery?.attempts).toBe(2);
+    expect(finalDelivery?.outcomes).toEqual([
+      { address: RECIPIENTS[0].address, channel: "EMAIL", status: "sent" },
+      { address: RECIPIENTS[1].address, channel: "EMAIL", status: "sent" },
+    ]);
+  });
+
+  it("reproduces webhook timeout and resumes safely, skipping users who opted out before replay", async () => {
+    process.env.NOTIFICATION_CHANNEL = "WEBHOOK";
+    const mod = await import("../src/services/notificationService");
+    const deliveryRef = "bounty-released-webhook-002";
+
+    // Pass 1: Webhook endpoint times out
+    fetchMock.mockRejectedValueOnce(new Error("The operation was aborted due to timeout"));
+
+    const pass1 = await mod.sendNotification(RECIPIENTS, "bounty_released", PAYLOAD, { deliveryRef });
+    expect(pass1.outcomes.every((o) => o.status === "failed")).toBe(true);
+
+    const pending = mod.getPendingNotificationDeliveries();
+    expect(pending).toHaveLength(1);
+    expect(pending[0].status).toBe("pending");
+
+    // Between interruption and resume: Recipient 0 opts out
+    mod.setNotificationOptIn(RECIPIENTS[0].address, false);
+
+    // Pass 2: Resume pass
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValueOnce(okResponse(200));
+
+    const resumeSummary = await mod.resumePendingNotificationDeliveries();
+    expect(resumeSummary).toEqual({
+      resumed: 1,
+      completed: 1,
+      failed: 0,
+      remaining: 0,
+    });
+
+    // Webhook was called once with only the eligible recipient 1
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const sentBody = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(sentBody.recipients).toEqual([RECIPIENTS[1]]);
+
+    const finalDelivery = mod.getNotificationDelivery(deliveryRef);
+    expect(finalDelivery?.status).toBe("completed");
+    expect(finalDelivery?.outcomes).toEqual([
+      { address: RECIPIENTS[0].address, channel: "WEBHOOK", status: "skipped", reason: "opted_out" },
+      { address: RECIPIENTS[1].address, channel: "WEBHOOK", status: "sent" },
+    ]);
+  });
+
+  it("persists interrupted delivery across simulated process crash and restart", async () => {
+    const mod1 = await import("../src/services/notificationService");
+    const deliveryRef = "crash-recovery-batch-003";
+
+    // Recipient 0 succeeds, Recipient 1 fails with SendGrid 429
+    fetchMock
+      .mockResolvedValueOnce(okResponse(202))
+      .mockResolvedValueOnce(errResponse(429, "Rate limited"));
+
+    await mod1.sendNotification(RECIPIENTS, "bounty_created", PAYLOAD, { deliveryRef });
+
+    // Verify journal was persisted to disk
+    expect(fs.existsSync(tempJournalPath)).toBe(true);
+
+    // Simulate process crash and restart: reset modules and reload from disk
+    vi.resetModules();
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValueOnce(okResponse(202));
+
+    const mod2 = await import("../src/services/notificationService");
+    // Verify reload from disk found pending delivery
+    expect(mod2.getPendingNotificationDeliveries()).toHaveLength(1);
+
+    const resumeSummary = await mod2.resumePendingNotificationDeliveries();
+    expect(resumeSummary.completed).toBe(1);
+    expect(resumeSummary.remaining).toBe(0);
+
+    // Recipient 0 was not re-sent; only recipient 1 was sent on restart
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("never duplicates alerts when sendNotification is replayed with an already-completed deliveryRef", async () => {
+    const mod = await import("../src/services/notificationService");
+    const deliveryRef = "already-completed-batch-004";
+
+    fetchMock.mockResolvedValue(okResponse(202));
+
+    // First call commits
+    const firstResult = await mod.sendNotification(RECIPIENTS, "bounty_created", PAYLOAD, { deliveryRef });
+    expect(firstResult.outcomes.every((o) => o.status === "sent")).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    // Second call with same deliveryRef returns committed result with 0 provider calls
+    fetchMock.mockClear();
+    const replayResult = await mod.sendNotification(RECIPIENTS, "bounty_created", PAYLOAD, { deliveryRef });
+    expect(replayResult.outcomes).toEqual(firstResult.outcomes);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

@@ -138,11 +138,12 @@ Opt-out is re-checked per recipient immediately before each send, so a user who 
 
 Skipped and failed recipients are never retried by this function, so no recipient is alerted twice.
 
-### Worker replay and failure handling
+### Worker replay, resumption, and failure handling (#1946)
 
-- **SendGrid 429 (Rate Limiting):** When SendGrid responds with HTTP 429 Too Many Requests, the outcome records `status: 'failed'` with the status code and provider response. The channel choice (`EMAIL`) is preserved, allowing workers to inspect rate limit failures without terminating un-sent batches.
-- **Webhook Timeouts:** When dispatching webhooks to `NOTIFICATION_WEBHOOK_URL`, request timeouts or connection aborts are caught and mapped to `status: 'failed'` for each eligible recipient. The delivery worker process remains running.
-- **Worker Replay and Restart:** During worker restart and batch replay, opt-out preferences are evaluated afresh at the send boundary. A recipient who opted out between an initial attempt and a replay is recorded as `skipped: 'opted_out'`, ensuring no duplicate or unwanted alerts are generated upon replaying event logs. Channel selection remains deterministic and immutable across replays.
+- **Persistent Notification Delivery Journal:** Background notification dispatches record state in a durable JSON journal (`NOTIFICATION_DELIVERY_STORE_PATH`, default `<bounty store>.notifications.json`). Each batch is modeled across `pending` and `completed` states with per-recipient outcome tracking.
+- **SendGrid 429 (Rate Limiting):** When SendGrid responds with HTTP 429 Too Many Requests, the outcome records `status: 'failed'` with the status code and provider response. The delivery entry remains `pending`, allowing workers to inspect and retry rate limit failures without terminating or discarding un-sent batches.
+- **Webhook Timeouts:** When dispatching webhooks to `NOTIFICATION_WEBHOOK_URL`, request timeouts or connection aborts are caught and mapped to `status: 'failed'` for each eligible recipient. The delivery journal retains the batch as `pending`.
+- **Worker Replay and Restart:** During worker restart and batch replay (`resumePendingNotificationDeliveries()`), already-delivered recipients are skipped so no duplicate alerts are dispatched. Opt-out preferences are evaluated afresh at the send boundary for un-sent recipients; a recipient who opted out between an initial attempt and a replay is recorded as `skipped: 'opted_out'`, ensuring committed effects are neither lost nor duplicated. Channel selection remains deterministic and immutable across replays.
 
 ## Deployment Guide
 

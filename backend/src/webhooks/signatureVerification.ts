@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Request, RequestHandler } from "express";
 import { logger } from "../logger";
+import { traceWebhookOutcome } from "../services/stateUpdateTrace";
 
 type HmacAlgorithm = "sha1" | "sha256" | "sha512";
 type SecretResolver = string | (() => string | undefined);
@@ -463,6 +464,20 @@ export function createWebhookSignatureMiddleware({
       next();
     } catch (error) {
       if (error instanceof WebhookSignatureError) {
+        const rawDeliveryId = req.header('x-github-delivery');
+        const rawSignature = req.header(profile.headerName);
+        const deliveryRef = typeof rawDeliveryId === 'string' ? rawDeliveryId : undefined;
+        const eventRef = typeof rawSignature === 'string' ? rawSignature : undefined;
+
+        traceWebhookOutcome({
+          outcome: 'failed',
+          transition: 'webhook_signature_verify',
+          deliveryRef,
+          eventRef,
+          error: 'invalid_hmac_signature',
+          reason: error.message,
+        });
+
         res.status(error.statusCode).json({ error: error.message });
         return;
       }

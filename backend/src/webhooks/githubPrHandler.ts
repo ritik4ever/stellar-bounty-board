@@ -1,5 +1,6 @@
 import { listBounties, releaseBounty, markBountyPrMerged } from '../services/bountyStore';
 import { logStructured } from '../logger';
+import { traceWebhookOutcome } from '../services/stateUpdateTrace';
 import {
   beginDelivery,
   deferDelivery,
@@ -73,10 +74,11 @@ function mergedPrUrl(body: unknown): string | undefined {
 async function releaseForMergedPr(
   bountyId: string,
   maintainer: string,
-  prUrl: string
+  prUrl: string,
+  deliveryId?: string
 ): Promise<void> {
   try {
-    await releaseBounty(bountyId, maintainer);
+    await releaseBounty(bountyId, maintainer, undefined, 0, { deliveryRef: deliveryId });
   } catch (error) {
     // Another worker or a maintainer may have released the bounty between our
     // read and our write. That is a successful outcome for this delivery, not a
@@ -129,6 +131,15 @@ async function applyMergedPr(prUrl: string, deliveryId?: string): Promise<GitHub
     // in-flight submission. Acknowledge the event but keep it deferred so it is
     // re-driven on redelivery or at startup — never mark it processed, which
     // would drop the release forever.
+    traceWebhookOutcome({
+      outcome: 'pending',
+      bountyId: 'unmatched',
+      transition: 'pr_merged',
+      deliveryRef: deliveryId,
+      eventRef: prUrl ? `pr:${prUrl}` : deliveryId,
+      reason: 'out_of_order_close_event',
+    });
+
     logStructured('info', 'github_webhook_pr_deferred_no_matching_bounty', {
       prUrl,
       deliveryId,
@@ -165,7 +176,7 @@ async function applyMergedPr(prUrl: string, deliveryId?: string): Promise<GitHub
       maintainer: matching.maintainer,
     });
 
-    await releaseForMergedPr(matching.id, matching.maintainer, prUrl);
+    await releaseForMergedPr(matching.id, matching.maintainer, prUrl, deliveryId);
 
     logStructured('info', 'github_webhook_pr_auto_released', {
       bountyId: matching.id,
@@ -286,6 +297,14 @@ export async function handleGitHubPrEvent(
 
     return await applyMergedPr(prUrl, deliveryId);
   } catch (error) {
+    traceWebhookOutcome({
+      outcome: 'failed',
+      transition: 'pr_merged',
+      deliveryRef: deliveryId,
+      error: error instanceof Error ? error.message : String(error),
+      reason: 'delivery_deferred_retry',
+    });
+
     // Defer instead of dropping: GitHub redelivers failed webhooks, and the
     // startup resume pass picks up what a restart left behind.
     if (deliveryId) {
