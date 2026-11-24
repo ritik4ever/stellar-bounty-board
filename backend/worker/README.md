@@ -22,7 +22,7 @@ stable event type string:
 | `Reserv`   | `reserve`     | `BountyReserved`   | bounty ID, contributor                            |
 | `Submit`   | `submit`      | `BountySubmitted`  | bounty ID, contributor                            |
 | `Releas`   | `release`      | `BountyReleased`   | bounty ID, contributor, maintainer, amount           |
-| `Refund`   | `refunde`      | `BountyRefunded`   | bounty ID, maintainer, amount                      |
+| `Refund`   | `refund`       | `BountyRefunded`   | bounty ID, maintainer, amount                      |
 | `Dispt`    | `disputed`     | `BountyDisputed`    | bounty ID, contributor, arbiter                      |
 
 ### Release event
@@ -77,6 +77,51 @@ are neither lost nor duplicated.
 
 `backend/test/workerBackfill.test.ts` covers overlapping pages, a failure
 between pages, and resumption from the stored cursor.
+
+### Cursor outcome tracing (#1933)
+
+Every newly indexed event is traced twice, so operators can tell a **pending**
+event from a **committed** transition without inspecting the store:
+
+1. `pending` — the event was fetched and normalized, but nothing is durable yet.
+   This record is emitted *before* the events file or cursor checkpoint is written.
+2. `committed` — the events file and, when it advanced, the cursor checkpoint are
+   both durable. The event will not be replayed after a restart.
+
+Records are single-line JSON prefixed with `[Indexer][cursor-trace]`, so a log
+aggregator can filter them:
+
+```json
+[Indexer][cursor-trace] {"event":"soroban_indexer_cursor","outcome":"pending","at":"2026-11-24T15:38:11.413Z","eventRef":"sha256:2edb68c52e4b9cf2","ledger":100,"type":"release","bountyId":"12","cursorFrom":"sha256:0c82b3c55fc4ad47","cursorTo":"sha256:cfe84af3eda0820e","cursorAdvanced":true}
+```
+
+| Field            | Meaning                                                              |
+|------------------|----------------------------------------------------------------------|
+| `outcome`        | `pending` (processed, not durable) or `committed` (durable)           |
+| `eventRef`       | Redacted reference for the event ID / paging token                    |
+| `cursorFrom`     | Redacted reference for the cursor used to fetch the page (`null` on a fresh start) |
+| `cursorTo`       | Redacted reference for the cursor the page advances to                 |
+| `cursorAdvanced` | Whether the checkpoint moved with this page                           |
+| `ledger`         | Chain ledger sequence of the event (`null` if the RPC omitted it)      |
+| `type`           | Normalized transition type, e.g. `release`                            |
+| `bountyId`       | Bounty ID from the payload                                            |
+
+**Reading a restart:** if the last record for an `eventRef` is `pending`, the
+process stopped between processing and cursor persistence. That page was not
+acknowledged, so the next poll re-fetches it from the retained cursor and the
+committed record appears on replay. A `committed` record with no later
+`pending` record for the same `eventRef` means the effect survived the restart
+and will not be processed twice.
+
+**Redaction:** raw event IDs, paging tokens and payloads never appear in trace
+records. References are a truncated SHA-256 (`sha256:` plus 16 hex chars) of the
+underlying token — stable for correlation, not reversible. This keeps a payload
+that fails to decode, or a token that embeds provider metadata, out of the logs.
+
+Tracing is always on and adds no configuration. `backend/test/workerCursorTrace.test.ts`
+covers redaction, the pending-before-write ordering, a crash between processing
+and persistence (only `pending` is recorded, then `committed` on replay), and
+pages containing only already-indexed events (no trace).
 
 ### Multi-event ledger cursor boundary behavior
 
