@@ -645,6 +645,8 @@ fn test_dispute_bounty_native_xlm() {
             bounty_id,
             contributor,
             arbiter,
+            dispute_raised_at: env.ledger().timestamp(),
+            deadline,
         }
     );
 
@@ -769,6 +771,8 @@ fn test_dispute_at_deadline_is_last_eligible_ledger() {
             bounty_id,
             contributor: contributor.clone(),
             arbiter: arbiter.clone(),
+            dispute_raised_at: deadline,
+            deadline,
         }
     );
 }
@@ -4435,4 +4439,55 @@ fn test_refund_submitted_after_deadline_fails() {
 
     env.ledger().set_timestamp(deadline + 1);
     client.refund_bounty(&bounty_id, &maintainer);
+}
+
+#[test]
+fn test_resolve_dispute_emits_bounty_resolved_with_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _admin, maintainer, contributor, token_id, _fee_recipient, arbiter) =
+        setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1000);
+
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 10_000),
+        &0u32,
+        &Some(100u64),
+    );
+
+    client.reserve_bounty(&bounty_id, &contributor);
+    client.submit_bounty(&bounty_id, &contributor);
+    client.dispute_bounty(&bounty_id, &arbiter);
+
+    env.ledger().set_timestamp(env.ledger().timestamp() + 150);
+    client.resolve_dispute(&bounty_id, &true);
+
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.status, BountyStatus::Released);
+
+    let events = env.events().all().filter_by_contract(&client.address);
+    let last_event = events.events().last().unwrap();
+    let soroban_sdk::xdr::ContractEventBody::V0(body) = &last_event.body;
+    let t0 = soroban_sdk::Symbol::from_val(&env, &body.topics[0]);
+    let t1 = soroban_sdk::Symbol::from_val(&env, &body.topics[1]);
+    assert_eq!(t0, symbol_short!("Bounty"));
+    assert_eq!(t1, symbol_short!("Reslv"));
+    let event_payload = BountyResolved::from_val(&env, &body.data);
+    assert_eq!(
+        event_payload,
+        BountyResolved {
+            bounty_id,
+            arbiter,
+            release: true,
+            amount: 500,
+        }
+    );
 }

@@ -91,4 +91,53 @@ describe('Soroban indexer backfill checkpoints', () => {
     ]);
     expect(post.mock.calls[2][1].params.pagination).toEqual({ cursor: 'cursor-2', limit: 100 });
   });
+
+  it('indexes multiple events in the same ledger in order and records their ledger sequence', async () => {
+    post.mockResolvedValueOnce(
+      rpcResult(
+        [
+          { id: 'ledger-100-event-1', ledger: 100 },
+          { id: 'ledger-100-event-2', ledger: 100 },
+        ],
+        'cursor-ledger-100-final'
+      )
+    );
+
+    await poll();
+
+    const events = readEvents();
+    expect(events).toHaveLength(2);
+    expect(events[0].id).toBe('ledger-100-event-1');
+    expect(events[0].ledger).toBe(100);
+    expect(events[1].id).toBe('ledger-100-event-2');
+    expect(events[1].ledger).toBe(100);
+    expect(readCursor()).toBe('cursor-ledger-100-final');
+  });
+
+  it('handles events in the same ledger spanning pages without skipping or duplicating', async () => {
+    post
+      .mockResolvedValueOnce(
+        rpcResult([{ id: 'ledger-200-event-1', ledger: 200 }], 'cursor-ledger-200-part-1')
+      )
+      .mockResolvedValueOnce(
+        rpcResult(
+          [
+            { id: 'ledger-200-event-1', ledger: 200 },
+            { id: 'ledger-200-event-2', ledger: 200 },
+          ],
+          'cursor-ledger-200-part-2'
+        )
+      );
+
+    await poll();
+    await poll();
+
+    const events = readEvents();
+    expect(events.map((event: { id: string }) => event.id)).toEqual([
+      'ledger-200-event-1',
+      'ledger-200-event-2',
+    ]);
+    expect(events.map((event: { ledger?: number }) => event.ledger)).toEqual([200, 200]);
+    expect(readCursor()).toBe('cursor-ledger-200-part-2');
+  });
 });

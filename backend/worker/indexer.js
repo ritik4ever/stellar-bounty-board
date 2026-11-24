@@ -109,6 +109,7 @@ export function normalizeEvent(event) {
     arbiter,
     amount: jsonSafe(data.amount ?? event.amount),
     timestamp: event.ledger_closed_at ?? event.ledgerClosedAt ?? event.timestamp,
+    ledger: event.ledger !== undefined ? Number(event.ledger) : undefined,
     raw: event,
   };
 

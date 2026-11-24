@@ -788,7 +788,20 @@ function assertExpectedVersion(
   expectedVersion?: number,
   blockedReason?: string
 ): void {
-  if (expectedVersion === undefined || bounty.version === expectedVersion) {
+  if (expectedVersion === undefined) {
+    return;
+  }
+
+  if (
+    typeof expectedVersion !== 'number' ||
+    !Number.isInteger(expectedVersion) ||
+    expectedVersion <= 0 ||
+    !Number.isFinite(expectedVersion)
+  ) {
+    throw new Error('expectedVersion must be a positive finite integer.');
+  }
+
+  if (bounty.version === expectedVersion) {
     return;
   }
 

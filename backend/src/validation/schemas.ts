@@ -280,6 +280,7 @@ export const refundBountyBodySchema = maintainerActionSchema
         'Optional version read by the client. A mismatch is rejected with 409 and the current version.',
     }),
   })
+  .strict()
   .openapi('RefundBountyRequest');
 
 /**

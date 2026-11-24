@@ -127,12 +127,15 @@ export interface BountyDisputed {
   bounty_id: string;
   contributor: Address;
   arbiter: Address;
+  dispute_raised_at?: string;
+  deadline?: string;
 }
 
 export interface BountyResolved {
   bounty_id: string;
   arbiter: Address;
   release: boolean;
+  amount: string;
 }
 
 export interface BountyDeadlineExtended {

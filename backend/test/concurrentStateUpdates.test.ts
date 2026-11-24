@@ -237,6 +237,55 @@ describe("reserve/refund at the same version — HTTP boundary", () => {
       .send({ maintainer: MAINTAINER, expectedVersion: "1" })
       .expect(400);
   });
+
+  it("rejects unknown fields in refund body via strict schema validation", async () => {
+    const { app } = await import("../src/app");
+    const created = await request(app).post("/api/bounties").send(validCreateBody).expect(201);
+
+    const res = await request(app)
+      .post(`/api/bounties/${created.body.data.id}/refund`)
+      .send({ maintainer: MAINTAINER, unknownField: "malicious" })
+      .expect(400);
+
+    expect(res.body.code).toBe("BOUNTY_REFUND_INVALID_INPUT");
+  });
+
+  it("requires application/json content-type for refund endpoint", async () => {
+    const { app } = await import("../src/app");
+    const created = await request(app).post("/api/bounties").send(validCreateBody).expect(201);
+
+    await request(app)
+      .post(`/api/bounties/${created.body.data.id}/refund`)
+      .set("Content-Type", "text/plain")
+      .send(JSON.stringify({ maintainer: MAINTAINER }))
+      .expect(415);
+  });
+
+  it("leaves committed state intact and leaks no secrets when concurrent malformed request fails", async () => {
+    const { app } = await import("../src/app");
+    const created = await request(app).post("/api/bounties").send(validCreateBody).expect(201);
+    const id = created.body.data.id;
+
+    const [resValid, resInvalid] = await Promise.all([
+      request(app).post(`/api/bounties/${id}/reserve`).send({ contributor: CONTRIBUTOR }),
+      request(app)
+        .post(`/api/bounties/${id}/refund`)
+        .send({ maintainer: MAINTAINER, expectedVersion: -1 }),
+    ]);
+
+    expect(resValid.status).toBe(200);
+    expect(resInvalid.status).toBe(400);
+
+    const after = await request(app).get(`/api/bounties/${id}`).expect(200);
+    expect(after.body.data.status).toBe("reserved");
+    expect(after.body.data.contributor).toBe(CONTRIBUTOR);
+    expect(after.body.data.version).toBe(2);
+
+    const errorJson = JSON.stringify(resInvalid.body);
+    expect(errorJson).not.toContain("process.env");
+    expect(errorJson).not.toContain("SECRET");
+    expect(errorJson).not.toContain("TOKEN");
+  });
 });
 
 describe("worker boundary — reservation expiry", () => {

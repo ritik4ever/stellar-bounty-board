@@ -78,6 +78,16 @@ are neither lost nor duplicated.
 `backend/test/workerBackfill.test.ts` covers overlapping pages, a failure
 between pages, and resumption from the stored cursor.
 
+### Multi-event ledger cursor boundary behavior
+
+When multiple events occur within the same ledger (sharing the same `ledger` sequence number but possessing distinct event IDs and paging tokens):
+- The indexer processes all events in strict sequential order.
+- Each event is normalized with its `ledger` sequence number (`ledger: Number(event.ledger)`).
+- All events within the ledger are recorded without dropping any event.
+- Deduplication against existing event IDs (`knownIds`) prevents duplicate entries.
+- The stored cursor (`nextCursor`) checkpoints to the latest event's paging token / ID (or `result.cursor`).
+- On restart or resumption from that cursor, subsequent polls begin strictly after that boundary, ensuring no events in the ledger are skipped or duplicated.
+
 ## Event backfill
 
 `eventBackfill.js` re-reads a bounded ledger range and merges the events into
