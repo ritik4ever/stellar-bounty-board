@@ -27,7 +27,7 @@ The contract uses named error codes for all invalid operations. These codes are 
 
 ## Storage Lifetime & Authority Enforcement
 
-- **Storage TTL Refresh on Mutation:** For payout-related lifecycle operations (`release_bounty`, `refund_bounty`, `cancel_bounty`, `resolve_dispute`), the contract refreshes persistent storage TTL for near-expiry bounties via `refresh_bounty_ttl` up to `BOUNTY_STORAGE_TTL_EXTEND_TO` (4,096 ledgers).
+- **Storage TTL Refresh on Mutation:** For payout-related lifecycle operations (`release_bounty`, `refund_bounty`, `cancel_bounty`, `resolve_dispute`, `reassign_bounty`, `extend_deadline`, `finalize_resolution`), the contract refreshes persistent storage TTL for near-expiry bounties via `refresh_bounty_ttl` whenever remaining TTL falls below `BOUNTY_STORAGE_TTL_THRESHOLD` (1,000 ledgers), extending it to `BOUNTY_STORAGE_TTL_EXTEND_TO` (4,096 ledgers). Exact integer token units and fee floors (`floor(amount * protocol_fee_bps / 10_000)`) are preserved through settlement.
 - **Authority First:** In all mutating entry points, caller authorization and role alignment (`maintainer.require_auth()` with maintainer matching, `contributor.require_auth()` with contributor matching, `arbiter.require_auth()` with registered arbiter matching) are verified strictly before any storage TTL refresh or state modification. Unauthorized callers receive typed mismatch or authorization errors (`MaintainerMismatch`, `ContributorMismatch`, `NotArbiter`), preventing unauthorized callers from redirecting funds or changing decisions.
 - **Expired Entry Protection:** If a related persistent storage entry expires prior to a claim:
   - If `DataKey::Bounty` expired: calls abort with `BountyNotFound`.
