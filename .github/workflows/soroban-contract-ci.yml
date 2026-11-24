@@ -42,7 +42,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
-          target: wasm32-unknown-unknown
+          target: wasm32v1-none
           components: clippy
           profile: minimal
           override: true
@@ -64,26 +64,43 @@ jobs:
       - name: Run cargo audit
         working-directory: contracts
         run: |
-          # Run cargo audit and fail on vulnerabilities
-          # Allowlist mechanism: Add advisory IDs below to ignore specific advisories
-          # Format: --ignore RUSTSEC-YYYY-NNNN
-          # 
-          # Current allowlist (with rationale):
-          # (none - all vulnerabilities will fail the build)
+          # Run cargo audit and fail on vulnerabilities.
+          # Allowlist mechanism: add advisory IDs below to ignore specific
+          # advisories, each with a rationale. New advisories still fail.
           #
-          # Example of how to add an exception:
-          # cargo audit --deny warnings \
-          #   --ignore RUSTSEC-2024-0001  # Description: Why this is acceptable
-
-          cargo audit --deny warnings
+          # Current allowlist (all transitively pinned by soroban-sdk 27;
+          # fixing them requires an upstream soroban release):
+          #   RUSTSEC-2026-0387  crypto-bigint 0.5.5 via k256/elliptic-curve
+          #                      in soroban-env-host's host-side crypto; the
+          #                      fix (>=0.7.6) is semver-incompatible.
+          #   RUSTSEC-2026-0543  chrono unmaintained; pulled in by serde_with
+          #                      through soroban-ledger-snapshot (test-only).
+          #   RUSTSEC-2024-0436  paste unmaintained proc-macro; build-time
+          #                      only, reached via ark-ff in soroban-env-host.
+          #   RUSTSEC-2026-0574..0582  heapless 0.8 unsoundness; stellar-strkey
+          #                      pins 0.8 and the fixes require the breaking
+          #                      0.9.4 release, so the bump is upstream's.
+          cargo audit --deny warnings \
+            --ignore RUSTSEC-2026-0387 \
+            --ignore RUSTSEC-2026-0543 \
+            --ignore RUSTSEC-2024-0436 \
+            --ignore RUSTSEC-2026-0574 \
+            --ignore RUSTSEC-2026-0575 \
+            --ignore RUSTSEC-2026-0576 \
+            --ignore RUSTSEC-2026-0577 \
+            --ignore RUSTSEC-2026-0578 \
+            --ignore RUSTSEC-2026-0579 \
+            --ignore RUSTSEC-2026-0580 \
+            --ignore RUSTSEC-2026-0581 \
+            --ignore RUSTSEC-2026-0582
 
       - name: Build release wasm
         working-directory: contracts
-        run: cargo build --release --target wasm32-unknown-unknown
+        run: cargo build --release --target wasm32v1-none
 
       - name: Report WASM size in summary
         run: |
-          WASM_FILE=$(ls contracts/target/wasm32-unknown-unknown/release/*.wasm 2>/dev/null || true)
+          WASM_FILE=$(ls contracts/target/wasm32v1-none/release/*.wasm 2>/dev/null || true)
           if [ -n "$WASM_FILE" ]; then
             echo "### WASM binary size" >> $GITHUB_STEP_SUMMARY
             SIZE=$(stat -c%s "$WASM_FILE")

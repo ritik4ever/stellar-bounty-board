@@ -168,7 +168,7 @@ fn test_single_vote_does_not_release_funds() {
     let resolved = fix
         .client
         .vote_resolve_dispute(&bounty_id, &fix.arbiter1, &true);
-    assert_eq!(resolved, false);
+    assert!(!resolved);
 
     // Funds must remain locked in escrow
     let bounty = fix.client.get_bounty(&bounty_id);
@@ -180,7 +180,7 @@ fn test_single_vote_does_not_release_funds() {
     let votes = fix.client.get_dispute_votes(&bounty_id);
     assert_eq!(votes.len(), 1);
     assert_eq!(votes.get(0).unwrap().arbiter, fix.arbiter1);
-    assert_eq!(votes.get(0).unwrap().decision, true);
+    assert!(votes.get(0).unwrap().decision);
 }
 
 // â”€â”€â”€ Acceptance Criteria 2: Two Matching Votes Triggers Resolution â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -192,18 +192,14 @@ fn test_two_matching_votes_release_funds_to_contributor() {
     let bounty_id = fix.create_disputed_bounty(1000, 500); // 5% fee (50 tokens)
 
     // Arbiter 1 votes release
-    assert_eq!(
-        fix.client
-            .vote_resolve_dispute(&bounty_id, &fix.arbiter1, &true),
-        false
-    );
+    assert!(!fix
+        .client
+        .vote_resolve_dispute(&bounty_id, &fix.arbiter1, &true));
 
     // Arbiter 2 votes release -> quorum reached (2-of-3)
-    assert_eq!(
-        fix.client
-            .vote_resolve_dispute(&bounty_id, &fix.arbiter2, &true),
-        true
-    );
+    assert!(fix
+        .client
+        .vote_resolve_dispute(&bounty_id, &fix.arbiter2, &true));
 
     // Bounty status must be Released
     let bounty = fix.client.get_bounty(&bounty_id);
@@ -226,18 +222,14 @@ fn test_two_matching_votes_refund_to_maintainer() {
     let bounty_id = fix.create_disputed_bounty(1000, 500);
 
     // Arbiter 1 votes refund
-    assert_eq!(
-        fix.client
-            .vote_resolve_dispute(&bounty_id, &fix.arbiter1, &false),
-        false
-    );
+    assert!(!fix
+        .client
+        .vote_resolve_dispute(&bounty_id, &fix.arbiter1, &false));
 
     // Arbiter 3 votes refund -> quorum reached
-    assert_eq!(
-        fix.client
-            .vote_resolve_dispute(&bounty_id, &fix.arbiter3, &false),
-        true
-    );
+    assert!(fix
+        .client
+        .vote_resolve_dispute(&bounty_id, &fix.arbiter3, &false));
 
     // Bounty status must be Refunded
     let bounty = fix.client.get_bounty(&bounty_id);
@@ -257,33 +249,27 @@ fn test_conflicting_votes_with_tie_breaker_resolves_to_majority() {
     let bounty_id = fix.create_disputed_bounty(1000, 0); // 0% fee
 
     // Vote 1: Arbiter 1 votes Release (1 Release, 0 Refund)
-    assert_eq!(
-        fix.client
-            .vote_resolve_dispute(&bounty_id, &fix.arbiter1, &true),
-        false
-    );
+    assert!(!fix
+        .client
+        .vote_resolve_dispute(&bounty_id, &fix.arbiter1, &true));
     assert_eq!(
         fix.client.get_bounty(&bounty_id).status,
         BountyStatus::Disputed
     );
 
     // Vote 2: Arbiter 2 votes Refund (1 Release, 1 Refund) -> Conflict, no quorum
-    assert_eq!(
-        fix.client
-            .vote_resolve_dispute(&bounty_id, &fix.arbiter2, &false),
-        false
-    );
+    assert!(!fix
+        .client
+        .vote_resolve_dispute(&bounty_id, &fix.arbiter2, &false));
     assert_eq!(
         fix.client.get_bounty(&bounty_id).status,
         BountyStatus::Disputed
     );
 
     // Vote 3: Arbiter 3 votes Release (2 Release, 1 Refund) -> Tie-breaker resolves to Release!
-    assert_eq!(
-        fix.client
-            .vote_resolve_dispute(&bounty_id, &fix.arbiter3, &true),
-        true
-    );
+    assert!(fix
+        .client
+        .vote_resolve_dispute(&bounty_id, &fix.arbiter3, &true));
 
     let bounty = fix.client.get_bounty(&bounty_id);
     assert_eq!(bounty.status, BountyStatus::Released);
@@ -298,25 +284,19 @@ fn test_conflicting_votes_with_tie_breaker_resolves_to_refund() {
     let bounty_id = fix.create_disputed_bounty(1000, 0);
 
     // Vote 1: Arbiter 1 votes Refund
-    assert_eq!(
-        fix.client
-            .vote_resolve_dispute(&bounty_id, &fix.arbiter1, &false),
-        false
-    );
+    assert!(!fix
+        .client
+        .vote_resolve_dispute(&bounty_id, &fix.arbiter1, &false));
 
     // Vote 2: Arbiter 2 votes Release (1-1 split)
-    assert_eq!(
-        fix.client
-            .vote_resolve_dispute(&bounty_id, &fix.arbiter2, &true),
-        false
-    );
+    assert!(!fix
+        .client
+        .vote_resolve_dispute(&bounty_id, &fix.arbiter2, &true));
 
     // Vote 3: Arbiter 3 votes Refund (2-1 majority for Refund)
-    assert_eq!(
-        fix.client
-            .vote_resolve_dispute(&bounty_id, &fix.arbiter3, &false),
-        true
-    );
+    assert!(fix
+        .client
+        .vote_resolve_dispute(&bounty_id, &fix.arbiter3, &false));
 
     let bounty = fix.client.get_bounty(&bounty_id);
     assert_eq!(bounty.status, BountyStatus::Refunded);

@@ -287,8 +287,8 @@ fn test_fuzz_get_bounty_numeric_input_fields_integrity() {
     for _ in 0..30 {
         let rand_amount = rng.gen_range_i128(DEFAULT_MIN_BOUNTY_AMOUNT, MAX_BOUNTY_AMOUNT);
         let rand_issue = rng.next_u32();
-        let rand_fee_bps = (rng.next_u32() % (MAX_FEE_BPS + 1)) as u32;
-        let rand_override = if rng.next_u64() % 2 == 0 {
+        let rand_fee_bps = rng.next_u32() % (MAX_FEE_BPS + 1);
+        let rand_override = if rng.next_u64().is_multiple_of(2) {
             Some(rng.gen_range_u64(60, 1_000_000))
         } else {
             None

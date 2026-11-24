@@ -7,7 +7,7 @@
 
 use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger as _},
-    Address, Env, String, TryFromVal,
+    Address, Env, Error, InvokeError, String, TryFromVal,
 };
 use stellar_bounty_board::{
     BountyStatus, ContractError, StellarBountyBoardContract, StellarBountyBoardContractClient,
@@ -77,37 +77,12 @@ impl LcgRng {
         self.state
     }
 
-    fn next_i128(&mut self) -> i128 {
-        let hi = self.next_u64() as u128;
-        let lo = self.next_u64() as u128;
-        ((hi << 64) | lo) as i128
-    }
-
     fn gen_range_u64(&mut self, min: u64, max: u64) -> u64 {
         if min >= max {
             return min;
         }
         min + (self.next_u64() % (max - min + 1))
     }
-}
-
-fn matches_documented_error(err_str: &str) -> bool {
-    // Only documented errors are allowed
-    let documented = [
-        "Error(Contract, #2)",
-        "Error(Contract, #22)",
-        "Error(Contract, #27)",
-        "Error(Contract, #20)",
-        "Error(Contract, #8)",
-        "Error(Contract, #7)",
-    ];
-
-    for doc in documented {
-        if err_str.contains(doc) {
-            return true;
-        }
-    }
-    false
 }
 
 #[test]
@@ -179,7 +154,7 @@ fn test_fuzz_dispute_bounty_numeric_inputs_and_invariants() {
     // and verify dispute_bounty respects deadlines, status, and arbiter invariants.
     let base_amount = 1_000i128;
     for &amount in &edge_amounts {
-        if amount < 100 || amount > 1_000_000_000_000_000 {
+        if !(100..=1_000_000_000_000_000).contains(&amount) {
             continue; // creation will fail outside valid amount limits
         }
 
@@ -229,8 +204,8 @@ fn test_fuzz_dispute_bounty_numeric_inputs_and_invariants() {
         // (e) Test expired deadline boundary:
         // Case 1: timestamp == deadline -> strictly not expired (env.ledger().timestamp() > bounty.deadline)
         // dispute_bounty succeeds at exactly deadline (the last eligible ledger)!
-        let contract_balance_before = soroban_sdk::token::TokenClient::new(&fix.env, &fix.token)
-            .balance(&fix.client.address);
+        let contract_balance_before =
+            soroban_sdk::token::TokenClient::new(&fix.env, &fix.token).balance(&fix.client.address);
         fix.env.ledger().set_timestamp(deadline);
         let res_at_deadline = fix.client.try_dispute_bounty(&bounty_id, &fix.arbiter);
         assert!(
@@ -238,21 +213,23 @@ fn test_fuzz_dispute_bounty_numeric_inputs_and_invariants() {
             "dispute_bounty at timestamp == deadline should succeed"
         );
 
-        let bounty = fix.client.get_bounty(&bounty_id);
-        assert_eq!(bounty.status, BountyStatus::Disputed);
-        assert_eq!(bounty.dispute_raised_at, deadline);
-        assert_eq!(bounty.amount, amount);
-
-        // Exactly one BountyDisputed event must be emitted for the single valid disputed state.
-        let disputed_events = count_events_named(&fix.env, "BountyDisputed");
+        // Exactly one BountyDisputed event must be emitted for the single valid
+        // disputed state. Events are only retained for the most recent
+        // invocation, so count them before any further client call.
+        let disputed_events = count_events_named(&fix.env, "Dispt");
         assert_eq!(
             disputed_events, 1,
             "exactly one BountyDisputed event must be emitted at the last eligible ledger"
         );
 
+        let bounty = fix.client.get_bounty(&bounty_id);
+        assert_eq!(bounty.status, BountyStatus::Disputed);
+        assert_eq!(bounty.dispute_raised_at, deadline);
+        assert_eq!(bounty.amount, amount);
+
         // Escrow funds must remain intact: no token movement on dispute.
-        let contract_balance_after = soroban_sdk::token::TokenClient::new(&fix.env, &fix.token)
-            .balance(&fix.client.address);
+        let contract_balance_after =
+            soroban_sdk::token::TokenClient::new(&fix.env, &fix.token).balance(&fix.client.address);
         assert_eq!(
             contract_balance_after, contract_balance_before,
             "escrow balance must be unchanged by dispute"
@@ -268,14 +245,16 @@ fn test_fuzz_dispute_bounty_numeric_inputs_and_invariants() {
             res_double.is_err(),
             "second dispute on already-disputed bounty must fail"
         );
+        // The rejected invocation is the most recent one, so its (empty) event
+        // log is what proves no additional dispute was announced.
+        assert_eq!(
+            count_events_named(&fix.env, "Dispt"),
+            0,
+            "a rejected dispute must not emit a BountyDisputed event"
+        );
         let bounty_after_double = fix.client.get_bounty(&bounty_id);
         assert_eq!(bounty_after_double.status, BountyStatus::Disputed);
         assert_eq!(bounty_after_double.dispute_raised_at, deadline);
-        assert_eq!(
-            count_events_named(&fix.env, "BountyDisputed"),
-            1,
-            "no additional BountyDisputed event may be emitted on a rejected dispute"
-        );
     }
 
     // 4. Test off-by-one boundary: exactly one second after deadline (deadline + 1)
@@ -300,16 +279,16 @@ fn test_fuzz_dispute_bounty_numeric_inputs_and_invariants() {
         fix.client.reserve_bounty(&bounty_id, &fix.contributor);
         fix.client.submit_bounty(&bounty_id, &fix.contributor);
 
-        let contract_balance_before = soroban_sdk::token::TokenClient::new(&fix.env, &fix.token)
-            .balance(&fix.client.address);
+        let contract_balance_before =
+            soroban_sdk::token::TokenClient::new(&fix.env, &fix.token).balance(&fix.client.address);
 
         // One second past deadline: the first ineligible ledger.
         fix.env.ledger().set_timestamp(deadline + 1);
         let res_past_deadline = fix.client.try_dispute_bounty(&bounty_id, &fix.arbiter);
-        assert_eq!(
+        assert_contract_error(
             res_past_deadline,
-            Err(Ok(ContractError::BountyExpired)),
-            "dispute_bounty at deadline + 1 must fail with BountyExpired"
+            ContractError::BountyExpired,
+            "dispute_bounty at deadline + 1 must fail with BountyExpired",
         );
 
         // Bounty state must remain Submitted (no state corruption on failure)
@@ -317,14 +296,14 @@ fn test_fuzz_dispute_bounty_numeric_inputs_and_invariants() {
         assert_eq!(bounty_after.status, BountyStatus::Submitted);
         assert_eq!(bounty_after.dispute_raised_at, 0);
         assert_eq!(
-            count_events_named(&fix.env, "BountyDisputed"),
+            count_events_named(&fix.env, "Dispt"),
             0,
             "no BountyDisputed event may be emitted for an expired dispute"
         );
 
         // Escrow funds must remain intact after the rejected dispute.
-        let contract_balance_after = soroban_sdk::token::TokenClient::new(&fix.env, &fix.token)
-            .balance(&fix.client.address);
+        let contract_balance_after =
+            soroban_sdk::token::TokenClient::new(&fix.env, &fix.token).balance(&fix.client.address);
         assert_eq!(
             contract_balance_after, contract_balance_before,
             "escrow balance must be unchanged by a rejected dispute"
@@ -339,24 +318,24 @@ fn test_fuzz_dispute_bounty_numeric_inputs_and_invariants() {
         let released = fix.client.get_bounty(&bounty_id);
         assert_eq!(released.status, BountyStatus::Released);
 
-        let balance_after_release = soroban_sdk::token::TokenClient::new(&fix.env, &fix.token)
-            .balance(&fix.client.address);
+        let balance_after_release =
+            soroban_sdk::token::TokenClient::new(&fix.env, &fix.token).balance(&fix.client.address);
         let res_after_release = fix.client.try_dispute_bounty(&bounty_id, &fix.arbiter);
-        assert_eq!(
+        assert_contract_error(
             res_after_release,
-            Err(Ok(ContractError::BountyExpired)),
-            "dispute_bounty after release must fail with BountyExpired"
+            ContractError::BountyExpired,
+            "dispute_bounty after release must fail with BountyExpired",
         );
         let bounty_after_release = fix.client.get_bounty(&bounty_id);
         assert_eq!(bounty_after_release.status, BountyStatus::Released);
         assert_eq!(bounty_after_release.dispute_raised_at, 0);
         assert_eq!(
-            count_events_named(&fix.env, "BountyDisputed"),
+            count_events_named(&fix.env, "Dispt"),
             0,
             "no BountyDisputed event may be emitted after release"
         );
-        let balance_after_rejected = soroban_sdk::token::TokenClient::new(&fix.env, &fix.token)
-            .balance(&fix.client.address);
+        let balance_after_rejected =
+            soroban_sdk::token::TokenClient::new(&fix.env, &fix.token).balance(&fix.client.address);
         assert_eq!(
             balance_after_rejected, balance_after_release,
             "escrow balance must be unchanged by a post-release dispute attempt"
@@ -364,7 +343,7 @@ fn test_fuzz_dispute_bounty_numeric_inputs_and_invariants() {
     }
 
     // 5. Fuzz across pseudorandom timestamps around deadline
-    for i in 0..50 {
+    for _ in 0..50 {
         let fix = setup_fuzz_fixture();
         soroban_sdk::token::StellarAssetClient::new(&fix.env, &fix.token)
             .mint(&fix.maintainer, &base_amount);
@@ -393,10 +372,17 @@ fn test_fuzz_dispute_bounty_numeric_inputs_and_invariants() {
 
         let res = fix.client.try_dispute_bounty(&bounty_id, &fix.arbiter);
         if test_timestamp > deadline {
-            assert_eq!(
+            assert_contract_error(
                 res,
-                Err(Ok(ContractError::BountyExpired)),
-                "Dispute after deadline must fail with BountyExpired"
+                ContractError::BountyExpired,
+                "Dispute after deadline must fail with BountyExpired",
+            );
+            // The failed invocation is the most recent one; its empty event
+            // log proves the expired dispute announced nothing.
+            assert_eq!(
+                count_events_named(&fix.env, "Dispt"),
+                0,
+                "no BountyDisputed event may be emitted after deadline"
             );
             let b = fix.client.get_bounty(&bounty_id);
             assert_eq!(
@@ -405,35 +391,50 @@ fn test_fuzz_dispute_bounty_numeric_inputs_and_invariants() {
                 "State must not be corrupt on failure"
             );
             assert_eq!(b.dispute_raised_at, 0);
-            assert_eq!(
-                count_events_named(&fix.env, "BountyDisputed"),
-                0,
-                "no BountyDisputed event may be emitted after deadline"
-            );
         } else {
             assert!(res.is_ok(), "Dispute on or before deadline must succeed");
+            // Events are only retained for the most recent invocation, so
+            // count them before any state read.
+            assert_eq!(
+                count_events_named(&fix.env, "Dispt"),
+                1,
+                "exactly one BountyDisputed event must be emitted on success"
+            );
             let b = fix.client.get_bounty(&bounty_id);
             assert_eq!(b.status, BountyStatus::Disputed);
             assert_eq!(b.dispute_raised_at, test_timestamp);
             assert_eq!(b.amount, base_amount);
-            assert_eq!(
-                count_events_named(&fix.env, "BountyDisputed"),
-                1,
-                "exactly one BountyDisputed event must be emitted on success"
-            );
         }
     }
 }
 
+/// Asserts the call failed with the expected typed contract error.
+fn assert_contract_error<T, E>(
+    result: Result<Result<T, E>, Result<Error, InvokeError>>,
+    expected: ContractError,
+    context: &str,
+) {
+    let actual = result
+        .err()
+        .unwrap_or_else(|| panic!("{context}: call unexpectedly succeeded"))
+        .unwrap_or_else(|_| panic!("{context}: expected a typed contract error, not a host abort"));
+    assert_eq!(ContractError::try_from(actual), Ok(expected), "{context}");
+}
+
 /// Counts emitted contract events whose topic symbol matches `name`.
+///
+/// `dispute_bounty` publishes `(Bounty, Dispt)` topics, so dispute events are
+/// counted with the action symbol `Dispt`.
 fn count_events_named(env: &Env, name: &str) -> usize {
     let target = soroban_sdk::Symbol::new(env, name);
-    env.events()
-        .all()
+    let events = env.events().all();
+    events
+        .events()
         .iter()
-        .filter(|(_, topics, _)| {
-            topics.iter().any(|topic| {
-                soroban_sdk::Symbol::try_from_val(env, &topic).map_or(false, |s| s == target)
+        .filter(|event| {
+            let soroban_sdk::xdr::ContractEventBody::V0(body) = &event.body;
+            body.topics.iter().any(|topic| {
+                soroban_sdk::Symbol::try_from_val(env, topic).is_ok_and(|s| s == target)
             })
         })
         .count()

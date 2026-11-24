@@ -505,6 +505,8 @@ fn lifecycle_refund_rejects_reserved_then_expired_bounty() {
     f.client.reserve_bounty(&id, &f.contributor);
     f.env.ledger().set_timestamp(1_001);
     let original = f.balances();
+    // Refunds only apply to bounties that were never reserved; once a
+    // contributor is attached, settlement goes through release or dispute.
     assert_error(
         f.client.try_refund_bounty(&id, &f.maintainer),
         ContractError::BountyAlreadyFinalized,

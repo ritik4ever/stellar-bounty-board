@@ -524,6 +524,9 @@ fn panic_error(env: &Env, e: ContractError) -> ! {
 pub struct StellarBountyBoardContract;
 
 #[contractimpl]
+// The SDK 27 typed `#[contractevent]` migration is tracked separately; these
+// raw `publish` calls are the contract's existing wire format and remain valid.
+#[allow(deprecated)]
 impl StellarBountyBoardContract {
     // ─── Version ────────────────────────────────────────────────────────
     /// Returns the contract version as a semver string (e.g. "0.1.0").
@@ -709,6 +712,7 @@ impl StellarBountyBoardContract {
     ///
     /// # Events
     /// * Emits `(symbol_short!("Bounty"), symbol_short!("Create"))` with [`BountyCreated`] payload.
+    #[allow(clippy::too_many_arguments)]
     pub fn create_bounty(
         env: Env,
         maintainer: Address,
@@ -1490,6 +1494,9 @@ impl StellarBountyBoardContract {
             }
         }
 
+        // Any settlement path renders a previously scheduled ruling moot.
+        clear_pending_resolution(&env, bounty_id);
+
         env.events().publish(
             (symbol_short!("Bounty"), symbol_short!("Reslv")),
             BountyResolved {
@@ -1568,6 +1575,14 @@ impl StellarBountyBoardContract {
             .get(&DataKey::Arbiter)
             .unwrap_or_else(|| panic_error(&env, ContractError::ArbiterNotSet));
         arbiter.require_auth();
+        // A judgment may only target a bounty that is actually under dispute.
+        // Without this guard the arbiter could schedule a payout against a
+        // bounty that was already settled, and `finalize_resolution` would pay
+        // it a second time.
+        let bounty = read_bounty(&env, bounty_id);
+        if bounty.status != BountyStatus::Disputed {
+            panic_error(&env, ContractError::BountyMustBeDisputed);
+        }
         let decision = match decision {
             0 => DisputeDecision::Release,
             1 => DisputeDecision::Refund,
@@ -1611,6 +1626,13 @@ impl StellarBountyBoardContract {
         // Load bounty
         let mut bounty = read_bounty(&env, bounty_id);
         refresh_bounty_ttl(&env, bounty_id);
+        // The scheduled ruling is only executable while the bounty is still
+        // disputed. Any other resolution path (direct arbiter ruling, committee
+        // quorum, or a refund) changes the status and must make this a no-op
+        // rather than a second payout from the shared escrow.
+        if bounty.status != BountyStatus::Disputed {
+            panic_error(&env, ContractError::BountyMustBeDisputed);
+        }
         // Resolve based on decision
         match pending.decision {
             DisputeDecision::Release => {
@@ -1884,7 +1906,7 @@ impl StellarBountyBoardContract {
         // The tokens move into the contract, not merely into storage: a slash is
         // only credible if the funds to pay it are already escrowed here.
         let token_client = TokenClient::new(&env, &token);
-        token_client.transfer(&arbiter, &env.current_contract_address(), &amount);
+        token_client.transfer(&arbiter, env.current_contract_address(), &amount);
 
         env.storage().persistent().set(
             &key,
@@ -2505,6 +2527,10 @@ impl StellarBountyBoardContract {
 
             accumulate_fee_stats(&env, fee_amount);
 
+            // Terminal state was committed above; drop any scheduled ruling so
+            // the same escrow cannot be paid out twice.
+            clear_pending_resolution(&env, bounty_id);
+
             env.events().publish(
                 (symbol_short!("Dispute"), symbol_short!("Reslvd")),
                 DisputeResolved {
@@ -2521,6 +2547,7 @@ impl StellarBountyBoardContract {
             // Commit terminal state before interacting with token contract
             bounty.status = BountyStatus::Refunded;
             write_bounty(&env, bounty_id, &bounty);
+            clear_pending_resolution(&env, bounty_id);
 
             if !matches!(
                 token_client.try_transfer(&contract_address, &bounty.maintainer, &bounty.amount),
@@ -2565,6 +2592,14 @@ fn write_bounty(env: &Env, bounty_id: u64, bounty: &Bounty) {
     env.storage()
         .persistent()
         .set(&DataKey::Bounty(bounty_id), bounty);
+}
+
+/// Drops a scheduled ruling once a dispute has been settled through any path,
+/// so the same escrow cannot be paid out twice.
+fn clear_pending_resolution(env: &Env, bounty_id: u64) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::PendingResolution(bounty_id));
 }
 
 fn expire_if_needed(env: &Env, bounty: &mut Bounty) {
