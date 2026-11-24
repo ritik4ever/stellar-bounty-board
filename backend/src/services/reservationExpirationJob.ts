@@ -1,5 +1,8 @@
 import { logger } from '../logger';
-import { expireStaleReservations as expireReservationsInStore } from './bountyStore';
+import {
+  expireStaleReservations as expireReservationsInStore,
+  type TransitionOptions,
+} from './bountyStore';
 import { getServicesConfig } from './config';
 
 export interface ExpirationResult {
@@ -33,9 +36,12 @@ function getReservationTtlSeconds(): number {
  * @param ttlSeconds - Optional TTL override; defaults to `RESERVATION_TTL_DAYS`.
  * @returns How many reservations were released, which ones, and when.
  */
-export async function expireStaleReservations(ttlSeconds?: number): Promise<ExpirationResult> {
+export async function expireStaleReservations(
+  ttlSeconds?: number,
+  options?: TransitionOptions
+): Promise<ExpirationResult> {
   const ttl = ttlSeconds ?? getReservationTtlSeconds();
-  const { expiredBountyIds, checkedAt } = await expireReservationsInStore(ttl);
+  const { expiredBountyIds, checkedAt } = await expireReservationsInStore(ttl, options);
 
   return {
     expiredCount: expiredBountyIds.length,

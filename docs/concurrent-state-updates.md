@@ -80,6 +80,53 @@ When concurrent workers contend for the same bounty version (e.g. one worker res
    - The bounty's persisted version and events remain intact without duplicate side-effects.
    - If the transition remains legal in the current status, the worker can refresh the current version and successfully commit `version + 1`.
 
+## Outcome tracing for concurrent state updates (#1928)
+
+Every state update transition (`reserve`, `refund`, `expire`, `cancel`, `submit`, `release`, `pr_merged`) emits structured trace records so operators can observe in-flight and committed work:
+
+1. **`pending` trace emitted before lock acquisition / persistence:** When a transition is initiated, a `pending` record is emitted with the target `bountyId`, `transition`, `expectedVersion`, and a redacted reference (`eventRef`, `deliveryRef`, `cursorRef`).
+2. **`committed` trace emitted after store persistence:** Upon durable storage write and audit appending, a `committed` record is emitted with the new `currentVersion`, `fromStatus`, `toStatus`, and the matching `eventRef`.
+3. **`failed` trace emitted on conflict or error:** If a worker's expected version does not match (e.g. because another worker already committed a transition), a `failed` record is emitted with `error: 'BOUNTY_VERSION_CONFLICT'`, `expectedVersion`, and `currentVersion`.
+
+### Trace record schema
+
+Each log line is emitted as a structured JSON record prefixed with `[StateUpdate][trace]`:
+
+```json
+{
+  "event": "concurrent_bounty_state_update",
+  "outcome": "pending",
+  "at": "2026-11-24T17:00:18.769Z",
+  "bountyId": "BNT-0001",
+  "transition": "reserve",
+  "eventRef": "sha256:a3a43b86e50f82fe",
+  "deliveryRef": null,
+  "cursorRef": null,
+  "expectedVersion": 1,
+  "currentVersion": null,
+  "fromStatus": null,
+  "toStatus": null,
+  "actorRef": "sha256:a0499a7bc95c810c",
+  "workerId": "worker-1",
+  "error": null,
+  "reason": null
+}
+```
+
+### Distinguishing pending events from committed transitions
+
+- **Clean commit:** An operator sees `pending` followed by `committed` sharing the same `eventRef`.
+- **Worker failure after another commits:** When two workers race on version 1:
+  - Both emit `pending` with distinct `eventRef` digests.
+  - The winning worker acquires the lock, advances the version to 2, and emits `committed`.
+  - The losing worker acquires the lock, observes current version 2, and emits `failed` (`error: BOUNTY_VERSION_CONFLICT`).
+  - If a worker crashes before acquiring the lock, only `pending` exists for its `eventRef`. On restart and replay, it emits `pending` followed by `failed`, confirming to operators that the stale replay was safely rejected.
+
+### Redaction guarantees
+
+- **Raw secrets and tokens are never logged:** All raw identifiers, delivery IDs, cursor tokens, and Stellar secret keys (`S...`) are converted to truncated SHA-256 digests (`sha256:` + 16 hex chars).
+- Public metadata (`bountyId`, `transition`, versions, status) is retained for operational correlation without leaking sensitive data.
+
 ## HTTP contract summary
 
 | Situation                                              | Status                            |
@@ -104,6 +151,9 @@ When concurrent workers contend for the same bounty version (e.g. one worker res
 
 ## Tests
 
+- `backend/test/stateUpdateTrace.test.ts` — outcome tracing unit and integration
+  tests (`pending`, `committed`, `failed`), secret and reference redaction, and
+  distinguishing pending from committed work across worker failures and replays (#1928).
 - `backend/test/concurrentStateUpdates.test.ts` — store-level races (reserve vs
   refund, pinned version, worker expiry), the HTTP `409` contract, and
   "no 503 under contention".

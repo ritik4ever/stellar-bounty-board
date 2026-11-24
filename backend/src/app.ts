@@ -1347,13 +1347,23 @@ app.post(
   async (req: Request, res: Response) => {
     try {
       const id = parseId(req.params.id);
-      const execute = async () => ({
-        status: 200,
-        body: { data: await reserveBounty(id, req.body.contributor, req.body.expectedVersion) },
-      });
-
       const rawKey = req.headers['idempotency-key'];
       const key = (Array.isArray(rawKey) ? rawKey[0] : rawKey)?.trim();
+      const rawRequestId = req.headers['x-request-id'];
+      const requestId = (Array.isArray(rawRequestId) ? rawRequestId[0] : rawRequestId)?.trim();
+      const rawDeliveryId = req.headers['x-github-delivery'];
+      const deliveryRef = (Array.isArray(rawDeliveryId) ? rawDeliveryId[0] : rawDeliveryId)?.trim();
+      const eventRef = key || requestId || (typeof req.id === 'string' ? req.id : undefined);
+
+      const execute = async () => ({
+        status: 200,
+        body: {
+          data: await reserveBounty(id, req.body.contributor, req.body.expectedVersion, {
+            eventRef,
+            deliveryRef,
+          }),
+        },
+      });
 
       if (!key) {
         const { status, body } = await execute();
@@ -1502,11 +1512,23 @@ app.post(
   },
   async (req: Request, res: Response) => {
     try {
+      const rawKey = req.headers['idempotency-key'];
+      const key = (Array.isArray(rawKey) ? rawKey[0] : rawKey)?.trim();
+      const rawRequestId = req.headers['x-request-id'];
+      const requestId = (Array.isArray(rawRequestId) ? rawRequestId[0] : rawRequestId)?.trim();
+      const rawDeliveryId = req.headers['x-github-delivery'];
+      const deliveryRef = (Array.isArray(rawDeliveryId) ? rawDeliveryId[0] : rawDeliveryId)?.trim();
+      const eventRef = key || requestId || (typeof req.id === 'string' ? req.id : undefined);
+
       const bounty = await refundBounty(
         parseId(req.params.id),
         req.body.maintainer,
         req.body.transactionHash,
-        req.body.expectedVersion
+        req.body.expectedVersion,
+        {
+          eventRef,
+          deliveryRef,
+        }
       );
       res.json({ data: bounty });
     } catch (error) {
