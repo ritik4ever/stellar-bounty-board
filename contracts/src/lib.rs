@@ -1076,8 +1076,30 @@ impl StellarBountyBoardContract {
     /// Refunds the entire bounty amount back to the creator (maintainer) if expired and uncompleted.
     ///
     /// This function is part of the public contract ABI. A maintainer can reclaim their deposited
-    /// tokens once the bounty deadline has passed, provided the bounty was not already released or refunded.
-    /// Full original amount is returned without any protocol fees deducted.
+    /// tokens once the bounty deadline has passed, provided the bounty was never reserved and
+    /// was not already released or refunded. The full original amount is returned without any
+    /// protocol fees deducted.
+    ///
+    /// # Refund boundaries
+    ///
+    /// The refund is deliberately narrow. All of the following must hold:
+    ///
+    /// 1. **Expired-only** — the current ledger timestamp must be strictly greater than
+    ///    `bounty.deadline`. A `deadline` of `0` is treated as a sentinel meaning "no deadline":
+    ///    the expiry check is skipped and the refund proceeds regardless of `now`.
+    /// 2. **Never-reserved-only** — a bounty that was ever reserved (i.e. `bounty.contributor`
+    ///    is `Some`, or its status is anything other than [`BountyStatus::Open`] /
+    ///    [`BountyStatus::Expired`]) cannot be refunded through this path. Reserved, submitted,
+    ///    disputed, released and already-refunded bounties are all rejected with
+    ///    [`ContractError::BountyAlreadyFinalized`]. Work that was reserved is settled through
+    ///    [`Self::release_bounty`] or the dispute-resolution paths instead.
+    /// 3. **Single-shot** — the status is moved to [`BountyStatus::Refunded`] and persisted
+    ///    *before* the token transfer, so a second call (or a re-entrant call) fails with
+    ///    [`ContractError::BountyAlreadyFinalized`] rather than paying out twice.
+    /// 4. **Exact-amount** — exactly `bounty.amount` is transferred, with no fee deduction and
+    ///    no rounding.
+    /// 5. **Maintainer-only payee** — the tokens always go to `bounty.maintainer`, the address
+    ///    that funded the escrow. The caller cannot redirect the refund elsewhere.
     ///
     /// # Parameters
     /// * `env` - The Soroban contract environment.
@@ -1086,20 +1108,22 @@ impl StellarBountyBoardContract {
     ///
     /// # Authorisation
     /// * Requires authorization from the specified `maintainer` (`maintainer.require_auth()`).
+    /// * Only the bounty's registered maintainer may call this. A contributor, the arbiter, or
+    ///   any other address — even one that signs the call — is rejected with
+    ///   [`ContractError::MaintainerMismatch`] and cannot redirect the escrow.
     ///
     /// # Errors & Panic Paths
     /// * [`ContractError::BountyNotFound`] - If no bounty exists with the given `bounty_id` (via `read_bounty`).
     /// * [`ContractError::MaintainerMismatch`] - If `maintainer` does not match the bounty's registered creator (`bounty.maintainer != maintainer`).
-    /// * [`ContractError::BountyAlreadyFinalized`] - If the bounty status is already [`BountyStatus::Released`] or [`BountyStatus::Refunded`].
+    /// * [`ContractError::BountyAlreadyFinalized`] - If the bounty was ever reserved, or its status is not [`BountyStatus::Open`] / [`BountyStatus::Expired`] (including already [`BountyStatus::Released`] or [`BountyStatus::Refunded`]).
     /// * [`ContractError::BountyNotExpiredYet`] - If the current ledger timestamp is less than or equal to `bounty.deadline` (and `bounty.deadline != 0`).
-    /// * A `deadline` of `0` is treated as a sentinel meaning "no deadline":
-    ///   the expiry check is skipped and the refund proceeds regardless of `now`.
+    /// * [`ContractError::RefundTransferFailed`] - If the token transfer back to the maintainer fails.
     ///
     /// # Storage
     /// * **Read**:
     ///   - [`DataKey::Bounty(bounty_id)`] - Reads the existing bounty state via `read_bounty`.
     /// * **Write**:
-    ///   - [`DataKey::Bounty(bounty_id)`] - Updates `bounty.status` to [`BountyStatus::Refunded`] via `write_bounty`.
+    ///   - [`DataKey::Bounty(bounty_id)`] - Updates `bounty.status` to [`BountyStatus::Refunded`] via `write_bounty`, before the transfer.
     ///
     /// # Events
     /// * Emits `(symbol_short!("Bounty"), symbol_short!("Refund"))` with [`BountyRefunded`] payload.
@@ -1107,12 +1131,21 @@ impl StellarBountyBoardContract {
         maintainer.require_auth();
         let mut bounty = read_bounty(&env, bounty_id);
         refresh_bounty_ttl(&env, bounty_id);
+        expire_if_needed(&env, &mut bounty);
 
+        // Only the bounty's own maintainer may reclaim the escrow. A contributor
+        // or the arbiter signing this call is rejected here, before any state or
+        // funds move.
         if bounty.maintainer != maintainer {
             panic_error(&env, ContractError::MaintainerMismatch);
         }
 
-        if bounty.status == BountyStatus::Released || bounty.status == BountyStatus::Refunded {
+        // Refunds are for bounties that were never reserved. Once a contributor
+        // is attached (or the bounty left Open/Expired), settlement belongs to
+        // the release or dispute paths, not to the maintainer's refund.
+        if bounty.contributor.is_some()
+            || (bounty.status != BountyStatus::Open && bounty.status != BountyStatus::Expired)
+        {
             panic_error(&env, ContractError::BountyAlreadyFinalized);
         }
 
@@ -1121,24 +1154,26 @@ impl StellarBountyBoardContract {
             panic_error(&env, ContractError::BountyNotExpiredYet);
         }
 
+        // Mark the bounty refunded before moving tokens so a second attempt
+        // fails with `BountyAlreadyFinalized` instead of paying out twice.
+        bounty.status = BountyStatus::Refunded;
+        write_bounty(&env, bounty_id, &bounty);
+
         let token_client = TokenClient::new(&env, &bounty.token);
         let contract_address = env.current_contract_address();
         // Refund returns the FULL original amount there is no fee on refunds
         if !matches!(
-            token_client.try_transfer(&contract_address, &maintainer, &bounty.amount),
+            token_client.try_transfer(&contract_address, &bounty.maintainer, &bounty.amount),
             Ok(Ok(()))
         ) {
             panic_error(&env, ContractError::RefundTransferFailed);
         }
 
-        bounty.status = BountyStatus::Refunded;
-        write_bounty(&env, bounty_id, &bounty);
-
         env.events().publish(
             (symbol_short!("Bounty"), symbol_short!("Refund")),
             BountyRefunded {
                 bounty_id,
-                maintainer,
+                maintainer: bounty.maintainer,
                 amount: bounty.amount,
             },
         );
