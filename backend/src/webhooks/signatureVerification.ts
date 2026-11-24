@@ -594,6 +594,64 @@ export interface SecretRotationOptions extends WebhookSignatureProfile {
  * }); // Accepts signatures from either secret during the grace period
  * ```
  */
+export const MAX_WEBHOOK_ROTATION_GRACE_MS = 300_000;
+
+/**
+ * Validates secret-rotation parameters before any HMAC computation or
+ * signature verification occurs.
+ *
+ * @throws {WebhookSignatureError} With 500 status if the rotation configuration is invalid.
+ */
+export function validateWebhookRotationConfig({
+  newSecret,
+  previousSecret,
+  gracePeriodMs = 300_000,
+  rotationStartedAt,
+  providerName,
+}: Pick<
+  SecretRotationOptions,
+  "newSecret" | "previousSecret" | "gracePeriodMs" | "rotationStartedAt" | "providerName"
+>): void {
+  if (typeof newSecret !== "string" || newSecret.trim() === "") {
+    throw new WebhookSignatureError(
+      `Missing ${providerName} webhook active secret configuration.`,
+      500,
+    );
+  }
+
+  if (!Number.isSafeInteger(gracePeriodMs) || gracePeriodMs < 1 || gracePeriodMs > MAX_WEBHOOK_ROTATION_GRACE_MS) {
+    throw new WebhookSignatureError(
+      `Invalid ${providerName} webhook rotation gracePeriodMs: must be an integer between 1 and ${MAX_WEBHOOK_ROTATION_GRACE_MS} ms.`,
+      500,
+    );
+  }
+
+  if (previousSecret !== undefined) {
+    if (typeof previousSecret !== "string" || previousSecret.trim() === "") {
+      throw new WebhookSignatureError(
+        `Invalid ${providerName} webhook previousSecret: must be a non-empty string.`,
+        500,
+      );
+    }
+    if (previousSecret === newSecret) {
+      throw new WebhookSignatureError(
+        `Invalid ${providerName} webhook rotation config: previousSecret and newSecret must be distinct.`,
+        500,
+      );
+    }
+    if (
+      rotationStartedAt === undefined ||
+      !Number.isSafeInteger(rotationStartedAt) ||
+      rotationStartedAt < 0
+    ) {
+      throw new WebhookSignatureError(
+        `Invalid ${providerName} webhook rotationStartedAt: must be a non-negative integer timestamp when previousSecret is configured.`,
+        500,
+      );
+    }
+  }
+}
+
 export function verifyWithSecretRotation({
   payload,
   signatureHeader,
@@ -603,6 +661,14 @@ export function verifyWithSecretRotation({
   rotationStartedAt,
   ...profile
 }: SecretRotationOptions): void {
+  validateWebhookRotationConfig({
+    newSecret,
+    previousSecret,
+    gracePeriodMs,
+    rotationStartedAt,
+    providerName: profile.providerName,
+  });
+
   // Normalise the incoming header once.
   const normalizedSignature = normalizeSignature(signatureHeader);
   if (!normalizedSignature) {

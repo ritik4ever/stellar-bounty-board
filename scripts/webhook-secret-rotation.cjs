@@ -17,7 +17,7 @@ const HEX_64 = /^[0-9a-f]{64}$/;
 const SIGNATURE = /^sha256=([0-9a-fA-F]{64})$/;
 
 function fingerprint(secret) {
-  if (typeof secret !== 'string' || secret.length === 0) {
+  if (typeof secret !== 'string' || secret.trim().length === 0) {
     throw new Error('Both webhook secrets must be non-empty strings supplied through the environment.');
   }
   return crypto.createHash('sha256').update(secret, 'utf8').digest('hex');

@@ -1,9 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { validateGitHubWebhookSecret } from "../src/validation/webhookSecretValidation";
+import {
+  validateGitHubWebhookSecret,
+  validateWebhookSecretRotationEnv,
+  MAX_ROTATION_GRACE_MS,
+} from "../src/validation/webhookSecretValidation";
 import {
   githubWebhookSignatureProfile,
   signWebhookPayload,
   verifyWithSecretRotation,
+  WebhookSignatureError,
 } from "../src/webhooks/signatureVerification";
 
 vi.mock("../src/logger", () => ({
@@ -425,5 +430,125 @@ describe("verifyWithSecretRotation — grace-period window", () => {
         }),
       ).toThrow(/Invalid GitHub webhook signature/i);
     });
+  });
+
+  describe("configuration validation before signing/verification (#1967)", () => {
+    it("fails fast with 500 when newSecret is missing or whitespace", () => {
+      for (const bad of ["", "   "]) {
+        expect(() =>
+          verifyWithSecretRotation({
+            ...githubWebhookSignatureProfile,
+            payload,
+            signatureHeader: undefined,
+            newSecret: bad,
+          }),
+        ).toThrow(WebhookSignatureError);
+        expect(() =>
+          verifyWithSecretRotation({
+            ...githubWebhookSignatureProfile,
+            payload,
+            signatureHeader: undefined,
+            newSecret: bad,
+          }),
+        ).toThrow(/Missing GitHub webhook active secret/);
+      }
+    });
+
+    it("fails fast when previousSecret equals newSecret", () => {
+      const signatureHeader = buildSignature(payload, NEW_SECRET);
+      expect(() =>
+        verifyWithSecretRotation({
+          ...githubWebhookSignatureProfile,
+          payload,
+          signatureHeader,
+          newSecret: NEW_SECRET,
+          previousSecret: NEW_SECRET,
+          rotationStartedAt: Date.now() - 10_000,
+        }),
+      ).toThrow(/previousSecret and newSecret must be distinct/);
+    });
+
+    it("fails fast when previousSecret is set without a valid rotationStartedAt", () => {
+      const signatureHeader = buildSignature(payload, NEW_SECRET);
+      for (const badStart of [undefined, -1, Number.NaN, 1.5]) {
+        expect(() =>
+          verifyWithSecretRotation({
+            ...githubWebhookSignatureProfile,
+            payload,
+            signatureHeader,
+            newSecret: NEW_SECRET,
+            previousSecret: OLD_SECRET,
+            rotationStartedAt: badStart as number | undefined,
+          }),
+        ).toThrow(/rotationStartedAt/);
+      }
+    });
+
+    it("fails fast when gracePeriodMs is out of bounds", () => {
+      const signatureHeader = buildSignature(payload, NEW_SECRET);
+      for (const badGrace of [0, -100, MAX_ROTATION_GRACE_MS + 1, Number.NaN]) {
+        expect(() =>
+          verifyWithSecretRotation({
+            ...githubWebhookSignatureProfile,
+            payload,
+            signatureHeader,
+            newSecret: NEW_SECRET,
+            previousSecret: OLD_SECRET,
+            rotationStartedAt: Date.now() - 10_000,
+            gracePeriodMs: badGrace,
+          }),
+        ).toThrow(/gracePeriodMs/);
+      }
+    });
+  });
+});
+
+describe("validateWebhookSecretRotationEnv (#1967)", () => {
+  it("passes when no rotation overlap environment variables are set", () => {
+    expect(() => validateWebhookSecretRotationEnv({})).not.toThrow();
+  });
+
+  it("passes for a valid overlapping rotation setup", () => {
+    expect(() =>
+      validateWebhookSecretRotationEnv({
+        GITHUB_WEBHOOK_SECRET: "new-high-entropy-secret",
+        GITHUB_WEBHOOK_SECRET_PREVIOUS: "old-high-entropy-secret",
+        GITHUB_WEBHOOK_ROTATION_STARTED_AT: String(Date.now() - 30_000),
+        GITHUB_WEBHOOK_ROTATION_GRACE_MS: "300000",
+      }),
+    ).not.toThrow();
+  });
+
+  it("rejects missing active secret, identical secrets, missing startedAt, and out-of-range grace", () => {
+    expect(() =>
+      validateWebhookSecretRotationEnv({
+        GITHUB_WEBHOOK_SECRET_PREVIOUS: "old-secret",
+        GITHUB_WEBHOOK_ROTATION_STARTED_AT: "1700000000000",
+      }),
+    ).toThrow(/active secret/);
+
+    expect(() =>
+      validateWebhookSecretRotationEnv({
+        GITHUB_WEBHOOK_SECRET: "same-secret",
+        GITHUB_WEBHOOK_SECRET_PREVIOUS: "same-secret",
+        GITHUB_WEBHOOK_ROTATION_STARTED_AT: "1700000000000",
+      }),
+    ).toThrow(/must be distinct/);
+
+    expect(() =>
+      validateWebhookSecretRotationEnv({
+        GITHUB_WEBHOOK_SECRET: "new-secret",
+        GITHUB_WEBHOOK_SECRET_PREVIOUS: "old-secret",
+      }),
+    ).toThrow(/GITHUB_WEBHOOK_ROTATION_STARTED_AT is required/);
+
+    expect(() =>
+      validateWebhookSecretRotationEnv({
+        GITHUB_WEBHOOK_SECRET: "new-secret",
+        GITHUB_WEBHOOK_SECRET_PREVIOUS: "old-secret",
+        GITHUB_WEBHOOK_ROTATION_STARTED_AT: "1700000000000",
+        GITHUB_WEBHOOK_ROTATION_GRACE_MS: "999999",
+      }),
+    ).toThrow(/GITHUB_WEBHOOK_ROTATION_GRACE_MS/);
   });
 });
