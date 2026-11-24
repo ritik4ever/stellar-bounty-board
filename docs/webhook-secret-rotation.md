@@ -111,6 +111,30 @@ When an alert fires indicating a webhook was rejected with `revoked_secret` or H
 6. **Decommission Previous Secret:**
    - After verifying all webhooks are successfully arriving with the active secret and no valid deliveries remain pending, remove the previous secret from secret managers and operator keyrings.
 
+## Overlap transition: expected results at every boundary
+
+This table documents the exact outcome at each significant point in time during a rotation. Use it to reproduce the transition from a clean checkout without live funds or network calls. `T` = `rotationStartedAt`, `G` = `gracePeriodMs`.
+
+| Time (`Date.now()`) | Payload signed with | Expected result | HTTP status |
+|---|---|---|---|
+| `T` | new secret | Accepted (`active_secret`) | — |
+| `T` | old secret | Accepted (`grace_period_previous_secret`) | — |
+| `T + G - 1` | old secret | Accepted (`grace_period_previous_secret`) | — |
+| `T + G - 1` | new secret | Accepted (`active_secret`) | — |
+| `T + G` _(exact expiry)_ | old secret | Rejected (`revoked_secret`) | 401 |
+| `T + G` _(exact expiry)_ | new secret | Accepted (`active_secret`) | — |
+| `T + G + N` | old secret | Rejected (`revoked_secret`) | 401 |
+| `T + G + N` | new secret | Accepted (`active_secret`) | — |
+| any | neither secret | Rejected (`invalid_signature`) | 401 |
+| any | — (misconfigured empty `newSecret`) | Rejected (server error) | 500 |
+
+**Key invariants from the code:**
+
+- `verifyWithSecretRotation` checks the new secret _first_, always. The old secret is only tried if the new secret does not match.
+- The condition `Date.now() < rotationStartedAt + gracePeriodMs` is strictly `<`. At the exact expiry millisecond (`T + G`) the window is **closed**.
+- A revoked-secret rejection carries `statusCode 401`, not 500. 500 is reserved for configuration errors (empty or missing `newSecret`, invalid `gracePeriodMs`, missing `rotationStartedAt`).
+- `gracePeriodMs` is bounded `[1, 300_000]`. Values outside that range are rejected with 500 before any HMAC computation.
+
 ## Focused deterministic tests
 
 Run from a clean checkout without live funds or network access:
@@ -118,10 +142,10 @@ Run from a clean checkout without live funds or network access:
 ```bash
 node --test scripts/webhook-secret-rotation.test.cjs
 # Optional, using the project's existing backend dependencies:
-cd backend && npx vitest run test/webhookSecretRotationReruns.test.ts test/webhookSecretValidation.test.ts
+cd backend && node_modules/.bin/vitest run test/webhookSecretRotationReruns.test.ts test/webhookSecretValidation.test.ts
 ```
 
-Both suites exercise deterministic overlap fixtures (old + new secrets during the bounded grace window) and revoked-secret deliveries (after expiry).
+Both suites exercise deterministic overlap fixtures (old + new secrets during the bounded grace window) and revoked-secret deliveries (after expiry). The reruns suite additionally covers HTTP status codes at every boundary: `401` for revoked/invalid signatures, `500` for configuration errors, and the exact expiry millisecond (`T + G`) for both the minimum (`gracePeriodMs = 1`) and maximum (`gracePeriodMs = 300_000`) grace windows.
 
 ### Configuration Validation Guardrails (#1967)
 
