@@ -6,8 +6,8 @@
 //! - Bounded time budget and wide coverage of numeric input domains.
 
 use soroban_sdk::{
-    testutils::{Address as _, Ledger as _},
-    Address, Env, String,
+    testutils::{Address as _, Events as _, Ledger as _},
+    Address, Env, String, TryFromVal,
 };
 use stellar_bounty_board::{
     BountyStatus, ContractError, StellarBountyBoardContract, StellarBountyBoardContractClient,
@@ -228,7 +228,9 @@ fn test_fuzz_dispute_bounty_numeric_inputs_and_invariants() {
 
         // (e) Test expired deadline boundary:
         // Case 1: timestamp == deadline -> strictly not expired (env.ledger().timestamp() > bounty.deadline)
-        // dispute_bounty succeeds at exactly deadline!
+        // dispute_bounty succeeds at exactly deadline (the last eligible ledger)!
+        let contract_balance_before = soroban_sdk::token::TokenClient::new(&fix.env, &fix.token)
+            .balance(&fix.client.address);
         fix.env.ledger().set_timestamp(deadline);
         let res_at_deadline = fix.client.try_dispute_bounty(&bounty_id, &fix.arbiter);
         assert!(
@@ -240,6 +242,40 @@ fn test_fuzz_dispute_bounty_numeric_inputs_and_invariants() {
         assert_eq!(bounty.status, BountyStatus::Disputed);
         assert_eq!(bounty.dispute_raised_at, deadline);
         assert_eq!(bounty.amount, amount);
+
+        // Exactly one BountyDisputed event must be emitted for the single valid disputed state.
+        let disputed_events = count_events_named(&fix.env, "BountyDisputed");
+        assert_eq!(
+            disputed_events, 1,
+            "exactly one BountyDisputed event must be emitted at the last eligible ledger"
+        );
+
+        // Escrow funds must remain intact: no token movement on dispute.
+        let contract_balance_after = soroban_sdk::token::TokenClient::new(&fix.env, &fix.token)
+            .balance(&fix.client.address);
+        assert_eq!(
+            contract_balance_after, contract_balance_before,
+            "escrow balance must be unchanged by dispute"
+        );
+        assert_eq!(
+            contract_balance_after, amount,
+            "escrowed amount must equal the bounty amount"
+        );
+
+        // A second dispute on the already-disputed bounty must fail and not corrupt state.
+        let res_double = fix.client.try_dispute_bounty(&bounty_id, &fix.arbiter);
+        assert!(
+            res_double.is_err(),
+            "second dispute on already-disputed bounty must fail"
+        );
+        let bounty_after_double = fix.client.get_bounty(&bounty_id);
+        assert_eq!(bounty_after_double.status, BountyStatus::Disputed);
+        assert_eq!(bounty_after_double.dispute_raised_at, deadline);
+        assert_eq!(
+            count_events_named(&fix.env, "BountyDisputed"),
+            1,
+            "no additional BountyDisputed event may be emitted on a rejected dispute"
+        );
     }
 
     // 4. Test off-by-one boundary: exactly one second after deadline (deadline + 1)
@@ -264,17 +300,67 @@ fn test_fuzz_dispute_bounty_numeric_inputs_and_invariants() {
         fix.client.reserve_bounty(&bounty_id, &fix.contributor);
         fix.client.submit_bounty(&bounty_id, &fix.contributor);
 
-        // One second past deadline
+        let contract_balance_before = soroban_sdk::token::TokenClient::new(&fix.env, &fix.token)
+            .balance(&fix.client.address);
+
+        // One second past deadline: the first ineligible ledger.
         fix.env.ledger().set_timestamp(deadline + 1);
         let res_past_deadline = fix.client.try_dispute_bounty(&bounty_id, &fix.arbiter);
-        assert!(
-            res_past_deadline.is_err(),
-            "dispute_bounty at deadline + 1 must fail (expired)"
+        assert_eq!(
+            res_past_deadline,
+            Err(Ok(ContractError::BountyExpired)),
+            "dispute_bounty at deadline + 1 must fail with BountyExpired"
         );
 
         // Bounty state must remain Submitted (no state corruption on failure)
         let bounty_after = fix.client.get_bounty(&bounty_id);
         assert_eq!(bounty_after.status, BountyStatus::Submitted);
+        assert_eq!(bounty_after.dispute_raised_at, 0);
+        assert_eq!(
+            count_events_named(&fix.env, "BountyDisputed"),
+            0,
+            "no BountyDisputed event may be emitted for an expired dispute"
+        );
+
+        // Escrow funds must remain intact after the rejected dispute.
+        let contract_balance_after = soroban_sdk::token::TokenClient::new(&fix.env, &fix.token)
+            .balance(&fix.client.address);
+        assert_eq!(
+            contract_balance_after, contract_balance_before,
+            "escrow balance must be unchanged by a rejected dispute"
+        );
+        assert_eq!(contract_balance_after, base_amount);
+
+        // A dispute after release is committed must also fail with BountyExpired and
+        // leave the released bounty untouched.
+        let release_time = deadline + 1_000;
+        fix.env.ledger().set_timestamp(release_time);
+        fix.client.release_bounty(&bounty_id, &fix.maintainer);
+        let released = fix.client.get_bounty(&bounty_id);
+        assert_eq!(released.status, BountyStatus::Released);
+
+        let balance_after_release = soroban_sdk::token::TokenClient::new(&fix.env, &fix.token)
+            .balance(&fix.client.address);
+        let res_after_release = fix.client.try_dispute_bounty(&bounty_id, &fix.arbiter);
+        assert_eq!(
+            res_after_release,
+            Err(Ok(ContractError::BountyExpired)),
+            "dispute_bounty after release must fail with BountyExpired"
+        );
+        let bounty_after_release = fix.client.get_bounty(&bounty_id);
+        assert_eq!(bounty_after_release.status, BountyStatus::Released);
+        assert_eq!(bounty_after_release.dispute_raised_at, 0);
+        assert_eq!(
+            count_events_named(&fix.env, "BountyDisputed"),
+            0,
+            "no BountyDisputed event may be emitted after release"
+        );
+        let balance_after_rejected = soroban_sdk::token::TokenClient::new(&fix.env, &fix.token)
+            .balance(&fix.client.address);
+        assert_eq!(
+            balance_after_rejected, balance_after_release,
+            "escrow balance must be unchanged by a post-release dispute attempt"
+        );
     }
 
     // 5. Fuzz across pseudorandom timestamps around deadline
@@ -307,12 +393,22 @@ fn test_fuzz_dispute_bounty_numeric_inputs_and_invariants() {
 
         let res = fix.client.try_dispute_bounty(&bounty_id, &fix.arbiter);
         if test_timestamp > deadline {
-            assert!(res.is_err(), "Dispute after deadline must fail");
+            assert_eq!(
+                res,
+                Err(Ok(ContractError::BountyExpired)),
+                "Dispute after deadline must fail with BountyExpired"
+            );
             let b = fix.client.get_bounty(&bounty_id);
             assert_eq!(
                 b.status,
                 BountyStatus::Submitted,
                 "State must not be corrupt on failure"
+            );
+            assert_eq!(b.dispute_raised_at, 0);
+            assert_eq!(
+                count_events_named(&fix.env, "BountyDisputed"),
+                0,
+                "no BountyDisputed event may be emitted after deadline"
             );
         } else {
             assert!(res.is_ok(), "Dispute on or before deadline must succeed");
@@ -320,6 +416,25 @@ fn test_fuzz_dispute_bounty_numeric_inputs_and_invariants() {
             assert_eq!(b.status, BountyStatus::Disputed);
             assert_eq!(b.dispute_raised_at, test_timestamp);
             assert_eq!(b.amount, base_amount);
+            assert_eq!(
+                count_events_named(&fix.env, "BountyDisputed"),
+                1,
+                "exactly one BountyDisputed event must be emitted on success"
+            );
         }
     }
+}
+
+/// Counts emitted contract events whose topic symbol matches `name`.
+fn count_events_named(env: &Env, name: &str) -> usize {
+    let target = soroban_sdk::Symbol::new(env, name);
+    env.events()
+        .all()
+        .iter()
+        .filter(|(_, topics, _)| {
+            topics.iter().any(|topic| {
+                soroban_sdk::Symbol::try_from_val(env, &topic).map_or(false, |s| s == target)
+            })
+        })
+        .count()
 }

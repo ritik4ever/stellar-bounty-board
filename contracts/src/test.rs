@@ -652,6 +652,202 @@ fn test_dispute_bounty_native_xlm() {
     assert_eq!(bounty.status, BountyStatus::Disputed);
 }
 
+// ─── Dispute window boundary tests ──────────────────────────────────────
+//
+// The dispute window is bounded by the bounty deadline: a bounty may be
+// disputed while `now <= deadline` (the deadline ledger is the last eligible
+// one) and is rejected with `BountyExpired` once `now > deadline`.
+//
+// The committed `BountyDisputed` event carries exactly:
+//   topics: (Symbol("Bounty"), Symbol("Dispt"))
+//   data:   BountyDisputed { bounty_id, contributor, arbiter }
+// and is emitted exactly once per successful dispute.
+
+/// Builds a Submitted bounty and returns (client, bounty_id, maintainer,
+/// contributor, token_id, arbiter, deadline). Setup runs under
+/// `mock_all_auths`; callers may override auth afterwards.
+fn dispute_window_fixture(
+    env: &Env,
+) -> (
+    StellarBountyBoardContractClient<'static>,
+    u64,
+    Address,
+    Address,
+    Address,
+    Address,
+    u64,
+) {
+    env.mock_all_auths();
+    let (client, _admin, maintainer, contributor, token_id, _fee_recipient, arbiter) =
+        setup_test(env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(env, &token_id);
+    token_admin.mint(&maintainer, &1_000);
+
+    let deadline = env.ledger().timestamp() + 1_000;
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(env, "repo"),
+        &1,
+        &String::from_str(env, "title"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+    client.reserve_bounty(&bounty_id, &contributor);
+    client.submit_bounty(&bounty_id, &contributor);
+
+    (
+        client,
+        bounty_id,
+        maintainer,
+        contributor,
+        token_id,
+        arbiter,
+        deadline,
+    )
+}
+
+/// Counts `BountyDisputed` events emitted by the contract.
+fn count_dispute_events(env: &Env, client: &StellarBountyBoardContractClient<'static>) -> u32 {
+    let events = env.events().all().filter_by_contract(&client.address);
+    let mut count = 0u32;
+    for event in events.events().iter() {
+        let soroban_sdk::xdr::ContractEventBody::V0(body) = &event.body;
+        if body.topics.len() < 2 {
+            continue;
+        }
+        let t0 = soroban_sdk::Symbol::from_val(env, &body.topics[0]);
+        let t1 = soroban_sdk::Symbol::from_val(env, &body.topics[1]);
+        if t0 == symbol_short!("Bounty") && t1 == symbol_short!("Dispt") {
+            count += 1;
+        }
+    }
+    count
+}
+
+#[test]
+fn test_dispute_at_deadline_is_last_eligible_ledger() {
+    let env = Env::default();
+    let (client, bounty_id, _maintainer, contributor, token_id, arbiter, deadline) =
+        dispute_window_fixture(&env);
+    let token = TokenClient::new(&env, &token_id);
+    let contract_id = client.address.clone();
+
+    // Exactly at the deadline: still inside the dispute window.
+    env.ledger().set_timestamp(deadline);
+
+    let escrow_before = token.balance(&contract_id);
+    let contributor_before = token.balance(&contributor);
+    assert_eq!(escrow_before, 500);
+
+    client.dispute_bounty(&bounty_id, &arbiter);
+
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.status, BountyStatus::Disputed);
+    assert_eq!(bounty.dispute_raised_at, deadline);
+    assert_eq!(bounty.contributor, Some(contributor.clone()));
+
+    // Funds stay escrowed: a dispute moves no tokens.
+    assert_eq!(token.balance(&contract_id), escrow_before);
+    assert_eq!(token.balance(&contributor), contributor_before);
+
+    // Exactly one dispute event, with the documented topics and payload.
+    assert_eq!(count_dispute_events(&env, &client), 1);
+    let events = env.events().all().filter_by_contract(&client.address);
+    let event = events.events().last().unwrap();
+    let soroban_sdk::xdr::ContractEventBody::V0(body) = &event.body;
+    let t0 = soroban_sdk::Symbol::from_val(&env, &body.topics[0]);
+    let t1 = soroban_sdk::Symbol::from_val(&env, &body.topics[1]);
+    assert_eq!(t0, symbol_short!("Bounty"));
+    assert_eq!(t1, symbol_short!("Dispt"));
+    let event_payload = BountyDisputed::from_val(&env, &body.data);
+    assert_eq!(
+        event_payload,
+        BountyDisputed {
+            bounty_id,
+            contributor: contributor.clone(),
+            arbiter: arbiter.clone(),
+        }
+    );
+}
+
+#[test]
+fn test_dispute_one_ledger_after_deadline_fails() {
+    let env = Env::default();
+    let (client, bounty_id, _maintainer, contributor, token_id, arbiter, deadline) =
+        dispute_window_fixture(&env);
+    let token = TokenClient::new(&env, &token_id);
+    let contract_id = client.address.clone();
+
+    // One ledger past the deadline: the dispute window is closed.
+    env.ledger().set_timestamp(deadline + 1);
+
+    let escrow_before = token.balance(&contract_id);
+    let contributor_before = token.balance(&contributor);
+
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.dispute_bounty(&bounty_id, &arbiter);
+    }));
+    let payload = match outcome {
+        Ok(()) => panic!("dispute after the deadline must fail"),
+        Err(p) => p,
+    };
+    let msg = if let Some(s) = payload.downcast_ref::<std::string::String>() {
+        s.clone()
+    } else if let Some(s) = payload.downcast_ref::<&str>() {
+        std::string::String::from(*s)
+    } else {
+        std::string::String::new()
+    };
+    assert!(
+        msg.contains(&std::format!(
+            "Error(Contract, #{})",
+            ContractError::BountyExpired as u32
+        )),
+        "expected BountyExpired but panic was: {}",
+        msg
+    );
+
+    // No state change and no funds moved.
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.status, BountyStatus::Submitted);
+    assert_eq!(bounty.dispute_raised_at, 0);
+    assert_eq!(token.balance(&contract_id), escrow_before);
+    assert_eq!(token.balance(&contributor), contributor_before);
+    assert_eq!(count_dispute_events(&env, &client), 0);
+}
+
+#[test]
+fn test_dispute_after_release_fails_without_dispute_event() {
+    let env = Env::default();
+    let (client, bounty_id, maintainer, contributor, token_id, arbiter, _deadline) =
+        dispute_window_fixture(&env);
+    let token = TokenClient::new(&env, &token_id);
+    let contract_id = client.address.clone();
+
+    client.release_bounty(&bounty_id, &maintainer);
+    assert_eq!(client.get_bounty(&bounty_id).status, BountyStatus::Released);
+    let contributor_after_release = token.balance(&contributor);
+    assert_eq!(contributor_after_release, 500);
+    assert_eq!(token.balance(&contract_id), 0);
+    assert_eq!(count_dispute_events(&env, &client), 0);
+
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.dispute_bounty(&bounty_id, &arbiter);
+    }));
+    assert!(outcome.is_err(), "dispute on a released bounty must fail");
+
+    // Committed state and balances are untouched by the rejected call.
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.status, BountyStatus::Released);
+    assert_eq!(bounty.dispute_raised_at, 0);
+    assert_eq!(token.balance(&contributor), contributor_after_release);
+    assert_eq!(token.balance(&contract_id), 0);
+    assert_eq!(count_dispute_events(&env, &client), 0);
+}
+
 #[test]
 fn test_submit_bounty_emits_event() {
     let env = Env::default();

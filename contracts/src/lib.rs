@@ -262,12 +262,29 @@ pub struct BountyDeadlineExtended {
 }
 
 /// Emitted when a contributor raises a dispute on a submitted bounty.
+///
+/// This is the single event emitted by `dispute_bounty`, and it is emitted
+/// only after the `Disputed` state has been committed to storage. Consumers
+/// can therefore treat its presence as proof that the bounty is disputed and
+/// that escrow funds are still intact (a dispute moves no tokens).
+///
+/// Fields, in deterministic order:
+/// - `bounty_id`: which bounty was disputed.
+/// - `contributor`: the contributor that raised the dispute.
+/// - `arbiter`: the arbiter that will rule on it.
+/// - `dispute_raised_at`: ledger timestamp recorded in `bounty.dispute_raised_at`;
+///   the dispute window for resolution starts here.
+/// - `deadline`: the bounty deadline at the time of the dispute. The dispute
+///   was raised at or before this timestamp (the last eligible ledger is
+///   exactly `deadline`).
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BountyDisputed {
     pub bounty_id: u64,
     pub contributor: Address,
     pub arbiter: Address,
+    pub dispute_raised_at: u64,
+    pub deadline: u64,
 }
 
 /// Emitted when an arbiter resolves a dispute (release or refund).
@@ -1212,6 +1229,32 @@ impl StellarBountyBoardContract {
     /// work for a bounty can raise a dispute if there is a conflict or disagreement with
     /// the maintainer before the deadline passes.
     ///
+    /// # Dispute window semantics
+    ///
+    /// The dispute window is bounded by the bounty `deadline`:
+    /// * The **last eligible ledger** is exactly `deadline` — a dispute raised at
+    ///   `now == deadline` is accepted.
+    /// * The window is **exclusive after** `deadline` — a dispute raised at
+    ///   `now > deadline` is rejected with [`ContractError::BountyExpired`].
+    ///
+    /// The recorded `dispute_raised_at` is the ledger timestamp of the accepted
+    /// call; `resolve_dispute` then requires
+    /// `now >= dispute_raised_at + effective_dispute_window`.
+    ///
+    /// # Single-shot guarantee
+    ///
+    /// Only a bounty in [`BountyStatus::Submitted`] can be disputed. Once the
+    /// transition commits, the status is [`BountyStatus::Disputed`] and any
+    /// further call (including one after a release or refund) is rejected with
+    /// [`ContractError::BountyMustBeSubmitted`]. The state is written exactly
+    /// once and the event is emitted only after the write, so consumers see at
+    /// most one `BountyDisputed` event per bounty.
+    ///
+    /// # Funds
+    ///
+    /// Raising a dispute moves no tokens: escrow remains intact and is only
+    /// settled later by `resolve_dispute` (or the committee vote path).
+    ///
     /// # Parameters
     /// * `env` - The Soroban contract environment.
     /// * `bounty_id` - Unique identifier (`u64`) of the bounty being disputed.
@@ -1225,7 +1268,8 @@ impl StellarBountyBoardContract {
     /// * [`ContractError::BountyNotFound`] - If no bounty exists with the given `bounty_id` (via `read_bounty`).
     /// * [`ContractError::BountyExpired`] - If the current ledger timestamp is past the bounty's `deadline` (`env.ledger().timestamp() > bounty.deadline`).
     /// * [`ContractError::MissingContributor`] - If the bounty does not have an assigned contributor (`bounty.contributor` is `None`).
-    /// * [`ContractError::BountyMustBeSubmitted`] - If the bounty's current status is not [`BountyStatus::Submitted`].
+    /// * [`ContractError::BountyMustBeSubmitted`] - If the bounty's current status is not [`BountyStatus::Submitted`]
+    ///   (this also covers already `Disputed`, `Released`, `Refunded`, and `Expired` bounties).
     /// * [`ContractError::ArbiterNotSet`] - If no arbiter has been configured in persistent storage (`DataKey::Arbiter`).
     /// * [`ContractError::NotArbiter`] - If the provided `arbiter` argument does not match the stored arbiter address.
     ///
@@ -1237,10 +1281,13 @@ impl StellarBountyBoardContract {
     ///   - [`DataKey::Bounty(bounty_id)`] - Updates `bounty.status` to [`BountyStatus::Disputed`] and records `bounty.dispute_raised_at` timestamp.
     ///
     /// # Events
-    /// * Emits `(symbol_short!("Bounty"), symbol_short!("Dispt"))` with [`BountyDisputed`] payload.
+    /// * Emits exactly one `(symbol_short!("Bounty"), symbol_short!("Dispt"))` event with the
+    ///   [`BountyDisputed`] payload, after the state write. Fields are ordered
+    ///   `bounty_id`, `contributor`, `arbiter`, `dispute_raised_at`, `deadline`.
     pub fn dispute_bounty(env: Env, bounty_id: u64, arbiter: Address) {
         let mut bounty = read_bounty(&env, bounty_id);
 
+        // Last eligible ledger is exactly `deadline`; strictly after is too late.
         if env.ledger().timestamp() > bounty.deadline {
             panic_error(&env, ContractError::BountyExpired);
         }
@@ -1252,6 +1299,8 @@ impl StellarBountyBoardContract {
 
         contributor.require_auth();
 
+        // Single-shot: only a Submitted bounty may transition to Disputed. This
+        // rejects Disputed (double dispute), Released, Refunded, and Expired.
         if bounty.status != BountyStatus::Submitted {
             panic_error(&env, ContractError::BountyMustBeSubmitted);
         }
@@ -1266,16 +1315,20 @@ impl StellarBountyBoardContract {
             panic_error(&env, ContractError::NotArbiter);
         }
 
+        let dispute_raised_at = env.ledger().timestamp();
         bounty.status = BountyStatus::Disputed;
-        bounty.dispute_raised_at = env.ledger().timestamp();
+        bounty.dispute_raised_at = dispute_raised_at;
         write_bounty(&env, bounty_id, &bounty);
 
+        // Emitted only after the committed state, so the event and storage agree.
         env.events().publish(
             (symbol_short!("Bounty"), symbol_short!("Dispt")),
             BountyDisputed {
                 bounty_id,
                 contributor,
                 arbiter,
+                dispute_raised_at,
+                deadline: bounty.deadline,
             },
         );
     }

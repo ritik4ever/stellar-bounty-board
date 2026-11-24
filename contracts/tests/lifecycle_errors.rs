@@ -474,6 +474,47 @@ fn lifecycle_dispute_distinguishes_each_guard_and_keeps_contributor_auth() {
 }
 
 #[test]
+fn lifecycle_dispute_window_boundaries_keep_funds_and_status() {
+    // A submitted bounty can be disputed up to and including its deadline.
+    let f = Fixture::new();
+    let id = f.submitted(0);
+    let original = f.balances();
+    f.env.ledger().set_timestamp(1_000);
+    f.client.dispute_bounty(&id, &f.arbiter);
+    assert_eq!(f.stored(id).status, BountyStatus::Disputed);
+    assert_eq!(
+        f.balances(),
+        original,
+        "disputing must not move escrowed funds"
+    );
+
+    // One ledger past the deadline the window is closed and nothing changes.
+    let f = Fixture::new();
+    let id = f.submitted(0);
+    let original = f.balances();
+    f.env.ledger().set_timestamp(1_001);
+    assert_error(
+        f.client.try_dispute_bounty(&id, &f.arbiter),
+        ContractError::BountyExpired,
+    );
+    assert_eq!(f.stored(id).status, BountyStatus::Submitted);
+    assert_eq!(f.balances(), original);
+
+    // A released bounty can never be disputed, even inside the window.
+    let f = Fixture::new();
+    let id = f.submitted(0);
+    f.client.release_bounty(&id, &f.maintainer);
+    let original = f.balances();
+    f.env.ledger().set_timestamp(1_000);
+    assert_error(
+        f.client.try_dispute_bounty(&id, &f.arbiter),
+        ContractError::BountyAlreadyFinalized,
+    );
+    assert_eq!(f.stored(id).status, BountyStatus::Released);
+    assert_eq!(f.balances(), original);
+}
+
+#[test]
 fn lifecycle_token_failures_are_operation_specific_and_atomic() {
     // Actual Stellar asset contracts reject transfers to deauthorized addresses.
     // Their codes must not leak as an unrelated validation code on this contract.
