@@ -8,6 +8,7 @@ import {
   resolveCorsConfig,
   warnIfProductionCorsMisconfigured,
 } from "../../src/middleware/corsOptions";
+import { logger } from "../../src/logger";
 import { mockNext, mockReq, mockRes, snapshotEnv } from "./helpers";
 
 const ALLOWED = "https://app.example.com";
@@ -116,14 +117,14 @@ describe("warnIfProductionCorsMisconfigured", () => {
   it.each([undefined, "", "   "])("warns in production when ALLOWED_ORIGINS is %j", (value) => {
     process.env.NODE_ENV = "production";
     if (value !== undefined) process.env.ALLOWED_ORIGINS = value;
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
     warnIfProductionCorsMisconfigured();
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0][0]).toMatch(/ALLOWED_ORIGINS is unset/);
   });
 
   it("stays silent in production with an allowlist, and outside production", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
     process.env.NODE_ENV = "production";
     process.env.ALLOWED_ORIGINS = ALLOWED;
     warnIfProductionCorsMisconfigured();

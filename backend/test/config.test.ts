@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { logger } from '../src/logger';
 
 // getPublicConfig delegates token resolution to getTokenAddressMap. Wrap it so
 // individual tests can make it throw (to assert error propagation) while every
@@ -176,7 +177,7 @@ describe('getPublicConfig (#1328)', () => {
     });
 
     it('does not throw on malformed TOKEN_ADDRESS_MAP JSON; warns and keeps built-in tokens', () => {
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
       process.env.TOKEN_ADDRESS_MAP = '{not json';
       process.env.ALLOWED_TOKEN_SYMBOLS = 'XLM';
       expect(() => getPublicConfig()).not.toThrow();

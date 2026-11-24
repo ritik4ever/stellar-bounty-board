@@ -628,6 +628,16 @@ function parseId(raw: string | string[] | undefined): string {
   return bountyIdSchema.parse(Array.isArray(raw) ? raw[0] : raw);
 }
 
+/**
+ * Normalizes a route param that Express types as `string | string[]`.
+ *
+ * Returns the first value for repeated params and an empty string otherwise, so
+ * downstream lookups receive a `string` without changing the request contract.
+ */
+function normalizeRouteParam(raw: string | string[] | undefined): { address: string } {
+  return { address: Array.isArray(raw) ? (raw[0] ?? '') : (raw ?? '') };
+}
+
 export function parsePaginationValue(
   raw: unknown,
   field: string,
@@ -1386,6 +1396,18 @@ const releaseBountyRequestSchema = z.object({
   body: releaseBountyBodySchema,
 });
 
+/**
+ * Request for `POST /api/bounties/:id/refund`.
+ *
+ * Validates the route param (`id`), any query string, and the body in one
+ * schema so invalid input is rejected with a 400 before the store is touched.
+ */
+const refundBountyRequestSchema = z.object({
+  params: z.object({ id: bountyIdSchema }),
+  query: z.object({}).strict(),
+  body: maintainerActionSchema,
+});
+
 app.post(
   '/api/bounties/:id/release',
   releaseLimiter,
@@ -1411,7 +1433,7 @@ app.post(
   async (req: Request, res: Response) => {
     try {
       const bounty = await releaseBounty(
-        req.params.id,
+        parseId(req.params.id),
         req.body.maintainer,
         req.body.transactionHash
       );
@@ -1656,12 +1678,14 @@ app.post(
     const rawDeliveryId = req.headers['x-github-delivery'];
     const deliveryId = Array.isArray(rawDeliveryId) ? rawDeliveryId[0] : rawDeliveryId;
 
-    let result: { duplicate: boolean };
+    let result: Awaited<ReturnType<typeof handleGitHubPrEvent>>;
     try {
       result = await handleGitHubPrEvent(req.body, deliveryId);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Webhook processing error';
 
+      // The delivery was deferred in the journal before we got here, so GitHub's
+      // retry (or the startup resume pass) will re-drive it idempotently.
       res.status(500).json({ error: message, requestId: req.requestId });
       return;
     }
@@ -1684,6 +1708,10 @@ app.post(
         authenticated: true,
         provider: 'github',
         received: true,
+        // true when the event was accepted but could not be applied yet
+        // (out-of-order delivery or already-applied merge); it will be retried.
+        deferred: result.deferred ?? false,
+        ...(result.reason ? { reason: result.reason } : {}),
       },
     });
   }
@@ -1962,7 +1990,7 @@ app.post(
 
 app.get('/api/notifications/opt-in/:address', (req: Request, res: Response) => {
   try {
-    const { address } = req.params;
+    const { address } = normalizeRouteParam(req.params.address);
     const pref = getNotificationOptIn(address);
     res.json({
       data: {
@@ -1979,7 +2007,7 @@ app.get('/api/notifications/opt-in/:address', (req: Request, res: Response) => {
 
 app.get('/api/notification-preferences/:address', (req: Request, res: Response) => {
   try {
-    const { address } = req.params;
+    const { address } = normalizeRouteParam(req.params.address);
     const pref = getNotificationOptIn(address);
     res.json({
       data: {

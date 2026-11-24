@@ -3,7 +3,7 @@ import path from 'node:path';
 import lockfile from 'proper-lockfile';
 import { getBountyArchivePath } from './bountyArchivePath';
 import { sendNotification, type NotificationRecipient } from './notificationService';
-import { logStructured } from '../logger';
+import { logger, logStructured } from '../logger';
 import { getCache, type CacheAdapter } from './cache';
 import { getServicesConfig } from './config';
 import { wrapServiceError } from './errors';
@@ -905,7 +905,9 @@ export async function reserveBounty(
       amount: bounty.amount,
       tokenSymbol: bounty.tokenSymbol,
       contributor,
-    }).catch((err) => console.warn('[reserveBounty] Notification failed (non-blocking):', err));
+    }).catch((err) =>
+      logger.warn({ err, scope: 'reserveBounty' }, 'bounty_notification_failed')
+    );
 
     return persisted;
   });
@@ -978,7 +980,7 @@ export async function submitBounty(
       tokenSymbol: bounty.tokenSymbol,
       contributor,
       submissionUrl,
-    }).catch((err) => console.warn('[submitBounty] Notification failed (non-blocking):', err));
+    }).catch((err) => logger.warn({ err, scope: 'submitBounty' }, 'bounty_notification_failed'));
 
     return persisted;
   });
@@ -1052,7 +1054,9 @@ export async function releaseBounty(
           amount: bounty.amount,
           tokenSymbol: bounty.tokenSymbol,
         }
-      ).catch((err) => console.warn('[releaseBounty] Notification failed (non-blocking):', err));
+      ).catch((err) =>
+        logger.warn({ err, scope: 'releaseBounty' }, 'bounty_notification_failed')
+      );
     }
 
     return persisted;
@@ -1128,7 +1132,9 @@ export async function refundBounty(
           amount: bounty.amount,
           tokenSymbol: bounty.tokenSymbol,
         }
-      ).catch((err) => console.warn('[refundBounty] Notification failed (non-blocking):', err));
+      ).catch((err) =>
+        logger.warn({ err, scope: 'refundBounty' }, 'bounty_notification_failed')
+      );
     }
 
     return persisted;
@@ -1203,7 +1209,7 @@ export async function cancelBounty(
       amount: bounty.amount,
       tokenSymbol: bounty.tokenSymbol,
       reason: 'canceled',
-    }).catch((err) => console.warn('[cancelBounty] Notification failed (non-blocking):', err));
+    }).catch((err) => logger.warn({ err, scope: 'cancelBounty' }, 'bounty_notification_failed'));
 
     return persisted;
   });
@@ -1386,7 +1392,7 @@ export async function resolveDisputeBounty(
       resolvedBy: arbiter,
       resolution: release ? 'released' : 'refunded',
     }).catch((err) =>
-      console.warn('[resolveDisputeBounty] Notification failed (non-blocking):', err)
+      logger.warn({ err, scope: 'resolveDisputeBounty' }, 'bounty_notification_failed')
     );
 
     return persisted;

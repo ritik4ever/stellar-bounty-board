@@ -87,10 +87,10 @@ export const resolvers = {
     const globalMetrics = getGlobalMetrics();
     return {
       totalBounties: globalMetrics.totalBounties || 0,
-      openBounties: globalMetrics.openBounties || 0,
-      totalFundedXlm: globalMetrics.totalFundedXlm || 0,
-      totalPaidOutXlm: globalMetrics.totalPaidOutXlm || 0,
-      activeContributorsCount: globalMetrics.activeContributorsCount || 0,
+      openBounties: globalMetrics.openCount || 0,
+      totalFundedXlm: globalMetrics.totalFunded || 0,
+      totalPaidOutXlm: globalMetrics.totalReleased || 0,
+      activeContributorsCount: globalMetrics.uniqueContributors || 0,
     };
   },
 };
