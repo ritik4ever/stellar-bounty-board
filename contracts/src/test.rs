@@ -7,7 +7,7 @@ use alloc::string::ToString;
 use alloc::vec::Vec as StdVec;
 use soroban_sdk::{
     symbol_short,
-    testutils::{Address as _, Events, Ledger},
+    testutils::{storage::Persistent as _, Address as _, Events, Ledger},
     Address, BytesN, Env, FromVal, IntoVal, String, TryFromVal,
 };
 
@@ -286,6 +286,59 @@ fn test_create_bounty_at_minimum_succeeds() {
     assert_eq!(bounty_id, 1);
     let bounty = client.get_bounty(&bounty_id);
     assert_eq!(bounty.amount, DEFAULT_MIN_BOUNTY_AMOUNT);
+}
+
+#[test]
+fn test_release_refreshes_near_expiry_bounty_before_payout() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, maintainer, contributor, token_id, _fee_recipient, _) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1_000);
+
+    // Make the bounty entry approach expiration without advancing the token
+    // contract's state. The release must refresh the bounty before moving the
+    // escrowed funds.
+    env.ledger().set_min_persistent_entry_ttl(1);
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &(env.ledger().timestamp() + 1_000),
+        &0,
+        &None,
+    );
+    client.reserve_bounty(&bounty_id, &contributor);
+    client.submit_bounty(&bounty_id, &contributor);
+
+    let bounty_key = DataKey::Bounty(bounty_id);
+    let bounty_ttl = env.as_contract(&client.address, || {
+        env.storage().persistent().get_ttl(&bounty_key)
+    });
+    assert!(bounty_ttl <= 1);
+
+    let token = TokenClient::new(&env, &token_id);
+    let contract_id = client.address.clone();
+    client.release_bounty(&bounty_id, &maintainer);
+
+    let refreshed_ttl = env.as_contract(&client.address, || {
+        env.storage().persistent().get_ttl(&bounty_key)
+    });
+    assert!(refreshed_ttl >= BOUNTY_STORAGE_TTL_EXTEND_TO);
+    assert_eq!(token.balance(&contract_id), 0);
+    assert_eq!(token.balance(&contributor), 500);
+    assert_eq!(client.get_bounty(&bounty_id).status, BountyStatus::Released);
+
+    let contributor_balance = token.balance(&contributor);
+    let retry = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.release_bounty(&bounty_id, &maintainer);
+    }));
+    assert!(retry.is_err());
+    assert_eq!(token.balance(&contributor), contributor_balance);
+    assert_eq!(token.balance(&contract_id), 0);
 }
 
 #[test]
