@@ -140,6 +140,21 @@ Each log line is emitted as a structured JSON record prefixed with `[StateUpdate
 | Store lock not acquired within `STORE_LOCK_TIMEOUT_MS` | `503`                             |
 | Store read/write failure                               | `500`                             |
 
+## Interrupted store writes and resume (SBB-2026-452/457)
+
+Every locked writer first runs `resumeInterruptedStoreWrites()` inside the
+store lock, before reading state. `atomicWriteJson` leaves a
+`.<name>.tmp-{pid}-{ms}-{counter}` sibling when a process dies between the temp
+write and the atomic rename. The resume pass completes the newest temp whose
+payload parses and passes the store's write validator (bounty records for
+`bounties.json`, audit records for `bounties.audit.json`); corrupt, stale, or
+invalid temps are deleted. Because the pass runs inside the same lock every
+transition uses, a concurrent state update interrupted mid-flight is finished
+before the next transition computes its read-modify-write — the next writer
+observes the resumed version and gets a defined `409`/`400` instead of acting
+on a stale snapshot. Write outcomes (pending/committed/failed, including
+resumed completions) are traced as `bounty_store_write` records.
+
 ## Limitations
 
 - The store is a JSON file guarded by a file lock; it is not a transactional
@@ -162,3 +177,5 @@ Each log line is emitted as a structured JSON record prefixed with `[StateUpdate
 - `backend/test/concurrency.test.ts` — many simultaneous reserve requests yield
   exactly one `200` and defined conflicts.
 - `backend/test/reservationExpirationJob*.test.ts` — worker expiry behaviour.
+- `backend/test/bountyStoreWriteResilience.test.ts` — interrupted write resume,
+  write-input validation, and `bounty_store_write` outcome tracing.

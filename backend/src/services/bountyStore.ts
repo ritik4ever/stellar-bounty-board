@@ -20,6 +20,11 @@ import {
   redactReference,
   type TransitionOptions,
 } from './stateUpdateTrace';
+import {
+  defaultStoreWriteTrace,
+  type StoreWriteKind,
+  type StoreWriteTraceEmitter,
+} from './storeWriteTrace';
 
 export type {
   TransitionOptions,
@@ -38,6 +43,24 @@ export {
   setGlobalStateUpdateTraceSink,
   getGlobalStateUpdateTraceSink,
 } from './stateUpdateTrace';
+
+export {
+  STORE_WRITE_TRACE_EVENT,
+  STORE_WRITE_OUTCOMES,
+  buildStoreWriteTrace,
+  createStoreWriteTrace,
+  defaultStoreWriteTrace,
+  setGlobalStoreWriteTraceSink,
+  getGlobalStoreWriteTraceSink,
+} from './storeWriteTrace';
+export type {
+  StoreWriteKind,
+  StoreWriteOutcome,
+  StoreWriteTraceEmitter,
+  StoreWriteTraceInput,
+  StoreWriteTraceRecord,
+  StoreWriteTraceSink,
+} from './storeWriteTrace';
 
 /**
  * Represents the current state of a bounty.
@@ -347,6 +370,216 @@ function ensureAuditStore(): void {
   }
 }
 
+/**
+ * Thrown when a payload bound for the JSON bounty store fails structural
+ * validation (SBB-2026-453). This is a programming/data bug, not a dependency
+ * failure, so it is deliberately not wrapped in a ServiceDependencyError.
+ */
+export class BountyStoreWriteValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'BountyStoreWriteValidationError';
+  }
+}
+
+const VALID_BOUNTY_STATUSES = new Set<BountyStatus>([
+  'open',
+  'reserved',
+  'submitted',
+  'released',
+  'refunded',
+  'expired',
+  'disputed',
+]);
+
+const VALID_TRANSITION_TYPES = new Set<BountyTransitionType>([
+  'create',
+  'reserve',
+  'submit',
+  'release',
+  'refund',
+  'cancel',
+  'expire',
+  'dispute',
+  'resolve_dispute',
+  'update_notes',
+  'extend_deadline',
+  'pr_merged',
+]);
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function requireString(
+  record: Record<string, unknown>,
+  field: string,
+  index: number,
+  { nonEmpty = false }: { nonEmpty?: boolean } = {}
+): void {
+  const value = record[field];
+  if (typeof value !== 'string' || (nonEmpty && value.trim().length === 0)) {
+    throw new BountyStoreWriteValidationError(
+      `bounty store write rejected: records[${index}].${field} must be ${nonEmpty ? 'a non-empty ' : 'a '}string`
+    );
+  }
+}
+
+function requireFiniteNumber(record: Record<string, unknown>, field: string, index: number): void {
+  if (!isFiniteNumber(record[field])) {
+    throw new BountyStoreWriteValidationError(
+      `bounty store write rejected: records[${index}].${field} must be a finite number`
+    );
+  }
+}
+
+/**
+ * Validates the bounty record array before it is serialized to the JSON store
+ * (SBB-2026-453). Guards the write boundary against malformed or hostile
+ * payloads so a bad write can never replace `bounties.json` with data the
+ * read path cannot trust.
+ *
+ * The store's on-disk schema is deliberately loose: legacy records and test
+ * fixtures may omit most fields, and the read/transition paths already tolerate
+ * corrupt optional values (e.g. a non-numeric `reservedAt` must not brick every
+ * subsequent write). Validation therefore requires only the record key (`id`)
+ * and checks the shape of invariant-bearing fields *when present* — a missing
+ * field is tolerated, a present-but-malformed one is rejected.
+ */
+export function validateBountyRecordsForWrite(records: unknown): asserts records is BountyRecord[] {
+  if (!Array.isArray(records)) {
+    throw new BountyStoreWriteValidationError('bounty store write rejected: payload must be an array');
+  }
+
+  records.forEach((entry, index) => {
+    if (!isPlainObject(entry)) {
+      throw new BountyStoreWriteValidationError(
+        `bounty store write rejected: records[${index}] must be an object`
+      );
+    }
+    requireString(entry, 'id', index, { nonEmpty: true });
+
+    if (entry.status !== undefined) {
+      if (typeof entry.status !== 'string' || !VALID_BOUNTY_STATUSES.has(entry.status as BountyStatus)) {
+        throw new BountyStoreWriteValidationError(
+          `bounty store write rejected: records[${index}].status "${String(entry.status)}" is not a valid bounty status`
+        );
+      }
+    }
+    if (entry.version !== undefined && (!Number.isInteger(entry.version) || (entry.version as number) <= 0)) {
+      throw new BountyStoreWriteValidationError(
+        `bounty store write rejected: records[${index}].version must be a positive integer when present`
+      );
+    }
+    if (entry.issueNumber !== undefined && (!Number.isInteger(entry.issueNumber) || (entry.issueNumber as number) <= 0)) {
+      throw new BountyStoreWriteValidationError(
+        `bounty store write rejected: records[${index}].issueNumber must be a positive integer when present`
+      );
+    }
+    if (entry.amount !== undefined && (!isFiniteNumber(entry.amount) || entry.amount < 0)) {
+      throw new BountyStoreWriteValidationError(
+        `bounty store write rejected: records[${index}].amount must be a non-negative finite number when present`
+      );
+    }
+    for (const field of ['createdAt', 'deadlineAt'] as const) {
+      if (entry[field] !== undefined && !isFiniteNumber(entry[field])) {
+        throw new BountyStoreWriteValidationError(
+          `bounty store write rejected: records[${index}].${field} must be a finite number when present`
+        );
+      }
+    }
+    if (entry.labels !== undefined && (!Array.isArray(entry.labels) || entry.labels.some((l) => typeof l !== 'string'))) {
+      throw new BountyStoreWriteValidationError(
+        `bounty store write rejected: records[${index}].labels must be an array of strings when present`
+      );
+    }
+    if (entry.events !== undefined) {
+      if (!Array.isArray(entry.events)) {
+        throw new BountyStoreWriteValidationError(
+          `bounty store write rejected: records[${index}].events must be an array when present`
+        );
+      }
+      entry.events.forEach((event, eventIndex) => {
+        if (
+          !isPlainObject(event) ||
+          typeof event.type !== 'string' ||
+          !isFiniteNumber(event.timestamp)
+        ) {
+          throw new BountyStoreWriteValidationError(
+            `bounty store write rejected: records[${index}].events[${eventIndex}] must have string type and finite numeric timestamp`
+          );
+        }
+      });
+    }
+  });
+}
+
+function validateAuditMetadataValue(value: unknown, path: string): void {
+  const isValid =
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'boolean' ||
+    (typeof value === 'number' && Number.isFinite(value));
+  if (!isValid) {
+    throw new BountyStoreWriteValidationError(
+      `bounty store write rejected: ${path} must be a string, finite number, boolean, or null`
+    );
+  }
+}
+
+/**
+ * Validates the audit log record array before it is serialized to the JSON
+ * audit store (SBB-2026-453).
+ */
+export function validateAuditRecordsForWrite(records: unknown): asserts records is BountyAuditLogRecord[] {
+  if (!Array.isArray(records)) {
+    throw new BountyStoreWriteValidationError('bounty store write rejected: audit payload must be an array');
+  }
+
+  records.forEach((entry, index) => {
+    if (!isPlainObject(entry)) {
+      throw new BountyStoreWriteValidationError(
+        `bounty store write rejected: audit records[${index}] must be an object`
+      );
+    }
+    requireString(entry, 'id', index, { nonEmpty: true });
+    requireString(entry, 'bountyId', index, { nonEmpty: true });
+    requireString(entry, 'transition', index, { nonEmpty: true });
+    requireString(entry, 'actor', index);
+    requireFiniteNumber(entry, 'timestamp', index);
+
+    if (!VALID_BOUNTY_STATUSES.has(entry.fromStatus as BountyStatus)) {
+      throw new BountyStoreWriteValidationError(
+        `bounty store write rejected: audit records[${index}].fromStatus "${String(entry.fromStatus)}" is not a valid bounty status`
+      );
+    }
+    if (!VALID_BOUNTY_STATUSES.has(entry.toStatus as BountyStatus)) {
+      throw new BountyStoreWriteValidationError(
+        `bounty store write rejected: audit records[${index}].toStatus "${String(entry.toStatus)}" is not a valid bounty status`
+      );
+    }
+    if (!VALID_TRANSITION_TYPES.has(entry.transition as BountyTransitionType)) {
+      throw new BountyStoreWriteValidationError(
+        `bounty store write rejected: audit records[${index}].transition "${String(entry.transition)}" is not a valid transition type`
+      );
+    }
+    if (entry.metadata !== undefined) {
+      if (!isPlainObject(entry.metadata)) {
+        throw new BountyStoreWriteValidationError(
+          `bounty store write rejected: audit records[${index}].metadata must be an object when present`
+        );
+      }
+      for (const [key, value] of Object.entries(entry.metadata)) {
+        validateAuditMetadataValue(value, `audit records[${index}].metadata.${key}`);
+      }
+    }
+  });
+}
+
 function readStore(): BountyRecord[] {
   try {
     ensureStore();
@@ -357,13 +590,41 @@ function readStore(): BountyRecord[] {
   }
 }
 
-function atomicWriteJson(targetPath: string, data: unknown): void {
+let tempWriteCounter = 0;
+
+/**
+ * Unique sibling temp path for an atomic JSON write. The trailing counter keeps
+ * same-millisecond writes to the same target from colliding.
+ */
+function storeTempPath(targetPath: string): string {
   const dir = path.dirname(targetPath);
   const base = path.basename(targetPath);
-  const tempPath = path.join(dir, `.${base}.tmp-${process.pid}-${Date.now()}`);
+  return path.join(dir, `.${base}.tmp-${process.pid}-${Date.now()}-${tempWriteCounter++}`);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function isStoreTempFile(fileName: string, targetBaseName: string): boolean {
+  // Matches both the current `.{base}.tmp-{pid}-{ms}-{counter}` shape and the
+  // pre-counter `.{base}.tmp-{pid}-{ms}` shape left by older builds.
+  return new RegExp(`^\\.${escapeRegExp(targetBaseName)}\\.tmp-\\d+-\\d+(?:-\\d+)?$`).test(fileName);
+}
+
+/**
+ * Serialize `data` to a unique sibling temp file and atomically rename it over
+ * `targetPath`. Returns the serialized payload size in bytes. If the process is
+ * interrupted between the temp write and the rename, the temp file remains as a
+ * resumable pending write for {@link resumeInterruptedStoreWrites}.
+ */
+function atomicWriteJson(targetPath: string, data: unknown): number {
+  const tempPath = storeTempPath(targetPath);
   try {
-    fs.writeFileSync(tempPath, JSON.stringify(data, null, 2));
+    const serialized = JSON.stringify(data, null, 2);
+    fs.writeFileSync(tempPath, serialized);
     fs.renameSync(tempPath, targetPath);
+    return Buffer.byteLength(serialized, 'utf8');
   } catch (err) {
     try {
       if (fs.existsSync(tempPath)) {
@@ -376,9 +637,206 @@ function atomicWriteJson(targetPath: string, data: unknown): void {
   }
 }
 
-function writeStore(records: BountyRecord[]): void {
+/** A store file paired with the validator used to vet resumed payloads. */
+export interface StoreWriteResumeTarget {
+  path: string;
+  kind: StoreWriteKind;
+}
+
+export interface StoreWriteResumeSummary {
+  /** Absolute target paths inspected. */
+  targets: string[];
+  /** Temp payloads completed into place by this pass. */
+  completed: string[];
+  /** Temp payloads discarded as corrupt, stale, or invalid. */
+  discarded: string[];
+}
+
+function defaultStoreWriteTargets(): StoreWriteResumeTarget[] {
+  return [
+    { path: getStorePath(), kind: 'bounties' },
+    { path: getAuditStorePath(), kind: 'audit' },
+  ];
+}
+
+function validateResumedPayload(kind: StoreWriteKind, payload: unknown): void {
+  if (kind === 'audit') {
+    validateAuditRecordsForWrite(payload);
+  } else {
+    validateBountyRecordsForWrite(payload);
+  }
+}
+
+/**
+ * Complete or discard JSON store writes interrupted mid-flight (SBB-2026-452).
+ *
+ * `atomicWriteJson` leaves a `.<name>.tmp-*` sibling when the process dies
+ * between the temp write and the atomic rename. This pass scans each target's
+ * directory, and for every target:
+ *
+ *  1. Picks the newest temp file by mtime — the most recent intended write.
+ *  2. If it parses as JSON and passes the store's payload validator, and the
+ *     committed target is not newer, the temp is renamed into place (the
+ *     interrupted write is resumed).
+ *  3. Every other temp — older snapshots, corrupt partial writes, or payloads
+ *     that fail validation — is deleted so it cannot resurface later.
+ *
+ * The pass is best-effort per file: a failure on one temp never blocks the
+ * others, and the previously committed target always remains authoritative
+ * when nothing valid is pending.
+ */
+export function resumeInterruptedStoreWrites(
+  targets: StoreWriteResumeTarget[] = defaultStoreWriteTargets(),
+  trace: StoreWriteTraceEmitter = defaultStoreWriteTrace
+): StoreWriteResumeSummary {
+  const summary: StoreWriteResumeSummary = { targets: [], completed: [], discarded: [] };
+
+  for (const target of targets) {
+    const targetPath = path.resolve(target.path);
+    summary.targets.push(targetPath);
+    const dir = path.dirname(targetPath);
+    const base = path.basename(targetPath);
+
+    let tempPaths: string[];
+    try {
+      tempPaths = fs
+        .readdirSync(dir)
+        .filter((name) => isStoreTempFile(name, base))
+        .map((name) => path.join(dir, name));
+    } catch (err) {
+      logStructured('warn', 'bounty_store_write_resume_scan_failed', {
+        target: base,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      continue;
+    }
+    if (tempPaths.length === 0) {
+      continue;
+    }
+
+    const byMtimeDesc = (a: string, b: string) => {
+      try {
+        return fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs;
+      } catch {
+        return 0;
+      }
+    };
+    tempPaths.sort(byMtimeDesc);
+    const [newest, ...stale] = tempPaths;
+
+    let payload: unknown;
+    let payloadValid = false;
+    let payloadBytes: number | null = null;
+    try {
+      const raw = fs.readFileSync(newest, 'utf8');
+      payload = JSON.parse(raw);
+      validateResumedPayload(target.kind, payload);
+      payloadValid = true;
+      payloadBytes = Buffer.byteLength(raw, 'utf8');
+    } catch {
+      payloadValid = false;
+    }
+
+    // A committed target newer than the temp means a later write already
+    // landed; the temp is a stale leftover, not a pending write.
+    if (payloadValid) {
+      try {
+        if (fs.existsSync(targetPath) && fs.statSync(targetPath).mtimeMs > fs.statSync(newest).mtimeMs) {
+          payloadValid = false;
+        }
+      } catch {
+        payloadValid = false;
+      }
+    }
+
+    if (payloadValid) {
+      try {
+        fs.renameSync(newest, targetPath);
+        summary.completed.push(newest);
+        trace.committed({
+          store: target.kind,
+          recordCount: Array.isArray(payload) ? payload.length : null,
+          bytes: payloadBytes,
+          resumed: true,
+          reason: 'interrupted_write_resumed',
+        });
+        logStructured('info', 'bounty_store_write_resumed', {
+          store: target.kind,
+          target: base,
+          tempFile: path.basename(newest),
+        });
+      } catch (err) {
+        logStructured('warn', 'bounty_store_write_resume_failed', {
+          store: target.kind,
+          target: base,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    } else {
+      trace.failed({
+        store: target.kind,
+        resumed: true,
+        error: 'INTERRUPTED_WRITE_DISCARDED',
+        reason: 'interrupted temp payload was corrupt, stale, or failed validation',
+      });
+      logStructured('warn', 'bounty_store_write_resume_discarded', {
+        store: target.kind,
+        target: base,
+        tempFile: path.basename(newest),
+      });
+      summary.discarded.push(newest);
+    }
+
+    // Older temps are superseded by the newest snapshot (or by the committed
+    // target when the newest was unusable) — never leave them behind.
+    for (const tempPath of stale) {
+      try {
+        fs.unlinkSync(tempPath);
+        summary.discarded.push(tempPath);
+      } catch {
+        // Best-effort temp cleanup
+      }
+    }
+    if (!payloadValid) {
+      try {
+        fs.unlinkSync(newest);
+      } catch {
+        // Best-effort temp cleanup
+      }
+    }
+  }
+
+  return summary;
+}
+
+function tracedWriteJson(
+  targetPath: string,
+  data: unknown,
+  kind: StoreWriteKind,
+  recordCount: number,
+  trace: StoreWriteTraceEmitter
+): void {
+  const startedAt = Date.now();
+  trace.pending({ store: kind, recordCount });
   try {
-    atomicWriteJson(getStorePath(), records);
+    const bytes = atomicWriteJson(targetPath, data);
+    trace.committed({ store: kind, recordCount, bytes, durationMs: Date.now() - startedAt });
+  } catch (err) {
+    trace.failed({
+      store: kind,
+      recordCount,
+      durationMs: Date.now() - startedAt,
+      error: err instanceof Error ? err.name : 'UNKNOWN_ERROR',
+      reason: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
+}
+
+function writeStore(records: BountyRecord[]): void {
+  validateBountyRecordsForWrite(records);
+  try {
+    tracedWriteJson(getStorePath(), records, 'bounties', records.length, defaultStoreWriteTrace);
   } catch (err) {
     throw wrapServiceError('bounty_store.write_store', 'json-store', err);
   }
@@ -394,8 +852,9 @@ function readAuditStore(): BountyAuditLogRecord[] {
 }
 
 function writeAuditStore(records: BountyAuditLogRecord[]): void {
+  validateAuditRecordsForWrite(records);
   try {
-    atomicWriteJson(getAuditStorePath(), records);
+    tracedWriteJson(getAuditStorePath(), records, 'audit', records.length, defaultStoreWriteTrace);
   } catch (err) {
     throw wrapServiceError('bounty_store.write_audit_store', 'json-store', err);
   }
@@ -832,6 +1291,11 @@ async function withStoreLock<T>(fn: () => T | Promise<T>): Promise<T> {
   }
 
   try {
+    // Finish any store write a previous process was interrupted in the middle
+    // of (SBB-2026-452/457) before this transition reads or rewrites state, so
+    // a crashed concurrent update cannot leave a pending temp behind or be
+    // silently overwritten by the next writer.
+    resumeInterruptedStoreWrites();
     return await fn();
   } finally {
     try {
