@@ -1490,6 +1490,12 @@ impl StellarBountyBoardContract {
             }
         }
 
+        // This settlement supersedes any ruling scheduled through
+        // `propose_resolution`. Clearing it after the terminal state commits
+        // prevents a later `finalize_resolution` from paying the same escrow
+        // twice out of the contract's pooled balance.
+        clear_pending_resolution(&env, bounty_id);
+
         env.events().publish(
             (symbol_short!("Bounty"), symbol_short!("Reslv")),
             BountyResolved {
@@ -1568,6 +1574,17 @@ impl StellarBountyBoardContract {
             .get(&DataKey::Arbiter)
             .unwrap_or_else(|| panic_error(&env, ContractError::ArbiterNotSet));
         arbiter.require_auth();
+
+        // A ruling may only be scheduled while the bounty is actually disputed.
+        // Without this guard an arbiter-signed decision could be parked against
+        // an Open/Reserved/Released bounty and later executed by
+        // `finalize_resolution` after the bounty had already been settled
+        // through another path.
+        let bounty = read_bounty(&env, bounty_id);
+        if bounty.status != BountyStatus::Disputed {
+            panic_error(&env, ContractError::BountyMustBeDisputed);
+        }
+
         let decision = match decision {
             0 => DisputeDecision::Release,
             1 => DisputeDecision::Refund,
@@ -1611,6 +1628,15 @@ impl StellarBountyBoardContract {
         // Load bounty
         let mut bounty = read_bounty(&env, bounty_id);
         refresh_bounty_ttl(&env, bounty_id);
+
+        // A ruling is only executable while the bounty is still disputed.
+        // Another settlement path (resolve_dispute or a committee quorum) may
+        // have finalised it after the ruling was scheduled; in that case the
+        // stale ruling must not move escrow a second time.
+        if bounty.status != BountyStatus::Disputed {
+            panic_error(&env, ContractError::BountyMustBeDisputed);
+        }
+
         // Resolve based on decision
         match pending.decision {
             DisputeDecision::Release => {
@@ -1667,10 +1693,7 @@ impl StellarBountyBoardContract {
                 );
             }
         }
-        // Remove pending
-        env.storage()
-            .persistent()
-            .remove(&DataKey::PendingResolution(bounty_id));
+        clear_pending_resolution(&env, bounty_id);
     }
 
     pub fn appeal(env: Env, bounty_id: u64) {
@@ -2505,6 +2528,10 @@ impl StellarBountyBoardContract {
 
             accumulate_fee_stats(&env, fee_amount);
 
+            // A committee quorum is a competing settlement path: the pending
+            // arbiter ruling (if any) is stale from here on.
+            clear_pending_resolution(&env, bounty_id);
+
             env.events().publish(
                 (symbol_short!("Dispute"), symbol_short!("Reslvd")),
                 DisputeResolved {
@@ -2528,6 +2555,10 @@ impl StellarBountyBoardContract {
             ) {
                 panic_error(&env, ContractError::RefundTransferFailed);
             }
+
+            // Same guarantee as the release branch: a quorum refund makes any
+            // previously scheduled ruling unexecutable.
+            clear_pending_resolution(&env, bounty_id);
 
             env.events().publish(
                 (symbol_short!("Dispute"), symbol_short!("Reslvd")),
@@ -2565,6 +2596,16 @@ fn write_bounty(env: &Env, bounty_id: u64, bounty: &Bounty) {
     env.storage()
         .persistent()
         .set(&DataKey::Bounty(bounty_id), bounty);
+}
+
+/// Drops a ruling scheduled through `propose_resolution` once the bounty has
+/// been settled through a competing path. Leaving it behind would let a later
+/// `finalize_resolution` execute a decision that no longer matches the bounty's
+/// terminal state and pay the same escrow twice.
+fn clear_pending_resolution(env: &Env, bounty_id: u64) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::PendingResolution(bounty_id));
 }
 
 fn expire_if_needed(env: &Env, bounty: &mut Bounty) {

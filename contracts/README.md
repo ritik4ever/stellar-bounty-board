@@ -35,6 +35,25 @@ The contract uses named error codes for all invalid operations. These codes are 
   - If `DataKey::FeeRecipient` expired on fee-bearing bounties: payout calls abort with `FeeRecipientNotSet`.
   In all cases, escrow remains untouched and no unauthorized state change occurs.
 
+## Dispute Resolution Authority
+
+The dispute lifecycle has one signer and several settlement paths, so authority
+is enforced on both the signature and the bounty's current state:
+
+- `dispute_bounty(bounty_id, arbiter)` - the stored arbiter must sign and match `DataKey::Arbiter`; the bounty must be `Submitted`.
+- `resolve_dispute(bounty_id, release)` - the stored arbiter must sign and the bounty must be `Disputed`. Settles immediately once the dispute window has elapsed.
+- `propose_resolution(bounty_id, decision)` - the stored arbiter must sign **and the bounty must still be `Disputed`**. A ruling can no longer be parked against a bounty that was never disputed or was already settled.
+- `finalize_resolution(bounty_id)` - permissionless by design (it only executes an arbiter-signed ruling after the appeal window) but re-checks that the bounty is still `Disputed`. A stale ruling becomes a typed `BountyMustBeDisputed` error instead of a second payout.
+- `appeal(bounty_id)` - only the party that loses under the scheduled decision may appeal (maintainer for release, contributor for refund).
+- `vote_resolve_dispute(bounty_id, arbiter, decision)` - a registered committee member must sign; duplicate votes are rejected and two matching votes settle the bounty.
+
+Every terminal path (`resolve_dispute`, committee release, committee refund and
+`finalize_resolution`) clears `DataKey::PendingResolution(bounty_id)` after the
+terminal state is committed. Because escrow is pooled across bounties, this is
+what guarantees a bounty is paid at most once even when a ruling was scheduled
+before another path settled it. Unauthorized callers therefore cannot redirect
+funds, change the decision, or replay an old ruling.
+
 ## Escrow Asset Accounting
 
 The contract manages escrow funds with strict asset isolation and unit accounting across supported Stellar tokens:
