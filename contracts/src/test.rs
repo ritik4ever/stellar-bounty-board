@@ -3054,6 +3054,128 @@ fn test_release_bounty_boundary_lifecycle_and_events() {
 }
 
 #[test]
+fn test_contract_payout_after_review_window_and_failed_transfer_retry() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, maintainer, contributor, token_id, fee_recipient, _arbiter) =
+        setup_test(&env);
+    let token = soroban_sdk::token::TokenClient::new(&env, &token_id);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+
+    let escrow_amount = 1_000i128;
+    token_admin.mint(&maintainer, &escrow_amount);
+
+    let deadline = env.ledger().timestamp() + 10_000;
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &escrow_amount,
+        &String::from_str(&env, "repo"),
+        &425,
+        &String::from_str(&env, "contract payout regression"),
+        &deadline,
+        &0u32,
+        &Some(60u64),
+    );
+
+    client.reserve_bounty(&bounty_id, &contributor);
+    client.submit_bounty(&bounty_id, &contributor);
+
+    // The submitted bounty is eligible for payout after the configured review
+    // window begins. The maintainer remains the only address allowed to release.
+    env.ledger().set_timestamp(env.ledger().timestamp() + 60);
+    let stranger = Address::generate(&env);
+    let wrong_caller = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.release_bounty(&bounty_id, &stranger);
+    }));
+    assert!(wrong_caller.is_err());
+    assert_eq!(client.get_bounty(&bounty_id).status, BountyStatus::Submitted);
+    assert_eq!(token.balance(&client.address), escrow_amount);
+    assert_eq!(token.balance(&contributor), 0);
+
+    // Simulate an isolated, failed payout transfer. No funds or status may move.
+    token_admin.set_authorized(&contributor, &false);
+    let events_before_failure = env
+        .events()
+        .all()
+        .filter_by_contract(&client.address)
+        .events()
+        .len();
+    let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.release_bounty(&bounty_id, &maintainer);
+    }));
+    assert!(failed.is_err());
+    assert_eq!(client.get_bounty(&bounty_id).status, BountyStatus::Submitted);
+    assert_eq!(token.balance(&maintainer), 0);
+    assert_eq!(token.balance(&client.address), escrow_amount);
+    assert_eq!(token.balance(&contributor), 0);
+    assert_eq!(token.balance(&fee_recipient), 0);
+    assert_eq!(
+        env.events()
+            .all()
+            .filter_by_contract(&client.address)
+            .events()
+            .len(),
+        events_before_failure,
+        "a failed payout must not emit release events"
+    );
+
+    // Re-authorize the recipient and retry exactly once. The payout must equal
+    // the full escrow amount and must not pay any protocol fee.
+    token_admin.set_authorized(&contributor, &true);
+    let events_before_release = env
+        .events()
+        .all()
+        .filter_by_contract(&client.address)
+        .events()
+        .len();
+    client.release_bounty(&bounty_id, &maintainer);
+
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.status, BountyStatus::Released);
+    assert_eq!(token.balance(&maintainer), 0);
+    assert_eq!(token.balance(&client.address), 0);
+    assert_eq!(token.balance(&contributor), escrow_amount);
+    assert_eq!(token.balance(&fee_recipient), 0);
+
+    let events = env.events().all().filter_by_contract(&client.address);
+    assert_eq!(
+        events.events().len(),
+        events_before_release + 2,
+        "release must emit the legacy and structured payout events"
+    );
+
+    let last_event = events.events().last().unwrap();
+    let soroban_sdk::xdr::ContractEventBody::V0(body) = &last_event.body;
+    assert_eq!(
+        soroban_sdk::Symbol::from_val(&env, &body.topics[1]),
+        symbol_short!("RelEvent")
+    );
+    let payload = BountyReleasedEvent::from_val(&env, &body.data);
+    assert_eq!(
+        payload,
+        BountyReleasedEvent {
+            bounty_id,
+            maintainer: maintainer.clone(),
+            contributor: contributor.clone(),
+            token: token_id.clone(),
+            amount: escrow_amount,
+            fee_amount: 0,
+            protocol_fee_bps: 0,
+            released_at: env.ledger().timestamp(),
+        }
+    );
+
+    // A second release must be rejected and cannot duplicate the payout.
+    let repeated = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.release_bounty(&bounty_id, &maintainer);
+    }));
+    assert!(repeated.is_err());
+    assert_eq!(token.balance(&contributor), escrow_amount);
+    assert_eq!(token.balance(&client.address), 0);
+}
+
+#[test]
 fn test_release_bounty_boundary_min_amount_success() {
     let env = Env::default();
     env.mock_all_auths();
