@@ -634,6 +634,20 @@ fn lifecycle_token_failures_are_operation_specific_and_atomic() {
     );
     assert_eq!(f.balances(), original);
     assert_eq!(f.stored(id).status, BountyStatus::Open);
+    token::StellarAssetClient::new(&f.env, &f.token).set_authorized(&f.maintainer, &true);
+
+    // A contributor cannot claim or mutate a maintainer refund by substituting
+    // its own address. No token or storage state may change.
+    let f = Fixture::new();
+    let id = f.funded(0);
+    f.env.ledger().set_timestamp(1_001);
+    let original = f.balances();
+    assert_error(
+        f.client.try_refund_bounty(&id, &f.contributor),
+        ContractError::MaintainerMismatch,
+    );
+    assert_eq!(f.balances(), original);
+    assert_eq!(f.stored(id).status, BountyStatus::Open);
 }
 
 #[test]
