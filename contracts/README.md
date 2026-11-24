@@ -24,3 +24,13 @@ The contract uses named error codes for all invalid operations. These codes are 
 - `resolve_dispute(bounty_id, release)` - allows the arbiter to settle a disputed bounty by releasing funds to contributor (minus protocol fee) or refunding maintainer. Emits the single `(Bounty, Reslv)` event with `BountyResolved` containing `bounty_id`, `arbiter`, `release`, and the settled `amount` strictly after terminal state is committed. Failed transfers abort atomically leaving dispute state and escrow intact.
 - `NewDeadlineMustBeGreaterThanCurrentDeadline` - extend_deadline requires a later deadline.
 - `BountyNotFound` - referenced bounty does not exist.
+
+## Storage Lifetime & Authority Enforcement
+
+- **Storage TTL Refresh on Mutation:** For payout-related lifecycle operations (`release_bounty`, `refund_bounty`, `cancel_bounty`, `resolve_dispute`), the contract refreshes persistent storage TTL for near-expiry bounties via `refresh_bounty_ttl` up to `BOUNTY_STORAGE_TTL_EXTEND_TO` (4,096 ledgers).
+- **Authority First:** In all mutating entry points, caller authorization and role alignment (`maintainer.require_auth()` with maintainer matching, `contributor.require_auth()` with contributor matching, `arbiter.require_auth()` with registered arbiter matching) are verified strictly before any storage TTL refresh or state modification. Unauthorized callers receive typed mismatch or authorization errors (`MaintainerMismatch`, `ContributorMismatch`, `NotArbiter`), preventing unauthorized callers from redirecting funds or changing decisions.
+- **Expired Entry Protection:** If a related persistent storage entry expires prior to a claim:
+  - If `DataKey::Bounty` expired: calls abort with `BountyNotFound`.
+  - If `DataKey::Arbiter` expired: dispute creation and dispute resolution abort with `ArbiterNotSet`.
+  - If `DataKey::FeeRecipient` expired on fee-bearing bounties: payout calls abort with `FeeRecipientNotSet`.
+  In all cases, escrow remains untouched and no unauthorized state change occurs.

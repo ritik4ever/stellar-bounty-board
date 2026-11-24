@@ -4290,7 +4290,10 @@ fn test_refund_expired_unreserved_is_single_refund() {
     } else {
         std::string::String::new()
     };
-    let expected = std::format!("Error(Contract, #{})", ContractError::BountyAlreadyFinalized as u32);
+    let expected = std::format!(
+        "Error(Contract, #{})",
+        ContractError::BountyAlreadyFinalized as u32
+    );
     assert!(msg.contains(&expected), "unexpected panic: {}", msg);
 
     assert_eq!(token.balance(&maintainer), amount);

@@ -507,7 +507,7 @@ fn lifecycle_refund_rejects_reserved_then_expired_bounty() {
     let original = f.balances();
     assert_error(
         f.client.try_refund_bounty(&id, &f.maintainer),
-        ContractError::BountyMustBeReserved,
+        ContractError::BountyAlreadyFinalized,
     );
     assert_eq!(f.balances(), original);
     assert_eq!(f.stored(id).status, BountyStatus::Reserved);
@@ -584,7 +584,7 @@ fn lifecycle_dispute_window_boundaries_keep_funds_and_status() {
     f.env.ledger().set_timestamp(1_000);
     assert_error(
         f.client.try_dispute_bounty(&id, &f.arbiter),
-        ContractError::BountyAlreadyFinalized,
+        ContractError::BountyMustBeSubmitted,
     );
     assert_eq!(f.stored(id).status, BountyStatus::Released);
     assert_eq!(f.balances(), original);
