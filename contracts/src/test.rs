@@ -3903,3 +3903,307 @@ fn test_release_bounty_auth_self_signed_stranger_rejected() {
     mock_release_auth(&env, &client, &stranger, bounty_id, &stranger);
     client.release_bounty(&bounty_id, &stranger);
 }
+
+
+// ─── dispute_bounty and resolve_dispute authorization (SBB-2026-433) ───
+// Tests for SBB-2026-433:
+// - contributor signature authority on dispute_bounty
+// - arbiter signature authority on resolve_dispute
+// - deadline boundary (last eligible timestamp to dispute vs past deadline)
+// - dispute window timing before resolution
+// - post-release isolation (dispute and resolve rejected after release committed)
+
+type DisputeAuthFixture = (
+    StellarBountyBoardContractClient<'static>,
+    u64,
+    Address, // maintainer
+    Address, // contributor
+    Address, // token_id
+    Address, // admin
+    Address, // arbiter
+);
+
+fn dispute_auth_fixture(env: &Env) -> DisputeAuthFixture {
+    env.mock_all_auths();
+    let (client, admin, maintainer, contributor, token_id, _fee_recipient, arbiter) =
+        setup_test(env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(env, &token_id);
+    token_admin.mint(&maintainer, &10_000);
+    let bounty_id = create_bounty_with_state(
+        env,
+        &client,
+        maintainer.clone(),
+        contributor.clone(),
+        token_id.clone(),
+        BountyStatus::Submitted,
+        arbiter.clone(),
+    );
+    (
+        client,
+        bounty_id,
+        maintainer,
+        contributor,
+        token_id,
+        admin,
+        arbiter,
+    )
+}
+
+fn mock_dispute_auth(
+    env: &Env,
+    client: &StellarBountyBoardContractClient<'static>,
+    signer: &Address,
+    bounty_id: u64,
+    arbiter: &Address,
+) {
+    env.mock_auths(&[MockAuth {
+        address: signer,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "dispute_bounty",
+            args: (bounty_id, arbiter.clone()).into_val(env),
+            sub_invokes: &[],
+        },
+    }]);
+}
+
+fn mock_resolve_dispute_auth(
+    env: &Env,
+    client: &StellarBountyBoardContractClient<'static>,
+    signer: &Address,
+    bounty_id: u64,
+    release: bool,
+) {
+    env.mock_auths(&[MockAuth {
+        address: signer,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "resolve_dispute",
+            args: (bounty_id, release).into_val(env),
+            sub_invokes: &[],
+        },
+    }]);
+}
+
+#[test]
+fn test_dispute_bounty_auth_correct_contributor_succeeds() {
+    let env = Env::default();
+    let (client, bounty_id, _maintainer, contributor, _token_id, _admin, arbiter) =
+        dispute_auth_fixture(&env);
+
+    mock_dispute_auth(&env, &client, &contributor, bounty_id, &arbiter);
+    client.dispute_bounty(&bounty_id, &arbiter);
+
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.status, BountyStatus::Disputed);
+}
+
+#[test]
+#[should_panic(expected = "Error(Auth, InvalidAction)")]
+fn test_dispute_bounty_auth_missing_signer_rejected() {
+    let env = Env::default();
+    let (client, bounty_id, _maintainer, _contributor, _token_id, _admin, arbiter) =
+        dispute_auth_fixture(&env);
+
+    env.set_auths(&[]);
+    client.dispute_bounty(&bounty_id, &arbiter);
+}
+
+#[test]
+#[should_panic(expected = "Error(Auth, InvalidAction)")]
+fn test_dispute_bounty_auth_unauthorized_maintainer_rejected() {
+    let env = Env::default();
+    let (client, bounty_id, maintainer, _contributor, _token_id, _admin, arbiter) =
+        dispute_auth_fixture(&env);
+
+    mock_dispute_auth(&env, &client, &maintainer, bounty_id, &arbiter);
+    client.dispute_bounty(&bounty_id, &arbiter);
+}
+
+#[test]
+#[should_panic(expected = "Error(Auth, InvalidAction)")]
+fn test_dispute_bounty_auth_unauthorized_arbiter_rejected() {
+    let env = Env::default();
+    let (client, bounty_id, _maintainer, _contributor, _token_id, _admin, arbiter) =
+        dispute_auth_fixture(&env);
+
+    mock_dispute_auth(&env, &client, &arbiter, bounty_id, &arbiter);
+    client.dispute_bounty(&bounty_id, &arbiter);
+}
+
+#[test]
+#[should_panic(expected = "Error(Auth, InvalidAction)")]
+fn test_dispute_bounty_auth_unauthorized_stranger_rejected() {
+    let env = Env::default();
+    let (client, bounty_id, _maintainer, _contributor, _token_id, _admin, arbiter) =
+        dispute_auth_fixture(&env);
+    let stranger = Address::generate(&env);
+
+    mock_dispute_auth(&env, &client, &stranger, bounty_id, &arbiter);
+    client.dispute_bounty(&bounty_id, &arbiter);
+}
+
+#[test]
+fn test_resolve_dispute_auth_correct_arbiter_succeeds() {
+    let env = Env::default();
+    let (client, bounty_id, _maintainer, _contributor, _token_id, _admin, arbiter) =
+        dispute_auth_fixture(&env);
+
+    // Contributor disputes
+    client.dispute_bounty(&bounty_id, &arbiter);
+
+    // Advance past 600s dispute window
+    env.ledger().set_timestamp(env.ledger().timestamp() + 600);
+
+    mock_resolve_dispute_auth(&env, &client, &arbiter, bounty_id, true);
+    client.resolve_dispute(&bounty_id, &true);
+
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.status, BountyStatus::Released);
+}
+
+#[test]
+#[should_panic(expected = "Error(Auth, InvalidAction)")]
+fn test_resolve_dispute_auth_missing_signer_rejected() {
+    let env = Env::default();
+    let (client, bounty_id, _maintainer, _contributor, _token_id, _admin, arbiter) =
+        dispute_auth_fixture(&env);
+
+    client.dispute_bounty(&bounty_id, &arbiter);
+    env.ledger().set_timestamp(env.ledger().timestamp() + 600);
+
+    env.set_auths(&[]);
+    client.resolve_dispute(&bounty_id, &true);
+}
+
+#[test]
+#[should_panic(expected = "Error(Auth, InvalidAction)")]
+fn test_resolve_dispute_auth_unauthorized_maintainer_rejected() {
+    let env = Env::default();
+    let (client, bounty_id, maintainer, _contributor, _token_id, _admin, arbiter) =
+        dispute_auth_fixture(&env);
+
+    client.dispute_bounty(&bounty_id, &arbiter);
+    env.ledger().set_timestamp(env.ledger().timestamp() + 600);
+
+    mock_resolve_dispute_auth(&env, &client, &maintainer, bounty_id, true);
+    client.resolve_dispute(&bounty_id, &true);
+}
+
+#[test]
+#[should_panic(expected = "Error(Auth, InvalidAction)")]
+fn test_resolve_dispute_auth_unauthorized_contributor_rejected() {
+    let env = Env::default();
+    let (client, bounty_id, _maintainer, contributor, _token_id, _admin, arbiter) =
+        dispute_auth_fixture(&env);
+
+    client.dispute_bounty(&bounty_id, &arbiter);
+    env.ledger().set_timestamp(env.ledger().timestamp() + 600);
+
+    mock_resolve_dispute_auth(&env, &client, &contributor, bounty_id, true);
+    client.resolve_dispute(&bounty_id, &true);
+}
+
+#[test]
+fn test_dispute_deadline_boundary_last_eligible_timestamp_succeeds() {
+    let env = Env::default();
+    let (client, bounty_id, _maintainer, contributor, _token_id, _admin, arbiter) =
+        dispute_auth_fixture(&env);
+
+    let bounty = client.get_bounty(&bounty_id);
+    let deadline = bounty.deadline;
+
+    // Advance to the exact boundary: timestamp == deadline (last eligible timestamp)
+    env.ledger().set_timestamp(deadline);
+
+    mock_dispute_auth(&env, &client, &contributor, bounty_id, &arbiter);
+    client.dispute_bounty(&bounty_id, &arbiter);
+
+    let disputed_bounty = client.get_bounty(&bounty_id);
+    assert_eq!(disputed_bounty.status, BountyStatus::Disputed);
+    assert_eq!(disputed_bounty.dispute_raised_at, deadline);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #22)")]
+fn test_dispute_past_deadline_rejected() {
+    let env = Env::default();
+    let (client, bounty_id, _maintainer, contributor, _token_id, _admin, arbiter) =
+        dispute_auth_fixture(&env);
+
+    let bounty = client.get_bounty(&bounty_id);
+    let past_deadline = bounty.deadline + 1;
+
+    // Advance 1 second past deadline -> BountyExpired (#22)
+    env.ledger().set_timestamp(past_deadline);
+
+    mock_dispute_auth(&env, &client, &contributor, bounty_id, &arbiter);
+    client.dispute_bounty(&bounty_id, &arbiter);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #20)")]
+fn test_dispute_after_release_committed_rejected() {
+    let env = Env::default();
+    let (client, bounty_id, maintainer, contributor, _token_id, _admin, arbiter) =
+        dispute_auth_fixture(&env);
+
+    // Maintainer commits release
+    client.release_bounty(&bounty_id, &maintainer);
+    let released = client.get_bounty(&bounty_id);
+    assert_eq!(released.status, BountyStatus::Released);
+
+    // Contributor attempts to dispute after release is committed -> BountyMustBeSubmitted (#20)
+    mock_dispute_auth(&env, &client, &contributor, bounty_id, &arbiter);
+    client.dispute_bounty(&bounty_id, &arbiter);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #41)")]
+fn test_resolve_dispute_after_release_committed_rejected() {
+    let env = Env::default();
+    let (client, bounty_id, maintainer, _contributor, _token_id, _admin, arbiter) =
+        dispute_auth_fixture(&env);
+
+    // Maintainer commits release
+    client.release_bounty(&bounty_id, &maintainer);
+    let released = client.get_bounty(&bounty_id);
+    assert_eq!(released.status, BountyStatus::Released);
+
+    // Arbiter attempts to resolve dispute after release is committed -> BountyMustBeDisputed (#41)
+    mock_resolve_dispute_auth(&env, &client, &arbiter, bounty_id, true);
+    client.resolve_dispute(&bounty_id, &true);
+}
+
+#[test]
+fn test_dispute_authority_roles_deadline_boundary_and_post_release_isolation() {
+    let env = Env::default();
+    let (client, bounty_id, _maintainer, contributor, token_id, _admin, arbiter) =
+        dispute_auth_fixture(&env);
+
+    let initial_bounty = client.get_bounty(&bounty_id);
+    assert_eq!(initial_bounty.status, BountyStatus::Submitted);
+    let deadline = initial_bounty.deadline;
+
+    // 1. Boundary: dispute at last eligible timestamp (timestamp == deadline)
+    env.ledger().set_timestamp(deadline);
+    mock_dispute_auth(&env, &client, &contributor, bounty_id, &arbiter);
+    client.dispute_bounty(&bounty_id, &arbiter);
+
+    let disputed_bounty = client.get_bounty(&bounty_id);
+    assert_eq!(disputed_bounty.status, BountyStatus::Disputed);
+    assert_eq!(disputed_bounty.dispute_raised_at, deadline);
+
+    // 2. Arbiter resolves after dispute window (600s) elapses
+    env.ledger().set_timestamp(deadline + 600);
+    mock_resolve_dispute_auth(&env, &client, &arbiter, bounty_id, true);
+    client.resolve_dispute(&bounty_id, &true);
+
+    let resolved_bounty = client.get_bounty(&bounty_id);
+    assert_eq!(resolved_bounty.status, BountyStatus::Released);
+
+    // 3. Post-release isolation: contributor token balances verified
+    let token_client = soroban_sdk::token::Client::new(&env, &token_id);
+    assert!(token_client.balance(&contributor) > 0);
+    assert_eq!(token_client.balance(&client.address), 0);
+}
