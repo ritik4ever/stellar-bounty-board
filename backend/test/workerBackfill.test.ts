@@ -261,6 +261,102 @@ describe('Soroban indexer cursor replay and failure (#1934)', () => {
       'evt-100-c',
     ]);
   });
+
+  it('reproduces cursor write failure after event write and heals on retry without duplicating or leaving temp files (SBB-2026-462)', async () => {
+    const cursorSubDir = path.join(directory, 'cursor-dir');
+    fs.mkdirSync(cursorSubDir);
+    const localCursorFile = path.join(cursorSubDir, 'indexed-events.cursor.json');
+    const pollWithLocalCursor = () =>
+      pollEvents({
+        indexFile,
+        cursorFile: localCursorFile,
+        rpcUrl: 'https://rpc.example.test',
+        contractId: 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4',
+        startLedger: 100,
+        maxRetries: 1,
+      });
+
+    post.mockResolvedValueOnce(
+      rpcResult([{ id: 'evt-1', ledger: 100, event_index: 0 } as { id: string }], 'cursor-100'),
+    );
+    await pollWithLocalCursor();
+    expect(JSON.parse(fs.readFileSync(localCursorFile, 'utf8')).cursor).toBe('cursor-100');
+
+    // Simulate failure right between indexFile commit and cursorFile commit
+    // by making the cursor directory read-only while indexFile remains writable.
+    fs.chmodSync(cursorSubDir, 0o555);
+    post.mockResolvedValueOnce(
+      rpcResult(
+        [
+          { id: 'evt-2', ledger: 101, event_index: 0 } as { id: string },
+          { id: 'evt-3', ledger: 101, event_index: 1 } as { id: string },
+        ],
+        'cursor-101',
+      ),
+    );
+    try {
+      await pollWithLocalCursor();
+    } finally {
+      fs.chmodSync(cursorSubDir, 0o755);
+    }
+
+    // Events were committed, cursor remained at cursor-100, and no .tmp files leaked.
+    expect(readEvents().map((e: { id: string }) => e.id)).toEqual(['evt-1', 'evt-2', 'evt-3']);
+    expect(JSON.parse(fs.readFileSync(localCursorFile, 'utf8')).cursor).toBe('cursor-100');
+    expect(fs.readdirSync(directory).filter((f) => f.endsWith('.tmp'))).toEqual([]);
+    expect(fs.readdirSync(cursorSubDir).filter((f) => f.endsWith('.tmp'))).toEqual([]);
+
+    // Retry from cursor-100 replays ledger 101 + advances to ledger 102 without duplicating evt-2/evt-3.
+    post.mockResolvedValueOnce(
+      rpcResult(
+        [
+          { id: 'evt-2', ledger: 101, event_index: 0 } as { id: string },
+          { id: 'evt-3', ledger: 101, event_index: 1 } as { id: string },
+          { id: 'evt-4', ledger: 102, event_index: 0 } as { id: string },
+        ],
+        'cursor-102',
+      ),
+    );
+    await pollWithLocalCursor();
+
+    expect(post.mock.calls[2][1].params.pagination).toEqual({ cursor: 'cursor-100', limit: 100 });
+    expect(readEvents().map((e: { id: string }) => e.id)).toEqual([
+      'evt-1',
+      'evt-2',
+      'evt-3',
+      'evt-4',
+    ]);
+    expect(JSON.parse(fs.readFileSync(localCursorFile, 'utf8')).cursor).toBe('cursor-102');
+  });
+
+  it('deduplicates replayed events without id by ledger and event_index across restart (SBB-2026-462)', async () => {
+    post.mockResolvedValueOnce(
+      rpcResult([{ id: 'evt-1', ledger: 100, event_index: 0 } as { id: string }], 'cursor-100'),
+    );
+    await poll();
+
+    // Crash after writing an event that only carries ledger + event_index (no id) before cursorFile updates.
+    const preCrash = readEvents();
+    preCrash.push({ type: 'submit', ledger: 101, raw: { ledger: 101, event_index: 0 } });
+    fs.writeFileSync(indexFile, JSON.stringify(preCrash, null, 2));
+
+    post.mockResolvedValueOnce(
+      rpcResult(
+        [
+          { ledger: 101, event_index: 0, type: 'submit' } as unknown as { id: string },
+          { id: 'evt-101-1', ledger: 101, event_index: 1 } as { id: string },
+        ],
+        'cursor-101',
+      ),
+    );
+    await poll();
+
+    const stored = readEvents();
+    expect(stored).toHaveLength(3);
+    expect(stored[1].ledger).toBe(101);
+    expect(stored[2].id).toBe('evt-101-1');
+    expect(readCursor()).toBe('cursor-101');
+  });
 });
 
 describe('Soroban event backfill replay, overlapping live polling, and failure isolation (#1939)', () => {

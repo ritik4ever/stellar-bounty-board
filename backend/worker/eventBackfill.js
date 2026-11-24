@@ -220,9 +220,19 @@ function normalizePageEvent(event) {
 }
 
 function atomicWriteJson(file, value) {
-  const temp = `${file}.tmp-${process.pid}`;
-  fs.writeFileSync(temp, JSON.stringify(value, null, 2));
-  fs.renameSync(temp, file);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const temp = `${file}.tmp-${process.pid}-${crypto.randomUUID()}`;
+  try {
+    fs.writeFileSync(temp, JSON.stringify(value, null, 2));
+    fs.renameSync(temp, file);
+  } catch (err) {
+    try {
+      fs.rmSync(temp, { force: true });
+    } catch {
+      /* best effort cleanup */
+    }
+    throw err;
+  }
 }
 
 function identitySet(events) {
@@ -492,8 +502,14 @@ export async function runEventBackfill(options) {
         }
         return best;
       }, null);
-      lastCursor = tail;
-      store.saveCursor(lastCursor);
+      const isAhead =
+        !lastCursor ||
+        tail.ledger > lastCursor.ledger ||
+        (tail.ledger === lastCursor.ledger && tail.eventIndex > lastCursor.eventIndex);
+      if (isAhead) {
+        lastCursor = tail;
+        store.saveCursor(lastCursor);
+      }
     }
 
     recordTrace(
