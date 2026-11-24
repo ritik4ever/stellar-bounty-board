@@ -1591,6 +1591,13 @@ export async function markBountyPrMerged(id: string, prUrl: string): Promise<Bou
     const records = listBounties();
     const bounty = findBounty(records, id);
 
+    // Re-check inside the lock: GitHub can deliver the same merged PR under
+    // different delivery IDs, and both handlers can read prMerged=false before
+    // either write. The second call must be a no-op, not a duplicate event.
+    if (bounty.prMerged) {
+      return bounty;
+    }
+
     const now = nowInSeconds();
     const updated: BountyRecord = {
       ...bounty,

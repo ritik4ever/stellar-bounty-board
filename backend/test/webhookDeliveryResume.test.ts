@@ -265,6 +265,28 @@ describe('GitHub webhook delivery journal — interruption, restart and retry sa
     expect(saved?.version).toBe(versionAfterFirstDelivery);
   });
 
+  it('applies two different deliveries for the same merged PR exactly once', async () => {
+    const prUrl = 'https://github.com/owner/repo-name/pull/9009';
+    const firstDeliveryId = randomUUID();
+    const secondDeliveryId = randomUUID();
+
+    const bounty = await submitBountyWithPr(prUrl);
+    const app = await getApp();
+
+    const responses = await Promise.all([
+      sendMergedPr(app, prUrl, firstDeliveryId),
+      sendMergedPr(app, prUrl, secondDeliveryId),
+    ]);
+
+    expect(responses.map((response) => response.status)).toEqual([202, 202]);
+
+    const saved = (await getStore()).listBounties().find((b) => b.id === bounty.id);
+    expect(saved?.status).toBe('released');
+    expect(saved?.prMerged).toBe(true);
+    expect(saved?.events.filter((event) => event.type === 'pr_merged')).toHaveLength(1);
+    expect(saved?.events.filter((event) => event.type === 'released')).toHaveLength(1);
+  });
+
   it('treats a bounty released manually before the webhook arrives as success', async () => {
     const prUrl = 'https://github.com/owner/repo-name/pull/9006';
     const deliveryId = randomUUID();

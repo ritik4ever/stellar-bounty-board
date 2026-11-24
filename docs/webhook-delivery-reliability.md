@@ -85,6 +85,18 @@ existing store lock, which is what makes replaying a delivery idempotent.
 5. **Invalid HMAC signature** → rejected by the signature middleware with `401`
    before the handler runs, so the delivery ID is never consumed.
 
+### Two delivery IDs for one merged PR
+
+GitHub usually redelivers with the same `X-GitHub-Delivery` ID, but the same
+merged PR can also arrive under two different IDs (for example after a webhook
+reconfiguration or through a proxy that retries). The delivery journal cannot
+suppress the second ID, so the guarantee lives at the bounty store boundary:
+`markBountyPrMerged` re-checks `prMerged` **inside** the store lock and returns
+the existing record without a version bump, `pr_merged` event, or audit entry.
+`releaseBounty` has the same guard. Two concurrent deliveries therefore produce
+exactly one `pr_merged` event and one `released` event, and both requests
+acknowledge success.
+
 ### Startup resume
 
 `resumePendingDeliveries()` runs on server start (outside tests) and replays
@@ -123,7 +135,8 @@ record pending for the next attempt; nothing is thrown.
 
 - `backend/test/webhookDeliveryResume.test.ts` — restart persistence, interrupted
   claim resumption, out-of-order merged event, startup resume, idempotent replay,
-  manual-release race, invalid HMAC retry, deferred retry accounting.
+  two distinct delivery IDs for one merged PR, manual-release race, invalid HMAC
+  retry, deferred retry accounting.
 - `backend/test/githubPrWebhook.test.ts` — end-to-end PR auto-release and
   duplicate-delivery behaviour.
 - `backend/test/webhooks.comprehensive.test.ts` — handler and journal units.
