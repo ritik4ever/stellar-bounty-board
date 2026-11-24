@@ -17,9 +17,10 @@ The contract uses named error codes for all invalid operations. These codes are 
 
 ## Entry Points
 
-- `cancel_bounty(bounty_id, maintainer)` - cancels an **Open** bounty before reservation; returns full escrow (no fee), sets status to **Refunded**, and emits a `BountyCanceled` event. Only the original maintainer may call this.
+- `cancel_bounty(bounty_id, maintainer)` - cancels an **Open** bounty before reservation; returns full escrow (no fee), sets status to **Refunded**, and emits a `BountyCanceled` event. Only the original maintainer may call this. Terminal state is committed before the token transfer; if the transfer fails, the call aborts atomically leaving status Open and escrow intact.
 - `submit_bounty(bounty_id, contributor)` - transitions a reserved bounty to the **Submitted** state and emits the `(Bounty, Submit)` event. Its `BountySubmitted` payload contains `bounty_id` and `contributor`, allowing indexer workers to process the state change without a follow-up contract read.
 - `refund_bounty(bounty_id, maintainer)` - returns escrow after the deadline has passed and emits the `(Bounty, Refund)` event. Its `BountyRefunded` payload contains `bounty_id`, `maintainer`, and the full refunded `amount`, so indexers do not need to read the bounty state to process the refund. Refund state is finalized before the token call; a failed transfer or unauthorized contributor call aborts atomically, leaving both balances and bounty status unchanged.
 - `dispute_bounty(bounty_id, arbiter)` - transitions a submitted bounty to the **Disputed** state and emits the `(Bounty, Dispt)` event. Its `BountyDisputed` payload contains `bounty_id`, `contributor`, and `arbiter`, allowing indexer workers to process the state change without a follow-up contract read.
+- `resolve_dispute(bounty_id, release)` - allows the arbiter to settle a disputed bounty by releasing funds to contributor (minus protocol fee) or refunding maintainer. Emits the single `(Bounty, Reslv)` event with `BountyResolved` containing `bounty_id`, `arbiter`, `release`, and the settled `amount` strictly after terminal state is committed. Failed transfers abort atomically leaving dispute state and escrow intact.
 - `NewDeadlineMustBeGreaterThanCurrentDeadline` - extend_deadline requires a later deadline.
 - `BountyNotFound` - referenced bounty does not exist.

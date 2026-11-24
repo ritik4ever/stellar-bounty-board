@@ -288,12 +288,24 @@ pub struct BountyDisputed {
 }
 
 /// Emitted when an arbiter resolves a dispute (release or refund).
+///
+/// This is the single event emitted by `resolve_dispute`, emitted only after the
+/// terminal state (`Released` or `Refunded`) has been committed to storage.
+/// Consumers can reconstruct the settled state and escrow distribution from this
+/// event without requiring a follow-up contract read.
+///
+/// Fields, in deterministic order:
+/// - `bounty_id`: which bounty was resolved.
+/// - `arbiter`: the arbiter address that authorized the resolution.
+/// - `release`: the decision (`true` for release to contributor, `false` for refund to maintainer).
+/// - `amount`: the full escrow amount settled.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BountyResolved {
     pub bounty_id: u64,
     pub arbiter: Address,
     pub release: bool,
+    pub amount: i128,
 }
 
 /// Emitted when the losing party of a dispute files an appeal.
@@ -1218,10 +1230,19 @@ impl StellarBountyBoardContract {
 
         let token_client = TokenClient::new(&env, &bounty.token);
         let contract_address = env.current_contract_address();
-        token_client.transfer(&contract_address, &maintainer, &bounty.amount);
 
+        // Commit the terminal state before interacting with the token contract.
+        // If the transfer returns an error, panic_error aborts the invocation,
+        // which rolls back this write and preserves the escrow state atomically.
         bounty.status = BountyStatus::Refunded;
         write_bounty(&env, bounty_id, &bounty);
+
+        if !matches!(
+            token_client.try_transfer(&contract_address, &maintainer, &bounty.amount),
+            Ok(Ok(()))
+        ) {
+            panic_error(&env, ContractError::RefundTransferFailed);
+        }
 
         env.events().publish(
             (symbol_short!("Bounty"), symbol_short!("Cancel")),
@@ -1420,7 +1441,16 @@ impl StellarBountyBoardContract {
 
             let net_payout = bounty.amount - fee_amount;
 
-            token_client.transfer(&contract_address, &contributor, &net_payout);
+            // Commit terminal state before interacting with token contract
+            bounty.status = BountyStatus::Released;
+            write_bounty(&env, bounty_id, &bounty);
+
+            if !matches!(
+                token_client.try_transfer(&contract_address, &contributor, &net_payout),
+                Ok(Ok(()))
+            ) {
+                panic_error(&env, ContractError::PayoutTransferFailed);
+            }
 
             if fee_amount > 0 {
                 let fee_recipient: Address = env
@@ -1428,19 +1458,28 @@ impl StellarBountyBoardContract {
                     .persistent()
                     .get(&DataKey::FeeRecipient)
                     .unwrap_or_else(|| panic_error(&env, ContractError::FeeRecipientNotSet));
-                token_client.transfer(&contract_address, &fee_recipient, &fee_amount);
+                if !matches!(
+                    token_client.try_transfer(&contract_address, &fee_recipient, &fee_amount),
+                    Ok(Ok(()))
+                ) {
+                    panic_error(&env, ContractError::FeeTransferFailed);
+                }
             }
 
             // Atomically update FeeStats for the dispute-release path
             accumulate_fee_stats(&env, fee_amount);
-
-            bounty.status = BountyStatus::Released;
         } else {
-            token_client.transfer(&contract_address, &bounty.maintainer, &bounty.amount);
+            // Commit terminal state before interacting with token contract
             bounty.status = BountyStatus::Refunded;
-        }
+            write_bounty(&env, bounty_id, &bounty);
 
-        write_bounty(&env, bounty_id, &bounty);
+            if !matches!(
+                token_client.try_transfer(&contract_address, &bounty.maintainer, &bounty.amount),
+                Ok(Ok(()))
+            ) {
+                panic_error(&env, ContractError::RefundTransferFailed);
+            }
+        }
 
         env.events().publish(
             (symbol_short!("Bounty"), symbol_short!("Reslv")),
@@ -1448,6 +1487,7 @@ impl StellarBountyBoardContract {
                 bounty_id,
                 arbiter,
                 release,
+                amount: bounty.amount,
             },
         );
     }
@@ -2418,7 +2458,16 @@ impl StellarBountyBoardContract {
             let token_client = TokenClient::new(&env, &bounty.token);
             let contract_address = env.current_contract_address();
 
-            token_client.transfer(&contract_address, &contributor, &net_payout);
+            // Commit terminal state before interacting with token contract
+            bounty.status = BountyStatus::Released;
+            write_bounty(&env, bounty_id, &bounty);
+
+            if !matches!(
+                token_client.try_transfer(&contract_address, &contributor, &net_payout),
+                Ok(Ok(()))
+            ) {
+                panic_error(&env, ContractError::PayoutTransferFailed);
+            }
 
             if fee_amount > 0 {
                 let fee_recipient: Address = env
@@ -2426,13 +2475,15 @@ impl StellarBountyBoardContract {
                     .persistent()
                     .get(&DataKey::FeeRecipient)
                     .unwrap_or_else(|| panic_error(&env, ContractError::FeeRecipientNotSet));
-                token_client.transfer(&contract_address, &fee_recipient, &fee_amount);
+                if !matches!(
+                    token_client.try_transfer(&contract_address, &fee_recipient, &fee_amount),
+                    Ok(Ok(()))
+                ) {
+                    panic_error(&env, ContractError::FeeTransferFailed);
+                }
             }
 
             accumulate_fee_stats(&env, fee_amount);
-
-            bounty.status = BountyStatus::Released;
-            write_bounty(&env, bounty_id, &bounty);
 
             env.events().publish(
                 (symbol_short!("Dispute"), symbol_short!("Reslvd")),
@@ -2447,10 +2498,16 @@ impl StellarBountyBoardContract {
             let token_client = TokenClient::new(&env, &bounty.token);
             let contract_address = env.current_contract_address();
 
-            token_client.transfer(&contract_address, &bounty.maintainer, &bounty.amount);
-
+            // Commit terminal state before interacting with token contract
             bounty.status = BountyStatus::Refunded;
             write_bounty(&env, bounty_id, &bounty);
+
+            if !matches!(
+                token_client.try_transfer(&contract_address, &bounty.maintainer, &bounty.amount),
+                Ok(Ok(()))
+            ) {
+                panic_error(&env, ContractError::RefundTransferFailed);
+            }
 
             env.events().publish(
                 (symbol_short!("Dispute"), symbol_short!("Reslvd")),
@@ -2561,8 +2618,14 @@ fn accumulate_fee_stats(env: &Env, fee_amount: i128) {
             bounty_count: 0,
         });
 
-    stats.total_collected += fee_amount;
-    stats.bounty_count += 1;
+    stats.total_collected = stats
+        .total_collected
+        .checked_add(fee_amount)
+        .unwrap_or_else(|| panic_error(env, ContractError::InvalidAmount));
+    stats.bounty_count = stats
+        .bounty_count
+        .checked_add(1)
+        .unwrap_or_else(|| panic_error(env, ContractError::BountyIdOverflow));
 
     env.storage().persistent().set(&DataKey::FeeStats, &stats);
 }

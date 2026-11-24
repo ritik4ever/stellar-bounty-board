@@ -1427,11 +1427,13 @@ const releaseBountyRequestSchema = z.object({
  * Validates the route param (`id`), any query string, and the body in one
  * schema so invalid input is rejected with a 400 before the store is touched.
  */
-const refundBountyRequestSchema = z.object({
-  params: z.object({ id: bountyIdSchema }),
-  query: z.object({}).strict(),
-  body: refundBountyBodySchema,
-});
+const refundBountyRequestSchema = z
+  .object({
+    params: z.object({ id: bountyIdSchema }).strict(),
+    query: z.object({}).strict(),
+    body: refundBountyBodySchema,
+  })
+  .strict();
 
 app.post(
   '/api/bounties/:id/release',
@@ -1474,6 +1476,7 @@ app.post(
   '/api/bounties/:id/refund',
   refundLimiter,
   enforceBodyLimit(DEFAULT_BODY_LIMIT),
+  requireJsonContentType,
   idempotencyMiddleware,
   createStellarSignatureAuthMiddleware(),
   (req: Request, res: Response, next: NextFunction) => {

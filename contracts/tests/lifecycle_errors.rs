@@ -99,6 +99,12 @@ impl Fixture {
         id
     }
 
+    fn disputed(&self, fee: u32) -> u64 {
+        let id = self.submitted(fee);
+        self.client.dispute_bounty(&id, &self.arbiter);
+        id
+    }
+
     fn stored(&self, id: u64) -> Bounty {
         self.env.as_contract(&self.client.address, || {
             self.env
@@ -648,6 +654,62 @@ fn lifecycle_token_failures_are_operation_specific_and_atomic() {
     );
     assert_eq!(f.balances(), original);
     assert_eq!(f.stored(id).status, BountyStatus::Open);
+
+    // Cancel bounty failure leaves status Open and escrow intact
+    let f = Fixture::new();
+    let id = f.funded(0);
+    token::StellarAssetClient::new(&f.env, &f.token).set_authorized(&f.maintainer, &false);
+    let original = f.balances();
+    assert_error(
+        f.client.try_cancel_bounty(&id, &f.maintainer),
+        ContractError::RefundTransferFailed,
+    );
+    assert_eq!(f.balances(), original);
+    assert_eq!(f.stored(id).status, BountyStatus::Open);
+    token::StellarAssetClient::new(&f.env, &f.token).set_authorized(&f.maintainer, &true);
+    f.client.cancel_bounty(&id, &f.maintainer);
+    assert_eq!(f.stored(id).status, BountyStatus::Refunded);
+
+    // Resolve dispute failure (release to contributor fails)
+    let f = Fixture::new();
+    let id = f.disputed(100);
+    f.env.ledger().set_timestamp(1_000);
+    token::StellarAssetClient::new(&f.env, &f.token).set_authorized(&f.contributor, &false);
+    let original = f.balances();
+    assert_error(
+        f.client.try_resolve_dispute(&id, &true),
+        ContractError::PayoutTransferFailed,
+    );
+    assert_eq!(f.balances(), original);
+    assert_eq!(f.stored(id).status, BountyStatus::Disputed);
+    token::StellarAssetClient::new(&f.env, &f.token).set_authorized(&f.contributor, &true);
+
+    // Resolve dispute failure (fee transfer to fee_recipient fails)
+    token::StellarAssetClient::new(&f.env, &f.token).set_authorized(&f.fee_recipient, &false);
+    let original = f.balances();
+    assert_error(
+        f.client.try_resolve_dispute(&id, &true),
+        ContractError::FeeTransferFailed,
+    );
+    assert_eq!(f.balances(), original);
+    assert_eq!(f.stored(id).status, BountyStatus::Disputed);
+    token::StellarAssetClient::new(&f.env, &f.token).set_authorized(&f.fee_recipient, &true);
+
+    // Resolve dispute failure (refund to maintainer fails)
+    let f = Fixture::new();
+    let id = f.disputed(0);
+    f.env.ledger().set_timestamp(1_000);
+    token::StellarAssetClient::new(&f.env, &f.token).set_authorized(&f.maintainer, &false);
+    let original = f.balances();
+    assert_error(
+        f.client.try_resolve_dispute(&id, &false),
+        ContractError::RefundTransferFailed,
+    );
+    assert_eq!(f.balances(), original);
+    assert_eq!(f.stored(id).status, BountyStatus::Disputed);
+    token::StellarAssetClient::new(&f.env, &f.token).set_authorized(&f.maintainer, &true);
+    f.client.resolve_dispute(&id, &false);
+    assert_eq!(f.stored(id).status, BountyStatus::Refunded);
 }
 
 #[test]
