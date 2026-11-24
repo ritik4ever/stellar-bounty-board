@@ -48,9 +48,20 @@ export interface LifecycleRequestLog {
   headers: Record<string, string>;
 }
 
+export interface LifecycleApiDoubleOptions {
+  /** If set, fails the first `failReleaseCount` release requests to simulate delayed confirmation / timeout (SBB-2026-482) */
+  failReleaseCount?: number;
+  /** Custom error message on simulated release failure */
+  releaseErrorMessage?: string;
+  /** Artificial delay in ms before responding to release */
+  releaseDelayMs?: number;
+}
+
 export interface LifecycleApiDouble {
   readonly bounties: LifecycleBounty[];
   readonly requests: LifecycleRequestLog[];
+  reset(): void;
+  setFailReleaseCount(count: number, errorMessage?: string): void;
 }
 
 function nowSeconds(): number {
@@ -75,11 +86,15 @@ function readJsonBody(route: Route): Record<string, unknown> {
 
 export async function installLifecycleApiDouble(
   page: Page,
-  fixtures: LifecycleFixtures
+  fixtures: LifecycleFixtures,
+  options: LifecycleApiDoubleOptions = {}
 ): Promise<LifecycleApiDouble> {
   const bounties: LifecycleBounty[] = [];
   const requests: LifecycleRequestLog[] = [];
   let nextId = 1;
+  let failReleaseCount = options.failReleaseCount ?? 0;
+  let releaseErrorMessage = options.releaseErrorMessage ?? 'Contract confirmation delayed / timed out';
+  const releaseDelayMs = options.releaseDelayMs ?? 0;
 
   function findBounty(id: string): LifecycleBounty {
     const bounty = bounties.find((candidate) => candidate.id === id);
@@ -239,6 +254,16 @@ export async function installLifecycleApiDouble(
           'release: payload timestamp must be a number'
         );
 
+        if (releaseDelayMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, releaseDelayMs));
+        }
+
+        if (failReleaseCount > 0) {
+          failReleaseCount -= 1;
+          await json(route, 504, { error: releaseErrorMessage });
+          return;
+        }
+
         bounty.status = 'released';
         bounty.releasedAt = nowSeconds();
         bounty.version += 1;
@@ -264,6 +289,18 @@ export async function installLifecycleApiDouble(
     },
     get requests() {
       return requests;
+    },
+    reset() {
+      bounties.length = 0;
+      requests.length = 0;
+      nextId = 1;
+      failReleaseCount = 0;
+    },
+    setFailReleaseCount(count: number, errorMessage?: string) {
+      failReleaseCount = count;
+      if (errorMessage) {
+        releaseErrorMessage = errorMessage;
+      }
     },
   };
 }

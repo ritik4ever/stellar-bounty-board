@@ -145,21 +145,54 @@ function buildEmailBody(
   }
 }
 
+export type NotificationOutcome =
+  | { address: string; channel: NotificationChannel; status: 'sent' }
+  | {
+      address: string;
+      channel: NotificationChannel;
+      status: 'skipped';
+      reason: 'opted_out' | 'not_configured';
+    }
+  | { address: string; channel: NotificationChannel; status: 'failed'; error: string };
+
+export interface NotificationResult {
+  event: string;
+  channel: NotificationChannel | null;
+  outcomes: NotificationOutcome[];
+}
+
+function skipAll(
+  recipients: NotificationRecipient[],
+  channel: NotificationChannel,
+  reason: 'opted_out' | 'not_configured'
+): NotificationOutcome[] {
+  return recipients.map(
+    (r): NotificationOutcome => ({ address: r.address, channel, status: 'skipped', reason })
+  );
+}
+
 async function dispatchEmail(
   recipients: NotificationRecipient[],
   event: string,
   payload: Record<string, unknown>
-): Promise<void> {
+): Promise<NotificationOutcome[]> {
+  const channel: NotificationChannel = 'EMAIL';
   const apiKey = process.env.SENDGRID_API_KEY?.trim();
   const fromEmail = process.env.SENDGRID_FROM_EMAIL?.trim() ?? 'noreply@stellarbountyboard.io';
 
   if (!apiKey) {
     logger.warn({ event }, 'SENDGRID_API_KEY not set; skipping email notification');
-    return;
+    return skipAll(recipients, channel, 'not_configured');
   }
 
-  await Promise.all(
-    recipients.map(async (recipient) => {
+  const outcomes: NotificationOutcome[] = [];
+  for (const recipient of recipients) {
+    // Re-check at the send boundary: the user may have opted out after enqueue.
+    if (!isNotificationOptedIn(recipient.address)) {
+      outcomes.push(...skipAll([recipient], channel, 'opted_out'));
+      continue;
+    }
+    try {
       const { subject, text } = buildEmailBody(event, recipient, payload);
       const recipientPref = userOptInPreferences.get(recipient.address);
       const toEmail = recipientPref?.email || recipient.address;
@@ -184,8 +217,17 @@ async function dispatchEmail(
         (err as Error & { statusCode?: number }).statusCode = response.status;
         throw err;
       }
-    })
-  );
+      outcomes.push({ address: recipient.address, channel, status: 'sent' });
+    } catch (err) {
+      outcomes.push({
+        address: recipient.address,
+        channel,
+        status: 'failed',
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  return outcomes;
 }
 
 async function dispatchWebhook(
@@ -194,15 +236,23 @@ async function dispatchWebhook(
   payload: Record<string, unknown>,
   options?: NotificationDispatchOptions
 ): Promise<void> {
+  payload: Record<string, unknown>
+): Promise<NotificationOutcome[]> {
+  const channel: NotificationChannel = 'WEBHOOK';
   const webhookUrl = process.env.NOTIFICATION_WEBHOOK_URL?.trim();
 
   if (!webhookUrl) {
     logger.warn({ event }, 'NOTIFICATION_WEBHOOK_URL not set; skipping webhook notification');
-    return;
+    return skipAll(recipients, channel, 'not_configured');
   }
 
-  const body = JSON.stringify({ event, payload, recipients, timestamp: Date.now() });
+  // Re-check at the send boundary, immediately before the request is built.
+  const eligible = recipients.filter((r) => isNotificationOptedIn(r.address));
+  const optedOut = recipients.filter((r) => !eligible.includes(r));
+  const outcomes = skipAll(optedOut, channel, 'opted_out');
+  if (eligible.length === 0) return outcomes;
 
+  const body = JSON.stringify({ event, payload, recipients: eligible, timestamp: Date.now() });
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
 
   const secret = process.env.NOTIFICATION_WEBHOOK_SECRET?.trim();
@@ -252,7 +302,18 @@ async function dispatchWebhook(
       (err as Error & { isTimeout?: boolean; statusCode?: number }).isTimeout = true;
     }
     throw err;
+  try {
+    const response = await fetch(webhookUrl, { method: 'POST', headers, body });
+    if (!response.ok) {
+      const responseBody = await response.text();
+      throw new Error(`Webhook responded ${response.status}: ${responseBody}`);
+    }
+    outcomes.push(...eligible.map((r): NotificationOutcome => ({ address: r.address, channel, status: 'sent' })));
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    outcomes.push(...eligible.map((r): NotificationOutcome => ({ address: r.address, channel, status: 'failed', error })));
   }
+  return outcomes;
 }
 
 export interface NotificationDispatchOptions {
@@ -267,6 +328,9 @@ export interface NotificationDispatchOptions {
  * Dispatch notification for a bounty lifecycle transition to eligible recipients.
  * Enforces opt-in verification so notifications are not forced on any user.
  * Emits redacted pending, committed, and failed trace records for operator observability (#1948).
+ * Opt-out is checked at call time and again per recipient immediately before the send.
+ * Returns one outcome per recipient (sent / skipped / failed); skipped and failed
+ * recipients are never retried here, so no recipient is alerted twice.
  */
 export async function sendNotification(
   recipients: NotificationRecipient[],
@@ -274,12 +338,18 @@ export async function sendNotification(
   payload: Record<string, unknown>,
   options?: NotificationDispatchOptions
 ): Promise<void> {
+  payload: Record<string, unknown>
+): Promise<NotificationResult> {
   const channel = getChannel();
-  if (!channel) return;
+  if (!channel) return { event, channel: null, outcomes: [] };
 
-  // Filter out any recipient who has explicitly opted out
-  const optedInRecipients = recipients.filter((r) => isNotificationOptedIn(r.address));
-  if (optedInRecipients.length === 0) return;
+  const candidates = recipients.filter((r) => isNotificationOptedIn(r.address));
+  const outcomes = skipAll(
+    recipients.filter((r) => !candidates.includes(r)),
+    channel,
+    'opted_out'
+  );
+  if (candidates.length === 0) return { event, channel, outcomes };
 
   const trace = options?.trace ?? getGlobalNotificationDeliveryTrace();
   const bountyId =
@@ -389,5 +459,15 @@ export async function sendNotification(
       { event, deliveryRef, eventRef, cursorRef, reason, statusCode, err },
       'Notification dispatch failed'
     );
+  const dispatched =
+    channel === 'EMAIL'
+      ? await dispatchEmail(candidates, event, payload)
+      : await dispatchWebhook(candidates, event, payload);
+  outcomes.push(...dispatched);
+
+  const failed = outcomes.find((o) => o.status === 'failed');
+  if (failed && failed.status === 'failed') {
+    logger.error({ event, err: failed.error }, 'Notification dispatch failed');
   }
+  return { event, channel, outcomes };
 }

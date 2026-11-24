@@ -319,37 +319,87 @@ export function freighterDoubleConfig(
   });
 }
 
+export interface InstallFreighterDoubleOptions {
+  readonly publicKey?: string;
+  readonly rejectSigning?: boolean;
+}
+
 /**
  * Injects a connected, testnet-only Freighter double whose signatures are
  * deterministic and never leave the browser. Validation happens here first, so
  * an invalid identity/network aborts before `window.freighter` exists.
+ *
+ * Supports deterministic wallet rejection and rerun safety (SBB-2026-482).
  */
 export async function installFreighterDouble(
   page: Page,
   fixtures: LifecycleFixtures,
-  options: { publicKey?: string } = {}
+  options: InstallFreighterDoubleOptions = {}
 ): Promise<FreighterDoubleConfig> {
-  const config = freighterDoubleConfig(fixtures, options);
+  const config = freighterDoubleConfig(fixtures, { publicKey: options.publicKey });
 
-  await page.addInitScript(({ publicKey, networkPassphrase, signature }) => {
-    const signedPayloads: string[] = [];
-    (window as unknown as { __stellarE2E: { signedPayloads: string[] } }).__stellarE2E = {
-      signedPayloads,
-    };
+  await page.addInitScript(
+    ({ publicKey, networkPassphrase, signature, initialReject }) => {
+      const signedPayloads: string[] = [];
+      let rejectSigning = initialReject;
 
-    (window as unknown as { freighter: Record<string, unknown> }).freighter = {
-      isConnected: async () => ({ isConnected: true }),
-      getPublicKey: async () => publicKey,
-      getNetwork: async () => ({ network: 'TESTNET', networkPassphrase }),
-      setNetwork: async () => {},
-      signMessage: async (message: string) => {
-        signedPayloads.push(message);
-        return { signature };
-      },
-    };
-  }, config);
+      (
+        window as unknown as {
+          __stellarE2E: {
+            signedPayloads: string[];
+            setRejectSigning: (reject: boolean) => void;
+            reset: () => void;
+          };
+        }
+      ).__stellarE2E = {
+        signedPayloads,
+        setRejectSigning: (reject: boolean) => {
+          rejectSigning = reject;
+        },
+        reset: () => {
+          signedPayloads.length = 0;
+          rejectSigning = false;
+        },
+      };
+
+      (window as unknown as { freighter: Record<string, unknown> }).freighter = {
+        isConnected: async () => ({ isConnected: true }),
+        getPublicKey: async () => publicKey,
+        getNetwork: async () => ({ network: 'TESTNET', networkPassphrase }),
+        setNetwork: async () => {},
+        signMessage: async (message: string) => {
+          if (rejectSigning) {
+            throw new Error('User declined transaction / rejected in Freighter');
+          }
+          signedPayloads.push(message);
+          return { signature };
+        },
+      };
+    },
+    { ...config, initialReject: options.rejectSigning ?? false }
+  );
 
   return config;
+}
+
+/** Toggles whether the wallet double rejects future signing requests (SBB-2026-482). */
+export async function setFreighterRejectSigning(page: Page, reject: boolean): Promise<void> {
+  await page.evaluate((r) => {
+    const scope = window as unknown as {
+      __stellarE2E?: { setRejectSigning?: (reject: boolean) => void };
+    };
+    scope.__stellarE2E?.setRejectSigning?.(r);
+  }, reject);
+}
+
+/** Resets the wallet double signing log and flags for rerun safety (SBB-2026-482). */
+export async function resetFreighterDouble(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const scope = window as unknown as {
+      __stellarE2E?: { reset?: () => void };
+    };
+    scope.__stellarE2E?.reset?.();
+  });
 }
 
 /** Reads the payloads the wallet double has been asked to sign. */
