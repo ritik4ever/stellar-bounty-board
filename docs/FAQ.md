@@ -19,6 +19,7 @@ Questions this FAQ doesn't answer are usually covered in one of these documents:
 - [Project README](../README.md) — overview of Stellar Bounty Board and how to run it.
 - [Contributor Onboarding Guide](../ONBOARDING.md) — from zero to a running local environment, plus a tour of the codebase.
 - [Contributing](../CONTRIBUTING.md) — project scope and contribution conventions.
+- [Proof of Contributor Payments](./proof-of-contributor-payments.md) — on-chain escrow verification and payout proof.
 - [Maintainers & Governance](./MAINTAINERS.md) — how maintainership works.
 
 **How it works**
@@ -81,6 +82,23 @@ canonical process in [CONTRIBUTING.md](../CONTRIBUTING.md).
    ```
 
    `gh pr create` prints the URL of the new pull request.
+
+---
+
+## Where can I find proof that contributors have actually been paid?
+
+Stellar Bounty Board executes all contributor compensation through transparent, on-chain Soroban smart contract escrows.
+
+1. **On-Chain Escrow & Release:**
+   - Bounty rewards are escrowed in the Soroban smart contract at publication time.
+   - Upon review and approval by a maintainer via their Freighter wallet, the contract transfers funds directly to the contributor's Stellar account.
+   - Payout transactions emit public `BountyReleased` events containing `bounty_id`, `contributor`, `payout_token`, and `payout_amount`.
+
+2. **Verifying Payouts & Historical Records:**
+   - Completed bounties and rewarded contributors are tracked under closed issues labeled [`Stellar Wave`](https://github.com/ritik4ever/stellar-bounty-board/issues?q=label%3A%22Stellar+Wave%22+is%3Aclosed).
+   - Past merged PRs and commits document delivered bounties and closing actions.
+   - Transactions and contract states can be verified directly on [Stellar Expert](https://stellar.expert/explorer/testnet) using the contract ID from `docs/deployment.md`.
+   - See [Proof of Contributor Payments](./proof-of-contributor-payments.md) for full architecture and verification details.
 
 ---
 
