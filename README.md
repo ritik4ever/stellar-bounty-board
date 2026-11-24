@@ -101,6 +101,45 @@ If any component is `"down"`, the endpoint returns HTTP 503. Set `MAINTAINER_PUB
 
 The arbiter address is immutable after `initialize` is called on the contract — rotate it only by redeploying the contract.
 
+### Arbiter Key Rotation: Decision and Incident Response
+
+`ARBITER_ADDRESS` is set exactly once, when `initialize` is called on the contract. There is no `rotate_arbiter` entrypoint and no admin path to change it afterwards. The only way to change the arbiter is to deploy a new contract instance, which produces a **new contract ID**.
+
+#### Decision: no time-locked rotation for now
+
+We are **not** adding a time-locked `rotate_arbiter` entrypoint at this time. Rationale:
+
+- A rotation entrypoint adds attack surface: whoever can trigger or veto a rotation becomes a new privileged role that must itself be secured.
+- A timelock must be governed — who can schedule, who can cancel, what happens if the scheduler key is lost — which is a second key-management problem layered on the first.
+- The current mitigation is redeploy plus migration (documented below). That path already exists and requires no contract change.
+- Rotation can be revisited as a separate issue if redeploy-and-migrate proves too costly in practice. Until then, treat the arbiter key as a long-lived, high-value secret.
+
+#### Incident response: compromised arbiter key
+
+1. **Detect.** Watch for unexpected `dispute_bounty` / `resolve_dispute` events (or resolutions the maintainers did not authorize), and treat off-chain reports of a leaked key as confirmed until disproven.
+2. **Stop routing new disputes to the old contract.** Disable dispute creation in the backend/frontend for the affected contract ID so no new escrows depend on the compromised arbiter.
+3. **Notify escrow holders.** Contact every maintainer and contributor with an in-flight escrow on the old contract, and publish a notice (release notes / status channel).
+4. **Deploy a new contract** with a fresh arbiter key and initialize it.
+5. **Publish the new contract ID** to clients and update the backend `SOROBAN_CONTRACT_ID` (see "Discovering the new contract ID" below).
+6. **Settle in-flight escrows on the old contract** — resolve or refund them per the migration rules below — before or after the new contract goes live, following the documented plan. Do not assume the old contract is safe to leave open.
+
+#### Incident response: lost or unresponsive arbiter key
+
+1. Follow the same migration path: stop routing new disputes, notify escrow holders, deploy a new contract with a fresh arbiter, and publish the new contract ID.
+2. **In-flight `disputed` bounties on the old contract cannot be resolved** without the arbiter key. They must be handled by maintainer/contributor agreement (e.g. the maintainer refunds where the state machine allows, or the parties settle off-chain) or refunded where the contract permits it. Document each such escrow so it is not silently abandoned.
+
+#### In-flight escrows during migration
+
+- Escrows remain **bound to the old contract ID**. They are not moved automatically and the new contract has no knowledge of them.
+- Each in-flight escrow must either be **resolved or refunded on the old contract** (where the state machine allows) or **explicitly re-created on the new contract** by the maintainer. Re-creation is a new escrow with a new ID; the old one must still be closed out.
+- Clients must not assume a bounty ID is stable across contracts.
+
+#### Discovering the new contract ID
+
+- **Backend:** the `SOROBAN_CONTRACT_ID` environment variable is the source of truth for which contract the backend talks to.
+- **Frontend / clients:** regenerate the TypeScript bindings (`npm run gen:bindings`) against the new contract so the generated types and contract ID match.
+- **Release notes:** every arbiter migration is announced in the release notes with the old and new contract IDs and the migration window.
+
 ### Dispute UI Surface
 
 Maintainers and arbiters interact directly with the arbitration flow through the Bounty Detail page (`/bounties/:id`):
