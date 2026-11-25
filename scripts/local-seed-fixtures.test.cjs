@@ -87,6 +87,56 @@ test('fixed IDs, timestamp ordering, and valid lifecycle histories', () => {
   }
 });
 
+test('all required status fixtures are present with deterministic IDs', () => {
+  const records = fixtureRecords(identities);
+  const statusMap = new Map(records.map((r) => [r.status, r]));
+  
+  // Verify all required statuses exist
+  assert.equal(statusMap.has('open'), true);
+  assert.equal(statusMap.has('reserved'), true);
+  assert.equal(statusMap.has('submitted'), true);
+  assert.equal(statusMap.has('disputed'), true);
+  assert.equal(statusMap.has('refunded'), true);
+  assert.equal(statusMap.has('released'), true);
+  
+  // Verify deterministic IDs (BNT-9501 through BNT-9506)
+  assert.equal(statusMap.get('open').id, 'BNT-9501');
+  assert.equal(statusMap.get('reserved').id, 'BNT-9502');
+  assert.equal(statusMap.get('submitted').id, 'BNT-9503');
+  assert.equal(statusMap.get('disputed').id, 'BNT-9504');
+  assert.equal(statusMap.get('refunded').id, 'BNT-9505');
+  assert.equal(statusMap.get('released').id, 'BNT-9506');
+});
+
+test('no live funds: tokenAddress is offline placeholder', () => {
+  const records = fixtureRecords(identities);
+  for (const record of records) {
+    assert.equal(record.tokenAddress, 'OFFLINE_FIXTURE_NO_TOKEN');
+    assert.ok(record.labels.includes('local-fixture'));
+    assert.ok(record.labels.includes('no-live-funds'));
+  }
+});
+
+test('status histories match expected transition sequences without gaps', () => {
+  const records = fixtureRecords(identities);
+  const disputed = records.find((r) => r.status === 'disputed');
+  const refunded = records.find((r) => r.status === 'refunded');
+  const released = records.find((r) => r.status === 'released');
+  
+  // Disputed: created → reserved → submitted → disputed
+  assert.deepEqual(disputed.events.map((e) => e.type), ['created', 'reserved', 'submitted', 'disputed']);
+  assert.ok(disputed.disputedAt > 0);
+  assert.equal(typeof disputed.disputeReason, 'string');
+  
+  // Refunded: created → reserved → submitted → disputed → refunded
+  assert.deepEqual(refunded.events.map((e) => e.type), ['created', 'reserved', 'submitted', 'disputed', 'refunded']);
+  assert.ok(refunded.refundedAt > 0);
+  
+  // Released: created → reserved → submitted → released
+  assert.deepEqual(released.events.map((e) => e.type), ['created', 'reserved', 'submitted', 'released']);
+  assert.ok(released.releasedAt > 0);
+});
+
 test('reruns do not alter IDs, histories, file contents, or status', () => inTemp((root) => {
   const config = validateConfig(env(), root);
   assert.equal(seedFile(config).added, 6);
