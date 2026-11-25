@@ -24,6 +24,8 @@ const STATUSES = Object.freeze({
   refunded: ['created', 'reserved', 'submitted', 'disputed', 'refunded'],
   released: ['created', 'reserved', 'submitted', 'released'],
 });
+// Fixed timestamp and ID base ensure deterministic, reproducible fixtures across runs.
+// Never use Date.now() or random values in fixture generation.
 const BASE_TIMESTAMP = 1793505600; // Fixed fixture timestamp, never Date.now().
 const BASE_ID = 9501;
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
