@@ -1005,8 +1005,18 @@ impl StellarBountyBoardContract {
     /// * `bounty_id` - Unique identifier (`u64`) of the bounty to reserve.
     /// * `contributor` - Address of the contributor reserving the bounty.
     ///
-    /// # Authorisation
-    /// * Requires authorization from the reserving `contributor` (`contributor.require_auth()`).
+    /// # Authorisation & Security Guarantees (SBB-2026-413)
+    /// * Requires explicit Soroban authorization from the reserving `contributor` (`contributor.require_auth()`).
+    ///   Signed `maintainer`, `arbiter`, `admin`, or `outsider` callers cannot sign a reservation on behalf of
+    ///   another contributor or hijack an active reservation.
+    /// * **Exact Expiry Boundary**: Reservation succeeds while `ledger.timestamp() <= bounty.deadline`,
+    ///   including at the exact deadline timestamp (`now == deadline`). Once `now > deadline`,
+    ///   `expire_if_needed` transitions the bounty to [`BountyStatus::Expired`] and rejects with
+    ///   [`ContractError::BountyExpired`].
+    /// * **Single Active Reservation (Anti-Race)**: Once reserved, a second contributor racing to reserve the
+    ///   same bounty fails with [`ContractError::BountyAlreadyReserved`], and any non-`Open` bounty
+    ///   (`Submitted`, `Disputed`, `Released`, `Refunded`) fails with [`ContractError::BountyNotOpen`],
+    ///   preventing unauthorized callers from overwriting `bounty.contributor` or redirecting funds.
     ///
     /// # Errors & Panic Paths
     /// * [`ContractError::ContractIsPaused`] - If the contract circuit-breaker is paused (`Self::get_paused_state`).
@@ -1057,6 +1067,15 @@ impl StellarBountyBoardContract {
         );
     }
 
+    /// Reassigns an active reservation to a different contributor.
+    ///
+    /// # Authorisation & Boundaries (SBB-2026-413)
+    /// * Requires explicit authorization from `maintainer` (`maintainer.require_auth()`) and verifies
+    ///   `bounty.maintainer == maintainer` before refreshing storage TTL or mutating state, rejecting
+    ///   signed contributors, the arbiter, or outsiders with auth errors or [`ContractError::MaintainerMismatch`].
+    /// * Succeeds at or before the exact deadline (`now <= bounty.deadline`) while status is
+    ///   [`BountyStatus::Reserved`]; past expiry (`now > deadline`), `expire_if_needed` marks the bounty
+    ///   [`BountyStatus::Expired`] and rejects with [`ContractError::BountyMustBeReserved`].
     pub fn reassign_bounty(
         env: Env,
         bounty_id: u64,
