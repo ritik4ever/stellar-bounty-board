@@ -427,6 +427,76 @@ sequenceDiagram
 3. **Arbiter Jurisdiction**: The Arbiter acts as the ultimate fail-safe fiduciary. Even if the maintainer never recovers their wallet, the Arbiter's independent signature via `resolve_dispute` guarantees that contributors who deliver working code are paid out from on-chain escrow.
 4. **Deadline Expiration Boundary**: If a bounty reaches its deadline before submission or dispute, it transitions to `BountyStatus::Expired` where only refunds can be processed. Contributors are advised to submit well ahead of deadline boundaries.
 
+### Arbiter Key Lifecycle & Incident Response
+
+#### Immutability of the Arbiter Address
+
+The arbiter address is stored under `DataKey::Arbiter` and is written **only** by `initialize`. The contract exposes no setter, admin function, or migration hook that can overwrite it. Consequently, the arbiter is immutable for the entire lifetime of a deployed contract ID: the only way to change the arbiter is to deploy a new contract, which produces a new contract ID.
+
+This is an intentional MVP trade-off, but it has a sharp operational consequence that maintainers must understand *before* it becomes urgent: a compromised or unresponsive arbiter key permanently blocks every future dispute resolution on that contract ID until a redeploy. Because a redeploy changes the contract ID, every existing bounty escrow and every client integration must migrate to the new ID.
+
+#### Decision: No Time-Locked `rotate_arbiter` (for now)
+
+**Decision: we are not adding a time-locked `rotate_arbiter` function at this time.**
+
+Rationale:
+
+- A rotation function requires an authority to authorize the rotation. If that authority is the arbiter itself, a compromised arbiter key can rotate to an attacker-controlled key — rotation does not help. If the authority is a separate admin key, we have simply moved the single-point-of-failure to that key and added a second privileged role to secure.
+- A time-lock (e.g. a pending rotation that only takes effect after a delay) gives honest operators a window to react to a hostile rotation, but it also gives an attacker who holds the arbiter key a window to front-run dispute resolutions before the rotation lands.
+- The contract currently has no upgrade or admin surface at all. Adding one is a meaningful expansion of the trust model and deserves its own design review, not a bolt-on to this issue.
+- The redeploy path below is workable today because the number of in-flight escrows is small and the migration procedure is documented.
+
+This decision should be revisited if any of the following become true: the number of concurrent in-flight escrows grows large enough that a redeploy is impractical, the arbiter role is delegated to a third party we do not fully control, or the contract gains an upgrade mechanism for other reasons.
+
+**The contract code is intentionally unchanged by this decision.** `contracts/src/lib.rs` continues to write `DataKey::Arbiter` only in `initialize` and to authorize `resolve_dispute` exclusively by that stored address.
+
+#### Incident-Response Runbook: Compromised or Lost Arbiter Key
+
+**Detection signals**
+
+- An unexpected `resolve_dispute` transaction appears on-chain (event emitted for a bounty the arbiter was not asked to review, or a ruling that contradicts the recorded evidence).
+- The arbiter reports loss of the secret key, or the key's custodian reports a breach.
+- Repeated failed or malformed `resolve_dispute` calls from an address that should not be signing.
+- Off-chain: the backend's dispute queue shows resolutions the operations team did not authorize.
+
+**Step 1 — Freeze new dispute intake (immediately)**
+
+- Disable the dispute-open and dispute-resolve endpoints in the backend (feature flag or route guard) so no new disputes are created against the affected contract ID.
+- Announce the freeze on the project's public channels. Do not disclose the nature of the compromise until the replacement contract is ready, to avoid tipping off an attacker.
+
+**Step 2 — Notify maintainers and contributors**
+
+- Notify every maintainer with an in-flight escrow on the affected contract ID, listing the bounty IDs and their current status.
+- Notify contributors with `Submitted` or `Disputed` bounties on the affected contract ID.
+- Publish a single canonical incident notice with a timestamp and a link to the replacement contract ID once it exists.
+
+**Step 3 — Deploy a replacement contract**
+
+- Build the contract from a tagged commit, deploy it to the target network, and call `initialize` with a **new** arbiter address (a freshly generated key, ideally held in a hardware wallet or multisig).
+- Record the new contract ID in the incident notice.
+
+**Step 4 — Distribute the new contract ID**
+
+- Update `SOROBAN_CONTRACT_ID` in the backend environment and redeploy the backend.
+- Update the frontend's contract ID configuration and redeploy the frontend.
+- Regenerate and publish the contract bindings so client integrations pick up the new ID.
+- Update the README and any deployment documentation that references the old contract ID.
+
+**Step 5 — Post-incident review**
+
+- Record what happened, how it was detected, and how long each step took.
+- Revisit the "no `rotate_arbiter`" decision above against the criteria listed there.
+
+#### In-Flight Escrows During Migration
+
+Escrowed funds live on the **old** contract ID and cannot be moved to the new contract. The old contract remains callable, so the following applies:
+
+- **`Open`, `Reserved`, `Submitted`, `Expired` bounties** on the old contract ID can still be resolved through the normal paths that do not require the arbiter: `release_bounty` (maintainer auth) and `refund_bounty`. Maintainers should be asked to release or refund these before clients switch to the new contract ID.
+- **`Disputed` bounties** on the old contract ID can only be resolved by `resolve_dispute`, which requires the arbiter key. If the arbiter key is lost or compromised, these bounties cannot be resolved on-chain. They must be handled by a documented manual agreement between the maintainer and the contributor (e.g. an off-chain settlement recorded in the incident notice), and the bounty should be marked as such in the backend so it is not silently dropped.
+- **New bounties** must be created against the new contract ID only. The backend should reject `create_bounty` calls targeting the old contract ID once the migration is announced.
+
+Clients switch to the new contract ID only after the in-flight escrows on the old contract ID have been released, refunded, or explicitly recorded as manually settled.
+
 ### 1. Create Bounty
 
 ```mermaid
