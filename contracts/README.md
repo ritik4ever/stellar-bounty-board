@@ -89,6 +89,23 @@ The contract specifies and enforces strict boundaries for submitting reserved bo
 - **Post-Submission Expiration Immunity**:
   - Once transitioned to `Submitted` at or before the deadline, subsequent advances of the ledger timestamp past the deadline (e.g. `deadline + 10_000`) do not expire the bounty. `expire_if_needed` only applies to `Open` and `Reserved` statuses, protecting legitimate submitted work from stale-deadline expiration during maintainer review or dispute windows.
 
+## Arbiter Resolution Boundaries (SBB-2026-436)
+
+Arbiter dispute settlement (`resolve_dispute`) enforces strict ledger, token-unit, destination, and finality boundaries:
+
+- **Exact Ledger Window Boundary (`now >= dispute_raised_at + effective_dispute_window`)**:
+  - Uses per-bounty `dispute_window_override` when set, otherwise falls back to global `DataKey::DisputeWindow`.
+  - Resolution attempts at `now < dispute_raised_at + effective_dispute_window` (including `window - 1`) fail with `ContractError::DisputeWindowNotMet`, leaving status `Disputed`, escrow untouched, and emitting no `BountyResolved` event.
+  - Resolution succeeds at the exact boundary timestamp `now == dispute_raised_at + effective_dispute_window` and any later timestamp.
+- **Exact Payout Destinations & Integer Token Units**:
+  - `release = true` (contributor destination): transitions status to `Released`, computes `fee = floor(amount * protocol_fee_bps / 10_000)`, transfers `amount - fee` to `contributor` and any positive `fee` to `FeeRecipient`, and drops contract escrow to `0` (`net + fee == amount`). When `fee == 0` (either `protocol_fee_bps == 0` or integer floor truncation), 100% of `amount` goes to `contributor`.
+  - `release = false` (maintainer destination): transitions status to `Refunded` and returns 100% of `amount` to `maintainer` with zero protocol fee deducted, dropping contract escrow to `0`.
+- **One Final Decision (Terminal Finality)**:
+  - Only bounties in `Disputed` status may be resolved. Non-disputed statuses (`Open`, `Reserved`, `Submitted`) and already settled bounties (`Released`, `Refunded`) fail with `ContractError::BountyMustBeDisputed`.
+  - Conflicting or duplicate resolution attempts after settlement cannot move funds, alter terminal status, or emit additional `(Bounty, Reslv)` events.
+- **Strict Arbiter Authority**:
+  - Requires explicit Soroban authorization from the configured `DataKey::Arbiter`. Maintainer, contributor, admin, outsider, or unsigned callers are rejected before any state mutation or token transfer.
+
 ## Storage Lifetime & Authority Enforcement
 
 - **Storage TTL Refresh on Mutation:** For payout-related lifecycle operations (`release_bounty`, `refund_bounty`, `cancel_bounty`, `resolve_dispute`, `reassign_bounty`, `extend_deadline`, `finalize_resolution`), the contract refreshes persistent storage TTL for near-expiry bounties via `refresh_bounty_ttl` whenever remaining TTL falls below `BOUNTY_STORAGE_TTL_THRESHOLD` (1,000 ledgers), extending it to `BOUNTY_STORAGE_TTL_EXTEND_TO` (4,096 ledgers). Exact integer token units and fee floors (`floor(amount * protocol_fee_bps / 10_000)`) are preserved through settlement.
