@@ -168,16 +168,7 @@ pub struct BountyReassigned {
     pub new_contributor: Address,
 }
 
-/// Payload for the `(Bounty, Submit)` event emitted by `submit_bounty`.
-///
-/// Emitted as the sole contract event on a committed, authorized submission,
-/// strictly after `bounty.status` is persisted as [`BountyStatus::Submitted`].
-/// Because submission does not move escrowed funds, no `("Escrow", "Balance")`
-/// event or token transfer is emitted.
-///
-/// Fields, in deterministic order:
-/// - `bounty_id`: which bounty was submitted.
-/// - `contributor`: the authorized assigned contributor who submitted the work.
+/// Payload for the `(Bounty, Submit)` event emitted when a bounty is submitted by a contributor.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BountySubmitted {
@@ -1156,20 +1147,8 @@ impl StellarBountyBoardContract {
     /// * **Write**:
     ///   - [`DataKey::Bounty(bounty_id)`] - Updates `bounty.status` to [`BountyStatus::Submitted`].
     ///
-    /// # Events & Submission Event Contract (SBB-2026-419)
-    ///
-    /// On a committed, authorized `submit_bounty` call, **exactly one** contract
-    /// event is emitted, strictly after `bounty.status` is persisted as
-    /// [`BountyStatus::Submitted`]:
-    ///
-    /// 1. `(symbol_short!("Bounty"), symbol_short!("Submit"))` — [`BountySubmitted`]
-    ///    with `bounty_id` and `contributor`.
-    ///
-    /// Unchanged balance invariant: submission moves zero tokens, emits **no**
-    /// `("Escrow", "Balance")` event, and leaves contract escrow and participant
-    /// token balances unchanged. Consumers can reconstruct a committed submission
-    /// once: failed, unauthorized, expired, or duplicate calls abort atomically
-    /// and emit zero events.
+    /// # Events
+    /// * Emits `(symbol_short!("Bounty"), symbol_short!("Submit"))` with [`BountySubmitted`] payload.
     pub fn submit_bounty(env: Env, bounty_id: u64, contributor: Address) {
         contributor.require_auth();
         let mut bounty = read_bounty(&env, bounty_id);
