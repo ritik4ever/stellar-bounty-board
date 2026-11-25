@@ -837,6 +837,14 @@ impl StellarBountyBoardContract {
     /// This function is part of the public contract ABI. A contributor claims the
     /// exclusive right to work on an open bounty before submitting a solution.
     ///
+    /// # Expiry Boundary
+    /// * Expiration is evaluated strictly after the deadline (`now > bounty.deadline`).
+    /// * A reservation at the exact expiry ledger (`now == bounty.deadline`) succeeds,
+    ///   locking the single `contributor` while leaving the escrowed token balance
+    ///   unchanged in the contract.
+    /// * Any reservation at `now > bounty.deadline` is rejected with
+    ///   [`ContractError::BountyExpired`].
+    ///
     /// # Parameters
     /// * `env` - The Soroban contract environment.
     /// * `bounty_id` - Unique identifier (`u64`) of the bounty to reserve.
@@ -1053,6 +1061,14 @@ impl StellarBountyBoardContract {
 
         let net_payout = bounty.amount - fee_amount;
 
+        // Commit terminal state before interacting with the token contract so
+        // any reentrant or post-release `dispute_bounty` sees `Released` and
+        // is rejected with `BountyMustBeSubmitted`. If a transfer fails,
+        // `panic_error` aborts the invocation and rolls back this write
+        // atomically without stranding or multiplying escrow funds.
+        bounty.status = BountyStatus::Released;
+        write_bounty(&env, bounty_id, &bounty);
+
         // Transfer net payout to contributor
         if !matches!(
             token_client.try_transfer(&contract_address, &contributor, &net_payout),
@@ -1079,9 +1095,6 @@ impl StellarBountyBoardContract {
 
         // Atomically update FeeStats
         accumulate_fee_stats(&env, fee_amount);
-
-        bounty.status = BountyStatus::Released;
-        write_bounty(&env, bounty_id, &bounty);
 
         env.events().publish(
             (symbol_short!("Bounty"), symbol_short!("Releas")),
