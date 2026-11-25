@@ -304,36 +304,46 @@ against a freshly seeded store. It never touches live funds or a live network.
 
 ## Testnet deployment preflight
 
-`scripts/deploy-testnet.js` runs a preflight check before any transaction is
-built or signed. The check compares the configured network passphrase with the
-contract ID:
+Use the existing offline guard from the repository root:
 
-- A **testnet** contract ID (`C...` deployed on testnet) must be paired with the
-  testnet passphrase (`Test SDF Network ; September 2015`).
-- If the passphrase is the **mainnet** passphrase
-  (`Public Global Stellar Network ; September 2015`) while the contract ID is a
-  testnet contract, the script **stops immediately** with:
+```sh
+npm run testnet:preflight
+```
 
-  ```
-  ERROR: network passphrase/contract ID mismatch
-  passphrase: Public Global Stellar Network ; September 2015 (mainnet)
-  contract:   <contract-id> (testnet)
-  Refusing to continue: signing with the wrong passphrase would target mainnet.
-  ```
+To protect backend startup after building it, use `npm run start:testnet:safe`,
+which runs `scripts/validate-testnet-config.cjs` before starting
+`node backend/dist/index.js`. Other entrypoints are not automatically guarded.
+
+A Mainnet passphrase paired with an intended Testnet contract is rejected with
+exit status 1 and this stderr diagnostic, before any child command starts:
+
+```text
+[testnet-preflight] SOROBAN_NETWORK_PASSPHRASE does not match Stellar Testnet; stop before signing
+```
+
+There is no success banner or signing/fund movement through the rejected child.
+A `C...` address does not encode its network; this local check does not query
+RPC or prove where the contract is deployed.
 
 ### Recovery path
 
-1. Fix the environment: set `SOROBAN_NETWORK_PASSPHRASE` to the testnet
-   passphrase, or point `SOROBAN_CONTRACT_ID` at the intended mainnet contract.
-2. Re-run `npm run deploy:testnet`.
-3. The preflight re-runs and only proceeds once the passphrase and contract ID
-   agree.
+1. In the effective startup environment, set `STELLAR_NETWORK=testnet` and
+   `SOROBAN_NETWORK_PASSPHRASE` to `Test SDF Network ; September 2015`.
+2. Confirm the intended Testnet deployment's `SOROBAN_CONTRACT_ID`, matching
+   `CONTRACT_ID` if supplied, arbiter public key, and trusted Testnet RPC URL.
+   Switching to a Mainnet contract is not a recovery option for this guard.
+3. Rerun `npm run testnet:preflight`, verify the actual deployment separately
+   using read-only Testnet queries, and then use `npm run start:testnet:safe`.
+
+See the [Testnet configuration incident runbook](testnet-configuration-validation.md#mainnet-passphrase-with-a-testnet-contract-incident-runbook)
+for safe inspection commands, observable failure signals and offline examples.
 
 ### Rerun safety
 
-The preflight runs before any key is loaded for signing and before any funds
-move. A mismatched configuration therefore fails safely on every rerun — no
-partial deployment, no signed transaction, and no transferred funds.
+The rejected preflight is safe to rerun because it never starts the child
+command. A later child failure after the success banner is different: inspect
+that command's logs and transaction state before retrying. The gate does not
+undo any operations previously performed outside it.
 
 ---
 
