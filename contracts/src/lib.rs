@@ -1095,17 +1095,26 @@ impl StellarBountyBoardContract {
     /// * [`ContractError::MaintainerMismatch`] - If the caller `maintainer` does not match the bounty's registered creator (`bounty.maintainer != maintainer`).
     /// * [`ContractError::BountyMustBeSubmitted`] - If the bounty's current status is not [`BountyStatus::Submitted`].
     /// * [`ContractError::MissingContributor`] - If the bounty has no assigned contributor.
-    /// * Contract token client panics if token transfers to contributor or treasury fail.
+    /// * [`ContractError::FeeRecipientNotSet`] - If `fee_amount > 0` and no fee recipient is configured in storage.
+    /// * [`ContractError::PayoutTransferFailed`] - If the net payout token transfer to the contributor fails.
+    /// * [`ContractError::FeeTransferFailed`] - If the protocol fee token transfer to the fee recipient fails.
+    ///
+    /// # Atomicity & Payout Failure Guarantees
+    /// * Caller authorization, bounty status, contributor presence, and `FeeRecipient` (when `fee_amount > 0`) are validated before any state write or token transfer.
+    /// * Terminal status ([`BountyStatus::Released`]) is committed prior to token transfers (Checks-Effects-Interactions).
+    /// * If either the contributor payout transfer or the protocol fee transfer fails, the transaction aborts atomically with [`ContractError::PayoutTransferFailed`] or [`ContractError::FeeTransferFailed`], rolling back status, `FeeStats`, and any prior transfer in the same call without emitting events.
+    /// * A failed call cannot strand or multiply escrow funds; retrying `release_bounty` after resolving the transfer failure settles the payout exactly once, and any subsequent release fails with [`ContractError::BountyMustBeSubmitted`].
     ///
     /// # Storage
     /// * **Read**:
     ///   - [`DataKey::Bounty(bounty_id)`] - Reads the existing bounty state via `read_bounty`.
-    ///   - [`DataKey::Treasury`] - Persistent storage lookup to obtain the protocol treasury address if fees apply.
+    ///   - [`DataKey::FeeRecipient`] - Persistent storage lookup to obtain the protocol fee recipient address if fees apply.
     /// * **Write**:
-    ///   - [`DataKey::Bounty(bounty_id)`] - Updates `bounty.status` to [`BountyStatus::Released`] and records `bounty.released_at` timestamp.
+    ///   - [`DataKey::Bounty(bounty_id)`] - Updates `bounty.status` to [`BountyStatus::Released`] before token transfers.
+    ///   - [`DataKey::FeeStats`] - Updates cumulative fee statistics after transfers succeed.
     ///
     /// # Events
-    /// * Emits `(symbol_short!("Bounty"), symbol_short!("Rel"))` with [`BountyReleased`] payload.
+    /// * Emits escrow accounting change, `(symbol_short!("Bounty"), symbol_short!("Releas"))`, and `(symbol_short!("Bounty"), symbol_short!("RelEvent"))` strictly after terminal state and transfers succeed.
     pub fn release_bounty(env: Env, bounty_id: u64, maintainer: Address) {
         maintainer.require_auth();
         let mut bounty = read_bounty(&env, bounty_id);
@@ -1140,6 +1149,23 @@ impl StellarBountyBoardContract {
 
         let net_payout = bounty.amount - fee_amount;
 
+        // Resolve fee recipient before committing state or initiating any transfer.
+        let fee_recipient: Option<Address> = if fee_amount > 0 {
+            Some(
+                env.storage()
+                    .persistent()
+                    .get(&DataKey::FeeRecipient)
+                    .unwrap_or_else(|| panic_error(&env, ContractError::FeeRecipientNotSet)),
+            )
+        } else {
+            None
+        };
+
+        // Commit terminal state before interacting with token contract (Checks-Effects-Interactions).
+        // If any subsequent token transfer fails, Soroban rolls back this write atomically.
+        bounty.status = BountyStatus::Released;
+        write_bounty(&env, bounty_id, &bounty);
+
         // Transfer net payout to contributor
         if !matches!(
             token_client.try_transfer(&contract_address, &contributor, &net_payout),
@@ -1149,14 +1175,9 @@ impl StellarBountyBoardContract {
         }
 
         // Transfer fee to recipient (only when fee is non-zero)
-        if fee_amount > 0 {
-            let fee_recipient: Address = env
-                .storage()
-                .persistent()
-                .get(&DataKey::FeeRecipient)
-                .unwrap_or_else(|| panic_error(&env, ContractError::FeeRecipientNotSet));
+        if let Some(recipient) = fee_recipient {
             if !matches!(
-                token_client.try_transfer(&contract_address, &fee_recipient, &fee_amount),
+                token_client.try_transfer(&contract_address, &recipient, &fee_amount),
                 Ok(Ok(()))
             ) {
                 panic_error(&env, ContractError::FeeTransferFailed);
@@ -1166,9 +1187,6 @@ impl StellarBountyBoardContract {
 
         // Atomically update FeeStats
         accumulate_fee_stats(&env, fee_amount);
-
-        bounty.status = BountyStatus::Released;
-        write_bounty(&env, bounty_id, &bounty);
 
         // Escrow funding event for the release path: the escrow balance for this
         // bounty drops to zero. Emitted exactly once, only after the terminal

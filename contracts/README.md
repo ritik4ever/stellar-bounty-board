@@ -15,6 +15,8 @@ The contract uses named error codes for all invalid operations. These codes are 
 - `BountyAlreadyFinalized` - refunds are not allowed for released or already refunded bounties.
 - `BountyNotExpiredYet` - refunds are only allowed after the deadline.
 - `EscrowTransferFailed` - the token transfer from maintainer to contract escrow failed (#42).
+- `PayoutTransferFailed` - the net payout token transfer from contract escrow to contributor failed (#43).
+- `FeeTransferFailed` - the protocol fee token transfer from contract escrow to fee recipient failed (#44).
 - `NewDeadlineMustBeGreaterThanCurrentDeadline` - extend_deadline requires a later deadline.
 - `BountyNotFound` - referenced bounty does not exist.
 
@@ -24,6 +26,7 @@ The contract uses named error codes for all invalid operations. These codes are 
 - `create_bounty(maintainer, token, amount, repo, issue_number, title, deadline, protocol_fee_bps, dispute_window_override)` - funds and opens a new bounty in escrow. Requires explicit authorization from `maintainer` before any validation or transfer (rejecting signed contributor, arbiter, or outsider callers), enforces `amount >= min_bounty_amount` (`DEFAULT_MIN_BOUNTY_AMOUNT`) and allowlist membership for `token`, and reverts atomically with `EscrowTransferFailed` without storing bounty state or incrementing `NextBountyId` if the token transfer fails after validation.
 - `cancel_bounty(bounty_id, maintainer)` - cancels an **Open** bounty before reservation; returns full escrow (no fee), sets status to **Refunded**, and emits a `BountyCanceled` event. Only the original maintainer may call this. Terminal state is committed before the token transfer; if the transfer fails, the call aborts atomically leaving status Open and escrow intact.
 - `submit_bounty(bounty_id, contributor)` - transitions a reserved bounty to the **Submitted** state and emits the `(Bounty, Submit)` event. Submission is accepted strictly while `timestamp <= deadline`, including at the exact boundary (`timestamp == deadline`). Submissions attempted when `timestamp > deadline` are rejected with `BountyExpired` (#22). Caller authorization is enforced (`contributor.require_auth()`), rejecting mismatched or unauthorized callers with `ContributorMismatch` (#26). Token balances remain completely untouched (zero tokens moved), preserving exact integer escrow units. Once submitted, subsequent ledger timestamp advances past the deadline do not expire the bounty. Its `BountySubmitted` payload contains `bounty_id` and `contributor`, allowing indexer workers to process the state change without a follow-up contract read.
+- `release_bounty(bounty_id, maintainer)` - releases an escrowed submitted bounty to the assigned contributor (minus any protocol fee to `FeeRecipient`). Validates caller authority, submitted status, contributor, and `FeeRecipient` before committing `BountyStatus::Released` and invoking token transfers. If either the contributor payout or protocol fee transfer fails, the transaction rolls back atomically without stranding or multiplying escrow funds, mutating `FeeStats`, or emitting events.
 - `refund_bounty(bounty_id, maintainer)` - returns escrow after the deadline has passed and emits exactly one `(Bounty, Refund)` event. Its `BountyRefunded` payload, in field order, contains `bounty_id`, `maintainer`, `token`, full refunded `amount`, and `refunded_at`; indexers can reconstruct the committed refund without a follow-up contract read. The `Refunded` status is committed before the token call, and a failed transfer or unauthorized contributor call aborts atomically, leaving both balances and bounty status unchanged.
 - `dispute_bounty(bounty_id, arbiter)` - transitions a submitted bounty to the **Disputed** state and emits the `(Bounty, Dispt)` event. Its `BountyDisputed` payload contains `bounty_id`, `contributor`, and `arbiter`, allowing indexer workers to process the state change without a follow-up contract read.
 - `resolve_dispute(bounty_id, release)` - allows the arbiter to settle a disputed bounty by releasing funds to contributor (minus protocol fee) or refunding maintainer. Emits the single `(Bounty, Reslv)` event with `BountyResolved` containing `bounty_id`, `arbiter`, `release`, and the settled `amount` strictly after terminal state is committed. Failed transfers abort atomically leaving dispute state and escrow intact.
@@ -88,6 +91,21 @@ The contract specifies and enforces strict boundaries for submitting reserved bo
   - Non-reserved bounties (`Open`, already `Submitted`, `Disputed`, `Released`, `Refunded`) are rejected with `ContractError::BountyMustBeReserved` (#19).
 - **Post-Submission Expiration Immunity**:
   - Once transitioned to `Submitted` at or before the deadline, subsequent advances of the ledger timestamp past the deadline (e.g. `deadline + 10_000`) do not expire the bounty. `expire_if_needed` only applies to `Open` and `Reserved` statuses, protecting legitimate submitted work from stale-deadline expiration during maintainer review or dispute windows.
+
+## Contract Payout Atomicity (SBB-2026-422)
+
+Contract payout (`release_bounty`) enforces Checks-Effects-Interactions ordering and atomic rollback semantics so failed transfers can never strand or multiply escrow funds:
+
+- **Validation Prior to State Mutation & Transfers:**
+  - Verifies `maintainer.require_auth()`, `bounty.maintainer == maintainer` (`MaintainerMismatch`), `bounty.status == BountyStatus::Submitted` (`BountyMustBeSubmitted`), assigned contributor (`MissingContributor`), and `DataKey::FeeRecipient` whenever `fee_amount > 0` (`FeeRecipientNotSet`) before writing storage or invoking token transfers.
+- **Terminal State Committed Before Token Calls:**
+  - `bounty.status` is transitioned to `BountyStatus::Released` and persisted via `write_bounty` prior to transferring `net_payout` to the contributor and `fee_amount` to `FeeRecipient`.
+- **Atomic Failure Rollback Across Multi-Transfer Payouts:**
+  - If the contributor payout transfer fails (`PayoutTransferFailed` #43) or the subsequent protocol fee transfer fails (`FeeTransferFailed` #44), the entire Soroban transaction aborts atomically.
+  - All storage writes (`BountyStatus::Released`, `FeeStats`), prior token transfers within the same invocation (e.g. the contributor payout when the fee transfer fails), and event publications are rolled back, leaving escrow balances, unrelated bounties, and `Submitted` status completely intact.
+- **Repeated-Release Single-Shot Semantics:**
+  - Retrying `release_bounty` after a failed transfer settles the payout exactly once once the transfer succeeds.
+  - Any subsequent `release_bounty` call on the released bounty is rejected with `ContractError::BountyMustBeSubmitted`, preventing double payouts or fee-stat multiplication.
 
 ## Storage Lifetime & Authority Enforcement
 
