@@ -4555,6 +4555,7 @@ fn test_resolve_dispute_emits_bounty_resolved_with_amount() {
     let t1 = soroban_sdk::Symbol::from_val(&env, &body.topics[1]);
     assert_eq!(t0, symbol_short!("Bounty"));
     assert_eq!(t1, symbol_short!("Reslv"));
+    let resolved_at = env.ledger().timestamp();
     let event_payload = BountyResolved::from_val(&env, &body.data);
     assert_eq!(
         event_payload,
@@ -4563,6 +4564,11 @@ fn test_resolve_dispute_emits_bounty_resolved_with_amount() {
             arbiter,
             release: true,
             amount: 500,
+            destination: contributor,
+            token: token_id,
+            net_amount: 500,
+            fee_amount: 0,
+            resolved_at,
         }
     );
 }
