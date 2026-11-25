@@ -1,5 +1,7 @@
 import { listBounties, releaseBounty, markBountyPrMerged } from '../services/bountyStore';
 import { logStructured } from '../logger';
+import { traceWebhookOutcome } from '../services/stateUpdateTrace';
+import { githubPrUrlSchema } from '../validation/prUrl';
 import {
   beginDelivery,
   deferDelivery,
@@ -73,10 +75,11 @@ function mergedPrUrl(body: unknown): string | undefined {
 async function releaseForMergedPr(
   bountyId: string,
   maintainer: string,
-  prUrl: string
+  prUrl: string,
+  deliveryId?: string
 ): Promise<void> {
   try {
-    await releaseBounty(bountyId, maintainer);
+    await releaseBounty(bountyId, maintainer, undefined, 0, { deliveryRef: deliveryId });
   } catch (error) {
     // Another worker or a maintainer may have released the bounty between our
     // read and our write. That is a successful outcome for this delivery, not a
@@ -129,6 +132,15 @@ async function applyMergedPr(prUrl: string, deliveryId?: string): Promise<GitHub
     // in-flight submission. Acknowledge the event but keep it deferred so it is
     // re-driven on redelivery or at startup — never mark it processed, which
     // would drop the release forever.
+    traceWebhookOutcome({
+      outcome: 'pending',
+      bountyId: 'unmatched',
+      transition: 'pr_merged',
+      deliveryRef: deliveryId,
+      eventRef: prUrl ? `pr:${prUrl}` : deliveryId,
+      reason: 'out_of_order_close_event',
+    });
+
     logStructured('info', 'github_webhook_pr_deferred_no_matching_bounty', {
       prUrl,
       deliveryId,
@@ -143,7 +155,7 @@ async function applyMergedPr(prUrl: string, deliveryId?: string): Promise<GitHub
   // 1. Record PR merge state transition on the bounty (Issue #1449). Skipped when
   // a previous attempt already applied it, so retries never duplicate the event.
   if (!matching.prMerged) {
-    await markBountyPrMerged(matching.id, prUrl);
+    await markBountyPrMerged(matching.id, prUrl, { deliveryRef: deliveryId });
   }
 
   const requireMaintainerConfirmation =
@@ -165,7 +177,7 @@ async function applyMergedPr(prUrl: string, deliveryId?: string): Promise<GitHub
       maintainer: matching.maintainer,
     });
 
-    await releaseForMergedPr(matching.id, matching.maintainer, prUrl);
+    await releaseForMergedPr(matching.id, matching.maintainer, prUrl, deliveryId);
 
     logStructured('info', 'github_webhook_pr_auto_released', {
       bountyId: matching.id,
@@ -284,8 +296,34 @@ export async function handleGitHubPrEvent(
       return { duplicate: false, deferred: true, reason: 'missing_pr_url' };
     }
 
+    if (!githubPrUrlSchema.safeParse(prUrl).success) {
+      logStructured('warn', 'github_webhook_pr_malformed_url', {
+        deliveryId,
+        prUrl,
+        reason: 'pull_request.html_url is malformed; delivery rejected',
+      });
+      traceWebhookOutcome({
+        outcome: 'failed',
+        bountyId: 'unmatched',
+        transition: 'pr_merged',
+        deliveryRef: deliveryId,
+        error: 'malformed_pr_url',
+        reason: 'invalid_pr_url_format',
+      });
+      if (deliveryId) markAsProcessed(deliveryId, { prUrl, reason: 'malformed_pr_url' });
+      return { duplicate: false, deferred: false, reason: 'malformed_pr_url' };
+    }
+
     return await applyMergedPr(prUrl, deliveryId);
   } catch (error) {
+    traceWebhookOutcome({
+      outcome: 'failed',
+      transition: 'pr_merged',
+      deliveryRef: deliveryId,
+      error: error instanceof Error ? error.message : String(error),
+      reason: 'delivery_deferred_retry',
+    });
+
     // Defer instead of dropping: GitHub redelivers failed webhooks, and the
     // startup resume pass picks up what a restart left behind.
     if (deliveryId) {

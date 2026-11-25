@@ -10,6 +10,7 @@ import {
   MAX_LEDGER_RANGE,
   authenticateBackfill,
   backfillEventKey,
+  clampEndLedger,
   createFileBackfillStore,
   runEventBackfill,
   validateBackfillRequest,
@@ -419,5 +420,210 @@ describe('backfill run: overlap, retries and failure isolation (#1937)', () => {
     expect(result.eventsProcessed).toBe(1);
     const stored = JSON.parse(fs.readFileSync(eventsFile, 'utf-8'));
     expect(stored.map((event: { id: string }) => event.id)).toEqual(['evt-in-range']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Backfill boundary behavior (#1935)
+// ---------------------------------------------------------------------------
+//
+// These tests verify the guarantee introduced in #1935: backfill only touches
+// fully-finalized ledgers and cannot race with the live poller at the network
+// tip.  The first RPC page always carries a `latestLedger`; from that value
+// the effective end is computed as `min(endLedger, latestLedger - 1)`.
+
+describe('clampEndLedger (#1935)', () => {
+  it('leaves endLedger unchanged when it is strictly below latestLedger', () => {
+    expect(clampEndLedger(500, 100, 600)).toEqual({ effectiveEnd: 500, clamped: false });
+  });
+
+  it('clamps endLedger to latestLedger - 1 when endLedger equals latestLedger', () => {
+    expect(clampEndLedger(600, 100, 600)).toEqual({ effectiveEnd: 599, clamped: true });
+  });
+
+  it('clamps endLedger to latestLedger - 1 when endLedger exceeds latestLedger', () => {
+    expect(clampEndLedger(700, 100, 600)).toEqual({ effectiveEnd: 599, clamped: true });
+  });
+
+  it('throws invalid_request when the entire range is at or beyond latestLedger', () => {
+    expect(() => clampEndLedger(700, 600, 600)).toThrow(BackfillError);
+    try {
+      clampEndLedger(700, 600, 600);
+    } catch (err) {
+      expect((err as BackfillError).code).toBe('invalid_request');
+      expect((err as BackfillError).message).toContain('nothing to backfill');
+    }
+  });
+
+  it('throws invalid_request when startLedger is beyond latestLedger - 1', () => {
+    // startLedger 601 > safeMax 599
+    expect(() => clampEndLedger(700, 601, 600)).toThrow(BackfillError);
+  });
+
+  it('allows a single-ledger range right below the tip', () => {
+    // latestLedger=101, so safeMax=100, startLedger=100, endLedger=100
+    expect(clampEndLedger(100, 100, 101)).toEqual({ effectiveEnd: 100, clamped: false });
+  });
+});
+
+describe('backfill boundary: live-polling overlap and tip clamping (#1935)', () => {
+  it('clamps endLedger to latestLedger - 1 and excludes events at the tip', async () => {
+    const store = createFileBackfillStore(eventsFile, cursorFile);
+    const logs: string[] = [];
+
+    // Operator requests up to ledger 200, but RPC says latestLedger is 200.
+    // Events at ledger 200 are potentially still being written by the live
+    // poller, so the boundary clamp must exclude them.
+    const result = await runEventBackfill({
+      token: TOKEN,
+      request: { startLedger: 100, endLedger: 200 },
+      env: env(),
+      fetchPage: async () => ({
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          latestLedger: 200,
+          events: [
+            createEvent({ id: 'evt-100', ledger: 100, eventIndex: 0 }),
+            createEvent({ id: 'evt-199', ledger: 199, eventIndex: 0 }),
+            // ledger 200 == latestLedger: must be excluded after clamping
+            createEvent({ id: 'evt-200', ledger: 200, eventIndex: 0 }),
+          ],
+        },
+      }),
+      store,
+      logger: {
+        log: (msg: string) => logs.push(msg),
+        error: () => {},
+      },
+    });
+
+    expect(result.effectiveEndLedger).toBe(199);
+    expect(result.eventsProcessed).toBe(2);
+    const stored = JSON.parse(fs.readFileSync(eventsFile, 'utf-8'));
+    expect(stored.map((e: { id: string }) => e.id)).toEqual(['evt-100', 'evt-199']);
+    // Confirm the warning was logged
+    expect(logs.some((l) => l.includes('endLedger clamped') && l.includes('#1935'))).toBe(true);
+  });
+
+  it('clamps when endLedger is ahead of the network tip', async () => {
+    const store = createFileBackfillStore(eventsFile, cursorFile);
+
+    // Operator asks for future ledgers; tip is 150.
+    const result = await runEventBackfill({
+      token: TOKEN,
+      request: { startLedger: 100, endLedger: 300 },
+      env: env(),
+      fetchPage: async () => ({
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          latestLedger: 150,
+          events: [
+            createEvent({ id: 'evt-100', ledger: 100, eventIndex: 0 }),
+            createEvent({ id: 'evt-149', ledger: 149, eventIndex: 0 }),
+            // ledger 150 and above are excluded after clamping to 149
+            createEvent({ id: 'evt-150', ledger: 150, eventIndex: 0 }),
+            createEvent({ id: 'evt-200', ledger: 200, eventIndex: 0 }),
+          ],
+        },
+      }),
+      store,
+      logger: { log: () => {}, error: () => {} },
+    });
+
+    expect(result.effectiveEndLedger).toBe(149);
+    expect(result.eventsProcessed).toBe(2);
+    const stored = JSON.parse(fs.readFileSync(eventsFile, 'utf-8'));
+    expect(stored.map((e: { id: string }) => e.id)).toEqual(['evt-100', 'evt-149']);
+  });
+
+  it('rejects with invalid_request when the entire range is at the tip or beyond', async () => {
+    const store = createFileBackfillStore(eventsFile, cursorFile);
+
+    // startLedger 200, latestLedger 200 → safeMax 199 < startLedger → nothing to backfill.
+    await expect(
+      runEventBackfill({
+        token: TOKEN,
+        request: { startLedger: 200, endLedger: 200 },
+        env: env(),
+        fetchPage: async () => ({
+          jsonrpc: '2.0',
+          id: 1,
+          result: {
+            latestLedger: 200,
+            events: [],
+          },
+        }),
+        store,
+        logger: { log: () => {}, error: () => {} },
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_request' });
+
+    // No events written
+    expect(fs.existsSync(eventsFile)).toBe(false);
+  });
+
+  it('does not clamp when endLedger is strictly below latestLedger and no warning is emitted', async () => {
+    const store = createFileBackfillStore(eventsFile, cursorFile);
+    const logs: string[] = [];
+
+    const result = await runEventBackfill({
+      token: TOKEN,
+      request: { startLedger: 100, endLedger: 198 },
+      env: env(),
+      fetchPage: async () => ({
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          latestLedger: 200,
+          events: [
+            createEvent({ id: 'evt-100', ledger: 100, eventIndex: 0 }),
+            createEvent({ id: 'evt-198', ledger: 198, eventIndex: 0 }),
+          ],
+        },
+      }),
+      store,
+      logger: {
+        log: (msg: string) => logs.push(msg),
+        error: () => {},
+      },
+    });
+
+    expect(result.effectiveEndLedger).toBe(198);
+    expect(result.eventsProcessed).toBe(2);
+    expect(logs.some((l) => l.includes('clamped'))).toBe(false);
+  });
+
+  it('preserves live-polled events when backfill is clamped', async () => {
+    // A live event at ledger 200 is already in the store (written by the live poller).
+    // Backfill requests 100-200 but latestLedger=200, so clamped to 199.
+    // The existing event at ledger 200 must not be touched.
+    const liveEvent = { id: 'evt-live-200', ledger: 200, type: 'create' };
+    fs.writeFileSync(eventsFile, JSON.stringify([liveEvent], null, 2));
+
+    const store = createFileBackfillStore(eventsFile, cursorFile);
+
+    await runEventBackfill({
+      token: TOKEN,
+      request: { startLedger: 100, endLedger: 200 },
+      env: env(),
+      fetchPage: async () => ({
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          latestLedger: 200,
+          events: [
+            createEvent({ id: 'evt-100', ledger: 100, eventIndex: 0 }),
+          ],
+        },
+      }),
+      store,
+      logger: { log: () => {}, error: () => {} },
+    });
+
+    const stored = JSON.parse(fs.readFileSync(eventsFile, 'utf-8'));
+    // The live event at 200 survives; the backfill event at 100 is appended
+    expect(stored.map((e: { id: string }) => e.id)).toEqual(['evt-live-200', 'evt-100']);
   });
 });

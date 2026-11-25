@@ -94,6 +94,7 @@ import {
   wrapServiceError,
 } from './services/errors';
 import { handleGitHubPrEvent } from './webhooks/githubPrHandler';
+import { traceWebhookOutcome } from './services/stateUpdateTrace';
 import { draining } from './shutdown';
 import { applyBountyTemplate, listBountyTemplates } from './services/bountyTemplates';
 import { csvRowToBounty, parseBountyCsv } from './services/csvImport';
@@ -1347,13 +1348,23 @@ app.post(
   async (req: Request, res: Response) => {
     try {
       const id = parseId(req.params.id);
-      const execute = async () => ({
-        status: 200,
-        body: { data: await reserveBounty(id, req.body.contributor, req.body.expectedVersion) },
-      });
-
       const rawKey = req.headers['idempotency-key'];
       const key = (Array.isArray(rawKey) ? rawKey[0] : rawKey)?.trim();
+      const rawRequestId = req.headers['x-request-id'];
+      const requestId = (Array.isArray(rawRequestId) ? rawRequestId[0] : rawRequestId)?.trim();
+      const rawDeliveryId = req.headers['x-github-delivery'];
+      const deliveryRef = (Array.isArray(rawDeliveryId) ? rawDeliveryId[0] : rawDeliveryId)?.trim();
+      const eventRef = key || requestId || (typeof req.id === 'string' ? req.id : undefined);
+
+      const execute = async () => ({
+        status: 200,
+        body: {
+          data: await reserveBounty(id, req.body.contributor, req.body.expectedVersion, {
+            eventRef,
+            deliveryRef,
+          }),
+        },
+      });
 
       if (!key) {
         const { status, body } = await execute();
@@ -1502,11 +1513,23 @@ app.post(
   },
   async (req: Request, res: Response) => {
     try {
+      const rawKey = req.headers['idempotency-key'];
+      const key = (Array.isArray(rawKey) ? rawKey[0] : rawKey)?.trim();
+      const rawRequestId = req.headers['x-request-id'];
+      const requestId = (Array.isArray(rawRequestId) ? rawRequestId[0] : rawRequestId)?.trim();
+      const rawDeliveryId = req.headers['x-github-delivery'];
+      const deliveryRef = (Array.isArray(rawDeliveryId) ? rawDeliveryId[0] : rawDeliveryId)?.trim();
+      const eventRef = key || requestId || (typeof req.id === 'string' ? req.id : undefined);
+
       const bounty = await refundBounty(
         parseId(req.params.id),
         req.body.maintainer,
         req.body.transactionHash,
-        req.body.expectedVersion
+        req.body.expectedVersion,
+        {
+          eventRef,
+          deliveryRef,
+        }
       );
       res.json({ data: bounty });
     } catch (error) {
@@ -1707,6 +1730,24 @@ app.post(
     const rawDeliveryId = req.headers['x-github-delivery'];
     const deliveryId = Array.isArray(rawDeliveryId) ? rawDeliveryId[0] : rawDeliveryId;
 
+    if (deliveryId !== undefined) {
+      if (typeof deliveryId !== 'string' || deliveryId.length > 256 || !/^[a-zA-Z0-9_-]{1,256}$/.test(deliveryId)) {
+        traceWebhookOutcome({
+          outcome: 'failed',
+          transition: 'webhook_signature_verify',
+          error: 'invalid_delivery_id',
+          reason: 'Malformed X-GitHub-Delivery header',
+        });
+        res.status(400).json({ error: 'Invalid X-GitHub-Delivery header', requestId: req.requestId });
+        return;
+      }
+    }
+
+    if (typeof req.body !== 'object' || req.body === null || Array.isArray(req.body)) {
+      res.status(400).json({ error: 'Malformed webhook payload: body must be a JSON object', requestId: req.requestId });
+      return;
+    }
+
     let result: Awaited<ReturnType<typeof handleGitHubPrEvent>>;
     try {
       result = await handleGitHubPrEvent(req.body, deliveryId);
@@ -1716,6 +1757,14 @@ app.post(
       // The delivery was deferred in the journal before we got here, so GitHub's
       // retry (or the startup resume pass) will re-drive it idempotently.
       res.status(500).json({ error: message, requestId: req.requestId });
+      return;
+    }
+
+    if (result.reason === 'malformed_pr_url') {
+      res.status(400).json({
+        error: 'Malformed webhook payload: invalid pull_request.html_url',
+        requestId: req.requestId,
+      });
       return;
     }
 

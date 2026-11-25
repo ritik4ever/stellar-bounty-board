@@ -20,6 +20,7 @@ import { getServicesConfig } from "./services/config";
 import { getAppConfig } from "./appConfig";
 import { startArchiveJob, stopArchiveJob } from "./services/archiveScheduler";
 import { resumePendingDeliveries } from "./webhooks/githubPrHandler";
+import { resumePendingNotificationDeliveries } from "./services/notificationService";
 
 const port = Number(process.env.PORT ?? 3001);
 const keepAliveTimeout = Number(process.env.KEEP_ALIVE_TIMEOUT ?? 65000);
@@ -104,6 +105,14 @@ if (process.env.NODE_ENV !== "test") {
   // that arrived before the submission they reference (Issue #1941).
   void resumePendingDeliveries().catch((err) => {
     logStructured("warn", "webhook_delivery_resume_failed", {
+      message: err instanceof Error ? err.message : String(err),
+    });
+  });
+
+  // Re-drive notification deliveries that were interrupted by a restart,
+  // SendGrid rate limiting, or webhook timeout (Issue #1946).
+  void resumePendingNotificationDeliveries().catch((err) => {
+    logStructured("warn", "notification_delivery_resume_failed", {
       message: err instanceof Error ? err.message : String(err),
     });
   });

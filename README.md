@@ -127,6 +127,24 @@ Stellar Bounty Board provides an opt-in notification system to notify maintainer
 - **Email:** Delivers templated alerts via SendGrid when `SENDGRID_API_KEY` and `NOTIFICATION_CHANNEL=EMAIL` are configured.
 - **Opt-In Preferences:** Users opt in or out via `POST /api/notifications/opt-in` and check status via `GET /api/notifications/opt-in/:address`.
 
+### Opt-out between enqueue and send
+
+Opt-out is re-checked per recipient immediately before each send, so a user who opts out after a notification was queued is not alerted. `sendNotification` returns one outcome per recipient, each keeping the channel that was used:
+
+- `sent`: the alert was delivered.
+- `skipped` with reason `opted_out`: the recipient opted out before the send. Nothing is sent.
+- `skipped` with reason `not_configured`: the channel is missing its credentials or URL.
+- `failed`: the provider returned an error. The error is recorded in the outcome.
+
+Skipped and failed recipients are never retried by this function, so no recipient is alerted twice.
+
+### Worker replay, resumption, and failure handling (#1946)
+
+- **Persistent Notification Delivery Journal:** Background notification dispatches record state in a durable JSON journal (`NOTIFICATION_DELIVERY_STORE_PATH`, default `<bounty store>.notifications.json`). Each batch is modeled across `pending` and `completed` states with per-recipient outcome tracking.
+- **SendGrid 429 (Rate Limiting):** When SendGrid responds with HTTP 429 Too Many Requests, the outcome records `status: 'failed'` with the status code and provider response. The delivery entry remains `pending`, allowing workers to inspect and retry rate limit failures without terminating or discarding un-sent batches.
+- **Webhook Timeouts:** When dispatching webhooks to `NOTIFICATION_WEBHOOK_URL`, request timeouts or connection aborts are caught and mapped to `status: 'failed'` for each eligible recipient. The delivery journal retains the batch as `pending`.
+- **Worker Replay and Restart:** During worker restart and batch replay (`resumePendingNotificationDeliveries()`), already-delivered recipients are skipped so no duplicate alerts are dispatched. Opt-out preferences are evaluated afresh at the send boundary for un-sent recipients; a recipient who opted out between an initial attempt and a replay is recorded as `skipped: 'opted_out'`, ensuring committed effects are neither lost nor duplicated. Channel selection remains deterministic and immutable across replays.
+
 ## Deployment Guide
 
 See [docs/deployment.md](docs/deployment.md) for step-by-step instructions to deploy the backend on Render and the frontend on Vercel, including required environment variables, health check paths, and troubleshooting tips.
@@ -135,11 +153,11 @@ For detailed architecture diagrams and data flow documentation, see [docs/ARCHIT
 
 For the persistence decision (JSON vs database) see the ADR: [docs/adr/0001-json-file-persistence.md](docs/adr/0001-json-file-persistence.md).
 
-For integrating GitHub webhooks — including the HMAC-SHA256 algorithm, Node.js and Python verification examples, timing-safe comparison guidance, and troubleshooting — see [docs/webhook-signatures.md](docs/webhook-signatures.md).
+For integrating GitHub webhooks — including the HMAC-SHA256 algorithm, Node.js and Python verification examples, timing-safe comparison guidance, and troubleshooting — see [docs/webhook-signatures.md](docs/webhook-signatures.md). For delivery journal resumption, retry reliability, and input validation (#1942), see [docs/webhook-delivery-reliability.md](docs/webhook-delivery-reliability.md).
 
 ## Contract Event Indexer Worker
 
-The backend includes an isolated worker for indexing Soroban contract events. See [backend/worker/README.md](backend/worker/README.md) for details on running and extending the indexer.
+The backend includes an isolated worker for indexing Soroban contract events and an operator backfill tool. See [backend/worker/README.md](backend/worker/README.md) for details on running the indexer, backfill operations, and event replay and failure verification (#1939).
 
 ## API Overview
 

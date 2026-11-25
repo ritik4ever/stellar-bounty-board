@@ -3,11 +3,15 @@ import {
   LifecycleFixtureError,
   PUBLIC_NETWORK_PASSPHRASE,
   freighterDoubleConfig,
+  installFreighterDouble,
   isValidStellarPublicKey,
   readFreighterSigningLog,
+  resetFreighterDouble,
   resolveLifecycleFixtures,
+  setFreighterRejectSigning,
   type LifecycleFixtures,
 } from '../support/lifecycle-fixtures';
+import { installLifecycleApiDouble } from '../support/lifecycle-api-double';
 
 const validFixtures = resolveLifecycleFixtures({});
 
@@ -146,5 +150,156 @@ test.describe('wallet double authorization', () => {
       await page.evaluate(() => Boolean((window as unknown as { freighter?: unknown }).freighter))
     ).toBe(false);
     expect(await readFreighterSigningLog(page)).toEqual([]);
+  });
+
+  test('wallet double supports deterministic rejection and recovery toggling (SBB-2026-482)', async ({
+    page,
+  }) => {
+    await installFreighterDouble(page, validFixtures, { rejectSigning: true });
+    await page.goto('about:blank');
+
+    // Attempting to sign while rejection is enabled throws deterministic error
+    const rejectionError = await page.evaluate(async () => {
+      try {
+        const freighter = (window as unknown as { freighter: { signMessage: (msg: string) => Promise<unknown> } }).freighter;
+        await freighter.signMessage('test-payload');
+        return null;
+      } catch (err) {
+        return (err as Error).message;
+      }
+    });
+    expect(rejectionError).toContain('rejected in Freighter');
+
+    // Signing log remains empty on rejection
+    expect(await readFreighterSigningLog(page)).toEqual([]);
+
+    // Toggling rejection off enables recovery
+    await setFreighterRejectSigning(page, false);
+    const signResult = await page.evaluate(async () => {
+      const freighter = (window as unknown as { freighter: { signMessage: (msg: string) => Promise<{ signature: string }> } }).freighter;
+      return freighter.signMessage('test-payload');
+    });
+    expect(signResult.signature).toBe('e2e-wallet-signature-not-a-real-signature');
+    expect(await readFreighterSigningLog(page)).toEqual(['test-payload']);
+
+    // resetFreighterDouble clears the signing log and resets flags for rerun safety
+    await resetFreighterDouble(page);
+    expect(await readFreighterSigningLog(page)).toEqual([]);
+  });
+});
+
+test.describe('bounty lifecycle API double rerun safety and recovery (SBB-2026-482)', () => {
+  test('API double resets in-memory state cleanly for rerun safety', async ({ page }) => {
+    const double = await installLifecycleApiDouble(page, validFixtures);
+    await page.goto('about:blank');
+
+    // Create a bounty through the double
+    const res = await page.evaluate(async ({ apiUrl, maintainer }) => {
+      const response = await fetch(`${apiUrl}/api/bounties`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repo: 'ritik4ever/stellar-bounty-board',
+          issueNumber: 999,
+          title: 'Rerun safety test',
+          amount: 10,
+          maintainer,
+        }),
+      });
+      return response.status;
+    }, { apiUrl: validFixtures.apiUrl, maintainer: validFixtures.maintainer });
+    expect(res).toBe(201);
+    expect(double.bounties).toHaveLength(1);
+    expect(double.requests).toHaveLength(1);
+
+    // Reset double state
+    double.reset();
+    expect(double.bounties).toHaveLength(0);
+    expect(double.requests).toHaveLength(0);
+  });
+
+  test('API double handles delayed confirmation and allows retry recovery', async ({ page }) => {
+    const double = await installLifecycleApiDouble(page, validFixtures, {
+      failReleaseCount: 1,
+      releaseErrorMessage: 'Contract confirmation timeout',
+    });
+    await page.goto('about:blank');
+
+    // Create, reserve, submit
+    const bountyId = await page.evaluate(async ({ apiUrl, maintainer, contributor }) => {
+      const createRes = await fetch(`${apiUrl}/api/bounties`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repo: 'ritik4ever/stellar-bounty-board',
+          issueNumber: 1001,
+          title: 'Delayed confirmation test',
+          amount: 25,
+          maintainer,
+        }),
+      });
+      const created = await createRes.json();
+      const id = created.data.id;
+
+      await fetch(`${apiUrl}/api/bounties/${id}/reserve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contributor }),
+      });
+      await fetch(`${apiUrl}/api/bounties/${id}/submit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contributor,
+          submissionUrl: 'https://github.com/ritik4ever/stellar-bounty-board/pull/10',
+        }),
+      });
+      return id;
+    }, { apiUrl: validFixtures.apiUrl, maintainer: validFixtures.maintainer, contributor: validFixtures.contributor });
+
+    expect(double.bounties[0]!.status).toBe('submitted');
+
+    // First release attempt fails with 504 gateway timeout (delayed contract confirmation)
+    const firstAttemptStatus = await page.evaluate(async ({ apiUrl, maintainer, bountyId }) => {
+      const response = await fetch(`${apiUrl}/api/bounties/${bountyId}/release`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-stellar-public-key': maintainer,
+          'x-stellar-signature': 'e2e-wallet-signature-not-a-real-signature',
+        },
+        body: JSON.stringify({
+          maintainer,
+          action: 'release',
+          bountyId,
+          timestamp: Math.floor(Date.now() / 1000),
+        }),
+      });
+      return response.status;
+    }, { apiUrl: validFixtures.apiUrl, maintainer: validFixtures.maintainer, bountyId });
+    expect(firstAttemptStatus).toBe(504);
+    // Bounty status must remain submitted, not released
+    expect(double.bounties[0]!.status).toBe('submitted');
+
+    // Second release attempt recovers and succeeds
+    const secondAttemptStatus = await page.evaluate(async ({ apiUrl, maintainer, bountyId }) => {
+      const response = await fetch(`${apiUrl}/api/bounties/${bountyId}/release`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-stellar-public-key': maintainer,
+          'x-stellar-signature': 'e2e-wallet-signature-not-a-real-signature',
+        },
+        body: JSON.stringify({
+          maintainer,
+          action: 'release',
+          bountyId,
+          timestamp: Math.floor(Date.now() / 1000),
+        }),
+      });
+      return response.status;
+    }, { apiUrl: validFixtures.apiUrl, maintainer: validFixtures.maintainer, bountyId });
+    expect(secondAttemptStatus).toBe(200);
+    expect(double.bounties[0]!.status).toBe('released');
   });
 });
