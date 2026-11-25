@@ -29,6 +29,14 @@ export interface WebhookConfig {
    */
   dedupCleanupIntervalMs: number;
   /**
+   * How long an unfinished (interrupted or deferred) delivery record is kept so
+   * it can be resumed before being pruned (milliseconds).
+   *
+   * Source: `WEBHOOK_DELIVERY_CLAIM_STALE_MS`
+   * Default: `86400000` (24 hours)
+   */
+  deliveryClaimStaleMs: number;
+  /**
    * Whether maintainer confirmation is required before final funds release on PR merge.
    * When true, PR merge events transition the bounty to PR-merged state without auto-releasing funds.
    *
@@ -48,6 +56,8 @@ export interface WebhookConfig {
  *   (default: 600000 ms = 10 minutes)
  * - `WEBHOOK_DEDUP_CLEANUP_INTERVAL_MS`: Cleanup interval in milliseconds
  *   (default: 60000 ms = 1 minute)
+ * - `WEBHOOK_DELIVERY_CLAIM_STALE_MS`: Retention for unfinished delivery records
+ *   so they can be resumed (default: 86400000 ms = 24 hours)
  *
  * **Validation:**
  * - All values must be finite positive numbers or are reset to their defaults.
@@ -123,6 +133,20 @@ export function getWebhookConfig(): WebhookConfig {
     return Math.floor(parsed);
   })();
 
+  const deliveryClaimStaleMs = (() => {
+    const raw = process.env.WEBHOOK_DELIVERY_CLAIM_STALE_MS;
+    if (!raw) return 24 * 60 * 60 * 1000; // 24 hours
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      logger.warn(
+        { value: raw },
+        'WEBHOOK_DELIVERY_CLAIM_STALE_MS must be a positive number; using default 86400000 milliseconds'
+      );
+      return 24 * 60 * 60 * 1000;
+    }
+    return Math.floor(parsed);
+  })();
+
   const requireMaintainerConfirmation =
     process.env.WEBHOOK_REQUIRE_MAINTAINER_CONFIRMATION === 'true' ||
     process.env.WEBHOOK_AUTO_RELEASE === 'false';
@@ -131,13 +155,14 @@ export function getWebhookConfig(): WebhookConfig {
     prCacheTtlSeconds,
     dedupTtlMs,
     dedupCleanupIntervalMs,
+    deliveryClaimStaleMs,
     requireMaintainerConfirmation,
   };
 
   // Log effective values at startup for operator visibility
   logger.info(
     config,
-    'Webhook configuration loaded (WEBHOOK_PR_CACHE_TTL_SECONDS, WEBHOOK_DEDUP_TTL_MS, WEBHOOK_DEDUP_CLEANUP_INTERVAL_MS, WEBHOOK_REQUIRE_MAINTAINER_CONFIRMATION)'
+    'Webhook configuration loaded (WEBHOOK_PR_CACHE_TTL_SECONDS, WEBHOOK_DEDUP_TTL_MS, WEBHOOK_DEDUP_CLEANUP_INTERVAL_MS, WEBHOOK_DELIVERY_CLAIM_STALE_MS, WEBHOOK_REQUIRE_MAINTAINER_CONFIRMATION)'
   );
 
   return config;

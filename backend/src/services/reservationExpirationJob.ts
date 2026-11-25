@@ -1,7 +1,9 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { logger } from '../logger';
-import type { BountyRecord } from './bountyStore';
+import {
+  expireStaleReservations as expireReservationsInStore,
+  type TransitionOptions,
+} from './bountyStore';
+import { getServicesConfig } from './config';
 
 export interface ExpirationResult {
   expiredCount: number;
@@ -24,102 +26,22 @@ function getReservationTtlSeconds(): number {
   return Math.floor(days * 24 * 60 * 60);
 }
 
-function getStorePath(): string {
-  if (process.env.BOUNTY_STORE_PATH?.trim()) {
-    return path.resolve(process.env.BOUNTY_STORE_PATH.trim());
-  }
-
-  return path.resolve(__dirname, '../../data/bounties.json');
-}
-
-import { wrapServiceError } from './errors';
-
-function readBounties(): BountyRecord[] {
-  try {
-    const storePath = getStorePath();
-
-    if (!fs.existsSync(storePath)) {
-      return [];
-    }
-
-    const raw = fs.readFileSync(storePath, 'utf8').trim();
-
-    if (!raw) {
-      return [];
-    }
-
-    return JSON.parse(raw) as BountyRecord[];
-  } catch (err) {
-    throw wrapServiceError('reservation_expiration_job.read_store', 'json-store', err);
-  }
-}
-
-function writeBounties(records: BountyRecord[]): void {
-  try {
-    const storePath = getStorePath();
-    fs.mkdirSync(path.dirname(storePath), { recursive: true });
-    fs.writeFileSync(storePath, JSON.stringify(records, null, 2));
-  } catch (err) {
-    throw wrapServiceError('reservation_expiration_job.write_store', 'json-store', err);
-  }
-}
-
-function expireReservation(
-  bounty: BountyRecord,
-  checkedAt: number,
-  ttlSeconds: number
-): BountyRecord {
-  return {
-    ...bounty,
-    status: 'open',
-    contributor: undefined,
-    reservedAt: undefined,
-    version: (bounty.version ?? 1) + 1,
-    events: [
-      ...(bounty.events ?? []),
-      {
-        type: 'expired',
-        timestamp: checkedAt,
-        details: {
-          reason: 'reservation_ttl_exceeded',
-          ttlSeconds,
-        },
-      },
-    ],
-  };
-}
-
-export function expireStaleReservations(ttlSeconds?: number): ExpirationResult {
-  const checkedAt = Math.floor(Date.now() / 1000);
+/**
+ * Expire reservations older than the configured TTL.
+ *
+ * The read-modify-write happens inside the store's file lock
+ * ({@link expireReservationsInStore}), so a run that overlaps a reserve or
+ * refund commits at most once and never clobbers the newer record.
+ *
+ * @param ttlSeconds - Optional TTL override; defaults to `RESERVATION_TTL_DAYS`.
+ * @returns How many reservations were released, which ones, and when.
+ */
+export async function expireStaleReservations(
+  ttlSeconds?: number,
+  options?: TransitionOptions
+): Promise<ExpirationResult> {
   const ttl = ttlSeconds ?? getReservationTtlSeconds();
-  const bounties = readBounties();
-
-  const expiredBountyIds: string[] = [];
-
-  const updated = bounties.map((bounty) => {
-    const isStaleReservation =
-      bounty.status === 'reserved' &&
-      typeof bounty.reservedAt === 'number' &&
-      checkedAt - bounty.reservedAt > ttl;
-
-    if (!isStaleReservation) {
-      return bounty;
-    }
-
-    logger.info(
-      {
-        bountyId: bounty.id,
-        contributor: bounty.contributor,
-      },
-      '[ExpirationJob] Expiring stale reservation'
-    );
-
-    expiredBountyIds.push(bounty.id);
-
-    return expireReservation(bounty, checkedAt, ttl);
-  });
-
-  writeBounties(updated);
+  const { expiredBountyIds, checkedAt } = await expireReservationsInStore(ttl, options);
 
   return {
     expiredCount: expiredBountyIds.length,
@@ -128,23 +50,25 @@ export function expireStaleReservations(ttlSeconds?: number): ExpirationResult {
   };
 }
 
-import { getServicesConfig } from './config';
-
 let expirationTimer: ReturnType<typeof setInterval> | null = null;
 
-export function startExpirationJob(
+export async function startExpirationJob(
   intervalMs = getServicesConfig().expirationJobIntervalMs,
   ttlSeconds?: number
-): void {
+): Promise<void> {
   if (expirationTimer) {
     logger.warn('[ExpirationJob] Already running — ignoring duplicate start');
     return;
   }
 
-  expireStaleReservations(ttlSeconds);
+  await expireStaleReservations(ttlSeconds).catch((err) => {
+    logger.error({ err }, '[ExpirationJob] Initial expiration run failed');
+  });
 
   expirationTimer = setInterval(() => {
-    expireStaleReservations(ttlSeconds);
+    expireStaleReservations(ttlSeconds).catch((err) => {
+      logger.error({ err }, '[ExpirationJob] Scheduled expiration run failed');
+    });
   }, intervalMs);
 }
 

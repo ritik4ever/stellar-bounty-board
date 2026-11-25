@@ -26,6 +26,13 @@ improving the contributor experience, and closing documentation gaps left by Wav
 | 1   | Replace JSON Persistence With Postgres And Audit Logs         | [postgres-audit-log.md](issues/postgres-audit-log.md)                       |
 | 2   | Document the `reservationExpirationJob` Configuration Options | [reservation-expiration-config.md](issues/reservation-expiration-config.md) |
 
+> **Single migration target (Issue #1169).** PostgreSQL is the only target for the move off
+> the JSON store. The SQLite/Drizzle variant that appeared in Wave 4 item 33 and Wave 5 item 17
+> has been amended to point at [ADR 0004](adr/0004-postgres-persistence.md), so this item is
+> the single owner of the cutover. Existing `backend/data/bounties.json` rows are backfilled
+> by `scripts/migrate-to-postgres.mjs`; the dry-run rehearsal against a data copy is documented
+> in [postgres-migration.md](postgres-migration.md).
+
 ---
 
 ## Frontend Issues (2)

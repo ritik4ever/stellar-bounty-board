@@ -57,7 +57,9 @@ fn setup() -> Fixture {
     client.initialize(&admin, &treasury, &arbiter, &DISPUTE_WINDOW);
 
     let token_admin = Address::generate(&env);
-    let token = env.register_stellar_asset_contract_v2(token_admin).address();
+    let token = env
+        .register_stellar_asset_contract_v2(token_admin)
+        .address();
 
     Fixture {
         env,
@@ -136,7 +138,7 @@ fn an_address_that_never_bonded_has_no_stake() {
 }
 
 #[test]
-#[should_panic(expected = "StakeTokenMismatch")]
+#[should_panic(expected = "Error(Contract, #31)")]
 fn topping_up_in_a_different_token_is_rejected() {
     let f = setup();
     f.bond(&f.candidate, 5_000);
@@ -149,7 +151,7 @@ fn topping_up_in_a_different_token_is_rejected() {
 }
 
 #[test]
-#[should_panic(expected = "InvalidAmount")]
+#[should_panic(expected = "Error(Contract, #11)")]
 fn bonding_zero_is_rejected() {
     let f = setup();
     f.client.bond_arbiter_stake(&f.candidate, &f.token, &0);
@@ -170,7 +172,9 @@ fn bonding_requires_the_bonders_signature() {
     client.initialize(&admin, &treasury, &arbiter, &DISPUTE_WINDOW);
 
     let borrower = Address::generate(&env);
-    let token = env.register_stellar_asset_contract_v2(Address::generate(&env)).address();
+    let token = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
     client.bond_arbiter_stake(&borrower, &token, &5_000);
 }
 
@@ -179,10 +183,7 @@ fn bonding_requires_the_bonders_signature() {
 #[test]
 fn the_minimum_stake_defaults_to_the_documented_constant() {
     let f = setup();
-    assert_eq!(
-        f.client.get_min_arbiter_stake(),
-        DEFAULT_MIN_ARBITER_STAKE
-    );
+    assert_eq!(f.client.get_min_arbiter_stake(), DEFAULT_MIN_ARBITER_STAKE);
 }
 
 #[test]
@@ -193,7 +194,7 @@ fn the_arbiter_can_raise_the_minimum() {
 }
 
 #[test]
-#[should_panic(expected = "InvalidAmount")]
+#[should_panic(expected = "Error(Contract, #11)")]
 fn a_minimum_of_zero_is_rejected() {
     // Zero would make the bond decorative: every address would qualify.
     let f = setup();
@@ -201,14 +202,14 @@ fn a_minimum_of_zero_is_rejected() {
 }
 
 #[test]
-#[should_panic(expected = "InsufficientArbiterStake")]
+#[should_panic(expected = "Error(Contract, #30)")]
 fn an_unbonded_candidate_cannot_be_rotated_in() {
     let f = setup();
     f.client.set_arbiter(&f.candidate);
 }
 
 #[test]
-#[should_panic(expected = "InsufficientArbiterStake")]
+#[should_panic(expected = "Error(Contract, #30)")]
 fn a_candidate_bonded_below_the_minimum_cannot_be_rotated_in() {
     let f = setup();
     f.bond(&f.candidate, DEFAULT_MIN_ARBITER_STAKE - 1);
@@ -232,7 +233,7 @@ fn a_bonded_candidate_is_rotated_in_once_the_timelock_elapses() {
 }
 
 #[test]
-#[should_panic(expected = "InsufficientArbiterStake")]
+#[should_panic(expected = "Error(Contract, #30)")]
 fn a_slash_during_the_timelock_blocks_the_rotation() {
     let f = setup();
     f.bond(&f.candidate, DEFAULT_MIN_ARBITER_STAKE);
@@ -278,8 +279,11 @@ fn slashing_forfeits_to_the_treasury_and_leaves_the_remainder() {
     let f = setup();
     f.bond(&f.candidate, 5_000);
 
-    f.client
-        .slash_arbiter(&f.candidate, &2_000, &soroban_sdk::String::from_str(&f.env, "bad ruling"));
+    f.client.slash_arbiter(
+        &f.candidate,
+        &2_000,
+        &soroban_sdk::String::from_str(&f.env, "bad ruling"),
+    );
 
     assert_eq!(f.token().balance(&f.treasury), 2_000);
     assert_eq!(f.token().balance(&f.contract), 3_000);
@@ -304,18 +308,21 @@ fn slashing_the_whole_bond_empties_it_without_removing_the_record() {
 }
 
 #[test]
-#[should_panic(expected = "SlashExceedsStake")]
+#[should_panic(expected = "Error(Contract, #33)")]
 fn slashing_more_than_the_bond_is_rejected() {
     // The contract can only pay out of funds it actually holds, so an
     // over-slash has to fail rather than drain other bounties' escrow.
     let f = setup();
     f.bond(&f.candidate, 5_000);
-    f.client
-        .slash_arbiter(&f.candidate, &5_001, &soroban_sdk::String::from_str(&f.env, "too much"));
+    f.client.slash_arbiter(
+        &f.candidate,
+        &5_001,
+        &soroban_sdk::String::from_str(&f.env, "too much"),
+    );
 }
 
 #[test]
-#[should_panic(expected = "NoArbiterStake")]
+#[should_panic(expected = "Error(Contract, #32)")]
 fn slashing_an_unbonded_address_is_rejected() {
     let f = setup();
     f.client.slash_arbiter(
@@ -326,12 +333,15 @@ fn slashing_an_unbonded_address_is_rejected() {
 }
 
 #[test]
-#[should_panic(expected = "InvalidAmount")]
+#[should_panic(expected = "Error(Contract, #11)")]
 fn slashing_zero_is_rejected() {
     let f = setup();
     f.bond(&f.candidate, 5_000);
-    f.client
-        .slash_arbiter(&f.candidate, &0, &soroban_sdk::String::from_str(&f.env, "noise"));
+    f.client.slash_arbiter(
+        &f.candidate,
+        &0,
+        &soroban_sdk::String::from_str(&f.env, "noise"),
+    );
 }
 
 #[test]

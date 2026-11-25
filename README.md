@@ -86,6 +86,10 @@ curl http://localhost:3001/api/health/deep
 # }
 ```
 
+Each component check has a 5-second timeout by default. Configure the per-component
+timeout in milliseconds with `DEEP_HEALTH_CHECK_TIMEOUT_MS`; checks that exceed it
+are reported as down.
+
 If any component is `"down"`, the endpoint returns HTTP 503. Set `MAINTAINER_PUBLIC_KEY`, `ARBITER_ADDRESS`, and `SOROBAN_CONTRACT_ID` in your environment, and ensure the Soroban RPC URL is reachable.
 
 ### Dispute lifecycle
@@ -123,6 +127,24 @@ Stellar Bounty Board provides an opt-in notification system to notify maintainer
 - **Email:** Delivers templated alerts via SendGrid when `SENDGRID_API_KEY` and `NOTIFICATION_CHANNEL=EMAIL` are configured.
 - **Opt-In Preferences:** Users opt in or out via `POST /api/notifications/opt-in` and check status via `GET /api/notifications/opt-in/:address`.
 
+### Opt-out between enqueue and send
+
+Opt-out is re-checked per recipient immediately before each send, so a user who opts out after a notification was queued is not alerted. `sendNotification` returns one outcome per recipient, each keeping the channel that was used:
+
+- `sent`: the alert was delivered.
+- `skipped` with reason `opted_out`: the recipient opted out before the send. Nothing is sent.
+- `skipped` with reason `not_configured`: the channel is missing its credentials or URL.
+- `failed`: the provider returned an error. The error is recorded in the outcome.
+
+Skipped and failed recipients are never retried by this function, so no recipient is alerted twice.
+
+### Worker replay, resumption, and failure handling (#1946)
+
+- **Persistent Notification Delivery Journal:** Background notification dispatches record state in a durable JSON journal (`NOTIFICATION_DELIVERY_STORE_PATH`, default `<bounty store>.notifications.json`). Each batch is modeled across `pending` and `completed` states with per-recipient outcome tracking.
+- **SendGrid 429 (Rate Limiting):** When SendGrid responds with HTTP 429 Too Many Requests, the outcome records `status: 'failed'` with the status code and provider response. The delivery entry remains `pending`, allowing workers to inspect and retry rate limit failures without terminating or discarding un-sent batches.
+- **Webhook Timeouts:** When dispatching webhooks to `NOTIFICATION_WEBHOOK_URL`, request timeouts or connection aborts are caught and mapped to `status: 'failed'` for each eligible recipient. The delivery journal retains the batch as `pending`.
+- **Worker Replay and Restart:** During worker restart and batch replay (`resumePendingNotificationDeliveries()`), already-delivered recipients are skipped so no duplicate alerts are dispatched. Opt-out preferences are evaluated afresh at the send boundary for un-sent recipients; a recipient who opted out between an initial attempt and a replay is recorded as `skipped: 'opted_out'`, ensuring committed effects are neither lost nor duplicated. Channel selection remains deterministic and immutable across replays.
+
 ## Deployment Guide
 
 See [docs/deployment.md](docs/deployment.md) for step-by-step instructions to deploy the backend on Render and the frontend on Vercel, including required environment variables, health check paths, and troubleshooting tips.
@@ -131,11 +153,11 @@ For detailed architecture diagrams and data flow documentation, see [docs/ARCHIT
 
 For the persistence decision (JSON vs database) see the ADR: [docs/adr/0001-json-file-persistence.md](docs/adr/0001-json-file-persistence.md).
 
-For integrating GitHub webhooks — including the HMAC-SHA256 algorithm, Node.js and Python verification examples, timing-safe comparison guidance, and troubleshooting — see [docs/webhook-signatures.md](docs/webhook-signatures.md).
+For integrating GitHub webhooks — including the HMAC-SHA256 algorithm, Node.js and Python verification examples, timing-safe comparison guidance, and troubleshooting — see [docs/webhook-signatures.md](docs/webhook-signatures.md). For delivery journal resumption, retry reliability, and input validation (#1942), see [docs/webhook-delivery-reliability.md](docs/webhook-delivery-reliability.md).
 
 ## Contract Event Indexer Worker
 
-The backend includes an isolated worker for indexing Soroban contract events. See [backend/worker/README.md](backend/worker/README.md) for details on running and extending the indexer.
+The backend includes an isolated worker for indexing Soroban contract events and an operator backfill tool. See [backend/worker/README.md](backend/worker/README.md) for details on running the indexer, backfill operations, and event replay and failure verification (#1939).
 
 ## API Overview
 
@@ -187,6 +209,9 @@ Routes:
     ```
   - **Error Responses**:
     - `429 Too Many Requests` — rate limit exceeded.
+  - Each component check times out after 5 seconds by default. Set
+    `DEEP_HEALTH_CHECK_TIMEOUT_MS` to configure the per-component timeout in milliseconds;
+    timed-out checks are reported as down.
 - `GET /api/bounties` — list and filter bounties
   - **Query Parameters**:
     - `q` (optional): Free-text search keyword.
@@ -262,6 +287,9 @@ Routes:
     - `401 Unauthorized` — missing or invalid Stellar signature authorization header.
     - `429 Too Many Requests` — rate limit exceeded.
 - `POST /api/bounties/:id/reserve` — reserve an open bounty
+  - The `id` path parameter must be non-empty; no query parameters are accepted.
+    `expectedVersion`, when provided, must be a positive integer. Invalid path,
+    query, or body input returns `400` with code `BOUNTY_RESERVE_INVALID_INPUT`.
   - **Request Body**:
     ```json
     {
@@ -282,7 +310,7 @@ Routes:
     }
     ```
   - **Error Responses**:
-    - `400 Bad Request` — invalid request payload (`INVALID_BODY`).
+    - `400 Bad Request` — invalid path, query, or request body (`BOUNTY_RESERVE_INVALID_INPUT`).
     - `404 Not Found` — bounty ID not found (`BOUNTY_NOT_FOUND`).
     - `409 Conflict` — bounty is already reserved/released, or version mismatch.
     - `429 Too Many Requests` — rate limit exceeded.
@@ -607,15 +635,120 @@ The `bindings-drift.yml` workflow regenerates bindings on every PR and push to `
 
 ### Contract Error Codes
 
-The Soroban contract uses a named error enum (`Error`) for recoverable failures:
+`contracts/src/lib.rs` exports `ContractError`, a `#[contracterror]` enum with
+explicit `u32` discriminants. `panic_with_error!` emits `Error(Contract, #N)`;
+clients should decode the number rather than match panic text. Codes **1-3**
+retain the original README allocation. Other codes are explicit and append-only:
+never renumber, recycle or infer a code from enum declaration order.
 
-| Code | Variant                 | Description                                                                                            |
-| ---- | ----------------------- | ------------------------------------------------------------------------------------------------------ |
-| 1    | `BountyNotOpen`         | Bounty reservation failed because the bounty is not in `Open` status (already reserved, expired, etc.) |
-| 2    | `BountyNotFound`        | The specified bounty ID does not exist                                                                 |
-| 3    | `BountyAlreadyReserved` | The bounty is already reserved by another contributor                                                  |
+This replaces the previous string-panic implementation (which already had 37
+variant names, despite the old three-row README table). It changes error wire
+representation; consumers matching the old Debug strings must migrate. Entry
+point arguments, stored bounty layout, eligibility, authorization, fee arithmetic
+and successful transfer/event payloads are unchanged.
 
-These errors are invoked via `panic_with_error!` and surface as `Error(Contract, #N)` in test expectations.
+| Code | Variant                         | Meaning                                                                                  |
+| ---- | ------------------------------- | ---------------------------------------------------------------------------------------- |
+| 1    | `BountyNotOpen`                 | Reservation/cancellation requires an open bounty; other non-open states are rejected.    |
+| 2    | `BountyNotFound`                | The requested bounty ID does not exist.                                                  |
+| 3    | `BountyAlreadyReserved`         | Reservation found an already-reserved, unexpired bounty (same or different contributor). |
+| 4    | `AlreadyInitialized`            | Reserved initialized-state error.                                                        |
+| 5    | `NotInitialized`                | Reserved missing-initialization error.                                                   |
+| 6    | `NotAdmin`                      | The supplied admin does not match the stored admin.                                      |
+| 7    | `NotArbiter`                    | The supplied arbiter does not match the configured arbiter.                              |
+| 8    | `ArbiterNotSet`                 | Required arbiter storage is missing.                                                     |
+| 9    | `NoPendingArbiter`              | No arbiter rotation is pending.                                                          |
+| 10   | `TimelockNotElapsed`            | Arbiter rotation timelock has not elapsed.                                               |
+| 11   | `InvalidAmount`                 | Amount is non-positive or exceeds the supported maximum.                                 |
+| 12   | `AmountTooSmall`                | Amount is below the configured minimum.                                                  |
+| 13   | `DeadlineMustBeInTheFuture`     | Creation deadline is at or before the ledger timestamp.                                  |
+| 14   | `DeadlineMustAdvance`           | Replacement deadline does not advance the existing deadline.                             |
+| 15   | `FeeRecipientNotSet`            | A nonzero protocol fee requires a configured recipient.                                  |
+| 16   | `TokenNotAllowed`               | Allowlist is enabled and excludes the escrow token.                                      |
+| 17   | `DisputeWindowOverrideTooSmall` | Override is below the allowed minimum.                                                   |
+| 18   | `DisputeWindowOverrideTooLarge` | Override exceeds the allowed maximum.                                                    |
+| 19   | `BountyMustBeReserved`          | Submission/reassignment requires a reserved bounty.                                      |
+| 20   | `BountyMustBeSubmitted`         | Release/dispute requires a submitted bounty.                                             |
+| 21   | `BountyNotExpiredYet`           | Refund is attempted at or before a nonzero deadline.                                     |
+| 22   | `BountyExpired`                 | Reservation/submission/dispute found an expired bounty.                                  |
+| 23   | `BountyAlreadyFinalized`        | Refund found a released/refunded bounty.                                                 |
+| 24   | `CannotExtendFinalizedBounty`   | A terminal bounty cannot have its deadline extended.                                     |
+| 25   | `MaintainerMismatch`            | The authenticated maintainer argument is not the bounty maintainer.                      |
+| 26   | `ContributorMismatch`           | The authenticated contributor argument is not the assigned contributor.                  |
+| 27   | `MissingContributor`            | Required contributor storage is absent (including malformed reserved/submitted records). |
+| 28   | `DisputeWindowNotMet`           | The dispute settlement window has not elapsed.                                           |
+| 29   | `ContractIsPaused`              | The circuit breaker blocks creation/reservation.                                         |
+| 30   | `InsufficientArbiterStake`      | Arbiter bond is below the configured minimum.                                            |
+| 31   | `StakeTokenMismatch`            | Bond uses a different token.                                                             |
+| 32   | `NoArbiterStake`                | No recorded bond exists.                                                                 |
+| 33   | `SlashExceedsStake`             | Requested slash exceeds the bond.                                                        |
+| 34   | `NotCommitteeMember`            | Caller is not a committee member.                                                        |
+| 35   | `DuplicateCommitteeVote`        | Member has already voted on this dispute.                                                |
+| 36   | `CommitteeSizeExceeded`         | Committee exceeds its size limit.                                                        |
+| 37   | `DuplicateCommitteeMember`      | Committee contains duplicate addresses.                                                  |
+| 38   | `CommitteeNotConfigured`        | No committee is configured.                                                              |
+| 39   | `InvalidFeeBps`                 | Creation fee exceeds 10,000 basis points.                                                |
+| 40   | `BountyIdOverflow`              | The next bounty ID cannot be allocated without u64 overflow.                             |
+| 41   | `BountyMustBeDisputed`          | Resolution/voting requires a disputed bounty.                                            |
+| 42   | `EscrowTransferFailed`          | The token rejected creation funding or returned an invalid result.                       |
+| 43   | `PayoutTransferFailed`          | The token rejected the release net payout or returned an invalid result.                 |
+| 44   | `FeeTransferFailed`             | The token rejected the release fee transfer or returned an invalid result.               |
+| 45   | `RefundTransferFailed`          | The token rejected the refund or returned an invalid result.                             |
+
+`AlreadyInitialized` and `NotInitialized` retain named allocations but are not
+currently emitted by lifecycle entry points. Raw administrative/configuration
+panics outside the lifecycle audit are not promised to use this envelope.
+
+#### Lifecycle failure audit
+
+The table follows the real source, including guard order; it does not add new
+eligibility restrictions. `resolve_dispute` is listed alongside dispute creation
+because it is the settlement path. Error variants shared by the same failure
+condition keep the same code across entry points.
+
+| Function          | Contract-owned failures, in evaluation order                                                                                                                                                                                                                |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `create_bounty`   | `ContractIsPaused`; `InvalidAmount`; `AmountTooSmall`; `DeadlineMustBeInTheFuture`; `InvalidFeeBps`; `FeeRecipientNotSet`; `TokenNotAllowed`; `DisputeWindowOverrideTooSmall` / `DisputeWindowOverrideTooLarge`; `EscrowTransferFailed`; `BountyIdOverflow` |
+| `reserve_bounty`  | `ContractIsPaused`; `BountyNotFound`; `BountyExpired`; `BountyAlreadyReserved`; `BountyNotOpen`                                                                                                                                                             |
+| `submit_bounty`   | `BountyNotFound`; `BountyExpired`; `BountyMustBeReserved`; `MissingContributor`; `ContributorMismatch`                                                                                                                                                      |
+| `release_bounty`  | `BountyNotFound`; `MaintainerMismatch`; `BountyMustBeSubmitted`; `MissingContributor`; `PayoutTransferFailed`; `FeeRecipientNotSet`; `FeeTransferFailed`                                                                                                    |
+| `refund_bounty`   | `BountyNotFound`; `MaintainerMismatch`; `BountyAlreadyFinalized`; `BountyNotExpiredYet`; `RefundTransferFailed`                                                                                                                                             |
+| `dispute_bounty`  | `BountyNotFound`; `BountyExpired`; `MissingContributor`; `BountyMustBeSubmitted`; `ArbiterNotSet`; `NotArbiter`                                                                                                                                             |
+| `resolve_dispute` | `ArbiterNotSet`; `BountyNotFound`; `BountyMustBeDisputed`; `DisputeWindowNotMet`; release additionally requires contributor/fee recipient storage. This older settlement path retains nested token errors.                                                  |
+
+**Authorization is separate.** `require_auth()` is still enforced by Soroban:
+create/release/refund require the maintainer; reserve/submit require the
+contributor; dispute requires the **stored contributor**, with the arbiter
+argument checked against configuration; resolution requires the stored arbiter.
+An absent/invalid signature remains a host authorization failure, not a contract
+validation code. An authenticated but incorrect maintainer/contributor argument
+produces `MaintainerMismatch` / `ContributorMismatch`. Passing the configured
+arbiter to `dispute_bounty` does not grant that address permission to sign for
+the contributor. No authentication check was removed or replaced.
+
+The six lifecycle entry points map token invocation failures to operation-specific
+codes 42-45 so a nested token's numeric error cannot be confused with one of
+this contract's validation codes. The host's diagnostic invocation trace retains
+the underlying token failure. Root invocation rollback preserves escrow balances,
+IDs and bounty state, including when a net payout succeeds before a fee fails.
+Host resource limits, invalid ABI arguments and malformed storage decoding remain
+host failures; they are not fabricated business-error variants.
+
+The existing frontend `ContractError` enum and `CONTRACT_ERROR_LABELS` are generated
+from this declaration by `node scripts/generate-contract-errors.mjs`. Use
+`node scripts/generate-contract-errors.mjs --check` to detect drift without writing
+files; the root script tests run the same check. The generator updates only the
+error sections of the existing bindings, preserving unrelated ABI types.
+
+Verification: `cargo test --locked --test lifecycle_errors` checks exact SDK
+errors/enum conversion, all lifecycle guards, real Stellar asset transfer
+rejection/rollback and missing signatures. Existing lifecycle, role, fuzz and
+arbiter tests use the numeric wire envelope as well.
+With the pinned SDK 27 and modern Rust, build the contract with
+`rustup target add wasm32v1-none` and
+`cargo build --locked --release --target wasm32v1-none`. SDK 27 rejects the
+older `wasm32-unknown-unknown` target used by the current CI setup; that target
+failure also occurs on the unchanged baseline.
 
 ## FAQ
 

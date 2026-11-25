@@ -24,7 +24,10 @@
     "test:coverage": "npm --prefix backend run test:coverage",
     "check:bindings": "bash scripts/gen-bindings.sh && git diff --exit-code frontend/src/generated",
     "seed:bounties": "node scripts/seed-bounties.js",
-    "seed:demo": "node scripts/seed-demo.js"
+    "seed:demo": "node scripts/seed-demo.js",
+    "testnet:preflight": "node scripts/validate-testnet-config.cjs",
+    "test:testnet-config": "node --test scripts/validate-testnet-config.test.cjs",
+    "start:testnet:safe": "node scripts/validate-testnet-config.cjs -- node backend/dist/index.js"
   },
   "license": "MIT",
   "dependencies": {
@@ -50,6 +53,7 @@
     "eslint-plugin-import": "^2.32.0",
     "husky": "^9.0.0",
     "lint-staged": "^15.2.0",
+    "pg": "^8.23.1",
     "prettier": "^3.8.3",
     "typescript": "^5.7.2"
   }

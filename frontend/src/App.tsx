@@ -161,6 +161,7 @@ function App() {
   const [page, setPage] = useState(1);
   const [, setIssues] = useState<OpenIssue[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showShortcutsOverlay, setShowShortcutsOverlay] = useState(false);
@@ -304,9 +305,13 @@ function App() {
     async function bootstrap() {
       try {
         await refresh(signal);
+        if (!signal.aborted) setError(null);
       } catch (err) {
         if (signal.aborted) return;
         console.error('Failed to load project data:', err);
+        setError(
+          err instanceof Error ? err.message : 'Failed to load bounties. Please try again.'
+        );
       } finally {
         if (!signal.aborted) {
           setLoading(false);
@@ -325,6 +330,18 @@ function App() {
       controller.abort();
       window.clearInterval(timer);
     };
+  }, [refresh]);
+
+  const handleRetry = useCallback(() => {
+    setError(null);
+    setLoading(true);
+    void refresh()
+      .catch((err) => {
+        setError(
+          err instanceof Error ? err.message : 'Failed to load bounties. Please try again.'
+        );
+      })
+      .finally(() => setLoading(false));
   }, [refresh]);
 
   useEffect(() => {
@@ -629,32 +646,35 @@ function App() {
     }
   }
 
-  const renderActionButton = useCallback(
-    (bounty: Bounty, action: { action: BountyAction; label: string; title: string }) => {
-      const onClick = (event: React.MouseEvent<HTMLButtonElement>) => {
-        event.stopPropagation();
-        if (action.action === 'reserve') void handleReserve(bounty);
-        else if (action.action === 'submit') void handleSubmit(bounty);
-        else if (action.action === 'release') void handleRelease(bounty);
-        else if (action.action === 'refund') void handleRefund(bounty);
-      };
+  // Deliberately not memoized: these handlers read the live Freighter state, so
+  // a memoized renderer would keep calling the handlers captured on first
+  // render (when the wallet was still disconnected).
+  function renderActionButton(
+    bounty: Bounty,
+    action: { action: BountyAction; label: string; title: string }
+  ) {
+    const onClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      if (action.action === 'reserve') void handleReserve(bounty);
+      else if (action.action === 'submit') void handleSubmit(bounty);
+      else if (action.action === 'release') void handleRelease(bounty);
+      else if (action.action === 'refund') void handleRefund(bounty);
+    };
 
-      return (
-        <button
-          key={action.action}
-          type="button"
-          className={action.action === 'refund' ? 'ghost-button' : 'secondary-button'}
-          title={action.title}
-          aria-label={`${action.label}: ${action.title}`}
-          data-testid={`action-button-${action.action}`}
-          onClick={onClick}
-        >
-          {action.label}
-        </button>
-      );
-    },
-    [refresh]
-  );
+    return (
+      <button
+        key={action.action}
+        type="button"
+        className={action.action === 'refund' ? 'ghost-button' : 'secondary-button'}
+        title={action.title}
+        aria-label={`${action.label}: ${action.title}`}
+        data-testid={`action-button-${action.action}`}
+        onClick={onClick}
+      >
+        {action.label}
+      </button>
+    );
+  }
 
   const repoRoute = useMemo(() => {
     const match = pathname.match(/^\/repo\/([^/]+)\/([^/]+)$/);
@@ -1233,6 +1253,19 @@ function App() {
                     <SkeletonBountyCard key={i} />
                   ))}
                 </div>
+              ) : error ? (
+                <div className="empty-state error-state" role="alert" data-testid="error-state">
+                  <h3>Something went wrong</h3>
+                  <p>{error}</p>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={handleRetry}
+                    data-testid="retry-button"
+                  >
+                    Retry
+                  </button>
+                </div>
               ) : Object.keys(groupedBounties).length > 0 ? (
                 <div className="board-groups">
                   {Object.entries(groupedBounties).map(([repo, repoBounties]) => (
@@ -1268,6 +1301,7 @@ function App() {
                   heading={emptyStateHeading}
                   message={emptyStateMessage}
                   hasFilters={hasActiveFilters}
+                  data-testid="empty-state"
                   onClearFilters={() => {
                     setSearchQuery('');
                     setStatusFilter('all');

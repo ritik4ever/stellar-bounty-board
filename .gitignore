@@ -5,9 +5,13 @@ frontend/storybook-static/
 *.log
 .DS_Store
 backend/data/*.local.json
+backend/data/*.archive.json
+backend/data/*.webhook-deliveries.json
+backend/data/*.webhook-deliveries.json.*.tmp
 contracts/target/
 contracts/.stellar/
 
 issue.md
 pr.md
 frontend/storybook-static/
+*.zip

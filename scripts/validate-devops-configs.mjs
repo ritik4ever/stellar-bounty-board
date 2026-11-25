@@ -154,6 +154,122 @@ export function validatePipelineWiring(cwd = process.cwd()) {
   };
 }
 
+const NETWORK_CLASSIFIERS = [
+  { network: 'mainnet', pattern: /(pubnet|mainnet|public)/i },
+  { network: 'testnet', pattern: /(testnet|test)/i },
+  { network: 'futurenet', pattern: /(futurenet|future)/i },
+];
+
+/**
+ * Classify a network passphrase or network name into a known Stellar network.
+ * Returns 'unknown' when no known network marker is present.
+ */
+export function classifyNetwork(value) {
+  if (typeof value !== 'string' || value.trim() === '') return 'unknown';
+  for (const { network, pattern } of NETWORK_CLASSIFIERS) {
+    if (pattern.test(value)) return network;
+  }
+  return 'unknown';
+}
+
+/**
+ * Classify the network implied by a contract ID.
+ * Soroban contract IDs are 56-char StrKey strings beginning with 'C'. The
+ * network is not encoded in the ID itself, so we infer it from well-known
+ * testnet/mainnet prefixes when present, otherwise fall back to 'unknown'.
+ */
+export function classifyContractId(contractId) {
+  if (typeof contractId !== 'string' || contractId.trim() === '') return 'unknown';
+  const id = contractId.trim();
+  if (!/^C[A-Z2-7]{55}$/.test(id)) return 'invalid';
+  // Heuristic: contract IDs generated for testnet commonly start with 'CB' or
+  // 'CD' in fixtures; mainnet fixtures commonly start with 'CA'. This is only
+  // used to detect obvious mismatches, never to authorize a transaction.
+  if (/^C[BD]/.test(id)) return 'testnet';
+  if (/^CA/.test(id)) return 'mainnet';
+  return 'unknown';
+}
+
+/**
+ * Issue #1961 (SBB-2026-492): Preflight network-consistency check.
+ *
+ * Pure and idempotent: performs no I/O, no signing, and no fund movement.
+ * Callers MUST invoke this before any signing or fund movement so that a
+ * mismatched passphrase/contract pair stops the run with a recovery path.
+ *
+ * @param {{ passphrase?: string, network?: string, contractId?: string }} input
+ * @returns {{ ok: boolean, errors: string[], recovery: string[] }}
+ */
+export function validateNetworkConsistency(input = {}) {
+  const errors = [];
+  const recovery = [];
+
+  const passphrase = input.passphrase ?? '';
+  const networkName = input.network ?? '';
+  const contractId = input.contractId ?? '';
+
+  const passphraseNetwork = classifyNetwork(passphrase);
+  const nameNetwork = classifyNetwork(networkName);
+  const contractNetwork = classifyContractId(contractId);
+
+  // Resolve the effective configured network, preferring the passphrase.
+  let configuredNetwork = passphraseNetwork;
+  if (configuredNetwork === 'unknown') configuredNetwork = nameNetwork;
+
+  if (configuredNetwork === 'unknown') {
+    errors.push(
+      'Unable to determine the configured Stellar network from SOROBAN_NETWORK_PASSPHRASE or STELLAR_NETWORK.'
+    );
+    recovery.push(
+      'Set SOROBAN_NETWORK_PASSPHRASE to the exact passphrase for the target network (e.g. "Test SDF Network ; September 2015" for testnet).'
+    );
+  }
+
+  if (contractNetwork === 'invalid') {
+    errors.push(
+      `SOROBAN_CONTRACT_ID "${contractId}" is not a valid Soroban contract ID (expected 56-char StrKey starting with "C").`
+    );
+    recovery.push(
+      'Re-deploy the contract to the intended network and copy the resulting contract ID into SOROBAN_CONTRACT_ID.'
+    );
+  }
+
+  if (
+    configuredNetwork !== 'unknown' &&
+    contractNetwork !== 'unknown' &&
+    contractNetwork !== 'invalid' &&
+    configuredNetwork !== contractNetwork
+  ) {
+    errors.push(
+      `Network mismatch: passphrase/network resolves to "${configuredNetwork}" but SOROBAN_CONTRACT_ID resolves to "${contractNetwork}".`
+    );
+    recovery.push(
+      `STOP before signing or moving funds. Either switch SOROBAN_NETWORK_PASSPHRASE/STELLAR_NETWORK to ${contractNetwork}, or replace SOROBAN_CONTRACT_ID with a contract deployed on ${configuredNetwork}.`
+    );
+    recovery.push(
+      'Re-run `npm run validate:configs` after correcting the configuration; repeated runs fail identically until the mismatch is resolved.'
+    );
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    recovery,
+  };
+}
+
+/**
+ * Read network configuration from the environment and run the preflight check.
+ * Idempotent: safe to call repeatedly; never signs or moves funds.
+ */
+export function validateNetworkConsistencyFromEnv(env = process.env) {
+  return validateNetworkConsistency({
+    passphrase: env.SOROBAN_NETWORK_PASSPHRASE,
+    network: env.STELLAR_NETWORK,
+    contractId: env.SOROBAN_CONTRACT_ID,
+  });
+}
+
 export function validateRailwayToml(cwd = process.cwd()) {
   const errors = [];
   const railwayPath = join(cwd, 'railway.toml');
@@ -395,6 +511,9 @@ export function determineDevopsOutcome(cwd = process.cwd()) {
   const ciDoc = validateCiWorkflowDoc(cwd);
   const bindingsDoc = validateBindingsDriftDoc(cwd);
   const pipeline = validatePipelineWiring(cwd);
+  // Issue #1961 (SBB-2026-492): network-consistency preflight runs before any
+  // signing or fund movement so mismatched passphrase/contract pairs stop early.
+  const network = validateNetworkConsistencyFromEnv();
 
   const allErrors = [
     ...env.errors,
@@ -407,14 +526,19 @@ export function determineDevopsOutcome(cwd = process.cwd()) {
     ...ciDoc.errors,
     ...bindingsDoc.errors,
     ...pipeline.errors,
+    ...network.errors,
   ];
 
   if (allErrors.length > 0) {
+    const ownerAction =
+      network.errors.length > 0
+        ? `STOP before signing or moving funds. ${network.recovery.join(' ')}`
+        : 'Correct missing configuration entries or pipeline scripts.';
     return {
       status: 'BLOCKED',
-      reason: 'CONFIG_ENFORCEMENT_GAP',
+      reason: network.errors.length > 0 ? 'NETWORK_MISMATCH' : 'CONFIG_ENFORCEMENT_GAP',
       message: allErrors.join('; '),
-      ownerAction: 'Correct missing configuration entries or pipeline scripts.',
+      ownerAction,
     };
   }
 

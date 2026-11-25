@@ -55,7 +55,9 @@ fn setup() -> Fixture {
     client.initialize(&admin, &treasury, &arbiter, &DISPUTE_WINDOW);
 
     let token_admin = Address::generate(&env);
-    let token = env.register_stellar_asset_contract_v2(token_admin).address();
+    let token = env
+        .register_stellar_asset_contract_v2(token_admin)
+        .address();
 
     Fixture {
         env,
@@ -113,7 +115,7 @@ impl Fixture {
     }
 }
 
-// ─── Committee Configuration Tests ──────────────────────────────────────────
+// â”€â”€â”€ Committee Configuration Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 #[test]
 fn test_admin_configures_committee() {
@@ -128,7 +130,7 @@ fn test_admin_configures_committee() {
 }
 
 #[test]
-#[should_panic(expected = "CommitteeSizeExceeded")]
+#[should_panic(expected = "Error(Contract, #36)")]
 fn test_committee_size_exceeded_fails() {
     let fix = setup();
     let four_members = vec![
@@ -142,7 +144,7 @@ fn test_committee_size_exceeded_fails() {
 }
 
 #[test]
-#[should_panic(expected = "DuplicateCommitteeMember")]
+#[should_panic(expected = "Error(Contract, #37)")]
 fn test_committee_duplicate_members_fails() {
     let fix = setup();
     let duplicates = vec![
@@ -154,7 +156,7 @@ fn test_committee_duplicate_members_fails() {
     fix.client.set_arbiter_committee(&duplicates);
 }
 
-// ─── Acceptance Criteria 1: Single Vote Does Not Release Funds ───────────────
+// â”€â”€â”€ Acceptance Criteria 1: Single Vote Does Not Release Funds â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 #[test]
 fn test_single_vote_does_not_release_funds() {
@@ -163,7 +165,9 @@ fn test_single_vote_does_not_release_funds() {
     let bounty_id = fix.create_disputed_bounty(1000, 500); // 5% fee
 
     // First committee vote: release = true
-    let resolved = fix.client.vote_resolve_dispute(&bounty_id, &fix.arbiter1, &true);
+    let resolved = fix
+        .client
+        .vote_resolve_dispute(&bounty_id, &fix.arbiter1, &true);
     assert_eq!(resolved, false);
 
     // Funds must remain locked in escrow
@@ -179,7 +183,7 @@ fn test_single_vote_does_not_release_funds() {
     assert_eq!(votes.get(0).unwrap().decision, true);
 }
 
-// ─── Acceptance Criteria 2: Two Matching Votes Triggers Resolution ───────────
+// â”€â”€â”€ Acceptance Criteria 2: Two Matching Votes Triggers Resolution â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 #[test]
 fn test_two_matching_votes_release_funds_to_contributor() {
@@ -188,10 +192,18 @@ fn test_two_matching_votes_release_funds_to_contributor() {
     let bounty_id = fix.create_disputed_bounty(1000, 500); // 5% fee (50 tokens)
 
     // Arbiter 1 votes release
-    assert_eq!(fix.client.vote_resolve_dispute(&bounty_id, &fix.arbiter1, &true), false);
+    assert_eq!(
+        fix.client
+            .vote_resolve_dispute(&bounty_id, &fix.arbiter1, &true),
+        false
+    );
 
     // Arbiter 2 votes release -> quorum reached (2-of-3)
-    assert_eq!(fix.client.vote_resolve_dispute(&bounty_id, &fix.arbiter2, &true), true);
+    assert_eq!(
+        fix.client
+            .vote_resolve_dispute(&bounty_id, &fix.arbiter2, &true),
+        true
+    );
 
     // Bounty status must be Released
     let bounty = fix.client.get_bounty(&bounty_id);
@@ -214,10 +226,18 @@ fn test_two_matching_votes_refund_to_maintainer() {
     let bounty_id = fix.create_disputed_bounty(1000, 500);
 
     // Arbiter 1 votes refund
-    assert_eq!(fix.client.vote_resolve_dispute(&bounty_id, &fix.arbiter1, &false), false);
+    assert_eq!(
+        fix.client
+            .vote_resolve_dispute(&bounty_id, &fix.arbiter1, &false),
+        false
+    );
 
     // Arbiter 3 votes refund -> quorum reached
-    assert_eq!(fix.client.vote_resolve_dispute(&bounty_id, &fix.arbiter3, &false), true);
+    assert_eq!(
+        fix.client
+            .vote_resolve_dispute(&bounty_id, &fix.arbiter3, &false),
+        true
+    );
 
     // Bounty status must be Refunded
     let bounty = fix.client.get_bounty(&bounty_id);
@@ -228,7 +248,7 @@ fn test_two_matching_votes_refund_to_maintainer() {
     assert_eq!(fix.token_client().balance(&fix.contributor), 0);
 }
 
-// ─── Acceptance Criteria 3: Conflicting Votes + Tie-Breaker ──────────────────
+// â”€â”€â”€ Acceptance Criteria 3: Conflicting Votes + Tie-Breaker â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 #[test]
 fn test_conflicting_votes_with_tie_breaker_resolves_to_majority() {
@@ -237,15 +257,33 @@ fn test_conflicting_votes_with_tie_breaker_resolves_to_majority() {
     let bounty_id = fix.create_disputed_bounty(1000, 0); // 0% fee
 
     // Vote 1: Arbiter 1 votes Release (1 Release, 0 Refund)
-    assert_eq!(fix.client.vote_resolve_dispute(&bounty_id, &fix.arbiter1, &true), false);
-    assert_eq!(fix.client.get_bounty(&bounty_id).status, BountyStatus::Disputed);
+    assert_eq!(
+        fix.client
+            .vote_resolve_dispute(&bounty_id, &fix.arbiter1, &true),
+        false
+    );
+    assert_eq!(
+        fix.client.get_bounty(&bounty_id).status,
+        BountyStatus::Disputed
+    );
 
     // Vote 2: Arbiter 2 votes Refund (1 Release, 1 Refund) -> Conflict, no quorum
-    assert_eq!(fix.client.vote_resolve_dispute(&bounty_id, &fix.arbiter2, &false), false);
-    assert_eq!(fix.client.get_bounty(&bounty_id).status, BountyStatus::Disputed);
+    assert_eq!(
+        fix.client
+            .vote_resolve_dispute(&bounty_id, &fix.arbiter2, &false),
+        false
+    );
+    assert_eq!(
+        fix.client.get_bounty(&bounty_id).status,
+        BountyStatus::Disputed
+    );
 
     // Vote 3: Arbiter 3 votes Release (2 Release, 1 Refund) -> Tie-breaker resolves to Release!
-    assert_eq!(fix.client.vote_resolve_dispute(&bounty_id, &fix.arbiter3, &true), true);
+    assert_eq!(
+        fix.client
+            .vote_resolve_dispute(&bounty_id, &fix.arbiter3, &true),
+        true
+    );
 
     let bounty = fix.client.get_bounty(&bounty_id);
     assert_eq!(bounty.status, BountyStatus::Released);
@@ -260,13 +298,25 @@ fn test_conflicting_votes_with_tie_breaker_resolves_to_refund() {
     let bounty_id = fix.create_disputed_bounty(1000, 0);
 
     // Vote 1: Arbiter 1 votes Refund
-    assert_eq!(fix.client.vote_resolve_dispute(&bounty_id, &fix.arbiter1, &false), false);
+    assert_eq!(
+        fix.client
+            .vote_resolve_dispute(&bounty_id, &fix.arbiter1, &false),
+        false
+    );
 
     // Vote 2: Arbiter 2 votes Release (1-1 split)
-    assert_eq!(fix.client.vote_resolve_dispute(&bounty_id, &fix.arbiter2, &true), false);
+    assert_eq!(
+        fix.client
+            .vote_resolve_dispute(&bounty_id, &fix.arbiter2, &true),
+        false
+    );
 
     // Vote 3: Arbiter 3 votes Refund (2-1 majority for Refund)
-    assert_eq!(fix.client.vote_resolve_dispute(&bounty_id, &fix.arbiter3, &false), true);
+    assert_eq!(
+        fix.client
+            .vote_resolve_dispute(&bounty_id, &fix.arbiter3, &false),
+        true
+    );
 
     let bounty = fix.client.get_bounty(&bounty_id);
     assert_eq!(bounty.status, BountyStatus::Refunded);
@@ -274,42 +324,46 @@ fn test_conflicting_votes_with_tie_breaker_resolves_to_refund() {
     assert_eq!(fix.token_client().balance(&fix.contributor), 0);
 }
 
-// ─── Edge Cases & Failure Paths ──────────────────────────────────────────────
+// â”€â”€â”€ Edge Cases & Failure Paths â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 #[test]
-#[should_panic(expected = "DuplicateCommitteeVote")]
+#[should_panic(expected = "Error(Contract, #35)")]
 fn test_duplicate_vote_rejected() {
     let fix = setup();
     fix.configure_committee();
     let bounty_id = fix.create_disputed_bounty(1000, 0);
 
-    fix.client.vote_resolve_dispute(&bounty_id, &fix.arbiter1, &true);
+    fix.client
+        .vote_resolve_dispute(&bounty_id, &fix.arbiter1, &true);
     // Duplicate vote by same arbiter must fail
-    fix.client.vote_resolve_dispute(&bounty_id, &fix.arbiter1, &true);
+    fix.client
+        .vote_resolve_dispute(&bounty_id, &fix.arbiter1, &true);
 }
 
 #[test]
-#[should_panic(expected = "NotCommitteeMember")]
+#[should_panic(expected = "Error(Contract, #34)")]
 fn test_non_committee_member_cannot_vote() {
     let fix = setup();
     fix.configure_committee();
     let bounty_id = fix.create_disputed_bounty(1000, 0);
 
-    fix.client.vote_resolve_dispute(&bounty_id, &fix.outsider, &true);
+    fix.client
+        .vote_resolve_dispute(&bounty_id, &fix.outsider, &true);
 }
 
 #[test]
-#[should_panic(expected = "CommitteeNotConfigured")]
+#[should_panic(expected = "Error(Contract, #38)")]
 fn test_vote_without_committee_configured_fails() {
     let fix = setup();
     let bounty_id = fix.create_disputed_bounty(1000, 0);
 
     // No committee configured yet
-    fix.client.vote_resolve_dispute(&bounty_id, &fix.arbiter1, &true);
+    fix.client
+        .vote_resolve_dispute(&bounty_id, &fix.arbiter1, &true);
 }
 
 #[test]
-#[should_panic(expected = "bounty not disputed")]
+#[should_panic(expected = "Error(Contract, #41)")]
 fn test_voting_on_undisputed_bounty_fails() {
     let fix = setup();
     fix.configure_committee();
@@ -328,5 +382,6 @@ fn test_voting_on_undisputed_bounty_fails() {
     );
 
     // Status is Open, not Disputed
-    fix.client.vote_resolve_dispute(&bounty_id, &fix.arbiter1, &true);
+    fix.client
+        .vote_resolve_dispute(&bounty_id, &fix.arbiter1, &true);
 }

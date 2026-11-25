@@ -53,14 +53,17 @@ import {
   extendDeadlineSchema,
   resolveDisputeBountySchema,
   maintainerActionSchema,
+  refundBountyBodySchema,
   bulkActionSchema,
-  reserveBountySchema,
+  reserveBountyRequestSchema,
   submitBountySchema,
   updateNotesSchema,
+  healthInputSchema,
+  listBountiesInputSchema,
+  listBountiesQuerySchema,
   zodErrorMessage,
 } from './validation/schemas';
 import { validateBody } from './middleware/validateBody';
-import { isValidStellarAddress } from './utils';
 import { getPublicConfig } from './config';
 import { getAppConfig } from './appConfig';
 
@@ -73,6 +76,7 @@ import {
   createStellarSignatureAuthMiddleware,
 } from './middleware/auth';
 import { idempotencyMiddleware } from './middleware/idempotency';
+import { IdempotencyKeyReuseError, runIdempotent } from './idempotency';
 import { requireJsonContentType } from './middleware/contentType';
 import { enforceBodyLimit, DEFAULT_BODY_LIMIT } from './middleware/bodyLimit';
 import { maintainerLimiter } from './middleware/maintainerLimiter';
@@ -84,8 +88,13 @@ import {
   MiddlewareDependencyError,
   INTERNAL_ERROR_MESSAGE,
 } from './middleware/errors';
-import { ServiceDependencyError, wrapServiceError } from './services/errors';
+import {
+  BountyTransitionConflictError,
+  ServiceDependencyError,
+  wrapServiceError,
+} from './services/errors';
 import { handleGitHubPrEvent } from './webhooks/githubPrHandler';
+import { traceWebhookOutcome } from './services/stateUpdateTrace';
 import { draining } from './shutdown';
 import { applyBountyTemplate, listBountyTemplates } from './services/bountyTemplates';
 import { csvRowToBounty, parseBountyCsv } from './services/csvImport';
@@ -147,7 +156,16 @@ const readLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many read requests, please slow down.' },
-  skip: () => process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true',
+  skip: (req: Request) =>
+    (process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true') ||
+    Boolean(
+      req.path &&
+      (req.path === '/api/open-issues' ||
+        req.path.endsWith('/open-issues') ||
+        req.path === '/api/bounties' ||
+        req.path === '/api/bounties/' ||
+        req.path === '/api/health/deep')
+    ),
 });
 
 const mutationLimiter = rateLimit({
@@ -158,7 +176,14 @@ const mutationLimiter = rateLimit({
   message: { error: 'Too many mutations, please slow down.' },
   skip: (req: Request) =>
     (process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true') ||
-    Boolean(req.path && (req.path.endsWith('/release') || req.path.endsWith('/submit'))),
+    Boolean(
+      req.path &&
+      (req.path.endsWith('/release') ||
+        req.path.endsWith('/submit') ||
+        req.path.endsWith('/refund') ||
+        req.path === '/api/bounties' ||
+        req.path === '/api/bounties/')
+    ),
 });
 
 /**
@@ -233,6 +258,261 @@ export const submitLimiter = rateLimit({
   },
 });
 
+/**
+ * Route-specific explicit rate limiter for POST /api/bounties/:id/reserve (#1201).
+ *
+ * Cost justification:
+ * Reserving a bounty is a state-changing, unauthenticated write that:
+ * 1. Acquires the global store lock, serializing it against every other writer, and
+ *    rewrites the persistent JSON store on each call.
+ * 2. Transitions bounty state ('open' -> 'reserved'), bumps the optimistic-concurrency
+ *    version, and appends an immutable audit-log entry.
+ * 3. Invalidates the platform-wide bounty cache and dispatches a maintainer notification.
+ *
+ * A contributor reserves a bounty at most once before submitting work; legitimate callers
+ * do not invoke this endpoint in high-frequency bursts. An explicit ceiling of 10 requests
+ * per minute (configurable via RATE_LIMIT_RESERVE_MAX and RATE_LIMIT_RESERVE_WINDOW_MS)
+ * matches the sibling unauthenticated write routes (submit/release/refund) and protects the
+ * store lock, persistence layer, and notification fan-out from write spam.
+ *
+ * When the limit is exceeded, HTTP 429 is returned with an explicit Retry-After header.
+ */
+export const reserveLimiter = rateLimit({
+  windowMs: appConfig.rateLimitReserveWindowMs,
+  max: appConfig.rateLimitReserveMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true',
+  handler: (req: Request, res: Response) => {
+    const retryAfter = Math.ceil(appConfig.rateLimitReserveWindowMs / 1000);
+    res.setHeader('Retry-After', String(retryAfter));
+    res.status(429).json({
+      error: 'Too many bounty reservation attempts. Please try again later.',
+      retryAfter,
+      requestId: req.requestId,
+    });
+  },
+});
+
+/**
+ * Route-specific explicit rate limiter for POST /api/bounties/:id/refund (#1213).
+ *
+ * Cost justification:
+ * Refunding a bounty is a high-cost escrow reversal operation that:
+ * 1. Cryptographically validates maintainer authorization and Ed25519 signatures.
+ * 2. Verifies deadline expiration, dispute resolution status, and cancellation rules.
+ * 3. Triggers on-chain Stellar Soroban smart contract refund interactions to return locked escrow tokens.
+ * 4. Modifies persistent state ('open'/'disputed' -> 'refunded'), records immutable audit log entries,
+ *    and invalidates platform-wide cached bounty lists and financial metrics.
+ * 5. Dispatches notifications and event webhooks informing participants of the refund.
+ *
+ * Legitimate maintainers initiate refunds infrequently (only when bounties expire unclaimed or
+ * dispute resolutions dictate returning funds). An explicit ceiling of 10 requests per minute
+ * (configurable via RATE_LIMIT_REFUND_MAX and RATE_LIMIT_REFUND_WINDOW_MS) protects the route
+ * against automated transaction flooding, abuse, and RPC queue saturation.
+ *
+ * When the limit is exceeded, HTTP 429 is returned with an explicit Retry-After header.
+ */
+export const refundLimiter = rateLimit({
+  windowMs: appConfig.rateLimitRefundWindowMs,
+  max: appConfig.rateLimitRefundMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true',
+  handler: (req: Request, res: Response) => {
+    const retryAfter = Math.ceil(appConfig.rateLimitRefundWindowMs / 1000);
+    res.setHeader('Retry-After', String(retryAfter));
+    res.status(429).json({
+      error: 'Too many bounty refund attempts. Please try again later.',
+      retryAfter,
+      requestId: req.requestId,
+    });
+  },
+});
+
+/**
+ * Route-specific explicit rate limiter for POST /api/bounties (bounty creation).
+ *
+ * Cost justification:
+ * Creating a bounty is an expensive, unauthenticated write operation that:
+ * 1. Executes maintainer rate limiting (`maintainerLimiter`) using filesystem locks and JSON persistence.
+ * 2. Cryptographically verifies Ed25519 signatures when maintainer signature headers are supplied.
+ * 3. Applies bounty templates, executes Zod schema validation, and validates financial amounts.
+ * 4. Acquires the exclusive global filesystem store lock (`withStoreLock`), parses the store,
+ *    assigns IDs, resolves token contract addresses, and writes out the updated JSON store to disk.
+ * 5. Invalidates the bounty cache across all cached listing queries.
+ * 6. Dispatches asynchronous notification events to maintainers and interested parties.
+ *
+ * Legitimate maintainers create bounties deliberately as new tasks are defined; it is never
+ * intended for high-frequency burst traffic. An explicit ceiling of 10 requests per minute
+ * (configurable via RATE_LIMIT_CREATE_MAX and RATE_LIMIT_CREATE_WINDOW_MS) protects the
+ * file-backed store lock from contention, avoids write spam, prevents cache thrashing, and
+ * shields against denial-of-service on an unauthenticated write endpoint.
+ *
+ * When the limit is exceeded, HTTP 429 is returned with an explicit Retry-After header.
+ */
+export const createBountyLimiter = rateLimit({
+  windowMs: appConfig.rateLimitCreateWindowMs,
+  max: appConfig.rateLimitCreateMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true',
+  handler: (req: Request, res: Response) => {
+    const retryAfter = Math.ceil(appConfig.rateLimitCreateWindowMs / 1000);
+    res.setHeader('Retry-After', String(retryAfter));
+    res.status(429).json({
+      error: 'Too many bounty creation attempts. Please try again later.',
+      retryAfter,
+      requestId: req.requestId,
+    });
+  },
+});
+
+export const createLimiter = createBountyLimiter;
+
+/**
+ * Route-specific explicit rate limiter for GET /api/open-issues (#1222).
+ *
+ * Cost justification:
+ * Fetching open candidate issues is a public, unauthenticated read operation that:
+ * 1. Queries upstream third-party GitHub REST API (/repos/:owner/:repo/issues) on cache misses.
+ * 2. Consumes GitHub API rate limits (60 req/hr unauthenticated, 5,000 req/hr authenticated).
+ *    Excessive requests from unauthenticated clients could exhaust GitHub API quotas for the entire
+ *    platform, causing downstream service degradation (HTTP 502/403).
+ * 3. While responses are cached for 10 minutes (openIssuesCacheSeconds), an attacker or aggressive crawler
+ *    hitting expired entries or requesting with distinct cache headers can cause repeated upstream fetch spikes.
+ * 4. Legitimate frontend clients fetch this list during discovery or board browsing; normal users do not
+ *    need more than a few requests per minute.
+ *
+ * An explicit ceiling of 30 requests per minute (configurable via RATE_LIMIT_OPEN_ISSUES_MAX and
+ * RATE_LIMIT_OPEN_ISSUES_WINDOW_MS) protects upstream API quotas and backend memory while providing
+ * more than ample capacity for legitimate browsing.
+ *
+ * When the limit is exceeded, HTTP 429 is returned with an explicit Retry-After header.
+ */
+export const openIssuesLimiter = rateLimit({
+  windowMs: appConfig.rateLimitOpenIssuesWindowMs,
+  max: appConfig.rateLimitOpenIssuesMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true',
+  handler: (req: Request, res: Response) => {
+    const retryAfter = Math.ceil(appConfig.rateLimitOpenIssuesWindowMs / 1000);
+    res.setHeader('Retry-After', String(retryAfter));
+    res.status(429).json({
+      error: 'Too many requests for open issues. Please try again later.',
+      retryAfter,
+      requestId: req.requestId,
+    });
+  },
+});
+
+/**
+ * Route-specific explicit rate limiter for GET /api/bounties (#1220).
+ *
+ * Cost justification:
+ * Fetching the bounties list is an unauthenticated, public read endpoint with moderate-to-high cost:
+ * 1. Executes multi-parameter query filtering (q, repo, status, tokenSymbol, contributor, maintainer,
+ *    minReward, maxReward, deadlineBefore, deadlineAfter) and sorting across all bounties in the store.
+ * 2. Employs caching (`listBountiesCached`) backed by an in-memory or Redis layer, and generates/validates
+ *    conditional HTTP headers (ETag, Last-Modified, If-None-Match).
+ * 3. On cache misses or high-cardinality filter permutations (custom text search / query variants),
+ *    each request forces an in-memory scan, array slicing, and JSON serialization of potentially large
+ *    bounty payloads.
+ * 4. While legitimate clients (frontend index and search pages) query this endpoint when users browse or
+ *    filter bounties, excessive unauthenticated bursts could exhaust backend CPU and memory.
+ *
+ * An explicit ceiling of 60 requests per minute (configurable via RATE_LIMIT_BOUNTIES_MAX and
+ * RATE_LIMIT_BOUNTIES_WINDOW_MS) balances responsive browsing for human users with protection
+ * against automated scraping, denial of service, and resource exhaustion.
+ *
+ * When the limit is exceeded, HTTP 429 is returned with an explicit Retry-After header.
+ */
+export const bountiesLimiter = rateLimit({
+  windowMs: appConfig.rateLimitBountiesWindowMs,
+  max: appConfig.rateLimitBountiesMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true',
+  handler: (req: Request, res: Response) => {
+    const retryAfter = Math.ceil(appConfig.rateLimitBountiesWindowMs / 1000);
+    res.setHeader('Retry-After', String(retryAfter));
+    res.status(429).json({
+      error: 'Too many requests for bounties. Please try again later.',
+      retryAfter,
+      requestId: req.requestId,
+    });
+  },
+});
+
+/**
+ * Route-specific explicit rate limiter for GET /api/health (#1180).
+ *
+ * Cost justification:
+ * Fetching the health status is a cheap, unauthenticated liveness probe that performs
+ * essentially no work:
+ * 1. No store lock, no GitHub/Stellar/Soroban call, no disk or database I/O.
+ * 2. It only validates the (empty) query/body via `healthInputSchema` and returns a
+ *    static `{ status: 'ok', timestamp }` payload.
+ *
+ * Because it is a liveness probe it is polled by load balancers, Kubernetes
+ * readiness/liveness checks, and uptime monitors, often from a small number of shared
+ * IPs. Legitimate traffic therefore needs a much higher ceiling than ordinary reads to
+ * avoid falsely signalling an outage. An explicit ceiling of 300 requests per minute
+ * (5 req/sec per IP, configurable via RATE_LIMIT_HEALTH_MAX and RATE_LIMIT_HEALTH_WINDOW_MS)
+ * is far above any realistic monitor cadence while still bounding unauthenticated flooding.
+ *
+ * Note: per-IP limiting can misbehave when many clients sit behind a single NAT/proxy;
+ * very high-volume probes are better exempted at the infrastructure layer than handled here.
+ *
+ * When the limit is exceeded, HTTP 429 is returned with an explicit Retry-After header.
+ */
+export const healthLimiter = rateLimit({
+  windowMs: appConfig.rateLimitHealthWindowMs,
+  max: appConfig.rateLimitHealthMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true',
+  handler: (req: Request, res: Response) => {
+    const retryAfter = Math.ceil(appConfig.rateLimitHealthWindowMs / 1000);
+    res.setHeader('Retry-After', String(retryAfter));
+    res.status(429).json({
+      error: 'Too many health check requests. Please try again later.',
+      retryAfter,
+      requestId: req.requestId,
+    });
+  },
+});
+
+/**
+ * Route-specific explicit rate limiter for GET /api/health/deep (#1184).
+ *
+ * Cost justification:
+ * Each check probes the filesystem by creating, reading, and deleting a temporary file,
+ * and sends an outbound Soroban RPC request that can wait up to the configured component
+ * timeout. A ceiling of 10 requests per minute per IP allows a probe every six seconds
+ * while bounding unauthenticated disk and RPC work. Operators can tune it with
+ * RATE_LIMIT_DEEP_HEALTH_MAX and RATE_LIMIT_DEEP_HEALTH_WINDOW_MS.
+ *
+ * When the limit is exceeded, HTTP 429 is returned with an explicit Retry-After header.
+ */
+export const deepHealthLimiter = rateLimit({
+  windowMs: appConfig.rateLimitDeepHealthWindowMs,
+  max: appConfig.rateLimitDeepHealthMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_TEST_MODE !== 'true',
+  handler: (req: Request, res: Response) => {
+    const retryAfter = Math.ceil(appConfig.rateLimitDeepHealthWindowMs / 1000);
+    res.setHeader('Retry-After', String(retryAfter));
+    res.status(429).json({
+      error: 'Too many deep health check requests. Please try again later.',
+      retryAfter,
+      requestId: req.requestId,
+    });
+  },
+});
+
 // Apply read limiter to all GET requests
 app.use((req: any, res: any, next: any) => {
   if (req.method === 'GET') return readLimiter(req, res, next);
@@ -274,7 +554,23 @@ app.use(
 );
 app.use(requestContextMiddleware);
 
-const healthHandler = (_req: Request, res: Response) => {
+const healthHandler = (req: Request, res: Response) => {
+  const result = healthInputSchema.safeParse({
+    params: req.params,
+    query: req.query,
+    body: req.body,
+  });
+
+  if (!result.success) {
+    res.status(400).json({
+      error: 'Invalid input for health endpoint.',
+      code: 'HEALTH_INVALID_INPUT',
+      details: result.error.issues,
+      requestId: req.requestId,
+    });
+    return;
+  }
+
   res.json({
     service: 'stellar-bounty-board-api',
     status: 'ok',
@@ -282,13 +578,43 @@ const healthHandler = (_req: Request, res: Response) => {
   });
 };
 
-app.get('/api/health', healthHandler);
+app.get('/api/health', healthLimiter, idempotencyMiddleware, healthHandler);
 
-app.get('/api/health/deep', async (_req: Request, res: Response) => {
-  const result = await runDeepHealthCheck();
-  const statusCode = result.overall === 'up' ? 200 : 503;
-  res.status(statusCode).json(result);
-});
+/**
+ * Validates every input to `GET /api/health/deep` before any dependency probe
+ * (store, Soroban RPC, contract, auth) runs.
+ *
+ * The route accepts no path parameters, no query string, and no request body.
+ * `healthInputSchema` enforces that contract explicitly, so unexpected input is
+ * rejected here with HTTP 400 and the `HEALTH_DEEP_INVALID_INPUT` error code
+ * rather than surfacing as a confusing downstream failure.
+ */
+app.get(
+  '/api/health/deep',
+  deepHealthLimiter,
+  idempotencyMiddleware,
+  async (req: Request, res: Response) => {
+    const result = healthInputSchema.safeParse({
+      params: req.params,
+      query: req.query,
+      body: req.body,
+    });
+
+    if (!result.success) {
+      res.status(400).json({
+        error: 'Invalid input for deep health endpoint.',
+        code: 'HEALTH_DEEP_INVALID_INPUT',
+        details: result.error.issues,
+        requestId: req.requestId,
+      });
+      return;
+    }
+
+    const health = await runDeepHealthCheck();
+    const statusCode = health.overall === 'up' ? 200 : 503;
+    res.status(statusCode).json(health);
+  }
+);
 
 app.get('/worker/health', (_req: Request, res: Response) => {
   res.json({
@@ -306,6 +632,16 @@ app.use('/graphql', createGraphQLRouter());
 
 function parseId(raw: string | string[] | undefined): string {
   return bountyIdSchema.parse(Array.isArray(raw) ? raw[0] : raw);
+}
+
+/**
+ * Normalizes a route param that Express types as `string | string[]`.
+ *
+ * Returns the first value for repeated params and an empty string otherwise, so
+ * downstream lookups receive a `string` without changing the request contract.
+ */
+function normalizeRouteParam(raw: string | string[] | undefined): { address: string } {
+  return { address: Array.isArray(raw) ? (raw[0] ?? '') : (raw ?? '') };
 }
 
 export function parsePaginationValue(
@@ -401,6 +737,26 @@ export function sendError(res: Response, req: Request, error: unknown, statusCod
       'service_dependency_failure'
     );
     jsonError(res, req, error.statusCode, error.publicMessage);
+    return;
+  }
+
+  if (error instanceof BountyTransitionConflictError) {
+    log.warn(
+      {
+        code: error.code,
+        currentVersion: error.currentVersion,
+        currentStatus: error.currentStatus,
+        requestId,
+      },
+      'bounty_transition_conflict'
+    );
+    res.status(error.statusCode).json({
+      error: error.message,
+      code: error.code,
+      currentVersion: error.currentVersion,
+      currentStatus: error.currentStatus,
+      requestId,
+    });
     return;
   }
 
@@ -718,144 +1074,100 @@ app.delete(
   }
 );
 
-app.get('/api/bounties', async (req: Request, res: Response) => {
-  try {
-    const q = typeof req.query.q === 'string' ? req.query.q : undefined;
-    const contributor =
-      typeof req.query.contributor === 'string' && req.query.contributor.trim()
-        ? req.query.contributor.trim()
-        : undefined;
-    const maintainer =
-      typeof req.query.maintainer === 'string' && req.query.maintainer.trim()
-        ? req.query.maintainer.trim()
-        : undefined;
-    const status =
-      typeof req.query.status === 'string' && req.query.status.trim()
-        ? req.query.status.trim()
-        : undefined;
-    const tokenSymbol =
-      typeof req.query.tokenSymbol === 'string' && req.query.tokenSymbol.trim()
-        ? req.query.tokenSymbol.trim()
-        : undefined;
-    const sort =
-      typeof req.query.sort === 'string' && req.query.sort.trim()
-        ? req.query.sort.trim()
-        : 'createdAt';
-    const order =
-      typeof req.query.order === 'string' && req.query.order.trim()
-        ? req.query.order.trim()
-        : 'desc';
+/**
+ * Validates every input to `GET /api/bounties` before the idempotency cache,
+ * store, or contract layer is touched. Path parameters must be empty, the
+ * query string is checked against {@link listBountiesQuerySchema}, and a
+ * request body is rejected. On failure the route returns HTTP 400 with the
+ * `BOUNTIES_INVALID_INPUT` error code and the individual Zod issues.
+ */
+const validateListBountiesInput = (req: Request, res: Response, next: NextFunction): void => {
+  const parsed = listBountiesInputSchema.safeParse({
+    params: req.params,
+    query: req.query,
+    body: req.body,
+  });
 
-    const repo =
-      typeof req.query.repo === 'string' && req.query.repo.trim()
-        ? req.query.repo.trim()
-        : undefined;
-
-    const parseReward = (value: unknown, name: string): number | undefined => {
-      if (typeof value !== 'string' || !value.trim()) return undefined;
-      const n = Number(value);
-      if (!Number.isFinite(n) || n < 0) {
-        throw new Error(`${name} must be a non-negative number`);
-      }
-      return n;
-    };
-    const minReward = parseReward(req.query.minReward, 'minReward');
-    const maxReward = parseReward(req.query.maxReward, 'maxReward');
-    if (minReward !== undefined && maxReward !== undefined && minReward > maxReward) {
-      throw new Error('minReward must be less than or equal to maxReward');
-    }
-
-    // `limit` is the primary page-size param; `pageSize` is a legacy alias.
-    const page = parsePaginationValue(req.query.page, 'page', 1, 1);
-    const pageSize =
-      req.query.limit !== undefined
-        ? parsePaginationValue(req.query.limit, 'limit', 20, 1, 100)
-        : parsePaginationValue(req.query.pageSize, 'pageSize', 20, 1, 100);
-
-    let deadlineBefore: number | undefined;
-    if (typeof req.query.deadlineBefore === 'string') {
-      const date = new Date(req.query.deadlineBefore);
-      if (isNaN(date.getTime())) {
-        throw new Error('deadlineBefore must be a valid ISO 8601 date string');
-      }
-      deadlineBefore = Math.floor(date.getTime() / 1000);
-    }
-
-    let deadlineAfter: number | undefined;
-    if (typeof req.query.deadlineAfter === 'string') {
-      const date = new Date(req.query.deadlineAfter);
-      if (isNaN(date.getTime())) {
-        throw new Error('deadlineAfter must be a valid ISO 8601 date string');
-      }
-      deadlineAfter = Math.floor(date.getTime() / 1000);
-    }
-
-    if (contributor && !isValidStellarAddress(contributor)) {
-      throw new Error('contributor must be a valid Stellar public key');
-    }
-    if (maintainer && !isValidStellarAddress(maintainer)) {
-      throw new Error('maintainer must be a valid Stellar public key');
-    }
-    if (!['amount', 'deadline', 'createdAt', 'status'].includes(sort)) {
-      throw new Error('sort must be one of: amount, deadline, createdAt, status');
-    }
-    if (!['asc', 'desc'].includes(order)) {
-      throw new Error('order must be one of: asc, desc');
-    }
-
-    const all = await listBountiesCached({
-      q,
-      repo,
-      minReward,
-      maxReward,
-      contributor,
-      maintainer,
-      status: status as never,
-      tokenSymbol,
-      deadlineBefore,
-      deadlineAfter,
-      sort: sort as never,
-      order: order as never,
+  if (!parsed.success) {
+    res.status(400).json({
+      error: `INVALID_INPUT: ${zodErrorMessage(parsed.error)}`,
+      code: 'BOUNTIES_INVALID_INPUT',
+      details: parsed.error.issues,
+      requestId: req.requestId,
     });
-    const total = all.length;
-    const start = (page - 1) * pageSize;
-    const data = all.slice(start, start + pageSize);
-    const hasMore = start + data.length < total;
-
-    let maxTimestamp = 0;
-    for (const bounty of all) {
-      if (bounty.events && bounty.events.length > 0) {
-        const lastEvent = bounty.events[bounty.events.length - 1];
-        if (lastEvent.timestamp > maxTimestamp) {
-          maxTimestamp = lastEvent.timestamp;
-        }
-      } else if (bounty.createdAt > maxTimestamp) {
-        maxTimestamp = bounty.createdAt;
-      }
-    }
-
-    if (maxTimestamp > 0) {
-      const lastModifiedDate = new Date(maxTimestamp * 1000);
-      res.setHeader('Last-Modified', lastModifiedDate.toUTCString());
-    }
-
-    const responsePayload = { data, total, page, pageSize, hasMore };
-    const responseString = JSON.stringify(responsePayload);
-    const etag = `"${createHash('md5').update(responseString).digest('hex')}"`;
-    res.setHeader('ETag', etag);
-
-    if (req.headers['if-none-match'] === etag) {
-      res.status(304).end();
-      return;
-    }
-
-    res.setHeader('X-Total-Count', String(total));
-    res.setHeader('Content-Type', 'application/json; charset=utf-8');
-    res.send(responseString);
-  } catch (error) {
-    sendError(res, req, error);
+    return;
   }
-});
+
+  res.locals.bountiesQuery = parsed.data.query;
+  next();
+};
+
+app.get(
+  '/api/bounties',
+  bountiesLimiter,
+  validateListBountiesInput,
+  idempotencyMiddleware,
+  async (req: Request, res: Response) => {
+    try {
+      const query = res.locals.bountiesQuery as z.infer<typeof listBountiesQuerySchema>;
+      const page = query.page;
+      // `limit` is the primary page-size param; `pageSize` is a legacy alias.
+      const pageSize = query.limit ?? query.pageSize ?? 20;
+
+      const all = await listBountiesCached({
+        q: query.q,
+        repo: query.repo,
+        minReward: query.minReward,
+        maxReward: query.maxReward,
+        contributor: query.contributor,
+        maintainer: query.maintainer,
+        status: query.status,
+        tokenSymbol: query.tokenSymbol,
+        deadlineBefore: query.deadlineBefore,
+        deadlineAfter: query.deadlineAfter,
+        sort: query.sort,
+        order: query.order,
+      });
+      const total = all.length;
+      const start = (page - 1) * pageSize;
+      const data = all.slice(start, start + pageSize);
+      const hasMore = start + data.length < total;
+
+      let maxTimestamp = 0;
+      for (const bounty of all) {
+        if (bounty.events && bounty.events.length > 0) {
+          const lastEvent = bounty.events[bounty.events.length - 1];
+          if (lastEvent.timestamp > maxTimestamp) {
+            maxTimestamp = lastEvent.timestamp;
+          }
+        } else if (bounty.createdAt > maxTimestamp) {
+          maxTimestamp = bounty.createdAt;
+        }
+      }
+
+      if (maxTimestamp > 0) {
+        const lastModifiedDate = new Date(maxTimestamp * 1000);
+        res.setHeader('Last-Modified', lastModifiedDate.toUTCString());
+      }
+
+      const responsePayload = { data, total, page, pageSize, hasMore };
+      const responseString = JSON.stringify(responsePayload);
+      const etag = `"${createHash('md5').update(responseString).digest('hex')}"`;
+      res.setHeader('ETag', etag);
+
+      if (req.headers['if-none-match'] === etag) {
+        res.status(304).end();
+        return;
+      }
+
+      res.setHeader('X-Total-Count', String(total));
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.json(responsePayload);
+    } catch (error) {
+      sendError(res, req, error);
+    }
+  }
+);
 
 app.get('/api/leaderboard', (req: Request, res: Response) => {
   try {
@@ -975,9 +1287,10 @@ app.get('/api/bounties/released/export.csv', (req: Request, res: Response) => {
 
 app.post(
   '/api/bounties',
-  mutationLimiter,
+  createBountyLimiter,
   enforceBodyLimit(DEFAULT_BODY_LIMIT),
   requireJsonContentType,
+  idempotencyMiddleware,
   maintainerLimiter,
   createBountyCreationSignatureMiddleware(),
   (req: Request, res: Response, next: NextFunction) => {
@@ -1008,21 +1321,73 @@ app.post(
 
 app.post(
   '/api/bounties/:id/reserve',
-  mutationLimiter,
+  reserveLimiter,
   enforceBodyLimit(DEFAULT_BODY_LIMIT),
   requireJsonContentType,
-  idempotencyMiddleware,
-  validateBody(reserveBountySchema),
+  (req: Request, res: Response, next: NextFunction) => {
+    const parsed = reserveBountyRequestSchema.safeParse({
+      params: req.params,
+      query: req.query,
+      body: req.body,
+    });
+
+    if (!parsed.success) {
+      res.status(400).json({
+        error: `INVALID_INPUT: ${zodErrorMessage(parsed.error)}`,
+        code: 'BOUNTY_RESERVE_INVALID_INPUT',
+        details: parsed.error.issues,
+        requestId: req.requestId,
+      });
+      return;
+    }
+
+    req.params.id = parsed.data.params.id;
+    req.body = parsed.data.body;
+    next();
+  },
   async (req: Request, res: Response) => {
     try {
-      const bounty = await reserveBounty(
-        parseId(req.params.id),
-        req.body.contributor,
-        req.body.expectedVersion
+      const id = parseId(req.params.id);
+      const rawKey = req.headers['idempotency-key'];
+      const key = (Array.isArray(rawKey) ? rawKey[0] : rawKey)?.trim();
+      const rawRequestId = req.headers['x-request-id'];
+      const requestId = (Array.isArray(rawRequestId) ? rawRequestId[0] : rawRequestId)?.trim();
+      const rawDeliveryId = req.headers['x-github-delivery'];
+      const deliveryRef = (Array.isArray(rawDeliveryId) ? rawDeliveryId[0] : rawDeliveryId)?.trim();
+      const eventRef = key || requestId || (typeof req.id === 'string' ? req.id : undefined);
+
+      const execute = async () => ({
+        status: 200,
+        body: {
+          data: await reserveBounty(id, req.body.contributor, req.body.expectedVersion, {
+            eventRef,
+            deliveryRef,
+          }),
+        },
+      });
+
+      if (!key) {
+        const { status, body } = await execute();
+        res.status(status).json(body);
+        return;
+      }
+
+      // Scope the key to this route and bounty so it cannot collide with other endpoints.
+      const { result, replayed } = await runIdempotent(
+        `reserve:${id}:${key}`,
+        JSON.stringify([req.body.contributor, req.body.expectedVersion ?? null]),
+        execute
       );
 
-      res.json({ data: bounty });
+      if (replayed) {
+        res.setHeader('Idempotent-Replayed', 'true');
+      }
+      res.status(result.status).json(result.body);
     } catch (error) {
+      if (error instanceof IdempotencyKeyReuseError) {
+        jsonError(res, req, 422, 'Idempotency-Key was already used with a different request');
+        return;
+      }
       sendError(res, req, error);
     }
   }
@@ -1050,6 +1415,37 @@ app.post(
   }
 );
 
+/**
+ * Zod schema for POST /api/bounties/:id/release.
+ *
+ * Validates every input the route accepts before the store or contract layer
+ * is touched: the `:id` path param, the (empty) query string, and the JSON
+ * body carrying the maintainer address and optional transaction hash.
+ */
+const releaseBountyParamsSchema = z.object({ id: bountyIdSchema }).strict();
+const releaseBountyQuerySchema = z.object({}).strict();
+const releaseBountyBodySchema = maintainerActionSchema;
+
+const releaseBountyRequestSchema = z.object({
+  params: releaseBountyParamsSchema,
+  query: releaseBountyQuerySchema,
+  body: releaseBountyBodySchema,
+});
+
+/**
+ * Request for `POST /api/bounties/:id/refund`.
+ *
+ * Validates the route param (`id`), any query string, and the body in one
+ * schema so invalid input is rejected with a 400 before the store is touched.
+ */
+const refundBountyRequestSchema = z
+  .object({
+    params: z.object({ id: bountyIdSchema }).strict(),
+    query: z.object({}).strict(),
+    body: refundBountyBodySchema,
+  })
+  .strict();
+
 app.post(
   '/api/bounties/:id/release',
   releaseLimiter,
@@ -1057,7 +1453,21 @@ app.post(
   requireJsonContentType,
   idempotencyMiddleware,
   createStellarSignatureAuthMiddleware(),
-  validateBody(maintainerActionSchema),
+  (req: Request, res: Response, next: NextFunction) => {
+    const parsed = releaseBountyRequestSchema.safeParse({
+      params: req.params,
+      query: req.query,
+      body: req.body,
+    });
+
+    if (!parsed.success) {
+      jsonError(res, req, 400, `INVALID_INPUT: ${zodErrorMessage(parsed.error)}`);
+      return;
+    }
+
+    req.body = parsed.data.body;
+    next();
+  },
   async (req: Request, res: Response) => {
     try {
       const bounty = await releaseBounty(
@@ -1075,19 +1485,52 @@ app.post(
 
 app.post(
   '/api/bounties/:id/refund',
-  mutationLimiter,
+  refundLimiter,
   enforceBodyLimit(DEFAULT_BODY_LIMIT),
+  requireJsonContentType,
   idempotencyMiddleware,
   createStellarSignatureAuthMiddleware(),
-  validateBody(maintainerActionSchema),
+  (req: Request, res: Response, next: NextFunction) => {
+    const parsed = refundBountyRequestSchema.safeParse({
+      params: req.params,
+      query: req.query,
+      body: req.body,
+    });
+
+    if (!parsed.success) {
+      res.status(400).json({
+        error: `INVALID_INPUT: ${zodErrorMessage(parsed.error)}`,
+        code: 'BOUNTY_REFUND_INVALID_INPUT',
+        details: parsed.error.issues,
+        requestId: req.requestId,
+      });
+      return;
+    }
+
+    req.params.id = parsed.data.params.id;
+    req.body = parsed.data.body;
+    next();
+  },
   async (req: Request, res: Response) => {
     try {
+      const rawKey = req.headers['idempotency-key'];
+      const key = (Array.isArray(rawKey) ? rawKey[0] : rawKey)?.trim();
+      const rawRequestId = req.headers['x-request-id'];
+      const requestId = (Array.isArray(rawRequestId) ? rawRequestId[0] : rawRequestId)?.trim();
+      const rawDeliveryId = req.headers['x-github-delivery'];
+      const deliveryRef = (Array.isArray(rawDeliveryId) ? rawDeliveryId[0] : rawDeliveryId)?.trim();
+      const eventRef = key || requestId || (typeof req.id === 'string' ? req.id : undefined);
+
       const bounty = await refundBounty(
         parseId(req.params.id),
         req.body.maintainer,
-        req.body.transactionHash
+        req.body.transactionHash,
+        req.body.expectedVersion,
+        {
+          eventRef,
+          deliveryRef,
+        }
       );
-
       res.json({ data: bounty });
     } catch (error) {
       sendError(res, req, error);
@@ -1287,13 +1730,41 @@ app.post(
     const rawDeliveryId = req.headers['x-github-delivery'];
     const deliveryId = Array.isArray(rawDeliveryId) ? rawDeliveryId[0] : rawDeliveryId;
 
-    let result: { duplicate: boolean };
+    if (deliveryId !== undefined) {
+      if (typeof deliveryId !== 'string' || deliveryId.length > 256 || !/^[a-zA-Z0-9_-]{1,256}$/.test(deliveryId)) {
+        traceWebhookOutcome({
+          outcome: 'failed',
+          transition: 'webhook_signature_verify',
+          error: 'invalid_delivery_id',
+          reason: 'Malformed X-GitHub-Delivery header',
+        });
+        res.status(400).json({ error: 'Invalid X-GitHub-Delivery header', requestId: req.requestId });
+        return;
+      }
+    }
+
+    if (typeof req.body !== 'object' || req.body === null || Array.isArray(req.body)) {
+      res.status(400).json({ error: 'Malformed webhook payload: body must be a JSON object', requestId: req.requestId });
+      return;
+    }
+
+    let result: Awaited<ReturnType<typeof handleGitHubPrEvent>>;
     try {
       result = await handleGitHubPrEvent(req.body, deliveryId);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Webhook processing error';
 
+      // The delivery was deferred in the journal before we got here, so GitHub's
+      // retry (or the startup resume pass) will re-drive it idempotently.
       res.status(500).json({ error: message, requestId: req.requestId });
+      return;
+    }
+
+    if (result.reason === 'malformed_pr_url') {
+      res.status(400).json({
+        error: 'Malformed webhook payload: invalid pull_request.html_url',
+        requestId: req.requestId,
+      });
       return;
     }
 
@@ -1315,6 +1786,10 @@ app.post(
         authenticated: true,
         provider: 'github',
         received: true,
+        // true when the event was accepted but could not be applied yet
+        // (out-of-order delivery or already-applied merge); it will be retried.
+        deferred: result.deferred ?? false,
+        ...(result.reason ? { reason: result.reason } : {}),
       },
     });
   }
@@ -1329,28 +1804,38 @@ app.post(
  */
 const openIssuesQuerySchema = z.object({}).strict();
 
-app.get('/api/open-issues', async (req: Request, res: Response) => {
-  // Validate query params — must be empty; any unknown key is a 400.
-  const queryResult = openIssuesQuerySchema.safeParse(req.query);
-  if (!queryResult.success) {
-    jsonError(res, req, 400, `INVALID_QUERY: ${zodErrorMessage(queryResult.error)}`);
-    return;
-  }
+app.get(
+  '/api/open-issues',
+  openIssuesLimiter,
+  idempotencyMiddleware,
+  async (req: Request, res: Response) => {
+    // Validate query params — must be empty; any unknown key is a 400.
+    const queryResult = openIssuesQuerySchema.safeParse(req.query);
+    if (!queryResult.success) {
+      jsonError(res, req, 400, `INVALID_QUERY: ${zodErrorMessage(queryResult.error)}`);
+      return;
+    }
 
-  // Reject any accidental request body.
-  if (req.body && Object.keys(req.body).length > 0) {
-    jsonError(res, req, 400, 'INVALID_BODY: GET /api/open-issues does not accept a request body.');
-    return;
-  }
+    // Reject any accidental request body.
+    if (req.body && Object.keys(req.body).length > 0) {
+      jsonError(
+        res,
+        req,
+        400,
+        'INVALID_BODY: GET /api/open-issues does not accept a request body.'
+      );
+      return;
+    }
 
-  try {
-    const data = await listOpenIssues();
-    res.set('Cache-Control', `max-age=${appConfig.openIssuesCacheSeconds}`);
-    res.json({ data });
-  } catch (error) {
-    sendError(res, req, error, 502);
+    try {
+      const data = await listOpenIssues();
+      res.set('Cache-Control', `max-age=${appConfig.openIssuesCacheSeconds}`);
+      res.json({ data });
+    } catch (error) {
+      sendError(res, req, error, 502);
+    }
   }
-});
+);
 
 app.get('/api/bounties/:id/events', (req: Request, res: Response) => {
   try {
@@ -1583,7 +2068,7 @@ app.post(
 
 app.get('/api/notifications/opt-in/:address', (req: Request, res: Response) => {
   try {
-    const { address } = req.params;
+    const { address } = normalizeRouteParam(req.params.address);
     const pref = getNotificationOptIn(address);
     res.json({
       data: {
@@ -1600,7 +2085,7 @@ app.get('/api/notifications/opt-in/:address', (req: Request, res: Response) => {
 
 app.get('/api/notification-preferences/:address', (req: Request, res: Response) => {
   try {
-    const { address } = req.params;
+    const { address } = normalizeRouteParam(req.params.address);
     const pref = getNotificationOptIn(address);
     res.json({
       data: {

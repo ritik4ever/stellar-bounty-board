@@ -464,13 +464,15 @@
           },
           "expectedVersion": {
             "type": "integer",
-            "description": "Optional version number for race condition prevention. If provided, must match current bounty version.",
+            "minimum": 1,
+            "description": "Optional positive version number for race condition prevention. If provided, must match current bounty version.",
             "example": 1
           }
         },
         "required": [
           "contributor"
-        ]
+        ],
+        "additionalProperties": false
       },
       "SubmitBountyRequest": {
         "type": "object",
@@ -866,7 +868,18 @@
           "System"
         ],
         "summary": "Health check",
-        "description": "Returns the service name and current server timestamp. Use this to verify the API is reachable.",
+        "description": "Returns the service name and current server timestamp. Use this to verify the API is reachable. An optional `Idempotency-Key` header replays the original response for retries made with the same key.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Optional key used to replay the original response for repeated requests."
+            },
+            "required": false,
+            "name": "Idempotency-Key",
+            "in": "header"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Service is healthy.",
@@ -887,7 +900,7 @@
           "System"
         ],
         "summary": "Deep health check",
-        "description": "Extended health check that verifies all external dependencies. Checks JSON store read/write, Soroban RPC reachability, contract ID configuration, and auth configuration (MAINTAINER_PUBLIC_KEY and ARBITER_ADDRESS). Excluded from rate limiting. Returns HTTP 503 when any critical component is down.",
+        "description": "Extended health check that verifies all external dependencies. Checks JSON store read/write, Soroban RPC reachability, contract ID configuration, and auth configuration (MAINTAINER_PUBLIC_KEY and ARBITER_ADDRESS). Each component check has a configurable timeout via DEEP_HEALTH_CHECK_TIMEOUT_MS (default 5000 ms); a timed-out component is reported as down. Limited to 10 requests per minute per IP by default (configurable with RATE_LIMIT_DEEP_HEALTH_MAX and RATE_LIMIT_DEEP_HEALTH_WINDOW_MS). Returns HTTP 503 when any critical component is down.",
         "responses": {
           "200": {
             "description": "All critical components are healthy.",
@@ -895,6 +908,50 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DeepHealthResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input: the route accepts no path parameters, query string, or request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded. Retry after the number of seconds in Retry-After.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "retryAfter": {
+                      "type": "number"
+                    },
+                    "requestId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "retryAfter"
+                  ],
+                  "additionalProperties": false
                 }
               }
             }
@@ -918,7 +975,7 @@
           "Bounties"
         ],
         "summary": "List all bounties",
-        "description": "Returns bounty records sorted by `createdAt` descending by default, with optional maintainer/status/token filters and sort parameters. Bounties whose deadline has passed are automatically transitioned to `expired` before the list is returned.",
+        "description": "Returns bounty records sorted by `createdAt` descending by default, with optional maintainer/status/token filters and sort parameters. Bounties whose deadline has passed are automatically transitioned to `expired` before the list is returned. An optional `Idempotency-Key` header replays the original response for retries made with the same key.",
         "parameters": [
           {
             "schema": {
@@ -1079,6 +1136,15 @@
             "required": false,
             "name": "limit",
             "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Optional key used to replay the original response for repeated requests."
+            },
+            "required": false,
+            "name": "Idempotency-Key",
+            "in": "header"
           }
         ],
         "responses": {
@@ -1136,7 +1202,18 @@
           "Bounties"
         ],
         "summary": "Create a bounty",
-        "description": "Creates a new open bounty and persists it. Rate-limited to **5 requests per IP per minute**. The `deadlineAt` timestamp is computed as `now + deadlineDays * 86400`.",
+        "description": "Creates a new open bounty and persists it. Rate-limited to **5 requests per IP per minute**. The `deadlineAt` timestamp is computed as `now + deadlineDays * 86400`. An optional `Idempotency-Key` header replays the original response for retries made with the same key, so a client retrying after a timeout does not create a duplicate bounty.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Optional key used to replay the original response for repeated requests."
+            },
+            "required": false,
+            "name": "Idempotency-Key",
+            "in": "header"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -1845,12 +1922,13 @@
           "Bounties"
         ],
         "summary": "Reserve a bounty",
-        "description": "Assigns a contributor to an `open` bounty, transitioning its status to `reserved`. Only one contributor can hold a reservation at a time. Rate-limited to **5 requests per IP per minute**.",
+        "description": "Assigns a contributor to an `open` bounty, transitioning its status to `reserved`. Only one contributor can hold a reservation at a time. Rate-limited to **10 requests per IP per minute**.",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "example": "BNT-0001"
+              "example": "BNT-0001",
+              "minLength": 1
             },
             "required": true,
             "name": "id",
@@ -1887,7 +1965,7 @@
             }
           },
           "400": {
-            "description": "Bounty not found, not open, or validation failed.",
+            "description": "Bounty not found, not open, or request input is invalid (`BOUNTY_RESERVE_INVALID_INPUT`).",
             "content": {
               "application/json": {
                 "schema": {

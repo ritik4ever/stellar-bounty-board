@@ -9,6 +9,34 @@ superseded_by: 0004-postgres-persistence.md
 
 > **Status:** Superseded by [ADR 0004: Move from JSON file storage to PostgreSQL persistence](0004-postgres-persistence.md).
 
+## Retention for the remaining JSON store
+
+The JSON fallback still serves bounty API reads. It keeps open, reserved,
+submitted, disputed, expired, and recently released/refunded records in
+`backend/data/bounties.json`. A job runs at startup and every 24 hours. It moves
+released/refunded records more than 90 days past `releasedAt`/`refundedAt` to
+`backend/data/bounties.archive.json`; `ARCHIVE_AFTER_DAYS` and
+`ARCHIVE_JOB_INTERVAL_MS` configure those defaults. For older records missing a
+terminal timestamp, the job uses `createdAt`. Previously soft-archived terminal
+records are also moved. `BOUNTY_ARCHIVE_PATH` can put the archive elsewhere.
+
+Public list and detail reads parse only the active file. Archived records leave
+the public API and remain in the cold archive for offline inspection/export and
+backup. Creating a bounty checks the archive for the highest allocated ID, so
+IDs are never reused. The job writes the archive first, then removes moved
+records from the active file; retries deduplicate by ID after an interrupted
+run. Back up both files together. There is no byte cap on active bounties or on
+the archive; active growth is bounded by the number of nonterminal and recent
+terminal records, while the cold archive can grow until an operator exports or
+rotates it. This policy applies to the JSON fallback, not PostgreSQL.
+
+To measure the hot read cost with 10,000 old terminal and 100 active records,
+run `cd backend && node --import tsx scripts/benchmark-bounty-archive.ts`. It reports
+active file bytes and median `listBounties()` latency over 100 measured reads
+before and after moving old records. The benchmark uses a temporary store.
+On 2026-10-22, this measured 3,581,695 → 42,402 active bytes and
+11.90 → 0.19 ms median read latency on a local Mac (one run; results vary by machine).
+
 ## Context / Problem
 
 The backend stores bounty state. We must choose a persistence strategy that
@@ -41,9 +69,12 @@ reduces operational complexity for demos and teaching scenarios.
 
 ## Consequences
 
-- Concurrency: file-based store requires application-level locking for safe
-  concurrent writes. The current code tries to minimize race windows but is
-  not a replacement for a transactional DB under high contention.
+- **Write-concurrency guarantee:**
+  1. **Cross-process file locking (`proper-lockfile`):** Every mutating operation in `backend/src/services/bountyStore.ts` acquires an exclusive lock via `withStoreLock` on `getStorePath()` before reading or modifying state. Concurrent writers queue with randomized exponential backoff bounded by `STORE_LOCK_TIMEOUT_MS` (defaulting to a 503 lock-acquisition failure if the timeout is exhausted, with a 10s stale-lock guard).
+  2. **Optimistic locking (`version`):** Bounty records carry a monotonic `version` counter checked via `expectedVersion` so stale concurrent updates are rejected rather than silently overwriting newer state.
+  3. **Atomic file writes (temp-file-plus-rename):** `writeStore` and `writeAuditStore` serialize JSON to a unique sibling temporary file and atomically swap it into place via `fs.renameSync` (`atomicWriteJson`), preventing partial/truncated writes from corrupting `bounties.json` or `bounties.audit.json` on crash or concurrent read.
+  4. **Coupled status + event + audit boundary (`persistTransitionWithAudit`):** Status transitions (`reserve`, `submit`, `release`, `refund`) pre-validate the audit store, persist the new status, incremented `version`, and appended `events[]` entry together in `bounties.json`, and roll back `bounties.json` to the prior durable version if `appendAuditLogs` fails.
+  5. **Scope & limits:** This guarantees single-host, serialized read-modify-write atomicity for the JSON fallback; multi-instance horizontal scaling requires PostgreSQL ([ADR 0004](0004-postgres-persistence.md)).
 - Durability & integrity: moving to a DB improves atomicity and recovery
   properties; the JSON store is more fragile to partial writes or crashes.
 - Migrations: switching to SQL will require a migration path and tests to

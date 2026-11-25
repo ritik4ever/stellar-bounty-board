@@ -56,6 +56,45 @@ export class ServiceDependencyError extends Error {
 }
 
 /**
+ * Why a bounty transition lost the race (Issue #1925).
+ *
+ * - `BOUNTY_VERSION_CONFLICT`: the caller supplied `expectedVersion` and the
+ *   stored record has already moved on. Re-read the bounty and retry.
+ * - `BOUNTY_STATE_CONFLICT`: the record is at the expected version but the
+ *   transition is not legal from its current status.
+ */
+export type BountyConflictCode = 'BOUNTY_VERSION_CONFLICT' | 'BOUNTY_STATE_CONFLICT';
+
+export interface BountyTransitionConflictOptions {
+  code: BountyConflictCode;
+  /** Client-safe explanation of the defined outcome. */
+  message: string;
+  /** Version the store holds now, so the caller can retry against it. */
+  currentVersion: number;
+  /** Status the store holds now. */
+  currentStatus: string;
+}
+
+/**
+ * A concurrent state update was rejected with a defined outcome instead of a
+ * 5xx. Always maps to HTTP 409 so clients know to refresh and retry.
+ */
+export class BountyTransitionConflictError extends Error {
+  readonly statusCode = 409;
+  readonly code: BountyConflictCode;
+  readonly currentVersion: number;
+  readonly currentStatus: string;
+
+  constructor(options: BountyTransitionConflictOptions) {
+    super(options.message);
+    this.name = 'BountyTransitionConflictError';
+    this.code = options.code;
+    this.currentVersion = options.currentVersion;
+    this.currentStatus = options.currentStatus;
+  }
+}
+
+/**
  * Helper to wrap any unknown failure into a typed ServiceDependencyError while
  * preserving the original cause.
  */

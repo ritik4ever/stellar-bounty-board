@@ -17,6 +17,10 @@ import { ZodSchema } from 'zod';
  *
  * Must run after `express.json()`. Stateless.
  *
+ * This middleware validates only `req.body`. Routes that also accept params or
+ * query strings must validate those separately (e.g. with `validateParams` /
+ * `validateQuery`) so that no input reaches the store or contract layer unvalidated.
+ *
  * @param schema - Zod schema describing the expected body.
  * @returns A synchronous Express middleware.
  */

@@ -21,6 +21,34 @@ export interface AppConfig {
   rateLimitSubmitMax: number;
   /** Rate limit window in milliseconds for submit endpoint (default: 60000 = 1 minute). */
   rateLimitSubmitWindowMs: number;
+  /** Maximum reserve requests per window (default: 10). */
+  rateLimitReserveMax: number;
+  /** Rate limit window in milliseconds for reserve endpoint (default: 60000 = 1 minute). */
+  rateLimitReserveWindowMs: number;
+  /** Maximum refund requests per window (default: 10). */
+  rateLimitRefundMax: number;
+  /** Rate limit window in milliseconds for refund endpoint (default: 60000 = 1 minute). */
+  rateLimitRefundWindowMs: number;
+  /** Maximum open issues requests per window (default: 30). */
+  rateLimitOpenIssuesMax: number;
+  /** Rate limit window in milliseconds for open issues endpoint (default: 60000 = 1 minute). */
+  rateLimitOpenIssuesWindowMs: number;
+  /** Maximum bounties list requests per window (default: 60). */
+  rateLimitBountiesMax: number;
+  /** Rate limit window in milliseconds for bounties list endpoint (default: 60000 = 1 minute). */
+  rateLimitBountiesWindowMs: number;
+  /** Maximum health check requests per window (default: 300). */
+  rateLimitHealthMax: number;
+  /** Rate limit window in milliseconds for health check endpoint (default: 60000 = 1 minute). */
+  rateLimitHealthWindowMs: number;
+  /** Maximum deep health check requests per window (default: 10). */
+  rateLimitDeepHealthMax: number;
+  /** Rate limit window in milliseconds for deep health check endpoint (default: 60000 = 1 minute). */
+  rateLimitDeepHealthWindowMs: number;
+  /** Maximum bounty creation requests per window (default: 10). */
+  rateLimitCreateMax: number;
+  /** Rate limit window in milliseconds for bounty creation endpoint (default: 60000 = 1 minute). */
+  rateLimitCreateWindowMs: number;
   /** Default pagination limit for list endpoints (default: 20). */
   defaultPageSize: number;
   /** Maximum allowable pagination limit for list endpoints (default: 100). */
@@ -61,6 +89,32 @@ export function getAppConfig(): AppConfig {
     rateLimitReleaseWindowMs: parsePositiveInt(process.env.RATE_LIMIT_RELEASE_WINDOW_MS, 60_000),
     rateLimitSubmitMax: parsePositiveInt(process.env.RATE_LIMIT_SUBMIT_MAX, 10),
     rateLimitSubmitWindowMs: parsePositiveInt(process.env.RATE_LIMIT_SUBMIT_WINDOW_MS, 60_000),
+    rateLimitReserveMax: parsePositiveInt(process.env.RATE_LIMIT_RESERVE_MAX, 10),
+    rateLimitReserveWindowMs: parsePositiveInt(process.env.RATE_LIMIT_RESERVE_WINDOW_MS, 60_000),
+    rateLimitRefundMax: parsePositiveInt(process.env.RATE_LIMIT_REFUND_MAX, 10),
+    rateLimitRefundWindowMs: parsePositiveInt(process.env.RATE_LIMIT_REFUND_WINDOW_MS, 60_000),
+    rateLimitOpenIssuesMax: parsePositiveInt(process.env.RATE_LIMIT_OPEN_ISSUES_MAX, 30),
+    rateLimitOpenIssuesWindowMs: parsePositiveInt(
+      process.env.RATE_LIMIT_OPEN_ISSUES_WINDOW_MS,
+      60_000
+    ),
+    rateLimitBountiesMax: parsePositiveInt(process.env.RATE_LIMIT_BOUNTIES_MAX, 60),
+    rateLimitBountiesWindowMs: parsePositiveInt(process.env.RATE_LIMIT_BOUNTIES_WINDOW_MS, 60_000),
+    rateLimitHealthMax: parsePositiveInt(process.env.RATE_LIMIT_HEALTH_MAX, 300),
+    rateLimitHealthWindowMs: parsePositiveInt(process.env.RATE_LIMIT_HEALTH_WINDOW_MS, 60_000),
+    rateLimitDeepHealthMax: parsePositiveInt(process.env.RATE_LIMIT_DEEP_HEALTH_MAX, 10),
+    rateLimitDeepHealthWindowMs: parsePositiveInt(
+      process.env.RATE_LIMIT_DEEP_HEALTH_WINDOW_MS,
+      60_000
+    ),
+    rateLimitCreateMax: parsePositiveInt(
+      process.env.RATE_LIMIT_CREATE_MAX ?? process.env.RATE_LIMIT_BOUNTY_CREATE_MAX,
+      10
+    ),
+    rateLimitCreateWindowMs: parsePositiveInt(
+      process.env.RATE_LIMIT_CREATE_WINDOW_MS ?? process.env.RATE_LIMIT_BOUNTY_CREATE_WINDOW_MS,
+      60_000
+    ),
     defaultPageSize: parsePositiveInt(process.env.DEFAULT_PAGE_SIZE, 20),
     maxPageSize: parsePositiveInt(process.env.MAX_PAGE_SIZE, 100),
     defaultLeaderboardLimit: parsePositiveInt(process.env.DEFAULT_LEADERBOARD_LIMIT, 10),

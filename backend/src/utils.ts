@@ -2,6 +2,7 @@ import type { Request, RequestHandler, Response } from "express";
 import { rateLimit } from "express-rate-limit";
 import { StrKey } from "@stellar/stellar-sdk";
 import { getOperationalConfig } from "./config";
+import { logger } from "./logger";
 
 /**
  * Rate limiting (#349).
@@ -180,7 +181,7 @@ export function getTokenAddressMap(): Record<string, string> {
         }
       }
     } catch (err) {
-      console.warn("Failed to parse TOKEN_ADDRESS_MAP env variable as JSON", err);
+      logger.warn({ err }, "Failed to parse TOKEN_ADDRESS_MAP env variable as JSON");
     }
   }
 
