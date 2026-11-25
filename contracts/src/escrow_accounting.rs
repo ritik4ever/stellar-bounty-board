@@ -1,8 +1,18 @@
 //! Canonical per-bounty escrow accounting event.
 //!
-//! This is NOT the token contract's aggregate balance. Each bounty holds a
-//! separately accounted obligation denominated in the funded token's smallest
-//! units; multiple bounties can share one token contract and vault address.
+//! This is NOT the token contract's aggregate balance. Each bounty ID holds
+//! exactly one escrow balance: a separately accounted obligation denominated in
+//! the funded token's smallest units. Multiple bounties can share one token
+//! contract and vault address, but their escrow balances are tracked and
+//! reported independently, keyed by `bounty_id`.
+//!
+//! # Funding boundary
+//!
+//! Funding a bounty emits exactly one [`EscrowBalanceChanged`] with a single
+//! positive `delta` equal to the funded amount, `previous == 0` and
+//! `remaining == amount` (the funded amount in native token units). The minimum
+//! supported funding amount is [`crate::DEFAULT_MIN_BOUNTY_AMOUNT`]; amounts
+//! below it are rejected before any token movement or event emission.
 
 use soroban_sdk::{contracttype, symbol_short, Address, Env};
 
@@ -37,12 +47,12 @@ pub struct EscrowBalanceChanged {
     pub bounty_id: u64,
     /// Contract address of the token actually funded for this bounty.
     pub token: Address,
-    /// Positive when funded, negative when fully settled; native token units.
-    pub delta: i128,
     /// Magnitude of the movement (`delta.abs()`); always non-negative.
     pub amount: i128,
+    /// Positive when funded, negative when fully settled; native token units.
+    pub delta: i128,
     /// Escrow amount still owed to this bounty before the transition.
-    pub previous_remaining: i128,
+    pub previous: i128,
     /// Escrow amount still owed to this bounty after the transition.
     pub remaining: i128,
     /// Bounty status corresponding to the committed balance change.
@@ -55,13 +65,15 @@ pub struct EscrowBalanceChanged {
 ///
 /// This is the single emission point for [`EscrowBalanceChanged`]; callers must
 /// invoke it only once per committed transition, after the bounty state has been
-/// written, so consumers observe exactly one event per committed change.
+/// written, so consumers observe exactly one event per committed change. In
+/// particular, funding a bounty ID must produce exactly one positive-delta event
+/// (`previous == 0`, `remaining == amount`) for that bounty ID and token.
 pub(crate) fn publish_escrow_change(env: &Env, bounty_id: u64, bounty: &Bounty, delta: i128) {
     let remaining = match bounty.status {
         BountyStatus::Released | BountyStatus::Refunded => 0,
         _ => bounty.amount,
     };
-    let previous_remaining = remaining - delta;
+    let previous = remaining - delta;
     let amount = delta.abs();
 
     env.events().publish(
@@ -69,9 +81,9 @@ pub(crate) fn publish_escrow_change(env: &Env, bounty_id: u64, bounty: &Bounty, 
         EscrowBalanceChanged {
             bounty_id,
             token: bounty.token.clone(),
-            delta,
             amount,
-            previous_remaining,
+            delta,
+            previous,
             remaining,
             status: bounty.status,
         },
