@@ -15,8 +15,25 @@ mod escrow_accounting;
 pub const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Minimum allowed bounty amount to prevent dust bounties.
+///
+/// # Escrow funding boundaries (SBB-2026-406)
+///
+/// * **Denomination** — every bounty amount, including this minimum, is
+///   expressed in the *smallest unit* of the accepted token (stroops for the
+///   native SAC, or the token's own base unit for any other allowlisted SAC).
+///   No decimal scaling is applied anywhere in the contract: the value passed
+///   to `create_bounty` is exactly the value escrowed and later paid out.
+/// * **Minimum supported amount** — this constant is the default floor. The
+///   arbiter may raise or lower it via `set_min_bounty_amount`, and the
+///   effective floor is what `get_min_bounty_amount` returns.
+/// * **Below-minimum rejection** — `create_bounty` rejects any `amount` below
+///   the effective floor with [`ContractError::AmountTooSmall`], before any
+///   token movement or storage write.
+/// * **Single ID, single balance** — a successful funding allocates exactly one
+///   new bounty ID and leaves exactly one escrow balance for that ID, equal to
+///   the funded `amount`.
+///
 /// Default: 100 stroops (0.00001 XLM).
-/// This can be overridden by the contract admin via `set_min_bounty_amount`.
 pub const DEFAULT_MIN_BOUNTY_AMOUNT: i128 = 100;
 
 /// Minimum allowed per-bounty dispute window override (1 minute in seconds).
@@ -732,6 +749,26 @@ impl StellarBountyBoardContract {
     /// # Authorisation
     /// * Requires authorization from the creating `maintainer` (`maintainer.require_auth()`).
     ///
+    /// # Escrow funding boundaries (SBB-2026-406)
+    ///
+    /// * **Token units** — `amount` is denominated in the smallest unit of
+    ///   `token` (stroops for the native SAC, the token's base unit otherwise).
+    ///   The contract applies no decimal scaling: the funded amount is exactly
+    ///   the value supplied, and it is the amount later released or refunded.
+    /// * **Minimum supported amount** — the effective floor is
+    ///   [`Self::get_min_bounty_amount`], which defaults to
+    ///   [`DEFAULT_MIN_BOUNTY_AMOUNT`] and may be changed by the arbiter via
+    ///   [`Self::set_min_bounty_amount`]. The floor is read at call time, so a
+    ///   raised floor applies to subsequent fundings immediately.
+    /// * **Below-minimum rejection** — any `amount` below the effective floor
+    ///   is rejected with [`ContractError::AmountTooSmall`]. The check runs
+    ///   before the token transfer, so a rejected funding moves no tokens and
+    ///   consumes no bounty ID.
+    /// * **One ID, one escrow balance** — a successful call allocates exactly
+    ///   one new bounty ID and creates exactly one escrow balance for it, equal
+    ///   to the funded `amount`. There is no partial or top-up funding path:
+    ///   each bounty's escrow is fixed at creation.
+    ///
     /// # Errors & Panic Paths
     /// * [`ContractError::ContractIsPaused`] - If the contract circuit-breaker is paused (`Self::get_paused_state`).
     /// * [`ContractError::InvalidAmount`] - If `amount <= 0` or exceeds `MAX_BOUNTY_AMOUNT`.
@@ -808,7 +845,16 @@ impl StellarBountyBoardContract {
 
         let min_amount = Self::get_min_bounty_amount(env.clone());
 
+        // Escrow funding boundaries (SBB-2026-406): `amount` is in the token's
+        // smallest unit and must be positive, within the hard cap, and at least
+        // the effective minimum. All three checks run before any token movement
+        // or storage write, so a rejected funding moves no funds and consumes
+        // no bounty ID.
         if amount <= 0 || amount > MAX_BOUNTY_AMOUNT {
+            panic_error(&env, ContractError::InvalidAmount);
+        }
+        if min_amount <= 0 || min_amount > MAX_BOUNTY_AMOUNT {
+            // A misconfigured floor must not silently disable the boundary.
             panic_error(&env, ContractError::InvalidAmount);
         }
         if amount < min_amount {
