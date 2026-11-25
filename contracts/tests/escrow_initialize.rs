@@ -11,7 +11,7 @@ use soroban_sdk::{
     testutils::{Address as _, Events, MockAuth, MockAuthInvoke},
     token::{Client as TokenClient, StellarAssetClient},
     xdr::{ScErrorCode, ScErrorType},
-    Address, Env, Error, IntoVal, Symbol, TryIntoVal,
+    Address, Env, Error, FromVal, IntoVal, Symbol,
 };
 use stellar_bounty_board::{
     StellarBountyBoardContract, StellarBountyBoardContractClient, DEFAULT_MIN_BOUNTY_AMOUNT,
@@ -215,20 +215,24 @@ fn second_caller_cannot_replace_arbiter_via_reinitialize() {
 /// committed for a bounty ID. `initialize` must never produce them, so that
 /// consumers can reconstruct a committed funding change exactly once.
 fn has_escrow_funding_event(env: &Env) -> bool {
-    let funding_topics: [Symbol; 2] = [
-        Symbol::new(env, "bounty"),
-        Symbol::new(env, "escrow_funded"),
-    ];
-    env.events().all().events().iter().any(|event| {
-        let topics: soroban_sdk::Vec<soroban_sdk::Val> = event.body.v0().topics.clone();
-        if topics.len() != funding_topics.len() {
-            return false;
+    let funding_topic_0 = Symbol::new(env, "Bounty");
+    let funding_topic_1 = Symbol::new(env, "Fund");
+    let escrow_balance_0 = Symbol::new(env, "Escrow");
+    let escrow_balance_1 = Symbol::new(env, "Balance");
+    for event in env.events().all().events().iter() {
+        let soroban_sdk::xdr::ContractEventBody::V0(v0) = &event.body;
+        if v0.topics.len() < 2 {
+            continue;
         }
-        topics.iter().enumerate().all(|(index, topic)| {
-            let expected: soroban_sdk::Val = funding_topics[index].into_val(env);
-            topic == expected
-        })
-    })
+        let t0 = Symbol::from_val(env, &v0.topics[0]);
+        let t1 = Symbol::from_val(env, &v0.topics[1]);
+        if (t0 == funding_topic_0 && t1 == funding_topic_1)
+            || (t0 == escrow_balance_0 && t1 == escrow_balance_1)
+        {
+            return true;
+        }
+    }
+    false
 }
 
 #[test]
