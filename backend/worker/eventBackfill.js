@@ -13,6 +13,18 @@
 //     failed or partial page is retried as a whole; re-reading a ledger is a
 //     no-op because events are deduplicated by chain position.
 //   * Events already written by live polling are preserved and never rewritten.
+//
+// Backfill boundary behavior (#1935):
+//   * The first RPC page response carries a `latestLedger` value that reflects
+//     the network's current tip. If `endLedger` meets or exceeds `latestLedger`,
+//     the effective end is clamped to `latestLedger - 1` and a warning is logged.
+//     This guarantees backfill only touches fully-finalized ledgers and cannot
+//     race with the live poller writing the same ledger concurrently.
+//   * When the requested range falls entirely at or beyond `latestLedger` (i.e.
+//     the clamped end would be below `startLedger`), the run is rejected with
+//     `invalid_request` before any event is persisted.
+//   * The clamped boundary is recorded in every subsequent trace entry so
+//     operators can verify which ledgers were actually processed.
 
 import crypto from "crypto";
 import fs from "fs";
@@ -337,6 +349,43 @@ export function redactBackfillRef(value) {
   return `sha256:${digest}`;
 }
 
+/**
+ * Defines the effective backfill end boundary given the network tip (#1935).
+ *
+ * Backfill must only touch ledgers that the network considers finalized. The
+ * RPC response carries `latestLedger` as the current tip; `latestLedger` itself
+ * may still be open to the live poller, so the safe upper bound is
+ * `latestLedger - 1`.
+ *
+ * Returns `{ effectiveEnd, clamped }` where:
+ *   - `effectiveEnd` is the ledger to use as the inclusive end of the run.
+ *   - `clamped` is true when the requested end was reduced.
+ *
+ * Throws `BackfillError('invalid_request')` when the entire requested range
+ * lies at or beyond `latestLedger` (nothing to backfill).
+ *
+ * @param {number} requestedEnd  The operator-supplied endLedger.
+ * @param {number} startLedger   The effective start (may have been resumed).
+ * @param {number} latestLedger  The `latestLedger` from the first RPC page.
+ * @returns {{ effectiveEnd: number, clamped: boolean }}
+ */
+export function clampEndLedger(requestedEnd, startLedger, latestLedger) {
+  // latestLedger may still be in-flight for the live poller; subtract one so
+  // we only cover ledgers that are fully committed on the network side.
+  const safeMax = latestLedger - 1;
+  if (startLedger > safeMax) {
+    throw new BackfillError(
+      `requested range [${startLedger}, ${requestedEnd}] is entirely at or beyond ` +
+        `the network tip (latestLedger=${latestLedger}); nothing to backfill`,
+      "invalid_request",
+    );
+  }
+  if (requestedEnd > safeMax) {
+    return { effectiveEnd: safeMax, clamped: true };
+  }
+  return { effectiveEnd: requestedEnd, clamped: false };
+}
+
 function recordTrace(trace, { logger, onTrace, traces }) {
   const entry = {
     timestamp: new Date().toISOString(),
@@ -404,8 +453,13 @@ export async function runEventBackfill(options) {
   let eventsProcessed = 0;
   let eventsSkipped = 0;
   let lastCursor = stored;
+  // effectiveEndLedger starts at the operator-requested value. After the first
+  // RPC page returns, it is clamped to latestLedger - 1 so backfill never
+  // overlaps with ledgers the live poller may still be writing (#1935).
+  let effectiveEndLedger = validated.endLedger;
+  let boundaryApplied = false;
 
-  while (startLedger <= validated.endLedger) {
+  while (startLedger <= effectiveEndLedger) {
     if (pages >= MAX_PAGES) {
       throw new BackfillError(`backfill exceeded ${MAX_PAGES} RPC pages`, "invalid_request");
     }
@@ -422,7 +476,7 @@ export async function runEventBackfill(options) {
           reason: "rpc_request_failed",
           errorCode: "malformed_rpc_response",
           page: pages + 1,
-          ledgerRange: { start: startLedger, end: validated.endLedger },
+          ledgerRange: { start: startLedger, end: effectiveEndLedger },
           cursorRef: redactBackfillRef(cursor),
           storedCursor: lastCursor
             ? { ledger: lastCursor.ledger, eventIndex: lastCursor.eventIndex }
@@ -439,7 +493,25 @@ export async function runEventBackfill(options) {
       page = validateRpcPage(body, contractId);
       pages += 1;
 
-      const inRange = page.events.filter((event) => Number(event.ledger) <= validated.endLedger);
+      // Apply the boundary clamp once, on the first page, using the network's
+      // own latestLedger (#1935).  Subsequent pages inherit the clamped value.
+      if (!boundaryApplied) {
+        const { effectiveEnd, clamped } = clampEndLedger(
+          validated.endLedger,
+          startLedger,
+          page.latestLedger,
+        );
+        effectiveEndLedger = effectiveEnd;
+        boundaryApplied = true;
+        if (clamped) {
+          logger.log(
+            `[Backfill] endLedger clamped from ${validated.endLedger} to ${effectiveEndLedger} ` +
+              `(latestLedger=${page.latestLedger}); backfill boundary applied (#1935).`,
+          );
+        }
+      }
+
+      const inRange = page.events.filter((event) => Number(event.ledger) <= effectiveEndLedger);
       normalized = inRange.map(normalizePageEvent);
     } catch (err) {
       const errorCode = err instanceof BackfillError ? err.code : "malformed_rpc_response";
@@ -450,7 +522,7 @@ export async function runEventBackfill(options) {
           reason: errorCode === "missing_rpc_page" ? "missing_rpc_page" : "page_validation_failed",
           errorCode,
           page: pages + 1,
-          ledgerRange: { start: startLedger, end: validated.endLedger },
+          ledgerRange: { start: startLedger, end: effectiveEndLedger },
           cursorRef: redactBackfillRef(cursor),
           storedCursor: lastCursor
             ? { ledger: lastCursor.ledger, eventIndex: lastCursor.eventIndex }
@@ -471,7 +543,7 @@ export async function runEventBackfill(options) {
         status: "pending",
         reason: "page_fetched",
         page: pages,
-        ledgerRange: { start: startLedger, end: validated.endLedger },
+        ledgerRange: { start: startLedger, end: effectiveEndLedger },
         eventCount: normalized.length,
         eventRefs,
         cursorRef: redactBackfillRef(page.pagingToken ?? cursor),
@@ -503,7 +575,7 @@ export async function runEventBackfill(options) {
         reason:
           merged.added === 0 && merged.skipped > 0 ? "whole_ledger_retry_deduped" : "page_committed",
         page: pages,
-        ledgerRange: { start: startLedger, end: validated.endLedger },
+        ledgerRange: { start: startLedger, end: effectiveEndLedger },
         eventsAdded: merged.added,
         eventsSkipped: merged.skipped,
         eventRefs,
@@ -517,7 +589,7 @@ export async function runEventBackfill(options) {
 
     if (page.events.length === 0) break;
     const highestLedger = Math.max(...page.events.map((event) => Number(event.ledger)));
-    if (highestLedger > validated.endLedger) break;
+    if (highestLedger > effectiveEndLedger) break;
 
     if (page.pagingToken) {
       cursor = page.pagingToken;
@@ -529,7 +601,7 @@ export async function runEventBackfill(options) {
   }
 
   logger.log(
-    `[Backfill] ledgers ${validated.startLedger}-${validated.endLedger}: ` +
+    `[Backfill] ledgers ${validated.startLedger}-${effectiveEndLedger}: ` +
       `${eventsProcessed} added, ${eventsSkipped} already present, ${pages} page(s).`,
   );
 
@@ -538,6 +610,7 @@ export async function runEventBackfill(options) {
     pages,
     eventsProcessed,
     eventsSkipped,
+    effectiveEndLedger,
     cursor: lastCursor,
     traces,
   };
