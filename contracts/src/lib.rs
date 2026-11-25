@@ -344,16 +344,34 @@ pub struct BountyDisputed {
 
 /// Emitted when an arbiter resolves a dispute (release or refund).
 ///
-/// This is the single event emitted by `resolve_dispute`, emitted only after the
-/// terminal state (`Released` or `Refunded`) has been committed to storage.
-/// Consumers can reconstruct the settled state and escrow distribution from this
-/// event without requiring a follow-up contract read.
+/// This is the single lifecycle resolution event emitted by `resolve_dispute`,
+/// published strictly after the terminal state (`Released` or `Refunded`) has
+/// been committed to storage, token transfers have succeeded, and the
+/// `("Escrow", "Balance")` accounting event has been emitted. Consumers can
+/// reconstruct the committed change once — including the one final decision
+/// and exact payout/refund destination — without a follow-up contract read.
+///
+/// Topics: `(symbol_short!("Bounty"), symbol_short!("Reslv"))`
+///
+/// Event ordering on a committed `resolve_dispute` call:
+/// 1. `("Escrow", "Balance")` — [`escrow_accounting::EscrowBalanceChanged`]
+///    with `delta = -amount`, `remaining = 0`, and `status = Released | Refunded`.
+/// 2. `("Bounty", "Reslv")` — [`BountyResolved`] carrying the final decision
+///    and exact destination details.
 ///
 /// Fields, in deterministic order:
 /// - `bounty_id`: which bounty was resolved.
 /// - `arbiter`: the arbiter address that authorized the resolution.
-/// - `release`: the decision (`true` for release to contributor, `false` for refund to maintainer).
-/// - `amount`: the full escrow amount settled.
+/// - `release`: the one final decision (`true` -> `Released` to contributor,
+///   `false` -> `Refunded` to maintainer).
+/// - `amount`: the full escrow amount settled (`net_amount + fee_amount`).
+/// - `destination`: the exact recipient address (`contributor` when
+///   `release == true`, `maintainer` when `release == false`).
+/// - `token`: the token contract address in which escrow was settled.
+/// - `net_amount`: exact token units transferred to `destination`.
+/// - `fee_amount`: exact protocol fee units transferred to `FeeRecipient`
+///   (`0` on refund or zero-fee release).
+/// - `resolved_at`: the ledger timestamp at which the resolution was committed.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BountyResolved {
@@ -361,6 +379,11 @@ pub struct BountyResolved {
     pub arbiter: Address,
     pub release: bool,
     pub amount: i128,
+    pub destination: Address,
+    pub token: Address,
+    pub net_amount: i128,
+    pub fee_amount: i128,
+    pub resolved_at: u64,
 }
 
 /// Emitted when the losing party of a dispute files an appeal.
@@ -1658,7 +1681,7 @@ impl StellarBountyBoardContract {
         let token_client = TokenClient::new(&env, &bounty.token);
         let contract_address = env.current_contract_address();
 
-        if release {
+        let (destination, net_amount, fee_amount) = if release {
             let contributor = bounty
                 .contributor
                 .clone()
@@ -1699,6 +1722,8 @@ impl StellarBountyBoardContract {
 
             // Atomically update FeeStats for the dispute-release path
             accumulate_fee_stats(&env, fee_amount);
+
+            (contributor, net_payout, fee_amount)
         } else {
             // Commit terminal state before interacting with token contract
             bounty.status = BountyStatus::Refunded;
@@ -1710,12 +1735,14 @@ impl StellarBountyBoardContract {
             ) {
                 panic_error(&env, ContractError::RefundTransferFailed);
             }
-        }
+
+            (bounty.maintainer.clone(), bounty.amount, 0)
+        };
 
         // Escrow funding event for the dispute-resolution path: the escrow
         // balance for this bounty drops to zero. Emitted exactly once, only
         // after the terminal state write and the settlement transfers have
-        // succeeded.
+        // succeeded, and strictly before `(Bounty, Reslv)`.
         escrow_accounting::publish_escrow_change(&env, bounty_id, &bounty, -bounty.amount);
 
         env.events().publish(
@@ -1725,6 +1752,11 @@ impl StellarBountyBoardContract {
                 arbiter,
                 release,
                 amount: bounty.amount,
+                destination,
+                token: bounty.token,
+                net_amount,
+                fee_amount,
+                resolved_at: env.ledger().timestamp(),
             },
         );
     }

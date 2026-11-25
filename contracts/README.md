@@ -26,7 +26,7 @@ The contract uses named error codes for all invalid operations. These codes are 
 - `submit_bounty(bounty_id, contributor)` - transitions a reserved bounty to the **Submitted** state and emits the `(Bounty, Submit)` event. Submission is accepted strictly while `timestamp <= deadline`, including at the exact boundary (`timestamp == deadline`). Submissions attempted when `timestamp > deadline` are rejected with `BountyExpired` (#22). Caller authorization is enforced (`contributor.require_auth()`), rejecting mismatched or unauthorized callers with `ContributorMismatch` (#26). Token balances remain completely untouched (zero tokens moved), preserving exact integer escrow units. Once submitted, subsequent ledger timestamp advances past the deadline do not expire the bounty. Its `BountySubmitted` payload contains `bounty_id` and `contributor`, allowing indexer workers to process the state change without a follow-up contract read.
 - `refund_bounty(bounty_id, maintainer)` - returns escrow after the deadline has passed and emits exactly one `(Bounty, Refund)` event. Its `BountyRefunded` payload, in field order, contains `bounty_id`, `maintainer`, `token`, full refunded `amount`, and `refunded_at`; indexers can reconstruct the committed refund without a follow-up contract read. The `Refunded` status is committed before the token call, and a failed transfer or unauthorized contributor call aborts atomically, leaving both balances and bounty status unchanged.
 - `dispute_bounty(bounty_id, arbiter)` - transitions a submitted bounty to the **Disputed** state and emits the `(Bounty, Dispt)` event. Its `BountyDisputed` payload contains `bounty_id`, `contributor`, and `arbiter`, allowing indexer workers to process the state change without a follow-up contract read.
-- `resolve_dispute(bounty_id, release)` - allows the arbiter to settle a disputed bounty by releasing funds to contributor (minus protocol fee) or refunding maintainer. Emits the single `(Bounty, Reslv)` event with `BountyResolved` containing `bounty_id`, `arbiter`, `release`, and the settled `amount` strictly after terminal state is committed. Failed transfers abort atomically leaving dispute state and escrow intact.
+- `resolve_dispute(bounty_id, release)` - allows the arbiter to settle a disputed bounty by releasing funds to contributor (minus protocol fee) or refunding maintainer. Strictly after terminal state is committed and token transfers succeed, emits `("Escrow", "Balance")` followed by `("Bounty", "Reslv")` with `BountyResolved` (`bounty_id`, `arbiter`, `release`, `amount`, `destination`, `token`, `net_amount`, `fee_amount`, `resolved_at`). Failed transfers abort atomically leaving dispute state and escrow intact with zero events emitted.
 
 ## Escrow Initialization Boundaries (SBB-2026-401)
 
@@ -105,6 +105,24 @@ Arbiter dispute settlement (`resolve_dispute`) enforces strict ledger, token-uni
   - Conflicting or duplicate resolution attempts after settlement cannot move funds, alter terminal status, or emit additional `(Bounty, Reslv)` events.
 - **Strict Arbiter Authority**:
   - Requires explicit Soroban authorization from the configured `DataKey::Arbiter`. Maintainer, contributor, admin, outsider, or unsigned callers are rejected before any state mutation or token transfer.
+
+## Arbiter Resolution Events (SBB-2026-439)
+
+A committed `resolve_dispute` call publishes two contract events in a fixed, deterministic order so off-chain consumers can reconstruct the one final decision and exact destination once without a follow-up contract read:
+
+1. `("Escrow", "Balance")` — `EscrowBalanceChanged` with `delta = -amount`, `remaining = 0`, and `status = Released | Refunded`.
+2. `("Bounty", "Reslv")` — `BountyResolved` with fields in deterministic order:
+   - `bounty_id: u64` — resolved bounty identifier.
+   - `arbiter: Address` — arbiter address that authorized the decision.
+   - `release: bool` — the one final decision (`true` -> `Released`, `false` -> `Refunded`).
+   - `amount: i128` — full escrowed amount settled (`net_amount + fee_amount`).
+   - `destination: Address` — exact recipient (`contributor` when `release == true`, `maintainer` when `release == false`).
+   - `token: Address` — token contract address in which escrow was settled.
+   - `net_amount: i128` — exact token units transferred to `destination`.
+   - `fee_amount: i128` — exact protocol fee transferred to `FeeRecipient` (`0` on refund or zero-fee release).
+   - `resolved_at: u64` — ledger timestamp of the committed resolution.
+
+Both events are emitted only after terminal storage state (`Released` or `Refunded`) and token transfers succeed. Premature, unauthorized, failed, duplicate, or conflicting resolution calls abort atomically and emit zero resolution or escrow events.
 
 ## Storage Lifetime & Authority Enforcement
 
