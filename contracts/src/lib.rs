@@ -15,8 +15,25 @@ mod escrow_accounting;
 pub const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Minimum allowed bounty amount to prevent dust bounties.
+///
+/// # Escrow funding boundaries (SBB-2026-406)
+///
+/// * **Denomination** — every bounty amount, including this minimum, is
+///   expressed in the *smallest unit* of the accepted token (stroops for the
+///   native SAC, or the token's own base unit for any other allowlisted SAC).
+///   No decimal scaling is applied anywhere in the contract: the value passed
+///   to `create_bounty` is exactly the value escrowed and later paid out.
+/// * **Minimum supported amount** — this constant is the default floor. The
+///   arbiter may raise or lower it via `set_min_bounty_amount`, and the
+///   effective floor is what `get_min_bounty_amount` returns.
+/// * **Below-minimum rejection** — `create_bounty` rejects any `amount` below
+///   the effective floor with [`ContractError::AmountTooSmall`], before any
+///   token movement or storage write.
+/// * **Single ID, single balance** — a successful funding allocates exactly one
+///   new bounty ID and leaves exactly one escrow balance for that ID, equal to
+///   the funded `amount`.
+///
 /// Default: 100 stroops (0.00001 XLM).
-/// This can be overridden by the contract admin via `set_min_bounty_amount`.
 pub const DEFAULT_MIN_BOUNTY_AMOUNT: i128 = 100;
 
 /// Minimum allowed per-bounty dispute window override (1 minute in seconds).
@@ -159,6 +176,18 @@ pub struct BountySubmitted {
     pub contributor: Address,
 }
 
+/// Payload for the `(Bounty, Releas)` event emitted by `release_bounty`.
+///
+/// Emitted strictly after `("Escrow", "Balance")` and immediately before
+/// `("Bounty", "RelEvent")` on a committed payout of the exact escrow amount.
+///
+/// Fields, in deterministic order:
+/// - `bounty_id`: which bounty was released.
+/// - `contributor`: the recipient of the net payout.
+/// - `amount`: net payout transferred to `contributor` after deducting protocol fee.
+/// - `fee_amount`: protocol fee transferred to `FeeRecipient` (`0` when fee is zero).
+///
+/// Conservation invariant: `amount + fee_amount == escrowed_amount`.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BountyReleased {
@@ -171,17 +200,21 @@ pub struct BountyReleased {
 /// Payload for the `(Bounty, RelEvent)` event emitted by `release_bounty`.
 ///
 /// This event is scoped specifically to the `release_bounty` transition so
-/// that the indexer worker can react without polling the whole contract
-/// state. The payload carries every field the worker needs to update its
-/// view of the bounty without a follow-up contract read:
+/// that off-chain consumers can reconstruct the committed payout once without
+/// a follow-up contract read. It is emitted third and last in the payout event
+/// sequence, strictly after `("Escrow", "Balance")` and `("Bounty", "Releas")`.
+///
+/// Fields, in deterministic order:
 /// - `bounty_id`: which bounty was released.
 /// - `maintainer`: who authorized the release.
 /// - `contributor`: who received the net payout.
-/// - `token`: the token the bounty was escrowed in.
+/// - `token`: the token contract address the bounty was escrowed in.
 /// - `amount`: the net payout to the contributor (after fee).
 /// - `fee_amount`: the protocol fee transferred to the fee recipient.
 /// - `protocol_fee_bps`: the fee rate locked in at creation time.
 /// - `released_at`: the ledger timestamp at which the release occurred.
+///
+/// Conservation invariant: `amount + fee_amount == escrowed_amount`.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BountyReleasedEvent {
@@ -211,6 +244,17 @@ pub struct BountyRefunded {
     pub token: Address,
     pub amount: i128,
     pub refunded_at: u64,
+}
+
+/// Payload for the `(Bounty, Fund)` event emitted when escrow is funded.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BountyFunded {
+    pub bounty_id: u64,
+    pub token: Address,
+    pub amount: i128,
+    pub escrow_balance: i128,
+    pub status: BountyStatus,
 }
 
 #[contracttype]
@@ -538,6 +582,24 @@ impl StellarBountyBoardContract {
     /// Initializes the contract with the admin address, fee recipient,
     /// arbiter, and default dispute window (in seconds).
     ///
+    /// # Escrow Initialization Boundaries (SBB-2026-401)
+    ///
+    /// - **One-time Invocation**: The contract must be initialized exactly once.
+    ///   Re-initialization is blocked atomically by checking `DataKey::FeeRecipient`.
+    /// - **Immutable Arbiter Identity**: The valid `arbiter` address supplied on the
+    ///   first call is persisted to `DataKey::Arbiter` and becomes the authoritative
+    ///   governance identity for arbiter-gated methods (`set_min_bounty_amount`, `pause`,
+    ///   `unpause`, and dispute resolution).
+    /// - **Zero Token Movement**: Initialization requires zero initial deposit and moves
+    ///   zero tokens. Token balances for admin, arbiter, fee recipient, and contract
+    ///   remain strictly unchanged.
+    /// - **Zero Event Emission**: No lifecycle or escrow balance events are emitted during
+    ///   initialization, preventing spurious indexing.
+    /// - **Initialized State Defaults**: Configures `MinBountyAmount` to
+    ///   [`DEFAULT_MIN_BOUNTY_AMOUNT`] (100) and `MinArbiterStake` to
+    ///   [`DEFAULT_MIN_ARBITER_STAKE`]. `get_paused_state` defaults to `false` and
+    ///   `get_next_bounty_id` is 0.
+    ///
     /// # Panics
     ///
     /// Panics with `"already initialized"` if called more than once
@@ -687,6 +749,26 @@ impl StellarBountyBoardContract {
     /// # Authorisation
     /// * Requires authorization from the creating `maintainer` (`maintainer.require_auth()`).
     ///
+    /// # Escrow funding boundaries (SBB-2026-406)
+    ///
+    /// * **Token units** — `amount` is denominated in the smallest unit of
+    ///   `token` (stroops for the native SAC, the token's base unit otherwise).
+    ///   The contract applies no decimal scaling: the funded amount is exactly
+    ///   the value supplied, and it is the amount later released or refunded.
+    /// * **Minimum supported amount** — the effective floor is
+    ///   [`Self::get_min_bounty_amount`], which defaults to
+    ///   [`DEFAULT_MIN_BOUNTY_AMOUNT`] and may be changed by the arbiter via
+    ///   [`Self::set_min_bounty_amount`]. The floor is read at call time, so a
+    ///   raised floor applies to subsequent fundings immediately.
+    /// * **Below-minimum rejection** — any `amount` below the effective floor
+    ///   is rejected with [`ContractError::AmountTooSmall`]. The check runs
+    ///   before the token transfer, so a rejected funding moves no tokens and
+    ///   consumes no bounty ID.
+    /// * **One ID, one escrow balance** — a successful call allocates exactly
+    ///   one new bounty ID and creates exactly one escrow balance for it, equal
+    ///   to the funded `amount`. There is no partial or top-up funding path:
+    ///   each bounty's escrow is fixed at creation.
+    ///
     /// # Errors & Panic Paths
     /// * [`ContractError::ContractIsPaused`] - If the contract circuit-breaker is paused (`Self::get_paused_state`).
     /// * [`ContractError::InvalidAmount`] - If `amount <= 0` or exceeds `MAX_BOUNTY_AMOUNT`.
@@ -763,7 +845,16 @@ impl StellarBountyBoardContract {
 
         let min_amount = Self::get_min_bounty_amount(env.clone());
 
+        // Escrow funding boundaries (SBB-2026-406): `amount` is in the token's
+        // smallest unit and must be positive, within the hard cap, and at least
+        // the effective minimum. All three checks run before any token movement
+        // or storage write, so a rejected funding moves no funds and consumes
+        // no bounty ID.
         if amount <= 0 || amount > MAX_BOUNTY_AMOUNT {
+            panic_error(&env, ContractError::InvalidAmount);
+        }
+        if min_amount <= 0 || min_amount > MAX_BOUNTY_AMOUNT {
+            // A misconfigured floor must not silently disable the boundary.
             panic_error(&env, ContractError::InvalidAmount);
         }
         if amount < min_amount {
@@ -834,22 +925,16 @@ impl StellarBountyBoardContract {
             .set(&DataKey::Bounty(next_id), &bounty);
 
         // Escrow funding event: emitted exactly once, only after both the token
-        // transfer above and the bounty record write have succeeded. The
-        // previous escrow balance for this bounty is always zero (the ID is
-        // fresh), so the committed balance equals the escrowed amount.
-        let previous_balance: i128 = 0;
-        let committed_balance = previous_balance
-            .checked_add(amount)
-            .unwrap_or_else(|| panic_error(&env, ContractError::InvalidAmount));
+        // transfer above and the bounty record write have succeeded.
+        escrow_accounting::publish_escrow_change(&env, next_id, &bounty, amount);
+
         env.events().publish(
-            (symbol_short!("Escrow"), symbol_short!("Funded")),
-            escrow_accounting::EscrowBalanceChanged {
+            (symbol_short!("Bounty"), symbol_short!("Fund")),
+            BountyFunded {
                 bounty_id: next_id,
-                asset: token.clone(),
+                token: token.clone(),
                 amount,
-                delta: amount,
-                previous_balance,
-                committed_balance,
+                escrow_balance: amount,
                 status: BountyStatus::Open,
             },
         );
@@ -1080,17 +1165,42 @@ impl StellarBountyBoardContract {
     /// * [`ContractError::MaintainerMismatch`] - If the caller `maintainer` does not match the bounty's registered creator (`bounty.maintainer != maintainer`).
     /// * [`ContractError::BountyMustBeSubmitted`] - If the bounty's current status is not [`BountyStatus::Submitted`].
     /// * [`ContractError::MissingContributor`] - If the bounty has no assigned contributor.
-    /// * Contract token client panics if token transfers to contributor or treasury fail.
+    /// * [`ContractError::FeeRecipientNotSet`] - If `fee_amount > 0` and no fee recipient is configured in storage.
+    /// * [`ContractError::PayoutTransferFailed`] - If the net payout token transfer to the contributor fails.
+    /// * [`ContractError::FeeTransferFailed`] - If the protocol fee token transfer to the fee recipient fails.
+    ///
+    /// # Atomicity & Payout Failure Guarantees
+    /// * Caller authorization, bounty status, contributor presence, and `FeeRecipient` (when `fee_amount > 0`) are validated before any state write or token transfer.
+    /// * Terminal status ([`BountyStatus::Released`]) is committed prior to token transfers (Checks-Effects-Interactions).
+    /// * If either the contributor payout transfer or the protocol fee transfer fails, the transaction aborts atomically with [`ContractError::PayoutTransferFailed`] or [`ContractError::FeeTransferFailed`], rolling back status, `FeeStats`, and any prior transfer in the same call without emitting events.
+    /// * A failed call cannot strand or multiply escrow funds; retrying `release_bounty` after resolving the transfer failure settles the payout exactly once, and any subsequent release fails with [`ContractError::BountyMustBeSubmitted`].
     ///
     /// # Storage
     /// * **Read**:
     ///   - [`DataKey::Bounty(bounty_id)`] - Reads the existing bounty state via `read_bounty`.
-    ///   - [`DataKey::Treasury`] - Persistent storage lookup to obtain the protocol treasury address if fees apply.
+    ///   - [`DataKey::FeeRecipient`] - Persistent storage lookup to obtain the protocol fee recipient address if fees apply.
     /// * **Write**:
-    ///   - [`DataKey::Bounty(bounty_id)`] - Updates `bounty.status` to [`BountyStatus::Released`] and records `bounty.released_at` timestamp.
+    ///   - [`DataKey::Bounty(bounty_id)`] - Updates `bounty.status` to [`BountyStatus::Released`] before token transfers.
+    ///   - [`DataKey::FeeStats`] - Updates cumulative fee statistics after transfers succeed.
     ///
-    /// # Events
-    /// * Emits `(symbol_short!("Bounty"), symbol_short!("Rel"))` with [`BountyReleased`] payload.
+    /// # Events & Payout Event Contract (SBB-2026-424)
+    ///
+    /// On a committed `release_bounty` call, exactly three contract events are
+    /// emitted in this deterministic order, strictly after `BountyStatus::Released`,
+    /// token transfers, and `FeeStats` updates have succeeded:
+    ///
+    /// 1. `(symbol_short!("Escrow"), symbol_short!("Balance"))` — [`escrow_accounting::EscrowBalanceChanged`]
+    ///    with `amount = bounty.amount`, `delta = -bounty.amount`, `previous = bounty.amount`,
+    ///    `remaining = 0`, and `status = BountyStatus::Released`.
+    /// 2. `(symbol_short!("Bounty"), symbol_short!("Releas"))` — [`BountyReleased`]
+    ///    with `amount = net_payout` and `fee_amount`.
+    /// 3. `(symbol_short!("Bounty"), symbol_short!("RelEvent"))` — [`BountyReleasedEvent`]
+    ///    with full self-contained payout details (`maintainer`, `contributor`, `token`,
+    ///    `amount`, `fee_amount`, `protocol_fee_bps`, `released_at`).
+    ///
+    /// Exact escrow conservation: `net_payout + fee_amount == bounty.amount`.
+    /// Consumers can reconstruct the committed payout once: failed or duplicate
+    /// calls abort atomically and emit zero events.
     pub fn release_bounty(env: Env, bounty_id: u64, maintainer: Address) {
         maintainer.require_auth();
         let mut bounty = read_bounty(&env, bounty_id);
@@ -1125,11 +1235,20 @@ impl StellarBountyBoardContract {
 
         let net_payout = bounty.amount - fee_amount;
 
-        // Commit terminal state before interacting with the token contract so
-        // any reentrant or post-release `dispute_bounty` sees `Released` and
-        // is rejected with `BountyMustBeSubmitted`. If a transfer fails,
-        // `panic_error` aborts the invocation and rolls back this write
-        // atomically without stranding or multiplying escrow funds.
+        // Resolve fee recipient before committing state or initiating any transfer.
+        let fee_recipient: Option<Address> = if fee_amount > 0 {
+            Some(
+                env.storage()
+                    .persistent()
+                    .get(&DataKey::FeeRecipient)
+                    .unwrap_or_else(|| panic_error(&env, ContractError::FeeRecipientNotSet)),
+            )
+        } else {
+            None
+        };
+
+        // Commit terminal state before interacting with token contract (Checks-Effects-Interactions).
+        // If any subsequent token transfer fails, Soroban rolls back this write atomically.
         bounty.status = BountyStatus::Released;
         write_bounty(&env, bounty_id, &bounty);
 
@@ -1142,14 +1261,9 @@ impl StellarBountyBoardContract {
         }
 
         // Transfer fee to recipient (only when fee is non-zero)
-        if fee_amount > 0 {
-            let fee_recipient: Address = env
-                .storage()
-                .persistent()
-                .get(&DataKey::FeeRecipient)
-                .unwrap_or_else(|| panic_error(&env, ContractError::FeeRecipientNotSet));
+        if let Some(recipient) = fee_recipient {
             if !matches!(
-                token_client.try_transfer(&contract_address, &fee_recipient, &fee_amount),
+                token_client.try_transfer(&contract_address, &recipient, &fee_amount),
                 Ok(Ok(()))
             ) {
                 panic_error(&env, ContractError::FeeTransferFailed);
@@ -1160,24 +1274,10 @@ impl StellarBountyBoardContract {
         // Atomically update FeeStats
         accumulate_fee_stats(&env, fee_amount);
 
-        bounty.status = BountyStatus::Released;
-        write_bounty(&env, bounty_id, &bounty);
-
         // Escrow funding event for the release path: the escrow balance for this
         // bounty drops to zero. Emitted exactly once, only after the terminal
         // state write and both payout transfers have succeeded.
-        env.events().publish(
-            (symbol_short!("Escrow"), symbol_short!("Funded")),
-            escrow_accounting::EscrowBalanceChanged {
-                bounty_id,
-                asset: bounty.token.clone(),
-                amount: bounty.amount,
-                delta: -bounty.amount,
-                previous_balance: bounty.amount,
-                committed_balance: 0,
-                status: BountyStatus::Released,
-            },
-        );
+        escrow_accounting::publish_escrow_change(&env, bounty_id, &bounty, -bounty.amount);
 
         env.events().publish(
             (symbol_short!("Bounty"), symbol_short!("Releas")),
@@ -1310,18 +1410,7 @@ impl StellarBountyBoardContract {
         // Escrow funding event for the refund path: the escrow balance for this
         // bounty drops to zero. Emitted exactly once, only after the terminal
         // state write and the refund transfer have both succeeded.
-        env.events().publish(
-            (symbol_short!("Escrow"), symbol_short!("Funded")),
-            escrow_accounting::EscrowBalanceChanged {
-                bounty_id,
-                asset: bounty.token.clone(),
-                amount: bounty.amount,
-                delta: -bounty.amount,
-                previous_balance: bounty.amount,
-                committed_balance: 0,
-                status: BountyStatus::Refunded,
-            },
-        );
+        escrow_accounting::publish_escrow_change(&env, bounty_id, &bounty, -bounty.amount);
 
         env.events().publish(
             (symbol_short!("Bounty"), symbol_short!("Refund")),
@@ -1367,18 +1456,7 @@ impl StellarBountyBoardContract {
         // Escrow funding event for the cancel path: the escrow balance for this
         // bounty drops to zero. Emitted exactly once, only after the terminal
         // state write and the refund transfer have both succeeded.
-        env.events().publish(
-            (symbol_short!("Escrow"), symbol_short!("Funded")),
-            escrow_accounting::EscrowBalanceChanged {
-                bounty_id,
-                asset: bounty.token.clone(),
-                amount: bounty.amount,
-                delta: -bounty.amount,
-                previous_balance: bounty.amount,
-                committed_balance: 0,
-                status: BountyStatus::Refunded,
-            },
-        );
+        escrow_accounting::publish_escrow_change(&env, bounty_id, &bounty, -bounty.amount);
 
         env.events().publish(
             (symbol_short!("Bounty"), symbol_short!("Cancel")),
@@ -1533,6 +1611,30 @@ impl StellarBountyBoardContract {
         );
     }
 
+    /// Settles a disputed bounty by directing the full escrowed balance to one
+    /// final payout destination.
+    ///
+    /// # Boundaries
+    /// - **Authorization**: Requires explicit authorization from the stored
+    ///   `DataKey::Arbiter`.
+    /// - **Status**: Only bounties in [`BountyStatus::Disputed`] may be
+    ///   resolved; all other statuses (including already settled bounties) fail
+    ///   with [`ContractError::BountyMustBeDisputed`], preserving one final
+    ///   decision.
+    /// - **Ledger Window**: Enforces
+    ///   `env.ledger().timestamp() >= bounty.dispute_raised_at + effective_dispute_window`
+    ///   (using `bounty.dispute_window_override` if set, otherwise global
+    ///   `DataKey::DisputeWindow`), rejecting earlier timestamps with
+    ///   [`ContractError::DisputeWindowNotMet`].
+    /// - **Exact Destinations & Token Units**:
+    ///   - `release == true`: transitions to [`BountyStatus::Released`],
+    ///     transfers `amount - floor(amount * protocol_fee_bps / 10_000)` to
+    ///     the contributor and any positive fee to `FeeRecipient`.
+    ///   - `release == false`: transitions to [`BountyStatus::Refunded`] and
+    ///     returns the full `amount` (zero fee) to `bounty.maintainer`.
+    /// - **Events**: Emits the escrow balance delta and a single
+    ///   `(Bounty, Reslv)` [`BountyResolved`] event only after terminal state
+    ///   and token transfers succeed.
     pub fn resolve_dispute(env: Env, bounty_id: u64, release: bool) {
         let arbiter: Address = env
             .storage()
@@ -1622,18 +1724,7 @@ impl StellarBountyBoardContract {
         // balance for this bounty drops to zero. Emitted exactly once, only
         // after the terminal state write and the settlement transfers have
         // succeeded.
-        env.events().publish(
-            (symbol_short!("Escrow"), symbol_short!("Funded")),
-            escrow_accounting::EscrowBalanceChanged {
-                bounty_id,
-                asset: bounty.token.clone(),
-                amount: bounty.amount,
-                delta: -bounty.amount,
-                previous_balance: bounty.amount,
-                committed_balance: 0,
-                status: bounty.status.clone(),
-            },
-        );
+        escrow_accounting::publish_escrow_change(&env, bounty_id, &bounty, -bounty.amount);
 
         env.events().publish(
             (symbol_short!("Bounty"), symbol_short!("Reslv")),
@@ -1774,18 +1865,7 @@ impl StellarBountyBoardContract {
                 write_bounty(&env, bounty_id, &bounty);
                 // Escrow funding event: emitted exactly once, only after the
                 // terminal state write and the payout transfer have succeeded.
-                env.events().publish(
-                    (symbol_short!("Escrow"), symbol_short!("Funded")),
-                    escrow_accounting::EscrowBalanceChanged {
-                        bounty_id,
-                        asset: bounty.token.clone(),
-                        amount: bounty.amount,
-                        delta: -bounty.amount,
-                        previous_balance: bounty.amount,
-                        committed_balance: 0,
-                        status: BountyStatus::Released,
-                    },
-                );
+                escrow_accounting::publish_escrow_change(&env, bounty_id, &bounty, -bounty.amount);
 
                 env.events().publish(
                     (symbol_short!("Bounty"), symbol_short!("Releas")),
@@ -1817,18 +1897,7 @@ impl StellarBountyBoardContract {
                 }
                 // Escrow funding event: emitted exactly once, only after the
                 // terminal state write and the refund transfer have succeeded.
-                env.events().publish(
-                    (symbol_short!("Escrow"), symbol_short!("Funded")),
-                    escrow_accounting::EscrowBalanceChanged {
-                        bounty_id,
-                        asset: bounty.token.clone(),
-                        amount: bounty.amount,
-                        delta: -bounty.amount,
-                        previous_balance: bounty.amount,
-                        committed_balance: 0,
-                        status: BountyStatus::Refunded,
-                    },
-                );
+                escrow_accounting::publish_escrow_change(&env, bounty_id, &bounty, -bounty.amount);
 
                 env.events().publish(
                     (symbol_short!("Bounty"), symbol_short!("Refund")),
@@ -2682,18 +2751,7 @@ impl StellarBountyBoardContract {
 
             // Escrow funding event: emitted exactly once, only after the
             // terminal state write and the payout transfers have succeeded.
-            env.events().publish(
-                (symbol_short!("Escrow"), symbol_short!("Funded")),
-                escrow_accounting::EscrowBalanceChanged {
-                    bounty_id,
-                    asset: bounty.token.clone(),
-                    amount: bounty.amount,
-                    delta: -bounty.amount,
-                    previous_balance: bounty.amount,
-                    committed_balance: 0,
-                    status: BountyStatus::Released,
-                },
-            );
+            escrow_accounting::publish_escrow_change(&env, bounty_id, &bounty, -bounty.amount);
 
             env.events().publish(
                 (symbol_short!("Dispute"), symbol_short!("Reslvd")),
@@ -2721,18 +2779,7 @@ impl StellarBountyBoardContract {
 
             // Escrow funding event: emitted exactly once, only after the
             // terminal state write and the refund transfer have succeeded.
-            env.events().publish(
-                (symbol_short!("Escrow"), symbol_short!("Funded")),
-                escrow_accounting::EscrowBalanceChanged {
-                    bounty_id,
-                    asset: bounty.token.clone(),
-                    amount: bounty.amount,
-                    delta: -bounty.amount,
-                    previous_balance: bounty.amount,
-                    committed_balance: 0,
-                    status: BountyStatus::Refunded,
-                },
-            );
+            escrow_accounting::publish_escrow_change(&env, bounty_id, &bounty, -bounty.amount);
 
             env.events().publish(
                 (symbol_short!("Dispute"), symbol_short!("Reslvd")),

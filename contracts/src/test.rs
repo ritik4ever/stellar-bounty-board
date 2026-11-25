@@ -288,6 +288,152 @@ fn test_create_bounty_at_minimum_succeeds() {
     assert_eq!(bounty.amount, DEFAULT_MIN_BOUNTY_AMOUNT);
 }
 
+// ─── SBB-2026-406 (#1875): Bounty Escrow Funding Boundaries ────────────────
+//
+// Funding boundaries for `create_bounty`:
+//   * the minimum supported amount is accepted with exact token units and
+//     produces exactly one escrow balance keyed by the bounty ID;
+//   * the bounty ID returned by the call is the ID under which the escrow is
+//     recorded and is preserved across subsequent reads;
+//   * sub-minimum amounts are rejected before any state change: no bounty ID
+//     is consumed and no funding event is emitted.
+
+#[test]
+fn test_funding_at_minimum_amount_preserves_single_escrow_balance_and_bounty_id() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) =
+        setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    let token = TokenClient::new(&env, &token_id);
+
+    // Exact token units: fund the maintainer with exactly the minimum amount.
+    let amount = DEFAULT_MIN_BOUNTY_AMOUNT;
+    token_admin.mint(&maintainer, &amount);
+    assert_eq!(token.balance(&maintainer), amount);
+    assert_eq!(token.balance(&client.address), 0);
+
+    let deadline = env.ledger().timestamp() + 1_000;
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &amount,
+        &String::from_str(&env, "ritik4ever/stellar-bounty-board"),
+        &18751,
+        &String::from_str(&env, "Minimum funding boundary"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+
+    // The returned bounty ID is the first ID and is preserved by storage.
+    assert_eq!(bounty_id, 1);
+    assert_eq!(client.get_next_bounty_id(), 1);
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.amount, amount);
+    assert_eq!(bounty.token, token_id);
+    assert_eq!(bounty.status, BountyStatus::Open);
+
+    // Exactly one escrow balance, keyed by the bounty ID: the contract holds
+    // exactly the minimum amount and the maintainer was debited exactly once.
+    assert_eq!(token.balance(&client.address), amount);
+    assert_eq!(token.balance(&maintainer), 0);
+
+    // The funding event reports the same bounty ID and escrow balance.
+    let (count, payload) = collect_funding_events(&env, &client);
+    assert_eq!(count, 1);
+    assert_eq!(
+        payload,
+        Some(BountyFunded {
+            bounty_id,
+            token: token_id.clone(),
+            amount,
+            escrow_balance: amount,
+            status: BountyStatus::Open,
+        })
+    );
+
+    // Re-reading the bounty does not move funds or change the ID mapping.
+    let reread = client.get_bounty(&bounty_id);
+    assert_eq!(reread.amount, amount);
+    assert_eq!(token.balance(&client.address), amount);
+    assert_eq!(client.get_next_bounty_id(), 1);
+}
+
+#[test]
+fn test_funding_one_unit_below_minimum_rejected_without_consuming_id_or_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) =
+        setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    let token = TokenClient::new(&env, &token_id);
+
+    // Fund the maintainer with more than enough units so the rejection is
+    // caused by the minimum boundary, not by an insufficient balance.
+    let below_min = DEFAULT_MIN_BOUNTY_AMOUNT - 1;
+    token_admin.mint(&maintainer, &DEFAULT_MIN_BOUNTY_AMOUNT);
+
+    let deadline = env.ledger().timestamp() + 1_000;
+    let try_res = client.try_create_bounty(
+        &maintainer,
+        &token_id,
+        &below_min,
+        &String::from_str(&env, "ritik4ever/stellar-bounty-board"),
+        &18752,
+        &String::from_str(&env, "Sub-minimum funding boundary"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+    let err = try_res
+        .err()
+        .expect("sub-minimum funding should fail")
+        .expect("expected typed contract error");
+    assert_eq!(
+        err,
+        soroban_sdk::Error::from_contract_error(ContractError::AmountBelowMinimum as u32)
+    );
+
+    // No bounty ID consumed, no bounty stored, no escrow movement, no event.
+    assert_eq!(client.get_next_bounty_id(), 0);
+    assert!(client.try_get_bounty(&1).is_err());
+    assert_eq!(token.balance(&client.address), 0);
+    assert_eq!(token.balance(&maintainer), DEFAULT_MIN_BOUNTY_AMOUNT);
+    let (count, payload) = collect_funding_events(&env, &client);
+    assert_eq!(count, 0, "a rejected funding must emit no funding event");
+    assert_eq!(payload, None);
+
+    // The next valid funding at the minimum still receives bounty ID 1.
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &DEFAULT_MIN_BOUNTY_AMOUNT,
+        &String::from_str(&env, "ritik4ever/stellar-bounty-board"),
+        &18753,
+        &String::from_str(&env, "Minimum funding after rejection"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+    assert_eq!(bounty_id, 1);
+    assert_eq!(client.get_next_bounty_id(), 1);
+    assert_eq!(token.balance(&client.address), DEFAULT_MIN_BOUNTY_AMOUNT);
+    assert_eq!(token.balance(&maintainer), 0);
+    let (count_after, payload_after) = collect_funding_events(&env, &client);
+    assert_eq!(count_after, 1);
+    assert_eq!(
+        payload_after,
+        Some(BountyFunded {
+            bounty_id,
+            token: token_id.clone(),
+            amount: DEFAULT_MIN_BOUNTY_AMOUNT,
+            escrow_balance: DEFAULT_MIN_BOUNTY_AMOUNT,
+            status: BountyStatus::Open,
+        })
+    );
+}
+
 #[test]
 fn test_release_refreshes_near_expiry_bounty_before_payout() {
     let env = Env::default();
@@ -6158,4 +6304,82 @@ fn test_failed_escrow_funding_with_failing_token_emits_no_funding_event() {
     assert_eq!(client.get_next_bounty_id(), 1);
     assert!(client.try_get_bounty(&2).is_err());
     assert_eq!(valid_token_client.balance(&client.address), amount);
+}
+
+// ─── SBB-2026-401 (#1870): Escrow Initialization Boundaries ─────────────────
+
+#[test]
+fn test_escrow_initialization_boundaries_valid_arbiter_exact_ledger_and_token_units() {
+    let env = Env::default();
+    let contract_id = env.register(StellarBountyBoardContract, ());
+    let client = StellarBountyBoardContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let fee_recipient = Address::generate(&env);
+    let arbiter = Address::generate(&env);
+
+    // Register test token and mint exact token units to exercise balance isolation
+    let token_admin = Address::generate(&env);
+    let token = env
+        .register_stellar_asset_contract_v2(token_admin.clone())
+        .address();
+    let token_admin_client = soroban_sdk::token::StellarAssetClient::new(&env, &token);
+    let token_client = TokenClient::new(&env, &token);
+
+    // Exact ledger setup: set timestamp and sequence number
+    let initial_timestamp = 1_700_000_000u64;
+    let initial_sequence = 123_456u32;
+    env.ledger().set_timestamp(initial_timestamp);
+    env.ledger().set_sequence_number(initial_sequence);
+
+    // Mint exact token units across accounts: admin = 10_000, arbiter = 5_000, fee_recipient = 0
+    env.mock_all_auths();
+    token_admin_client.mint(&admin, &10_000);
+    token_admin_client.mint(&arbiter, &5_000);
+    env.set_auths(&[]);
+
+    // Verify initial pre-initialization token units
+    assert_eq!(token_client.balance(&admin), 10_000);
+    assert_eq!(token_client.balance(&arbiter), 5_000);
+    assert_eq!(token_client.balance(&fee_recipient), 0);
+    assert_eq!(token_client.balance(&client.address), 0);
+
+    let dispute_window = 600u64;
+
+    // First initialize call with valid arbiter address under exact ledger and token units
+    client.initialize(&admin, &fee_recipient, &arbiter, &dispute_window);
+
+    // 1. Immutable arbiter identity & initialized contract state
+    assert_eq!(client.get_arbiter(), arbiter);
+    assert_eq!(client.get_fee_recipient(), fee_recipient);
+    assert_eq!(client.get_min_bounty_amount(), DEFAULT_MIN_BOUNTY_AMOUNT);
+    assert!(!client.get_paused_state());
+    assert_eq!(client.get_next_bounty_id(), 0);
+
+    // 2. Exact token unit preservation: zero funds moved, zero contract balance
+    assert_eq!(token_client.balance(&client.address), 0);
+    assert_eq!(token_client.balance(&admin), 10_000);
+    assert_eq!(token_client.balance(&arbiter), 5_000);
+    assert_eq!(token_client.balance(&fee_recipient), 0);
+
+    // 3. Zero events emitted during initialization
+    assert_eq!(env.events().all().events().len(), 0);
+
+    // 4. Exact ledger state preserved
+    assert_eq!(env.ledger().timestamp(), initial_timestamp);
+    assert_eq!(env.ledger().sequence(), initial_sequence);
+
+    // 5. Exclusive arbiter authority: valid arbiter can update min_bounty_amount
+    let new_min = 250i128;
+    env.mock_auths(&[MockAuth {
+        address: &arbiter,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "set_min_bounty_amount",
+            args: (&new_min,).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.set_min_bounty_amount(&new_min);
+    assert_eq!(client.get_min_bounty_amount(), new_min);
 }
