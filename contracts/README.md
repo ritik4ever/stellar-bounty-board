@@ -145,3 +145,9 @@ The contract manages escrow funds with strict asset isolation and unit accountin
 - **Overflow & Dust bounds**: Bounty amounts must be strictly positive and bounded by `MAX_BOUNTY_AMOUNT` (`1_000_000_000_000_000`), rejecting overflow attempts with `InvalidAmount` (#11). Amounts below `min_bounty_amount` are rejected with `AmountTooSmall` (#12).
 - **Payout & Refund settlement**: On release, protocol fees (if configured) are routed to the fee recipient, with the net amount delivered to the contributor. On refund or cancellation, the full escrow amount returns to the maintainer. Escrow balances for unassociated bounties and distinct tokens remain isolated and untouched throughout all lifecycle transitions.
 - **Role-based authority enforcement**: Every state-mutating entrypoint verifies explicit Soroban authorization (`require_auth()`) and role ownership (`maintainer`, `contributor`, `arbiter`, `admin`). Unauthorized callers cannot redirect escrow payouts/refunds or alter dispute resolution decisions. Unallowlisted tokens, non-contract addresses, and overflowed amounts are rejected before any bounty or escrow balance mutation.
+
+## Escrow asset units
+
+See [Escrow asset accounting boundaries](docs/ESCROW_ASSET_UNITS.md) for exact
+base-unit accounting across tokens with different decimal precision and the
+focused offline test command.
