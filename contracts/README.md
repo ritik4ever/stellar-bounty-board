@@ -23,10 +23,12 @@ The contract uses named error codes for all invalid operations. These codes are 
 - `initialize(admin, fee_recipient, arbiter, dispute_window)` - one-time contract initialization that stores `Admin`, `FeeRecipient`, `Arbiter`, `DisputeWindow`, `MinBountyAmount` (`DEFAULT_MIN_BOUNTY_AMOUNT`), and `MinArbiterStake` without moving tokens or emitting events. Any subsequent call panics with `"already initialized"`, keeping the configured arbiter identity and initialized state immutable.
 - `create_bounty(maintainer, token, amount, repo, issue_number, title, deadline, protocol_fee_bps, dispute_window_override)` - funds and opens a new bounty in escrow. Requires explicit authorization from `maintainer` before any validation or transfer (rejecting signed contributor, arbiter, or outsider callers), enforces `amount >= min_bounty_amount` (`DEFAULT_MIN_BOUNTY_AMOUNT`) and allowlist membership for `token`, and reverts atomically with `EscrowTransferFailed` without storing bounty state or incrementing `NextBountyId` if the token transfer fails after validation.
 - `cancel_bounty(bounty_id, maintainer)` - cancels an **Open** bounty before reservation; returns full escrow (no fee), sets status to **Refunded**, and emits a `BountyCanceled` event. Only the original maintainer may call this. Terminal state is committed before the token transfer; if the transfer fails, the call aborts atomically leaving status Open and escrow intact.
+- `reserve_bounty(bounty_id, contributor)` - claims an **Open** bounty for `contributor` (`contributor.require_auth()`), transitioning status to **Reserved** and emitting `(Bounty, Reserv)`. Accepted strictly while `timestamp <= deadline` (including at the exact boundary `timestamp == deadline`), and rejected with `BountyExpired` past deadline. Rejects racing second contributors with `BountyAlreadyReserved` and non-open bounties with `BountyNotOpen`.
+- `reassign_bounty(bounty_id, maintainer, new_contributor)` - transfers an active **Reserved** bounty to `new_contributor` and emits `(Bounty, Reassign)`. Requires `maintainer.require_auth()` and `bounty.maintainer == maintainer` (rejecting contributor, arbiter, or outsider callers with auth errors or `MaintainerMismatch`), and rejects expired or non-reserved bounties with `BountyMustBeReserved`.
 - `submit_bounty(bounty_id, contributor)` - transitions a reserved bounty to the **Submitted** state and emits the `(Bounty, Submit)` event. Submission is accepted strictly while `timestamp <= deadline`, including at the exact boundary (`timestamp == deadline`). Submissions attempted when `timestamp > deadline` are rejected with `BountyExpired` (#22). Caller authorization is enforced (`contributor.require_auth()`), rejecting mismatched or unauthorized callers with `ContributorMismatch` (#26). Token balances remain completely untouched (zero tokens moved), preserving exact integer escrow units. Once submitted, subsequent ledger timestamp advances past the deadline do not expire the bounty. Its `BountySubmitted` payload contains `bounty_id` and `contributor`, allowing indexer workers to process the state change without a follow-up contract read.
 - `refund_bounty(bounty_id, maintainer)` - returns escrow after the deadline has passed and emits exactly one `(Bounty, Refund)` event. Its `BountyRefunded` payload, in field order, contains `bounty_id`, `maintainer`, `token`, full refunded `amount`, and `refunded_at`; indexers can reconstruct the committed refund without a follow-up contract read. The `Refunded` status is committed before the token call, and a failed transfer or unauthorized contributor call aborts atomically, leaving both balances and bounty status unchanged.
-- `dispute_bounty(bounty_id, arbiter)` - transitions a submitted bounty to the **Disputed** state and emits the `(Bounty, Dispt)` event. Its `BountyDisputed` payload contains `bounty_id`, `contributor`, and `arbiter`, allowing indexer workers to process the state change without a follow-up contract read. Disputes injected after a release is committed (or reentrantly during release token transfers) are rejected with `BountyMustBeSubmitted` without altering escrow balances.
-- `resolve_dispute(bounty_id, release)` - allows the arbiter to settle a disputed bounty by releasing funds to contributor (minus protocol fee) or refunding maintainer. Emits the single `(Bounty, Reslv)` event with `BountyResolved` containing `bounty_id`, `arbiter`, `release`, and the settled `amount` strictly after terminal state is committed. Failed transfers abort atomically leaving dispute state and escrow intact.
+- `dispute_bounty(bounty_id, arbiter)` - transitions a submitted bounty to the **Disputed** state and emits the `(Bounty, Dispt)` event. Its `BountyDisputed` payload contains `bounty_id`, `contributor`, and `arbiter`, allowing indexer workers to process the state change without a follow-up contract read.
+- `resolve_dispute(bounty_id, release)` - allows the arbiter to settle a disputed bounty by releasing funds to contributor (minus protocol fee) or refunding maintainer. Strictly after terminal state is committed and token transfers succeed, emits `("Escrow", "Balance")` followed by `("Bounty", "Reslv")` with `BountyResolved` (`bounty_id`, `arbiter`, `release`, `amount`, `destination`, `token`, `net_amount`, `fee_amount`, `resolved_at`). Failed transfers abort atomically leaving dispute state and escrow intact with zero events emitted.
 
 ## Escrow Initialization Boundaries (SBB-2026-401)
 
@@ -72,6 +74,22 @@ Bounty escrow funding (`create_bounty`) enforces strict ordering and atomic roll
 - **Sequential Retry Semantics:**
   Because `NextBountyId` is not incremented on failure, a subsequent retry (after the maintainer funds their account or resolves the token issue) is assigned the exact next sequential ID that was not consumed, ensuring deterministic numbering without gaps or skipped counters.
 
+## Contract Reservation Authority (SBB-2026-413)
+
+Reservation (`reserve_bounty`) and reassignment (`reassign_bounty`) enforce strict role authority, exact expiry boundary checks, and race resistance so unauthorized callers cannot redirect escrow funds or alter assignment decisions:
+
+- **Contributor Authority on `reserve_bounty`**:
+  - Requires explicit Soroban authorization from the reserving `contributor` (`contributor.require_auth()`).
+  - Signed `maintainer`, `arbiter`, `admin`, or `outsider` callers attempting to sign on behalf of another contributor are rejected with an authorization error (`Error(Context, InvalidAction)`), leaving status `Open`, `contributor = None`, and escrow balances untouched.
+- **Exact Expiry Ledger Boundary (`now <= deadline`)**:
+  - At the exact expiry timestamp (`ledger.timestamp() == bounty.deadline`), an authorized `reserve_bounty` succeeds and transitions `Open -> Reserved` without moving escrow tokens.
+  - Strictly past the deadline (`ledger.timestamp() > bounty.deadline`), `expire_if_needed` transitions `Open` or `Reserved` bounties to `Expired`; `reserve_bounty` fails with `BountyExpired` (#22) and `reassign_bounty` fails with `BountyMustBeReserved` (#19).
+- **Racing Second Contributor & Redirect Protection**:
+  - Once a bounty is `Reserved`, a second contributor racing to call `reserve_bounty` is rejected with `BountyAlreadyReserved` (#3), preserving the original `contributor` and escrow balance.
+  - Reservation attempts against `Submitted`, `Disputed`, `Released`, or `Refunded` bounties fail with `BountyNotOpen` (#1), preventing post-reservation contributor hijacking.
+- **Maintainer-Only Reassignment (`reassign_bounty`)**:
+  - Only the bounty's registered `maintainer` (`maintainer.require_auth()` and `bounty.maintainer == maintainer`) may reassign an unexpired `Reserved` bounty; signed contributors, the arbiter, or outsiders fail with an authorization error or `MaintainerMismatch` (#25).
+
 ## Contract Submission Boundaries
 
 The contract specifies and enforces strict boundaries for submitting reserved bounties:
@@ -106,6 +124,24 @@ Arbiter dispute settlement (`resolve_dispute`) enforces strict ledger, token-uni
 - **Strict Arbiter Authority**:
   - Requires explicit Soroban authorization from the configured `DataKey::Arbiter`. Maintainer, contributor, admin, outsider, or unsigned callers are rejected before any state mutation or token transfer.
 
+## Arbiter Resolution Events (SBB-2026-439)
+
+A committed `resolve_dispute` call publishes two contract events in a fixed, deterministic order so off-chain consumers can reconstruct the one final decision and exact destination once without a follow-up contract read:
+
+1. `("Escrow", "Balance")` — `EscrowBalanceChanged` with `delta = -amount`, `remaining = 0`, and `status = Released | Refunded`.
+2. `("Bounty", "Reslv")` — `BountyResolved` with fields in deterministic order:
+   - `bounty_id: u64` — resolved bounty identifier.
+   - `arbiter: Address` — arbiter address that authorized the decision.
+   - `release: bool` — the one final decision (`true` -> `Released`, `false` -> `Refunded`).
+   - `amount: i128` — full escrowed amount settled (`net_amount + fee_amount`).
+   - `destination: Address` — exact recipient (`contributor` when `release == true`, `maintainer` when `release == false`).
+   - `token: Address` — token contract address in which escrow was settled.
+   - `net_amount: i128` — exact token units transferred to `destination`.
+   - `fee_amount: i128` — exact protocol fee transferred to `FeeRecipient` (`0` on refund or zero-fee release).
+   - `resolved_at: u64` — ledger timestamp of the committed resolution.
+
+Both events are emitted only after terminal storage state (`Released` or `Refunded`) and token transfers succeed. Premature, unauthorized, failed, duplicate, or conflicting resolution calls abort atomically and emit zero resolution or escrow events.
+
 ## Storage Lifetime & Authority Enforcement
 
 - **Storage TTL Refresh on Mutation:** For payout-related lifecycle operations (`release_bounty`, `refund_bounty`, `cancel_bounty`, `resolve_dispute`, `reassign_bounty`, `extend_deadline`, `finalize_resolution`), the contract refreshes persistent storage TTL for near-expiry bounties via `refresh_bounty_ttl` whenever remaining TTL falls below `BOUNTY_STORAGE_TTL_THRESHOLD` (1,000 ledgers), extending it to `BOUNTY_STORAGE_TTL_EXTEND_TO` (4,096 ledgers). Exact integer token units and fee floors (`floor(amount * protocol_fee_bps / 10_000)`) are preserved through settlement.
@@ -127,3 +163,9 @@ The contract manages escrow funds with strict asset isolation and unit accountin
 - **Overflow & Dust bounds**: Bounty amounts must be strictly positive and bounded by `MAX_BOUNTY_AMOUNT` (`1_000_000_000_000_000`), rejecting overflow attempts with `InvalidAmount` (#11). Amounts below `min_bounty_amount` are rejected with `AmountTooSmall` (#12).
 - **Payout & Refund settlement**: On release, protocol fees (if configured) are routed to the fee recipient, with the net amount delivered to the contributor. On refund or cancellation, the full escrow amount returns to the maintainer. Escrow balances for unassociated bounties and distinct tokens remain isolated and untouched throughout all lifecycle transitions.
 - **Role-based authority enforcement**: Every state-mutating entrypoint verifies explicit Soroban authorization (`require_auth()`) and role ownership (`maintainer`, `contributor`, `arbiter`, `admin`). Unauthorized callers cannot redirect escrow payouts/refunds or alter dispute resolution decisions. Unallowlisted tokens, non-contract addresses, and overflowed amounts are rejected before any bounty or escrow balance mutation.
+
+## Escrow asset units
+
+See [Escrow asset accounting boundaries](docs/ESCROW_ASSET_UNITS.md) for exact
+base-unit accounting across tokens with different decimal precision and the
+focused offline test command.
