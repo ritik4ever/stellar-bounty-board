@@ -845,11 +845,11 @@ impl StellarBountyBoardContract {
             (symbol_short!("Escrow"), symbol_short!("Funded")),
             escrow_accounting::EscrowBalanceChanged {
                 bounty_id: next_id,
-                asset: token.clone(),
+                token: token.clone(),
                 amount,
                 delta: amount,
-                previous_balance,
-                committed_balance,
+                previous_remaining: previous_balance,
+                remaining: committed_balance,
                 status: BountyStatus::Open,
             },
         );
@@ -1055,9 +1055,13 @@ impl StellarBountyBoardContract {
 
     /// Releases an escrowed bounty payout to the assigned contributor after deducting protocol fees.
     ///
-    /// This function is part of the public contract ABI. The bounty maintainer approves
-    /// the submitted work, triggering token transfers from contract escrow: the net payout
-    /// goes to the contributor, and any protocol fee is transferred to the treasury address.
+    /// This function is part of the public contract ABI. Once a bounty has been submitted
+    /// (`BountyStatus::Submitted`), review eligibility begins immediately and remains open
+    /// even if the ledger timestamp advances past `bounty.deadline`. The bounty maintainer
+    /// approves the submitted work, triggering a single payout of the exact escrowed amount:
+    /// the net payout (`amount - fee_amount`) goes to the contributor, and any non-zero
+    /// protocol fee (`floor(amount * protocol_fee_bps / 10_000)`) is transferred to the
+    /// configured fee recipient so that `net_payout + fee_amount == bounty.amount`.
     ///
     /// # Parameters
     /// * `env` - The Soroban contract environment.
@@ -1070,19 +1074,24 @@ impl StellarBountyBoardContract {
     /// # Errors & Panic Paths
     /// * [`ContractError::BountyNotFound`] - If no bounty exists with the given `bounty_id` (via `read_bounty`).
     /// * [`ContractError::MaintainerMismatch`] - If the caller `maintainer` does not match the bounty's registered creator (`bounty.maintainer != maintainer`).
-    /// * [`ContractError::BountyMustBeSubmitted`] - If the bounty's current status is not [`BountyStatus::Submitted`].
+    /// * [`ContractError::BountyMustBeSubmitted`] - If the bounty's current status is not [`BountyStatus::Submitted`] (including already [`BountyStatus::Released`]).
     /// * [`ContractError::MissingContributor`] - If the bounty has no assigned contributor.
-    /// * Contract token client panics if token transfers to contributor or treasury fail.
+    /// * [`ContractError::FeeRecipientNotSet`] - If `fee_amount > 0` and no fee recipient is configured in storage.
+    /// * [`ContractError::PayoutTransferFailed`] - If the net payout transfer to the contributor fails.
+    /// * [`ContractError::FeeTransferFailed`] - If the protocol fee transfer to the fee recipient fails.
     ///
     /// # Storage
     /// * **Read**:
     ///   - [`DataKey::Bounty(bounty_id)`] - Reads the existing bounty state via `read_bounty`.
-    ///   - [`DataKey::Treasury`] - Persistent storage lookup to obtain the protocol treasury address if fees apply.
+    ///   - [`DataKey::FeeRecipient`] - Persistent storage lookup to obtain the protocol fee recipient address when `fee_amount > 0`.
     /// * **Write**:
-    ///   - [`DataKey::Bounty(bounty_id)`] - Updates `bounty.status` to [`BountyStatus::Released`] and records `bounty.released_at` timestamp.
+    ///   - [`DataKey::FeeStats`] - Increments `bounty_count` by 1 and adds `fee_amount` to `total_collected`.
+    ///   - [`DataKey::Bounty(bounty_id)`] - Updates `bounty.status` to [`BountyStatus::Released`].
     ///
     /// # Events
-    /// * Emits `(symbol_short!("Bounty"), symbol_short!("Rel"))` with [`BountyReleased`] payload.
+    /// * Emits `(symbol_short!("Escrow"), symbol_short!("Funded"))` with [`escrow_accounting::EscrowBalanceChanged`] (`delta: -bounty.amount`, `remaining: 0`).
+    /// * Emits `(symbol_short!("Bounty"), symbol_short!("Releas"))` with [`BountyReleased`] payload.
+    /// * Emits `(symbol_short!("Bounty"), symbol_short!("RelEvent"))` with [`BountyReleasedEvent`] payload (including `released_at`).
     pub fn release_bounty(env: Env, bounty_id: u64, maintainer: Address) {
         maintainer.require_auth();
         let mut bounty = read_bounty(&env, bounty_id);
@@ -1154,11 +1163,11 @@ impl StellarBountyBoardContract {
             (symbol_short!("Escrow"), symbol_short!("Funded")),
             escrow_accounting::EscrowBalanceChanged {
                 bounty_id,
-                asset: bounty.token.clone(),
+                token: bounty.token.clone(),
                 amount: bounty.amount,
                 delta: -bounty.amount,
-                previous_balance: bounty.amount,
-                committed_balance: 0,
+                previous_remaining: bounty.amount,
+                remaining: 0,
                 status: BountyStatus::Released,
             },
         );
@@ -1298,11 +1307,11 @@ impl StellarBountyBoardContract {
             (symbol_short!("Escrow"), symbol_short!("Funded")),
             escrow_accounting::EscrowBalanceChanged {
                 bounty_id,
-                asset: bounty.token.clone(),
+                token: bounty.token.clone(),
                 amount: bounty.amount,
                 delta: -bounty.amount,
-                previous_balance: bounty.amount,
-                committed_balance: 0,
+                previous_remaining: bounty.amount,
+                remaining: 0,
                 status: BountyStatus::Refunded,
             },
         );
@@ -1355,11 +1364,11 @@ impl StellarBountyBoardContract {
             (symbol_short!("Escrow"), symbol_short!("Funded")),
             escrow_accounting::EscrowBalanceChanged {
                 bounty_id,
-                asset: bounty.token.clone(),
+                token: bounty.token.clone(),
                 amount: bounty.amount,
                 delta: -bounty.amount,
-                previous_balance: bounty.amount,
-                committed_balance: 0,
+                previous_remaining: bounty.amount,
+                remaining: 0,
                 status: BountyStatus::Refunded,
             },
         );
@@ -1610,11 +1619,11 @@ impl StellarBountyBoardContract {
             (symbol_short!("Escrow"), symbol_short!("Funded")),
             escrow_accounting::EscrowBalanceChanged {
                 bounty_id,
-                asset: bounty.token.clone(),
+                token: bounty.token.clone(),
                 amount: bounty.amount,
                 delta: -bounty.amount,
-                previous_balance: bounty.amount,
-                committed_balance: 0,
+                previous_remaining: bounty.amount,
+                remaining: 0,
                 status: bounty.status.clone(),
             },
         );
@@ -1762,11 +1771,11 @@ impl StellarBountyBoardContract {
                     (symbol_short!("Escrow"), symbol_short!("Funded")),
                     escrow_accounting::EscrowBalanceChanged {
                         bounty_id,
-                        asset: bounty.token.clone(),
+                        token: bounty.token.clone(),
                         amount: bounty.amount,
                         delta: -bounty.amount,
-                        previous_balance: bounty.amount,
-                        committed_balance: 0,
+                        previous_remaining: bounty.amount,
+                        remaining: 0,
                         status: BountyStatus::Released,
                     },
                 );
@@ -1805,11 +1814,11 @@ impl StellarBountyBoardContract {
                     (symbol_short!("Escrow"), symbol_short!("Funded")),
                     escrow_accounting::EscrowBalanceChanged {
                         bounty_id,
-                        asset: bounty.token.clone(),
+                        token: bounty.token.clone(),
                         amount: bounty.amount,
                         delta: -bounty.amount,
-                        previous_balance: bounty.amount,
-                        committed_balance: 0,
+                        previous_remaining: bounty.amount,
+                        remaining: 0,
                         status: BountyStatus::Refunded,
                     },
                 );
@@ -2670,11 +2679,11 @@ impl StellarBountyBoardContract {
                 (symbol_short!("Escrow"), symbol_short!("Funded")),
                 escrow_accounting::EscrowBalanceChanged {
                     bounty_id,
-                    asset: bounty.token.clone(),
+                    token: bounty.token.clone(),
                     amount: bounty.amount,
                     delta: -bounty.amount,
-                    previous_balance: bounty.amount,
-                    committed_balance: 0,
+                    previous_remaining: bounty.amount,
+                    remaining: 0,
                     status: BountyStatus::Released,
                 },
             );
@@ -2709,11 +2718,11 @@ impl StellarBountyBoardContract {
                 (symbol_short!("Escrow"), symbol_short!("Funded")),
                 escrow_accounting::EscrowBalanceChanged {
                     bounty_id,
-                    asset: bounty.token.clone(),
+                    token: bounty.token.clone(),
                     amount: bounty.amount,
                     delta: -bounty.amount,
-                    previous_balance: bounty.amount,
-                    committed_balance: 0,
+                    previous_remaining: bounty.amount,
+                    remaining: 0,
                     status: BountyStatus::Refunded,
                 },
             );
