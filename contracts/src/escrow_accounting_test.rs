@@ -232,6 +232,77 @@ fn insufficient_funding_emits_no_escrow_change() {
 }
 
 #[test]
+fn funding_at_exact_minimum_preserves_one_escrow_balance_and_bounty_id() {
+    let env = Env::default();
+    let (client, maintainer, _, token_id, _, _) = setup(&env);
+    let token = TokenClient::new(&env, &token_id);
+
+    // Fund at exactly the minimum supported amount, in exact token units.
+    let id = create(
+        &env,
+        &client,
+        &maintainer,
+        &token_id,
+        DEFAULT_MIN_BOUNTY_AMOUNT,
+        0,
+    );
+
+    // Exactly one escrow balance event for the funding.
+    let events = changes(&env, &client);
+    assert_eq!(events.len(), 1);
+    let event = events.get(0).unwrap();
+    assert_eq!(event.bounty_id, id);
+    assert_eq!(event.token, token_id.clone());
+    assert_eq!(event.amount, DEFAULT_MIN_BOUNTY_AMOUNT);
+    assert_eq!(event.delta, DEFAULT_MIN_BOUNTY_AMOUNT);
+    assert_eq!(event.previous, 0);
+    assert_eq!(event.remaining, DEFAULT_MIN_BOUNTY_AMOUNT);
+    assert_eq!(event.status, BountyStatus::Open);
+    assert_eq!(
+        raw_balance_event_maps(&env, &client).get(0),
+        Some(expected_field_order(&env))
+    );
+
+    // The escrowed balance is exactly the funded amount, held by the contract.
+    assert_eq!(token.balance(&client.address), DEFAULT_MIN_BOUNTY_AMOUNT);
+    assert_eq!(token.balance(&maintainer), 0);
+    assert_eq!(client.get_bounty(&id).status, BountyStatus::Open);
+}
+
+#[test]
+fn funding_below_minimum_is_rejected_without_escrow_change() {
+    let env = Env::default();
+    let (client, maintainer, _, token_id, _, _) = setup(&env);
+    let token = TokenClient::new(&env, &token_id);
+    let below_min = DEFAULT_MIN_BOUNTY_AMOUNT - 1;
+
+    // Mint enough so the only reason to fail is the minimum boundary.
+    StellarAssetClient::new(&env, &token_id).mint(&maintainer, &below_min);
+
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.create_bounty(
+            &maintainer,
+            &token_id,
+            &below_min,
+            &String::from_str(&env, "repo"),
+            &1,
+            &String::from_str(&env, "below-min"),
+            &(env.ledger().timestamp() + 1000),
+            &0,
+            &None,
+        );
+    }));
+    assert!(outcome.is_err());
+
+    // Rejected funding must not emit any escrow change nor create a bounty.
+    assert_eq!(changes(&env, &client).len(), 0);
+    assert_eq!(raw_balance_event_maps(&env, &client).len(), 0);
+    assert_eq!(token.balance(&client.address), 0);
+    assert_eq!(token.balance(&maintainer), below_min);
+    assert_eq!(client.get_bounty_count(), 0);
+}
+
+#[test]
 fn funding_event_is_reconstructable_once_per_bounty() {
     let env = Env::default();
     let (client, maintainer, _, token_id, _, _) = setup(&env);

@@ -15,8 +15,25 @@ mod escrow_accounting;
 pub const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Minimum allowed bounty amount to prevent dust bounties.
+///
+/// # Escrow funding boundaries (SBB-2026-406)
+///
+/// * **Denomination** — every bounty amount, including this minimum, is
+///   expressed in the *smallest unit* of the accepted token (stroops for the
+///   native SAC, or the token's own base unit for any other allowlisted SAC).
+///   No decimal scaling is applied anywhere in the contract: the value passed
+///   to `create_bounty` is exactly the value escrowed and later paid out.
+/// * **Minimum supported amount** — this constant is the default floor. The
+///   arbiter may raise or lower it via `set_min_bounty_amount`, and the
+///   effective floor is what `get_min_bounty_amount` returns.
+/// * **Below-minimum rejection** — `create_bounty` rejects any `amount` below
+///   the effective floor with [`ContractError::AmountTooSmall`], before any
+///   token movement or storage write.
+/// * **Single ID, single balance** — a successful funding allocates exactly one
+///   new bounty ID and leaves exactly one escrow balance for that ID, equal to
+///   the funded `amount`.
+///
 /// Default: 100 stroops (0.00001 XLM).
-/// This can be overridden by the contract admin via `set_min_bounty_amount`.
 pub const DEFAULT_MIN_BOUNTY_AMOUNT: i128 = 100;
 
 /// Minimum allowed per-bounty dispute window override (1 minute in seconds).
@@ -159,6 +176,18 @@ pub struct BountySubmitted {
     pub contributor: Address,
 }
 
+/// Payload for the `(Bounty, Releas)` event emitted by `release_bounty`.
+///
+/// Emitted strictly after `("Escrow", "Balance")` and immediately before
+/// `("Bounty", "RelEvent")` on a committed payout of the exact escrow amount.
+///
+/// Fields, in deterministic order:
+/// - `bounty_id`: which bounty was released.
+/// - `contributor`: the recipient of the net payout.
+/// - `amount`: net payout transferred to `contributor` after deducting protocol fee.
+/// - `fee_amount`: protocol fee transferred to `FeeRecipient` (`0` when fee is zero).
+///
+/// Conservation invariant: `amount + fee_amount == escrowed_amount`.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BountyReleased {
@@ -171,17 +200,21 @@ pub struct BountyReleased {
 /// Payload for the `(Bounty, RelEvent)` event emitted by `release_bounty`.
 ///
 /// This event is scoped specifically to the `release_bounty` transition so
-/// that the indexer worker can react without polling the whole contract
-/// state. The payload carries every field the worker needs to update its
-/// view of the bounty without a follow-up contract read:
+/// that off-chain consumers can reconstruct the committed payout once without
+/// a follow-up contract read. It is emitted third and last in the payout event
+/// sequence, strictly after `("Escrow", "Balance")` and `("Bounty", "Releas")`.
+///
+/// Fields, in deterministic order:
 /// - `bounty_id`: which bounty was released.
 /// - `maintainer`: who authorized the release.
 /// - `contributor`: who received the net payout.
-/// - `token`: the token the bounty was escrowed in.
+/// - `token`: the token contract address the bounty was escrowed in.
 /// - `amount`: the net payout to the contributor (after fee).
 /// - `fee_amount`: the protocol fee transferred to the fee recipient.
 /// - `protocol_fee_bps`: the fee rate locked in at creation time.
 /// - `released_at`: the ledger timestamp at which the release occurred.
+///
+/// Conservation invariant: `amount + fee_amount == escrowed_amount`.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BountyReleasedEvent {
@@ -716,6 +749,26 @@ impl StellarBountyBoardContract {
     /// # Authorisation
     /// * Requires authorization from the creating `maintainer` (`maintainer.require_auth()`).
     ///
+    /// # Escrow funding boundaries (SBB-2026-406)
+    ///
+    /// * **Token units** — `amount` is denominated in the smallest unit of
+    ///   `token` (stroops for the native SAC, the token's base unit otherwise).
+    ///   The contract applies no decimal scaling: the funded amount is exactly
+    ///   the value supplied, and it is the amount later released or refunded.
+    /// * **Minimum supported amount** — the effective floor is
+    ///   [`Self::get_min_bounty_amount`], which defaults to
+    ///   [`DEFAULT_MIN_BOUNTY_AMOUNT`] and may be changed by the arbiter via
+    ///   [`Self::set_min_bounty_amount`]. The floor is read at call time, so a
+    ///   raised floor applies to subsequent fundings immediately.
+    /// * **Below-minimum rejection** — any `amount` below the effective floor
+    ///   is rejected with [`ContractError::AmountTooSmall`]. The check runs
+    ///   before the token transfer, so a rejected funding moves no tokens and
+    ///   consumes no bounty ID.
+    /// * **One ID, one escrow balance** — a successful call allocates exactly
+    ///   one new bounty ID and creates exactly one escrow balance for it, equal
+    ///   to the funded `amount`. There is no partial or top-up funding path:
+    ///   each bounty's escrow is fixed at creation.
+    ///
     /// # Errors & Panic Paths
     /// * [`ContractError::ContractIsPaused`] - If the contract circuit-breaker is paused (`Self::get_paused_state`).
     /// * [`ContractError::InvalidAmount`] - If `amount <= 0` or exceeds `MAX_BOUNTY_AMOUNT`.
@@ -792,7 +845,16 @@ impl StellarBountyBoardContract {
 
         let min_amount = Self::get_min_bounty_amount(env.clone());
 
+        // Escrow funding boundaries (SBB-2026-406): `amount` is in the token's
+        // smallest unit and must be positive, within the hard cap, and at least
+        // the effective minimum. All three checks run before any token movement
+        // or storage write, so a rejected funding moves no funds and consumes
+        // no bounty ID.
         if amount <= 0 || amount > MAX_BOUNTY_AMOUNT {
+            panic_error(&env, ContractError::InvalidAmount);
+        }
+        if min_amount <= 0 || min_amount > MAX_BOUNTY_AMOUNT {
+            // A misconfigured floor must not silently disable the boundary.
             panic_error(&env, ContractError::InvalidAmount);
         }
         if amount < min_amount {
@@ -1100,21 +1162,41 @@ impl StellarBountyBoardContract {
     /// * [`ContractError::BountyMustBeSubmitted`] - If the bounty's current status is not [`BountyStatus::Submitted`] (including already [`BountyStatus::Released`]).
     /// * [`ContractError::MissingContributor`] - If the bounty has no assigned contributor.
     /// * [`ContractError::FeeRecipientNotSet`] - If `fee_amount > 0` and no fee recipient is configured in storage.
-    /// * [`ContractError::PayoutTransferFailed`] - If the net payout transfer to the contributor fails.
-    /// * [`ContractError::FeeTransferFailed`] - If the protocol fee transfer to the fee recipient fails.
+    /// * [`ContractError::PayoutTransferFailed`] - If the net payout token transfer to the contributor fails.
+    /// * [`ContractError::FeeTransferFailed`] - If the protocol fee token transfer to the fee recipient fails.
+    ///
+    /// # Atomicity & Payout Failure Guarantees
+    /// * Caller authorization, bounty status, contributor presence, and `FeeRecipient` (when `fee_amount > 0`) are validated before any state write or token transfer.
+    /// * Terminal status ([`BountyStatus::Released`]) is committed prior to token transfers (Checks-Effects-Interactions).
+    /// * If either the contributor payout transfer or the protocol fee transfer fails, the transaction aborts atomically with [`ContractError::PayoutTransferFailed`] or [`ContractError::FeeTransferFailed`], rolling back status, `FeeStats`, and any prior transfer in the same call without emitting events.
+    /// * A failed call cannot strand or multiply escrow funds; retrying `release_bounty` after resolving the transfer failure settles the payout exactly once, and any subsequent release fails with [`ContractError::BountyMustBeSubmitted`].
     ///
     /// # Storage
     /// * **Read**:
     ///   - [`DataKey::Bounty(bounty_id)`] - Reads the existing bounty state via `read_bounty`.
-    ///   - [`DataKey::FeeRecipient`] - Persistent storage lookup to obtain the protocol fee recipient address when `fee_amount > 0`.
+    ///   - [`DataKey::FeeRecipient`] - Persistent storage lookup to obtain the protocol fee recipient address if fees apply.
     /// * **Write**:
-    ///   - [`DataKey::FeeStats`] - Increments `bounty_count` by 1 and adds `fee_amount` to `total_collected`.
-    ///   - [`DataKey::Bounty(bounty_id)`] - Updates `bounty.status` to [`BountyStatus::Released`].
+    ///   - [`DataKey::Bounty(bounty_id)`] - Updates `bounty.status` to [`BountyStatus::Released`] before token transfers.
+    ///   - [`DataKey::FeeStats`] - Updates cumulative fee statistics after transfers succeed.
     ///
-    /// # Events
-    /// * Emits `(symbol_short!("Escrow"), symbol_short!("Funded"))` with [`escrow_accounting::EscrowBalanceChanged`] (`delta: -bounty.amount`, `remaining: 0`).
-    /// * Emits `(symbol_short!("Bounty"), symbol_short!("Releas"))` with [`BountyReleased`] payload.
-    /// * Emits `(symbol_short!("Bounty"), symbol_short!("RelEvent"))` with [`BountyReleasedEvent`] payload (including `released_at`).
+    /// # Events & Payout Event Contract (SBB-2026-424)
+    ///
+    /// On a committed `release_bounty` call, exactly three contract events are
+    /// emitted in this deterministic order, strictly after `BountyStatus::Released`,
+    /// token transfers, and `FeeStats` updates have succeeded:
+    ///
+    /// 1. `(symbol_short!("Escrow"), symbol_short!("Balance"))` — [`escrow_accounting::EscrowBalanceChanged`]
+    ///    with `amount = bounty.amount`, `delta = -bounty.amount`, `previous = bounty.amount`,
+    ///    `remaining = 0`, and `status = BountyStatus::Released`.
+    /// 2. `(symbol_short!("Bounty"), symbol_short!("Releas"))` — [`BountyReleased`]
+    ///    with `amount = net_payout` and `fee_amount`.
+    /// 3. `(symbol_short!("Bounty"), symbol_short!("RelEvent"))` — [`BountyReleasedEvent`]
+    ///    with full self-contained payout details (`maintainer`, `contributor`, `token`,
+    ///    `amount`, `fee_amount`, `protocol_fee_bps`, `released_at`).
+    ///
+    /// Exact escrow conservation: `net_payout + fee_amount == bounty.amount`.
+    /// Consumers can reconstruct the committed payout once: failed or duplicate
+    /// calls abort atomically and emit zero events.
     pub fn release_bounty(env: Env, bounty_id: u64, maintainer: Address) {
         maintainer.require_auth();
         let mut bounty = read_bounty(&env, bounty_id);
@@ -1149,6 +1231,23 @@ impl StellarBountyBoardContract {
 
         let net_payout = bounty.amount - fee_amount;
 
+        // Resolve fee recipient before committing state or initiating any transfer.
+        let fee_recipient: Option<Address> = if fee_amount > 0 {
+            Some(
+                env.storage()
+                    .persistent()
+                    .get(&DataKey::FeeRecipient)
+                    .unwrap_or_else(|| panic_error(&env, ContractError::FeeRecipientNotSet)),
+            )
+        } else {
+            None
+        };
+
+        // Commit terminal state before interacting with token contract (Checks-Effects-Interactions).
+        // If any subsequent token transfer fails, Soroban rolls back this write atomically.
+        bounty.status = BountyStatus::Released;
+        write_bounty(&env, bounty_id, &bounty);
+
         // Transfer net payout to contributor
         if !matches!(
             token_client.try_transfer(&contract_address, &contributor, &net_payout),
@@ -1158,14 +1257,9 @@ impl StellarBountyBoardContract {
         }
 
         // Transfer fee to recipient (only when fee is non-zero)
-        if fee_amount > 0 {
-            let fee_recipient: Address = env
-                .storage()
-                .persistent()
-                .get(&DataKey::FeeRecipient)
-                .unwrap_or_else(|| panic_error(&env, ContractError::FeeRecipientNotSet));
+        if let Some(recipient) = fee_recipient {
             if !matches!(
-                token_client.try_transfer(&contract_address, &fee_recipient, &fee_amount),
+                token_client.try_transfer(&contract_address, &recipient, &fee_amount),
                 Ok(Ok(()))
             ) {
                 panic_error(&env, ContractError::FeeTransferFailed);
@@ -1175,9 +1269,6 @@ impl StellarBountyBoardContract {
 
         // Atomically update FeeStats
         accumulate_fee_stats(&env, fee_amount);
-
-        bounty.status = BountyStatus::Released;
-        write_bounty(&env, bounty_id, &bounty);
 
         // Escrow funding event for the release path: the escrow balance for this
         // bounty drops to zero. Emitted exactly once, only after the terminal
@@ -1516,6 +1607,30 @@ impl StellarBountyBoardContract {
         );
     }
 
+    /// Settles a disputed bounty by directing the full escrowed balance to one
+    /// final payout destination.
+    ///
+    /// # Boundaries
+    /// - **Authorization**: Requires explicit authorization from the stored
+    ///   `DataKey::Arbiter`.
+    /// - **Status**: Only bounties in [`BountyStatus::Disputed`] may be
+    ///   resolved; all other statuses (including already settled bounties) fail
+    ///   with [`ContractError::BountyMustBeDisputed`], preserving one final
+    ///   decision.
+    /// - **Ledger Window**: Enforces
+    ///   `env.ledger().timestamp() >= bounty.dispute_raised_at + effective_dispute_window`
+    ///   (using `bounty.dispute_window_override` if set, otherwise global
+    ///   `DataKey::DisputeWindow`), rejecting earlier timestamps with
+    ///   [`ContractError::DisputeWindowNotMet`].
+    /// - **Exact Destinations & Token Units**:
+    ///   - `release == true`: transitions to [`BountyStatus::Released`],
+    ///     transfers `amount - floor(amount * protocol_fee_bps / 10_000)` to
+    ///     the contributor and any positive fee to `FeeRecipient`.
+    ///   - `release == false`: transitions to [`BountyStatus::Refunded`] and
+    ///     returns the full `amount` (zero fee) to `bounty.maintainer`.
+    /// - **Events**: Emits the escrow balance delta and a single
+    ///   `(Bounty, Reslv)` [`BountyResolved`] event only after terminal state
+    ///   and token transfers succeed.
     pub fn resolve_dispute(env: Env, bounty_id: u64, release: bool) {
         let arbiter: Address = env
             .storage()
