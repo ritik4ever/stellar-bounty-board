@@ -28,6 +28,21 @@ The contract uses named error codes for all invalid operations. These codes are 
 - `dispute_bounty(bounty_id, arbiter)` - transitions a submitted bounty to the **Disputed** state and emits the `(Bounty, Dispt)` event. Its `BountyDisputed` payload contains `bounty_id`, `contributor`, and `arbiter`, allowing indexer workers to process the state change without a follow-up contract read.
 - `resolve_dispute(bounty_id, release)` - allows the arbiter to settle a disputed bounty by releasing funds to contributor (minus protocol fee) or refunding maintainer. Emits the single `(Bounty, Reslv)` event with `BountyResolved` containing `bounty_id`, `arbiter`, `release`, and the settled `amount` strictly after terminal state is committed. Failed transfers abort atomically leaving dispute state and escrow intact.
 
+## Escrow Initialization Failure Atomicity (SBB-2026-402)
+
+Escrow initialization enforces atomic failure guarantees when an unauthorized or second caller attempts to re-initialize or replace the arbiter:
+
+- **Atomic Rejection Without Mutation:**
+  - A second caller attempting to invoke `initialize` with a replacement arbiter and different governance parameters is rejected atomically with panic `"already initialized"`.
+  - Stored governance identities (`Admin`, `Arbiter`, `FeeRecipient`, `DisputeWindow`, `MinBountyAmount`, `MinArbiterStake`) remain strictly unchanged and cannot be overwritten.
+- **No Stranded or Multiplied Funds:**
+  - The failed call moves zero tokens.
+  - Active and funded bounty escrow balances are completely isolated; funds held in contract custody are never stranded, locked, or multiplied.
+  - Balances of the second caller, the contract, maintainers, and arbiters remain strictly conserved.
+- **Authority Preservation:**
+  - The replacement arbiter gains zero authorization.
+  - Exclusive governance authority remains held by the original arbiter address.
+
 ## Bounty Escrow Funding Atomicity
 
 Bounty escrow funding (`create_bounty`) enforces strict ordering and atomic rollback semantics to ensure escrow funds are never stranded or multiplied:

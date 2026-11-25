@@ -6159,3 +6159,139 @@ fn test_failed_escrow_funding_with_failing_token_emits_no_funding_event() {
     assert!(client.try_get_bounty(&2).is_err());
     assert_eq!(valid_token_client.balance(&client.address), amount);
 }
+
+// ─── SBB-2026-402 (#1871): Escrow Initialization Failure Atomicity ──────────
+
+#[test]
+fn test_escrow_initialization_failures_atomic_second_caller_replacement_fails_without_stranding_or_multiplying_funds() {
+    let env = Env::default();
+    let contract_id = env.register(StellarBountyBoardContract, ());
+    let client = StellarBountyBoardContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let fee_recipient = Address::generate(&env);
+    let arbiter = Address::generate(&env);
+    let maintainer = Address::generate(&env);
+    let contributor = Address::generate(&env);
+
+    let second_caller = Address::generate(&env);
+    let second_fee_recipient = Address::generate(&env);
+    let replacement_arbiter = Address::generate(&env);
+
+    // Setup mock token
+    let token_admin = Address::generate(&env);
+    let token = env
+        .register_stellar_asset_contract_v2(token_admin.clone())
+        .address();
+    let token_admin_client = soroban_sdk::token::StellarAssetClient::new(&env, &token);
+    let token_client = TokenClient::new(&env, &token);
+
+    // Mint tokens:
+    // maintainer: 100_000
+    // second_caller: 50_000
+    // replacement_arbiter: 25_000
+    env.mock_all_auths();
+    token_admin_client.mint(&maintainer, &100_000);
+    token_admin_client.mint(&second_caller, &50_000);
+    token_admin_client.mint(&replacement_arbiter, &25_000);
+    env.set_auths(&[]);
+
+    // 1. Legitimate genesis initialization
+    let dispute_window = 600u64;
+    client.initialize(&admin, &fee_recipient, &arbiter, &dispute_window);
+
+    // 2. Fund active Bounty 1 in escrow before the second caller's attack
+    let bounty_amount = 30_000i128;
+    let deadline = env.ledger().timestamp() + 5_000;
+    env.mock_all_auths();
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token,
+        &bounty_amount,
+        &String::from_str(&env, "ritik4ever/stellar-bounty-board"),
+        &402u32,
+        &String::from_str(&env, "SBB-2026-402 Active Bounty"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+    env.set_auths(&[]);
+    assert_eq!(bounty_id, 1);
+    assert_eq!(token_client.balance(&client.address), bounty_amount);
+    assert_eq!(token_client.balance(&maintainer), 70_000);
+
+    // Snapshot event count prior to the failed second call
+    let events_before = env.events().all().events().len();
+
+    // 3. Inject second caller attempting to replace arbiter and re-initialize contract
+    let reinit_res = client.try_initialize(
+        &second_caller,
+        &second_fee_recipient,
+        &replacement_arbiter,
+        &1_200u64,
+    );
+
+    // The call must fail
+    assert!(reinit_res.is_err(), "second caller initialize attempt must fail");
+
+    // 4. Atomicity Guarantee: Zero funds stranded or multiplied
+    // Contract escrow balance remains strictly at 30_000 (not stranded, not drained, not multiplied)
+    assert_eq!(token_client.balance(&client.address), bounty_amount);
+    // Second caller funds remain untouched (not deducted or stranded)
+    assert_eq!(token_client.balance(&second_caller), 50_000);
+    // Replacement arbiter funds remain untouched
+    assert_eq!(token_client.balance(&replacement_arbiter), 25_000);
+    // Maintainer funds remain untouched
+    assert_eq!(token_client.balance(&maintainer), 70_000);
+    // Fee recipients remain at 0
+    assert_eq!(token_client.balance(&fee_recipient), 0);
+    assert_eq!(token_client.balance(&second_fee_recipient), 0);
+
+    // 5. Zero new events emitted by the failed call
+    assert_eq!(env.events().all().events().len(), events_before);
+
+    // 6. Immutable State & Arbiter Identity Preserved
+    assert_eq!(client.get_arbiter(), arbiter);
+    assert_ne!(client.get_arbiter(), replacement_arbiter);
+    assert_eq!(client.get_fee_recipient(), fee_recipient);
+    assert_eq!(client.get_min_bounty_amount(), DEFAULT_MIN_BOUNTY_AMOUNT);
+    assert!(!client.get_paused_state());
+    assert_eq!(client.get_next_bounty_id(), 1);
+
+    // 7. Replacement arbiter has ZERO authority
+    let attempted_min = 500i128;
+    env.mock_auths(&[MockAuth {
+        address: &replacement_arbiter,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "set_min_bounty_amount",
+            args: (&attempted_min,).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(client.try_set_min_bounty_amount(&attempted_min).is_err());
+    assert_eq!(client.get_min_bounty_amount(), DEFAULT_MIN_BOUNTY_AMOUNT);
+
+    // 8. Original arbiter retains exclusive authority
+    env.mock_auths(&[MockAuth {
+        address: &arbiter,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "set_min_bounty_amount",
+            args: (&attempted_min,).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.set_min_bounty_amount(&attempted_min);
+    assert_eq!(client.get_min_bounty_amount(), attempted_min);
+
+    // 9. Existing bounty remains completely valid and can complete full lifecycle
+    env.mock_all_auths();
+    client.reserve_bounty(&bounty_id, &contributor);
+    client.submit_bounty(&bounty_id, &contributor);
+    client.release_bounty(&bounty_id, &maintainer);
+
+    // Final balance check: contributor receives full 30_000 payout, contract drops to 0
+    assert_eq!(token_client.balance(&contributor), 30_000);
+    assert_eq!(token_client.balance(&client.address), 0);
+}
