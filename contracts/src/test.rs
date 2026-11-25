@@ -6159,3 +6159,81 @@ fn test_failed_escrow_funding_with_failing_token_emits_no_funding_event() {
     assert!(client.try_get_bounty(&2).is_err());
     assert_eq!(valid_token_client.balance(&client.address), amount);
 }
+
+// ─── SBB-2026-401 (#1870): Escrow Initialization Boundaries ─────────────────
+
+#[test]
+fn test_escrow_initialization_boundaries_valid_arbiter_exact_ledger_and_token_units() {
+    let env = Env::default();
+    let contract_id = env.register(StellarBountyBoardContract, ());
+    let client = StellarBountyBoardContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let fee_recipient = Address::generate(&env);
+    let arbiter = Address::generate(&env);
+
+    // Register test token and mint exact token units to exercise balance isolation
+    let token_admin = Address::generate(&env);
+    let token = env
+        .register_stellar_asset_contract_v2(token_admin.clone())
+        .address();
+    let token_admin_client = soroban_sdk::token::StellarAssetClient::new(&env, &token);
+    let token_client = TokenClient::new(&env, &token);
+
+    // Exact ledger setup: set timestamp and sequence number
+    let initial_timestamp = 1_700_000_000u64;
+    let initial_sequence = 123_456u32;
+    env.ledger().set_timestamp(initial_timestamp);
+    env.ledger().set_sequence_number(initial_sequence);
+
+    // Mint exact token units across accounts: admin = 10_000, arbiter = 5_000, fee_recipient = 0
+    env.mock_all_auths();
+    token_admin_client.mint(&admin, &10_000);
+    token_admin_client.mint(&arbiter, &5_000);
+    env.set_auths(&[]);
+
+    // Verify initial pre-initialization token units
+    assert_eq!(token_client.balance(&admin), 10_000);
+    assert_eq!(token_client.balance(&arbiter), 5_000);
+    assert_eq!(token_client.balance(&fee_recipient), 0);
+    assert_eq!(token_client.balance(&client.address), 0);
+
+    let dispute_window = 600u64;
+
+    // First initialize call with valid arbiter address under exact ledger and token units
+    client.initialize(&admin, &fee_recipient, &arbiter, &dispute_window);
+
+    // 1. Immutable arbiter identity & initialized contract state
+    assert_eq!(client.get_arbiter(), arbiter);
+    assert_eq!(client.get_fee_recipient(), fee_recipient);
+    assert_eq!(client.get_min_bounty_amount(), DEFAULT_MIN_BOUNTY_AMOUNT);
+    assert!(!client.get_paused_state());
+    assert_eq!(client.get_next_bounty_id(), 0);
+
+    // 2. Exact token unit preservation: zero funds moved, zero contract balance
+    assert_eq!(token_client.balance(&client.address), 0);
+    assert_eq!(token_client.balance(&admin), 10_000);
+    assert_eq!(token_client.balance(&arbiter), 5_000);
+    assert_eq!(token_client.balance(&fee_recipient), 0);
+
+    // 3. Zero events emitted during initialization
+    assert_eq!(env.events().all().events().len(), 0);
+
+    // 4. Exact ledger state preserved
+    assert_eq!(env.ledger().timestamp(), initial_timestamp);
+    assert_eq!(env.ledger().sequence(), initial_sequence);
+
+    // 5. Exclusive arbiter authority: valid arbiter can update min_bounty_amount
+    let new_min = 250i128;
+    env.mock_auths(&[MockAuth {
+        address: &arbiter,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "set_min_bounty_amount",
+            args: (&new_min,).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.set_min_bounty_amount(&new_min);
+    assert_eq!(client.get_min_bounty_amount(), new_min);
+}

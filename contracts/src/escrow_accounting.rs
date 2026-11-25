@@ -37,12 +37,12 @@ pub struct EscrowBalanceChanged {
     pub bounty_id: u64,
     /// Contract address of the token actually funded for this bounty.
     pub token: Address,
-    /// Positive when funded, negative when fully settled; native token units.
-    pub delta: i128,
     /// Magnitude of the movement (`delta.abs()`); always non-negative.
     pub amount: i128,
+    /// Positive when funded, negative when fully settled; native token units.
+    pub delta: i128,
     /// Escrow amount still owed to this bounty before the transition.
-    pub previous_remaining: i128,
+    pub previous: i128,
     /// Escrow amount still owed to this bounty after the transition.
     pub remaining: i128,
     /// Bounty status corresponding to the committed balance change.
@@ -61,7 +61,7 @@ pub(crate) fn publish_escrow_change(env: &Env, bounty_id: u64, bounty: &Bounty, 
         BountyStatus::Released | BountyStatus::Refunded => 0,
         _ => bounty.amount,
     };
-    let previous_remaining = remaining - delta;
+    let previous = remaining - delta;
     let amount = delta.abs();
 
     env.events().publish(
@@ -69,9 +69,9 @@ pub(crate) fn publish_escrow_change(env: &Env, bounty_id: u64, bounty: &Bounty, 
         EscrowBalanceChanged {
             bounty_id,
             token: bounty.token.clone(),
-            delta,
             amount,
-            previous_remaining,
+            delta,
+            previous,
             remaining,
             status: bounty.status,
         },
