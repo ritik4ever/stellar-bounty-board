@@ -11,7 +11,7 @@ use soroban_sdk::{
     testutils::{Address as _, Events, MockAuth, MockAuthInvoke},
     token::{Client as TokenClient, StellarAssetClient},
     xdr::{ScErrorCode, ScErrorType},
-    Address, Env, Error, IntoVal,
+    Address, Env, Error, IntoVal, Symbol, TryIntoVal,
 };
 use stellar_bounty_board::{
     StellarBountyBoardContract, StellarBountyBoardContractClient, DEFAULT_MIN_BOUNTY_AMOUNT,
@@ -207,6 +207,58 @@ fn second_caller_cannot_replace_arbiter_via_reinitialize() {
     }]);
     f.client.set_min_bounty_amount(&attempted_min);
     assert_eq!(f.client.get_min_bounty_amount(), attempted_min);
+}
+
+/// Returns true if any emitted event is an escrow funding event.
+///
+/// Funding events are the only observable signal that an escrow balance was
+/// committed for a bounty ID. `initialize` must never produce them, so that
+/// consumers can reconstruct a committed funding change exactly once.
+fn has_escrow_funding_event(env: &Env) -> bool {
+    let funding_topics: [Symbol; 2] = [
+        Symbol::new(env, "bounty"),
+        Symbol::new(env, "escrow_funded"),
+    ];
+    env.events().all().events().iter().any(|event| {
+        let topics: soroban_sdk::Vec<soroban_sdk::Val> = event.body.v0().topics.clone();
+        if topics.len() != funding_topics.len() {
+            return false;
+        }
+        topics.iter().enumerate().all(|(index, topic)| {
+            let expected: soroban_sdk::Val = funding_topics[index].into_val(env);
+            topic == expected
+        })
+    })
+}
+
+#[test]
+fn initialize_emits_no_escrow_funding_events_and_moves_no_tokens() {
+    let f = setup_uninitialized();
+    let token_client = TokenClient::new(&f.env, &f.token);
+
+    // Seed isolated test balances (no live funds) so any token movement is visible.
+    mint_test_tokens(&f.env, &f.token, &f.token_admin, &f.admin, 10_000);
+    mint_test_tokens(&f.env, &f.token, &f.token_admin, &f.arbiter, 5_000);
+
+    f.env.mock_auths(&[]);
+    f.client
+        .initialize(&f.admin, &f.fee_recipient, &f.arbiter, &DISPUTE_WINDOW);
+
+    // No events at all, and specifically no escrow funding events.
+    assert_eq!(f.env.events().all().events().len(), 0);
+    assert!(
+        !has_escrow_funding_event(&f.env),
+        "initialize must not emit escrow funding events"
+    );
+
+    // No bounty ID was consumed, so no escrow balance can be attributed.
+    assert_eq!(f.client.get_next_bounty_id(), 0);
+
+    // No token balances moved into or out of the contract.
+    assert_eq!(token_client.balance(&f.client.address), 0);
+    assert_eq!(token_client.balance(&f.admin), 10_000);
+    assert_eq!(token_client.balance(&f.arbiter), 5_000);
+    assert_eq!(token_client.balance(&f.fee_recipient), 0);
 }
 
 #[test]

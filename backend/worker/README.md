@@ -87,7 +87,7 @@ When multiple events occur within the same ledger (sharing the same `ledger` seq
 - Deduplication against existing event IDs (`knownIds`) prevents duplicate entries.
 - The stored cursor (`nextCursor`) checkpoints to the latest event's paging token / ID (or `result.cursor`).
 - On restart or resumption from that cursor, subsequent polls begin strictly after that boundary, ensuring no events in the ledger are skipped or duplicated.
-- **Restart between event write and cursor persistence (#1934):** Because `indexed-events.json` is written atomically before `indexed-events.cursor.json`, a crash between the two writes leaves the cursor at the previous checkpoint (or missing/unreadable, falling back to the last persisted event ID). On restart, replayed same-ledger events are deduplicated by `id` (`knownIds`), ensuring each confirmed event is applied once in order and the cursor checkpoint heals on the next successful poll.
+- **Restart between event write and cursor persistence (#1934, SBB-2026-462):** Because `indexed-events.json` is written atomically before `indexed-events.cursor.json`, a crash or write failure between the two writes leaves the cursor at the previous checkpoint (or missing/unreadable, falling back to the last persisted event ID). Failed atomic writes clean up their unique temporary files, `startWorker` serializes overlapping poll ticks, and on restart replayed events are deduplicated by `id` or `(ledger, event_index)` chain position, ensuring each confirmed event is applied once in order and the cursor checkpoint heals on the next successful poll.
 
 ## Event backfill
 
@@ -136,6 +136,27 @@ SOROBAN_BACKFILL_TOKEN=... SOROBAN_CONTRACT_ID=C... node eventBackfill.js \
 The range is capped at 5,000 ledgers and 50 RPC pages per run so a single
 invocation stays bounded; use several runs for larger ranges.
 
+### Backfill boundary behavior (#1935)
+
+The first RPC page response includes a `latestLedger` value that reflects the
+network's current finalized tip. Backfill uses this to enforce a hard boundary:
+
+- **Effective end = min(endLedger, latestLedger − 1).** The ledger at
+  `latestLedger` may still be open to live polling, so it is excluded. This
+  prevents backfill and the live worker from writing the same ledger
+  concurrently, which would otherwise produce a race condition at the boundary.
+- **Warning on clamp.** When the requested `endLedger` is reduced, a
+  `[Backfill] endLedger clamped …` line is logged and the final result carries
+  `effectiveEndLedger` so callers can confirm which ledgers were actually
+  covered.
+- **Rejection when nothing to backfill.** If `startLedger > latestLedger − 1`
+  (the entire requested range is at or beyond the tip), the run is rejected with
+  `invalid_request` before any event is persisted. No partial state is written.
+- **Existing live-polled events are preserved.** The deduplication logic is
+  unchanged: events already in `indexed-events.json` (regardless of whether
+  they were written by live polling or a previous backfill run) are never
+  removed or rewritten. Only unseen events are appended.
+
 ### Overlap, retries and failure isolation
 
 - **Overlapping live polling:** events are deduplicated by chain identity
@@ -150,7 +171,9 @@ invocation stays bounded; use several runs for larger ranges.
 - **Crash between merge and cursor write:** the events are already durable and
   uniquely identified; the retry counts them as skipped and advances the
   cursor.
-- **Out-of-range events:** events newer than `endLedger` are not persisted.
+- **Out-of-range events:** events newer than `effectiveEndLedger` are not
+  persisted. The effective end is always at most `latestLedger − 1` (see
+  boundary behavior above).
 - The exit code is non-zero for any rejected or failed run, and the error
   message includes a stable code (`unauthorized`, `invalid_request`,
   `missing_rpc_page`, `malformed_rpc_response`, `malformed_event`,
