@@ -28,6 +28,22 @@ The contract uses named error codes for all invalid operations. These codes are 
 - `dispute_bounty(bounty_id, arbiter)` - transitions a submitted bounty to the **Disputed** state and emits the `(Bounty, Dispt)` event. Its `BountyDisputed` payload contains `bounty_id`, `contributor`, and `arbiter`, allowing indexer workers to process the state change without a follow-up contract read.
 - `resolve_dispute(bounty_id, release)` - allows the arbiter to settle a disputed bounty by releasing funds to contributor (minus protocol fee) or refunding maintainer. Emits the single `(Bounty, Reslv)` event with `BountyResolved` containing `bounty_id`, `arbiter`, `release`, and the settled `amount` strictly after terminal state is committed. Failed transfers abort atomically leaving dispute state and escrow intact.
 
+## Escrow Initialization Boundaries (SBB-2026-401)
+
+Escrow initialization (`initialize`) establishes the contract's immutable governance identity and initial operational state under strict boundary guarantees:
+
+- **Exact Ledger & Token Units Isolation:**
+  - Initializing with a valid arbiter address executes cleanly without moving tokens. Token balances across admin, arbiter, fee recipient, and contract address remain strictly unchanged (contract balance = 0).
+  - No lifecycle or escrow balance events are emitted during initialization, preventing spurious off-chain indexing.
+- **Immutable Arbiter Identity:**
+  - The valid arbiter address configured at genesis is persisted to `DataKey::Arbiter` and cannot be replaced or overwritten by subsequent `initialize` calls.
+  - The configured arbiter holds exclusive authority over arbiter-gated entry points (`set_min_bounty_amount`, `pause`, `unpause`).
+- **Initial Contract Parameters:**
+  - Sets `Admin`, `FeeRecipient`, `Arbiter`, `DisputeWindow`, `MinBountyAmount` (`DEFAULT_MIN_BOUNTY_AMOUNT` = 100), and `MinArbiterStake` (`DEFAULT_MIN_ARBITER_STAKE`).
+  - Contract paused state defaults to `false` (unpaused) and `NextBountyId` initializes to `0`.
+- **One-time Initialization Atomicity:**
+  - Re-initialization attempts are rejected atomically with `"already initialized"`, keeping all stored parameters and arbiter identity unchangeable.
+
 ## Bounty Escrow Funding Atomicity
 
 Bounty escrow funding (`create_bounty`) enforces strict ordering and atomic rollback semantics to ensure escrow funds are never stranded or multiplied:
