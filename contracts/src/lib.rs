@@ -159,6 +159,18 @@ pub struct BountySubmitted {
     pub contributor: Address,
 }
 
+/// Payload for the `(Bounty, Releas)` event emitted by `release_bounty`.
+///
+/// Emitted strictly after `("Escrow", "Balance")` and immediately before
+/// `("Bounty", "RelEvent")` on a committed payout of the exact escrow amount.
+///
+/// Fields, in deterministic order:
+/// - `bounty_id`: which bounty was released.
+/// - `contributor`: the recipient of the net payout.
+/// - `amount`: net payout transferred to `contributor` after deducting protocol fee.
+/// - `fee_amount`: protocol fee transferred to `FeeRecipient` (`0` when fee is zero).
+///
+/// Conservation invariant: `amount + fee_amount == escrowed_amount`.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BountyReleased {
@@ -171,17 +183,21 @@ pub struct BountyReleased {
 /// Payload for the `(Bounty, RelEvent)` event emitted by `release_bounty`.
 ///
 /// This event is scoped specifically to the `release_bounty` transition so
-/// that the indexer worker can react without polling the whole contract
-/// state. The payload carries every field the worker needs to update its
-/// view of the bounty without a follow-up contract read:
+/// that off-chain consumers can reconstruct the committed payout once without
+/// a follow-up contract read. It is emitted third and last in the payout event
+/// sequence, strictly after `("Escrow", "Balance")` and `("Bounty", "Releas")`.
+///
+/// Fields, in deterministic order:
 /// - `bounty_id`: which bounty was released.
 /// - `maintainer`: who authorized the release.
 /// - `contributor`: who received the net payout.
-/// - `token`: the token the bounty was escrowed in.
+/// - `token`: the token contract address the bounty was escrowed in.
 /// - `amount`: the net payout to the contributor (after fee).
 /// - `fee_amount`: the protocol fee transferred to the fee recipient.
 /// - `protocol_fee_bps`: the fee rate locked in at creation time.
 /// - `released_at`: the ledger timestamp at which the release occurred.
+///
+/// Conservation invariant: `amount + fee_amount == escrowed_amount`.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BountyReleasedEvent {
@@ -1113,8 +1129,24 @@ impl StellarBountyBoardContract {
     ///   - [`DataKey::Bounty(bounty_id)`] - Updates `bounty.status` to [`BountyStatus::Released`] before token transfers.
     ///   - [`DataKey::FeeStats`] - Updates cumulative fee statistics after transfers succeed.
     ///
-    /// # Events
-    /// * Emits escrow accounting change, `(symbol_short!("Bounty"), symbol_short!("Releas"))`, and `(symbol_short!("Bounty"), symbol_short!("RelEvent"))` strictly after terminal state and transfers succeed.
+    /// # Events & Payout Event Contract (SBB-2026-424)
+    ///
+    /// On a committed `release_bounty` call, exactly three contract events are
+    /// emitted in this deterministic order, strictly after `BountyStatus::Released`,
+    /// token transfers, and `FeeStats` updates have succeeded:
+    ///
+    /// 1. `(symbol_short!("Escrow"), symbol_short!("Balance"))` — [`escrow_accounting::EscrowBalanceChanged`]
+    ///    with `amount = bounty.amount`, `delta = -bounty.amount`, `previous = bounty.amount`,
+    ///    `remaining = 0`, and `status = BountyStatus::Released`.
+    /// 2. `(symbol_short!("Bounty"), symbol_short!("Releas"))` — [`BountyReleased`]
+    ///    with `amount = net_payout` and `fee_amount`.
+    /// 3. `(symbol_short!("Bounty"), symbol_short!("RelEvent"))` — [`BountyReleasedEvent`]
+    ///    with full self-contained payout details (`maintainer`, `contributor`, `token`,
+    ///    `amount`, `fee_amount`, `protocol_fee_bps`, `released_at`).
+    ///
+    /// Exact escrow conservation: `net_payout + fee_amount == bounty.amount`.
+    /// Consumers can reconstruct the committed payout once: failed or duplicate
+    /// calls abort atomically and emit zero events.
     pub fn release_bounty(env: Env, bounty_id: u64, maintainer: Address) {
         maintainer.require_auth();
         let mut bounty = read_bounty(&env, bounty_id);
