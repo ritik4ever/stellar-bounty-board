@@ -82,6 +82,43 @@ fn changes(
     results
 }
 
+/// Returns the raw XDR data maps of every escrow balance event, in emission
+/// order, so tests can assert the canonical field ordering.
+fn raw_balance_event_maps(env: &Env, client: &StellarBountyBoardContractClient<'static>) -> Vec<Vec<Symbol>> {
+    let mut results = Vec::new(env);
+    let events = env.events().all().filter_by_contract(&client.address);
+    for event in events.events().iter() {
+        let soroban_sdk::xdr::ContractEventBody::V0(body) = &event.body;
+        if body.topics.len() != 2 {
+            continue;
+        }
+        let domain = Symbol::from_val(env, &body.topics[0]);
+        let action = Symbol::from_val(env, &body.topics[1]);
+        if domain == symbol_short!("Escrow") && action == symbol_short!("Balance") {
+            let map = soroban_sdk::Map::<Symbol, soroban_sdk::Val>::from_val(env, &body.data);
+            let mut keys = Vec::new(env);
+            for (key, _) in map.iter() {
+                keys.push_back(key);
+            }
+            results.push_back(keys);
+        }
+    }
+    results
+}
+
+/// Canonical field order for the escrow funding/balance event payload.
+fn expected_field_order(env: &Env) -> Vec<Symbol> {
+    let mut keys = Vec::new(env);
+    keys.push_back(symbol_short!("bounty_id"));
+    keys.push_back(symbol_short!("token"));
+    keys.push_back(symbol_short!("amount"));
+    keys.push_back(symbol_short!("delta"));
+    keys.push_back(symbol_short!("previous"));
+    keys.push_back(symbol_short!("remaining"));
+    keys.push_back(symbol_short!("status"));
+    keys
+}
+
 #[test]
 fn funding_and_release_emit_one_balance_change_each_in_the_funded_asset() {
     let env = Env::default();
@@ -89,17 +126,22 @@ fn funding_and_release_emit_one_balance_change_each_in_the_funded_asset() {
     let id = create(&env, &client, &maintainer, &token_id, 101, 500);
     let token = TokenClient::new(&env, &token_id);
 
+    // Exactly one funding event per successful create_bounty.
     assert_eq!(changes(&env, &client).len(), 1);
     assert_eq!(
         changes(&env, &client).get(0),
         Some(EscrowBalanceChanged {
             bounty_id: id,
             token: token_id.clone(),
+            amount: 101,
             delta: 101,
+            previous: 0,
             remaining: 101,
             status: BountyStatus::Open,
         })
     );
+    // Deterministic canonical field ordering.
+    assert_eq!(raw_balance_event_maps(&env, &client).get(0), Some(expected_field_order(&env)));
 
     client.reserve_bounty(&id, &contributor);
     client.submit_bounty(&id, &contributor);
@@ -113,11 +155,14 @@ fn funding_and_release_emit_one_balance_change_each_in_the_funded_asset() {
         Some(EscrowBalanceChanged {
             bounty_id: id,
             token: token_id.clone(),
+            amount: 101,
             delta: -101,
+            previous: 101,
             remaining: 0,
             status: BountyStatus::Released,
         })
     );
+    assert_eq!(raw_balance_event_maps(&env, &client).get(1), Some(expected_field_order(&env)));
     assert_eq!(client.get_bounty(&id).status, BountyStatus::Released);
     assert_eq!(token.balance(&client.address), 0);
     assert_eq!(token.balance(&contributor), 96);
@@ -132,10 +177,14 @@ fn cancellation_emits_a_single_debit_after_refund() {
     client.cancel_bounty(&id, &maintainer);
     let events = changes(&env, &client);
     assert_eq!(events.len(), 2);
+    assert_eq!(events.get(1).unwrap().bounty_id, id);
+    assert_eq!(events.get(1).unwrap().amount, 255);
     assert_eq!(events.get(1).unwrap().delta, -255);
+    assert_eq!(events.get(1).unwrap().previous, 255);
     assert_eq!(events.get(1).unwrap().remaining, 0);
     assert_eq!(events.get(1).unwrap().token, token_id.clone());
     assert_eq!(events.get(1).unwrap().status, BountyStatus::Refunded);
+    assert_eq!(raw_balance_event_maps(&env, &client).get(1), Some(expected_field_order(&env)));
     assert_eq!(TokenClient::new(&env, &token_id).balance(&client.address), 0);
 }
 
@@ -148,10 +197,13 @@ fn expiry_refund_emits_one_debit_and_retry_does_not_repeat_it() {
     client.refund_bounty(&id, &maintainer);
     assert_eq!(changes(&env, &client).len(), 2);
     assert_eq!(changes(&env, &client).get(1).unwrap().delta, -333);
+    assert_eq!(changes(&env, &client).get(1).unwrap().previous, 333);
+    assert_eq!(changes(&env, &client).get(1).unwrap().remaining, 0);
     let retry = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         client.refund_bounty(&id, &maintainer);
     }));
     assert!(retry.is_err());
+    // Retry must not duplicate the committed change.
     assert_eq!(changes(&env, &client).len(), 2);
 }
 
@@ -174,5 +226,25 @@ fn insufficient_funding_emits_no_escrow_change() {
         );
     }));
     assert!(outcome.is_err());
+    // Failed funding must not emit any escrow change.
     assert_eq!(changes(&env, &client).len(), 0);
+    assert_eq!(raw_balance_event_maps(&env, &client).len(), 0);
+}
+
+#[test]
+fn funding_event_is_reconstructable_once_per_bounty() {
+    let env = Env::default();
+    let (client, maintainer, _, token_id, _, _) = setup(&env);
+    let id = create(&env, &client, &maintainer, &token_id, 777, 0);
+    let events = changes(&env, &client);
+    assert_eq!(events.len(), 1);
+    let event = events.get(0).unwrap();
+    // Consumers can reconstruct the committed change from a single event.
+    assert_eq!(event.bounty_id, id);
+    assert_eq!(event.token, token_id.clone());
+    assert_eq!(event.amount, 777);
+    assert_eq!(event.previous + event.delta, event.remaining);
+    assert_eq!(event.remaining, 777);
+    assert_eq!(event.status, BountyStatus::Open);
+    assert_eq!(raw_balance_event_maps(&env, &client).get(0), Some(expected_field_order(&env)));
 }

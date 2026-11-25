@@ -5874,3 +5874,288 @@ fn test_bounty_escrow_funding_failure_with_failing_token_contract_preserves_atom
     assert!(client.try_get_bounty(&2).is_err());
     assert_eq!(valid_token_client.balance(&client.address), amount_1);
 }
+
+// ─── SBB-2026-409 (#1878): Bounty Escrow Funding Event ─────────────────────
+//
+// `create_bounty` commits the bounty entry and moves the escrow funds, then
+// emits exactly one funding event describing that committed change:
+//   topics: (Symbol("Bounty"), Symbol("Fund"))
+//   data:   BountyFunded { bounty_id, token, amount, escrow_balance, status }
+// where `escrow_balance` is the contract's token balance after the transfer
+// (i.e. the committed remaining escrow) and `status` is the committed status.
+// A rejected funding attempt (e.g. a failing token transfer) commits nothing
+// and therefore must emit no funding event.
+
+/// Counts `BountyFunded` events emitted by the contract and returns the last
+/// decoded payload, if any.
+fn collect_funding_events(
+    env: &Env,
+    client: &StellarBountyBoardContractClient<'static>,
+) -> (u32, Option<BountyFunded>) {
+    let events = env.events().all().filter_by_contract(&client.address);
+    let mut count = 0u32;
+    let mut payload = None;
+    for event in events.events().iter() {
+        let soroban_sdk::xdr::ContractEventBody::V0(body) = &event.body;
+        if body.topics.len() < 2 {
+            continue;
+        }
+        let t0 = soroban_sdk::Symbol::from_val(env, &body.topics[0]);
+        let t1 = soroban_sdk::Symbol::from_val(env, &body.topics[1]);
+        if t0 == symbol_short!("Bounty") && t1 == symbol_short!("Fund") {
+            count += 1;
+            payload = Some(BountyFunded::from_val(env, &body.data));
+        }
+    }
+    (count, payload)
+}
+
+#[test]
+fn test_create_bounty_emits_single_funding_event_matching_committed_state() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) =
+        setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    let token = TokenClient::new(&env, &token_id);
+
+    let amount = 1_234_567i128;
+    token_admin.mint(&maintainer, &amount);
+    let deadline = env.ledger().timestamp() + 1_000;
+
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &amount,
+        &String::from_str(&env, "ritik4ever/stellar-bounty-board"),
+        &18781,
+        &String::from_str(&env, "Escrow funding event"),
+        &deadline,
+        &250u32,
+        &None,
+    );
+
+    // Committed state: bounty stored, escrow funded, maintainer debited.
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.status, BountyStatus::Open);
+    assert_eq!(bounty.amount, amount);
+    assert_eq!(token.balance(&client.address), amount);
+    assert_eq!(token.balance(&maintainer), 0);
+
+    // Exactly one funding event, with the documented topics and payload.
+    let (count, payload) = collect_funding_events(&env, &client);
+    assert_eq!(count, 1, "create_bounty must emit exactly one funding event");
+    assert_eq!(
+        payload,
+        Some(BountyFunded {
+            bounty_id,
+            token: token_id.clone(),
+            amount,
+            escrow_balance: amount,
+            status: BountyStatus::Open,
+        })
+    );
+
+    // The event is the last event emitted by the funding call and its payload
+    // matches the committed bounty entry field by field.
+    let events = env.events().all().filter_by_contract(&client.address);
+    let event = events.events().last().unwrap();
+    let soroban_sdk::xdr::ContractEventBody::V0(body) = &event.body;
+    let t0 = soroban_sdk::Symbol::from_val(&env, &body.topics[0]);
+    let t1 = soroban_sdk::Symbol::from_val(&env, &body.topics[1]);
+    assert_eq!(t0, symbol_short!("Bounty"));
+    assert_eq!(t1, symbol_short!("Fund"));
+    let decoded = BountyFunded::from_val(&env, &body.data);
+    assert_eq!(decoded.bounty_id, bounty_id);
+    assert_eq!(decoded.token, bounty.token);
+    assert_eq!(decoded.amount, bounty.amount);
+    assert_eq!(decoded.status, bounty.status);
+    assert_eq!(decoded.escrow_balance, token.balance(&client.address));
+}
+
+#[test]
+fn test_funding_events_accumulate_committed_escrow_balance_per_bounty() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) =
+        setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    let token = TokenClient::new(&env, &token_id);
+
+    let amount_1 = 500i128;
+    let amount_2 = 777i128;
+    token_admin.mint(&maintainer, &(amount_1 + amount_2));
+    let deadline = env.ledger().timestamp() + 1_000;
+    let repo = String::from_str(&env, "ritik4ever/stellar-bounty-board");
+
+    let b1 = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &amount_1,
+        &repo,
+        &18782,
+        &String::from_str(&env, "First funding"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+    let (count_after_first, first_payload) = collect_funding_events(&env, &client);
+    assert_eq!(count_after_first, 1);
+    assert_eq!(
+        first_payload,
+        Some(BountyFunded {
+            bounty_id: b1,
+            token: token_id.clone(),
+            amount: amount_1,
+            escrow_balance: amount_1,
+            status: BountyStatus::Open,
+        })
+    );
+
+    let b2 = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &amount_2,
+        &repo,
+        &18783,
+        &String::from_str(&env, "Second funding"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+    let (count_after_second, second_payload) = collect_funding_events(&env, &client);
+    assert_eq!(count_after_second, 2);
+    assert_eq!(
+        second_payload,
+        Some(BountyFunded {
+            bounty_id: b2,
+            token: token_id.clone(),
+            amount: amount_2,
+            escrow_balance: amount_1 + amount_2,
+            status: BountyStatus::Open,
+        })
+    );
+
+    // Committed escrow balance equals the sum of both funded amounts.
+    assert_eq!(token.balance(&client.address), amount_1 + amount_2);
+    assert_eq!(client.get_bounty(&b1).amount, amount_1);
+    assert_eq!(client.get_bounty(&b2).amount, amount_2);
+}
+
+#[test]
+fn test_failed_escrow_funding_emits_no_funding_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) =
+        setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    let token = TokenClient::new(&env, &token_id);
+
+    let amount = 10_000i128;
+    token_admin.mint(&maintainer, &(amount - 1)); // one stroop short
+    let deadline = env.ledger().timestamp() + 1_000;
+
+    let try_res = client.try_create_bounty(
+        &maintainer,
+        &token_id,
+        &amount,
+        &String::from_str(&env, "ritik4ever/stellar-bounty-board"),
+        &18784,
+        &String::from_str(&env, "Rejected funding"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+    let err = try_res
+        .err()
+        .expect("funding should fail")
+        .expect("expected typed contract error");
+    assert_eq!(
+        err,
+        soroban_sdk::Error::from_contract_error(ContractError::EscrowTransferFailed as u32)
+    );
+
+    // Nothing committed: no bounty, no escrow movement, no funding event.
+    assert_eq!(client.get_next_bounty_id(), 0);
+    assert!(client.try_get_bounty(&1).is_err());
+    assert_eq!(token.balance(&client.address), 0);
+    assert_eq!(token.balance(&maintainer), amount - 1);
+    let (count, payload) = collect_funding_events(&env, &client);
+    assert_eq!(count, 0, "a rejected funding must emit no funding event");
+    assert_eq!(payload, None);
+}
+
+#[test]
+fn test_failed_escrow_funding_with_failing_token_emits_no_funding_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, maintainer, _contributor, valid_token, _fee_recipient, _arbiter) =
+        setup_test(&env);
+    let valid_asset = soroban_sdk::token::StellarAssetClient::new(&env, &valid_token);
+    let valid_token_client = TokenClient::new(&env, &valid_token);
+
+    let amount = 3_000i128;
+    valid_asset.mint(&maintainer, &amount);
+    let deadline = env.ledger().timestamp() + 5_000;
+    let repo = String::from_str(&env, "ritik4ever/stellar-bounty-board");
+
+    let b1 = client.create_bounty(
+        &maintainer,
+        &valid_token,
+        &amount,
+        &repo,
+        &18785,
+        &String::from_str(&env, "Valid token funding"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+    let (count_after_valid, valid_payload) = collect_funding_events(&env, &client);
+    assert_eq!(count_after_valid, 1);
+    assert_eq!(
+        valid_payload,
+        Some(BountyFunded {
+            bounty_id: b1,
+            token: valid_token.clone(),
+            amount,
+            escrow_balance: amount,
+            status: BountyStatus::Open,
+        })
+    );
+
+    // Allowlist a token whose transfer always panics; funding must roll back
+    // and emit no funding event.
+    let failing_token = env.register(MockFailingTransferToken, ());
+    client.add_allowed_token(&admin, &failing_token);
+
+    let fail_res = client.try_create_bounty(
+        &maintainer,
+        &failing_token,
+        &DEFAULT_MIN_BOUNTY_AMOUNT,
+        &repo,
+        &18786,
+        &String::from_str(&env, "Failing token funding"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+    let err = fail_res
+        .err()
+        .expect("funding should fail")
+        .expect("expected typed contract error");
+    assert_eq!(
+        err,
+        soroban_sdk::Error::from_contract_error(ContractError::EscrowTransferFailed as u32)
+    );
+
+    // Still exactly one funding event (from the valid bounty), unchanged.
+    let (count_after_failure, last_payload) = collect_funding_events(&env, &client);
+    assert_eq!(
+        count_after_failure, 1,
+        "a rejected funding must emit no funding event"
+    );
+    assert_eq!(last_payload, valid_payload);
+    assert_eq!(client.get_next_bounty_id(), 1);
+    assert!(client.try_get_bounty(&2).is_err());
+    assert_eq!(valid_token_client.balance(&client.address), amount);
+}
