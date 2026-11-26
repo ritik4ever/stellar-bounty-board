@@ -125,7 +125,7 @@ Stellar Bounty Board provides an opt-in notification system to notify maintainer
 
 - **Webhook:** POSTs signed JSON payloads (`X-Bounty-Signature: sha256=...`) to `NOTIFICATION_WEBHOOK_URL`.
 - **Email:** Delivers templated alerts via SendGrid when `SENDGRID_API_KEY` and `NOTIFICATION_CHANNEL=EMAIL` are configured.
-- **Opt-In Preferences:** Users opt in or out via `POST /api/notifications/opt-in` and check status via `GET /api/notifications/opt-in/:address`.
+- **Opt-In Preferences:** Users opt in or out via `POST /api/notifications/opt-in` and check status via `GET /api/notifications/opt-in/:address` or `GET /api/notification-preferences/:address`. Preferences are keyed by address, so updating the same address replaces its stored opt-in and channel contact details. The POST response returns the updated preference under `data`; the preferences GET returns the address, current opt-in, derived channel availability, and supported transitions.
 
 ### Opt-out between enqueue and send
 

@@ -38,10 +38,10 @@ async function retryWithBackoff(fn, maxRetries = MAX_RETRIES) {
       lastError = err;
       if (attempt < maxRetries - 1) {
         const backoffMs = INITIAL_BACKOFF_MS * Math.pow(2, attempt);
-        console.log(`[Indexer] Retry attempt ${attempt + 1}/${maxRetries} after ${backoffMs}ms. Error: ${err.message}`);
+        console.log(`[Indexer] Retry attempt ${attempt + 1}/${maxRetries} after ${backoffMs}ms.`);
         await new Promise(resolve => setTimeout(resolve, backoffMs));
       } else {
-        console.error(`[Indexer] All ${maxRetries} retries exhausted. Last error:`, err.message);
+        console.error(`[Indexer] All ${maxRetries} retries exhausted.`);
       }
     }
   }
@@ -52,6 +52,7 @@ const EVENT_TYPES = {
   Create: "create",
   CrtEvent: "created",
   Reserv: "reserve",
+  ReservEvt: "reserve",
   Submit: "submit",
   Releas: "release",
   Refund: "refund",
@@ -121,6 +122,24 @@ export function normalizeEvent(event) {
     normalized.released = true;
   }
 
+  // `reserve` is emitted by both the legacy `(Bounty, Reserv)` topic and the
+  // new structured `(Bounty, ReservEvt)` topic. The structured topic's payload
+  // (`BountyReservedEvent`) is sufficient on its own, so the worker does not need
+  // a follow-up contract read to react to the reserve transition.
+  if (type === "reserve") {
+    normalized.token = addressString(data.token ?? event.token);
+    normalized.repo = data.repo ?? event.repo;
+    normalized.issueNumber = jsonSafe(data.issue_number ?? event.issue_number);
+    normalized.title = data.title ?? event.title;
+    normalized.deadline = jsonSafe(data.deadline ?? event.deadline);
+    normalized.protocolFeeBps = jsonSafe(data.protocol_fee_bps ?? event.protocol_fee_bps);
+    normalized.disputeWindowOverride = jsonSafe(
+      data.dispute_window_override ?? event.dispute_window_override ?? null,
+    );
+    normalized.reservedAt = jsonSafe(data.reserved_at ?? event.reserved_at);
+    normalized.bountyStatusAfterReserve = data.bounty_status_after_reserve ?? event.bounty_status_after_reserve;
+  }
+
  // `created` is the structured create_bounty event (BountyCreatedEvent).
   // The payload carries everything the worker needs, so no follow-up
   // contract read is required.
@@ -167,23 +186,68 @@ function eventDedupKey(event) {
   return null;
 }
 
+// Match the bounded opaque paging tokens accepted by the operator backfill.
+// Never coerce or trim untrusted values, or include them in diagnostics.
+function validCursor(value) {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 256 &&
+    !/[^A-Za-z0-9+/=_-]/.test(value)
+  );
+}
+
+function requireCursor(value) {
+  if (!validCursor(value)) throw new Error("Invalid paging token");
+  return value;
+}
+
 function readEvents(indexFile) {
   if (!fs.existsSync(indexFile)) return [];
   const parsed = JSON.parse(fs.readFileSync(indexFile, "utf-8"));
-  return Array.isArray(parsed) ? parsed : [];
+  if (!Array.isArray(parsed)) throw new Error("Invalid events store");
+  return parsed;
 }
 
 function loadCursor(cursorFile, events) {
-  if (fs.existsSync(cursorFile)) {
+  const hasCheckpoint = fs.existsSync(cursorFile);
+  if (hasCheckpoint) {
     try {
-      const cursor = JSON.parse(fs.readFileSync(cursorFile, "utf-8")).cursor;
-      if (typeof cursor === "string" && cursor) return cursor;
-    } catch (err) {
-      console.warn(`[Indexer] Ignoring unreadable cursor checkpoint: ${err.message}`);
+      const checkpoint = JSON.parse(fs.readFileSync(cursorFile, "utf-8"));
+      if (checkpoint && !Array.isArray(checkpoint) && validCursor(checkpoint.cursor)) {
+        return checkpoint.cursor;
+      }
+    } catch {
+      // A torn checkpoint can recover only from a validated durable event ID.
+    }
+    console.warn("[Indexer] Invalid cursor checkpoint; checking persisted event ID.");
+  }
+  // Backward compatibility and recovery after an events-only commit.
+  if (events.length) return requireCursor(events[events.length - 1]?.id);
+  if (hasCheckpoint) throw new Error("No valid recovery cursor");
+  return null;
+}
+
+function validatePage(result) {
+  if (
+    !result ||
+    typeof result !== "object" ||
+    Array.isArray(result) ||
+    !Array.isArray(result.events)
+  ) {
+    throw new Error("Malformed getEvents response");
+  }
+  if (result.cursor !== undefined) requireCursor(result.cursor);
+  for (const event of result.events) {
+    if (!event || typeof event !== "object" || Array.isArray(event)) {
+      throw new Error("Malformed event");
+    }
+    // Validate even non-selected aliases: none may poison the durable store
+    // and become a recovery cursor on a later restart.
+    for (const field of ["cursor", "id", "paging_token", "pagingToken"]) {
+      if (event[field] !== undefined) requireCursor(event[field]);
     }
   }
-  // Backward compatibility: older installs only have the events file.
-  return events.length ? events[events.length - 1].id ?? null : null;
 }
 
 // Poll one page of Soroban contract events.
@@ -197,29 +261,35 @@ async function pollEvents(options = {}) {
   const rpcUrl = options.rpcUrl ?? SOROBAN_RPC_URL;
   const contractId = options.contractId ?? CONTRACT_ID;
   const maxRetries = options.maxRetries ?? MAX_RETRIES;
-  const events = readEvents(indexFile);
-  const cursor = loadCursor(cursorFile, events);
-  const startLedger = options.startLedger ?? process.env.SOROBAN_START_LEDGER;
+  try {
+    const events = readEvents(indexFile);
+    const cursor = loadCursor(cursorFile, events);
+    const startLedger = options.startLedger ?? process.env.SOROBAN_START_LEDGER;
 
-  if (!cursor && startLedger === undefined) {
-    console.error("[Indexer] No cursor checkpoint or SOROBAN_START_LEDGER; skipping poll.");
-    return;
-  }
-
-  const params = {
-    filters: [{ type: "contract", contractIds: [contractId] }],
-  };
-  if (cursor) {
-    params.pagination = { cursor, limit: PAGE_LIMIT };
-  } else {
-    params.startLedger = Number(startLedger);
-    if (!Number.isFinite(params.startLedger)) {
-      console.error("[Indexer] SOROBAN_START_LEDGER is not a number; skipping poll.");
+    if (!cursor && startLedger === undefined) {
+      console.error("[Indexer] No cursor checkpoint or SOROBAN_START_LEDGER; skipping poll.");
       return;
     }
-  }
 
-  try {
+    const params = {
+      filters: [{ type: "contract", contractIds: [contractId] }],
+    };
+    if (cursor) {
+      params.pagination = { cursor, limit: PAGE_LIMIT };
+    } else {
+      const isDecimal = typeof startLedger === "string" &&
+        startLedger.length > 0 && !/[^0-9]/.test(startLedger);
+      if (
+        (typeof startLedger !== "number" && !isDecimal) ||
+        !Number.isInteger(Number(startLedger)) ||
+        Number(startLedger) <= 0 ||
+        Number(startLedger) > 0xffffffff
+      ) {
+        throw new Error("Invalid start ledger");
+      }
+      params.startLedger = Number(startLedger);
+    }
+
     const res = await retryWithBackoff(
       () =>
         axios.post(rpcUrl, {
@@ -231,11 +301,17 @@ async function pollEvents(options = {}) {
       maxRetries,
     );
     const result = res?.data?.result;
-    if (!result) {
-      throw new Error(res?.data?.error?.message ?? "Malformed getEvents response");
+    if (res?.data?.error) throw new Error("RPC error response");
+    validatePage(result);
+    const page = result.events;
+    const lastPageEvent = page[page.length - 1];
+    const pageCursor = result.cursor ?? lastPageEvent?.cursor ?? lastPageEvent?.id ??
+      lastPageEvent?.paging_token ?? lastPageEvent?.pagingToken;
+    if (page.length && pageCursor === undefined) {
+      throw new Error("Missing page cursor");
     }
+    const nextCursor = pageCursor ?? cursor;
 
-    const page = Array.isArray(result.events) ? result.events : [];
     const knownKeys = new Set(events.map(eventDedupKey).filter(Boolean));
     const newEvents = page.map(normalizeEvent).filter((event) => {
       const key = eventDedupKey(event);
@@ -245,13 +321,6 @@ async function pollEvents(options = {}) {
       return true;
     });
     const nextEvents = events.concat(newEvents);
-    const lastPageEvent = page[page.length - 1];
-    const nextCursor =
-      (typeof result.cursor === "string" && result.cursor) ||
-      lastPageEvent?.cursor ||
-      lastPageEvent?.id ||
-      cursor;
-
     if (newEvents.length > 0) {
       writeJsonAtomic(indexFile, nextEvents);
     }
@@ -263,9 +332,9 @@ async function pollEvents(options = {}) {
       parentPort.postMessage({ type: "indexedEvents", events: newEvents, cursor: nextCursor });
     }
 
-    console.log(`[Indexer] Indexed ${newEvents.length} new events; cursor=${nextCursor ?? "none"}.`);
-  } catch (err) {
-    console.error("[Indexer] Polling failed after all retries:", err.message);
+    console.log(`[Indexer] Indexed ${newEvents.length} new events.`);
+  } catch {
+    console.error("[Indexer] Poll failed; no cursor advance beyond persisted events.");
   }
 }
 

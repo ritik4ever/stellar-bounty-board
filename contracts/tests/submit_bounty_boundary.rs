@@ -215,6 +215,14 @@ fn submit_bounty_at_deadline_rejects_unauthorized_and_mismatched_callers() {
     // Advance to exact deadline
     fix.env.ledger().set_timestamp(deadline);
 
+    let event_count_before = fix
+        .env
+        .events()
+        .all()
+        .filter_by_contract(&fix.client.address)
+        .events()
+        .len();
+
     // 1. Outsider caller attempting submit_bounty is rejected with ContributorMismatch (#26)
     let res_outsider = fix.client.try_submit_bounty(&bounty_id, &fix.outsider);
     let err_outsider = res_outsider
@@ -237,13 +245,41 @@ fn submit_bounty_at_deadline_rejects_unauthorized_and_mismatched_callers() {
         Error::from_contract_error(ContractError::ContributorMismatch as u32)
     );
 
-    // Invariant check: escrow balance remains untouched and bounty remains Reserved
+    // Neither failed call may mutate the reservation, emit a submit event, or move tokens.
+    let bounty = fix.client.get_bounty(&bounty_id);
+    assert_eq!(bounty.status, BountyStatus::Reserved);
+    assert_eq!(bounty.contributor, Some(fix.contributor.clone()));
+    assert_eq!(
+        fix.env
+            .events()
+            .all()
+            .filter_by_contract(&fix.client.address)
+            .events()
+            .len(),
+        event_count_before
+    );
     assert_eq!(token_client.balance(&fix.client.address), exact_amount);
     assert_eq!(token_client.balance(&fix.contributor), 0);
+    assert_eq!(token_client.balance(&fix.maintainer), 0);
+
+    // The failed attempts leave the legitimate contributor able to submit once.
+    fix.client.submit_bounty(&bounty_id, &fix.contributor);
     assert_eq!(
         fix.client.get_bounty(&bounty_id).status,
-        BountyStatus::Reserved
+        BountyStatus::Submitted
     );
+    assert_eq!(
+        fix.env
+            .events()
+            .all()
+            .filter_by_contract(&fix.client.address)
+            .events()
+            .len(),
+        event_count_before + 1
+    );
+    assert_eq!(token_client.balance(&fix.client.address), exact_amount);
+    assert_eq!(token_client.balance(&fix.contributor), 0);
+    assert_eq!(token_client.balance(&fix.maintainer), 0);
 }
 
 #[test]

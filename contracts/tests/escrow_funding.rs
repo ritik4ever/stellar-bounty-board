@@ -295,6 +295,130 @@ fn minimum_supported_amount_in_accepted_token_succeeds_for_signed_maintainer() {
     let accepted = TokenClient::new(&f.env, &f.accepted_token);
     assert_eq!(accepted.balance(&f.maintainer), 0);
     assert_eq!(accepted.balance(&f.client.address), min_amount);
+
+    // Exactly one escrow balance is held for the bounty, in exact token units.
+    assert_eq!(accepted.balance(&f.client.address), bounty.amount);
+    assert_eq!(accepted.balance(&f.client.address), min_amount);
+
+    // The bounty ID is preserved: the funded bounty is retrievable by the returned ID
+    // and no other bounty IDs were consumed.
+    assert_eq!(f.client.get_bounty(&bounty_id).amount, min_amount);
+    assert!(f.client.try_get_bounty(&(bounty_id + 1)).is_err());
+
+    // Exactly one canonical escrow funding event records the committed balance.
+    let events = escrow_funding_events(&f.env, &f.client.address);
+    assert_eq!(events.len(), 1);
+    let event = events.get(0).unwrap();
+    assert_eq!(event.bounty_id, bounty_id);
+    assert_eq!(event.token, f.accepted_token);
+    assert_eq!(event.amount, min_amount);
+    assert_eq!(event.delta, min_amount);
+    assert_eq!(event.previous_remaining, 0);
+    assert_eq!(event.committed_remaining, min_amount);
+    assert_eq!(event.status, BountyStatus::Open);
+}
+
+#[test]
+fn below_minimum_amount_is_rejected_atomically_without_escrow_or_id_consumption() {
+    let f = setup();
+    let min_amount = DEFAULT_MIN_BOUNTY_AMOUNT;
+    let below_min = min_amount - 1;
+    // Fund the maintainer with more than enough so only the amount check can fail.
+    mint_token(&f.env, &f.accepted_token, &f.maintainer, min_amount);
+
+    let repo = String::from_str(&f.env, "org/repo");
+    let title = String::from_str(&f.env, "Below minimum amount");
+    let deadline = f.env.ledger().timestamp() + 1_000;
+
+    f.env.mock_auths(&[MockAuth {
+        address: &f.maintainer,
+        invoke: &MockAuthInvoke {
+            contract: &f.client.address,
+            fn_name: "create_bounty",
+            args: (
+                &f.maintainer,
+                &f.accepted_token,
+                &below_min,
+                &repo,
+                &1u32,
+                &title,
+                &deadline,
+                &0u32,
+                &None::<u64>,
+            )
+                .into_val(&f.env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert_eq!(
+        f.client.try_create_bounty(
+            &f.maintainer,
+            &f.accepted_token,
+            &below_min,
+            &repo,
+            &1,
+            &title,
+            &deadline,
+            &0,
+            &None,
+        ),
+        Err(Ok(Error::from_contract_error(
+            ContractError::AmountTooSmall as u32
+        )))
+    );
+
+    // Rejection is atomic: no token movement, no escrow balance, no bounty, no event.
+    let accepted = TokenClient::new(&f.env, &f.accepted_token);
+    assert_eq!(accepted.balance(&f.maintainer), min_amount);
+    assert_eq!(accepted.balance(&f.client.address), 0);
+    assert!(f.client.try_get_bounty(&1).is_err());
+    assert_eq!(
+        escrow_funding_events(&f.env, &f.client.address).len(),
+        0,
+        "no escrow funding event may be emitted when the amount is below minimum"
+    );
+
+    // No bounty ID was consumed: the next successful funding still gets ID 1.
+    let transfer_sub = MockAuthInvoke {
+        contract: &f.accepted_token,
+        fn_name: "transfer",
+        args: (&f.maintainer, &f.client.address, &min_amount).into_val(&f.env),
+        sub_invokes: &[],
+    };
+    f.env.mock_auths(&[MockAuth {
+        address: &f.maintainer,
+        invoke: &MockAuthInvoke {
+            contract: &f.client.address,
+            fn_name: "create_bounty",
+            args: (
+                &f.maintainer,
+                &f.accepted_token,
+                &min_amount,
+                &repo,
+                &1u32,
+                &title,
+                &deadline,
+                &0u32,
+                &None::<u64>,
+            )
+                .into_val(&f.env),
+            sub_invokes: &[transfer_sub],
+        },
+    }]);
+    let bounty_id = f.client.create_bounty(
+        &f.maintainer,
+        &f.accepted_token,
+        &min_amount,
+        &repo,
+        &1,
+        &title,
+        &deadline,
+        &0,
+        &None,
+    );
+    assert_eq!(bounty_id, 1);
+    assert_eq!(accepted.balance(&f.client.address), min_amount);
+    assert_eq!(f.client.get_bounty(&bounty_id).amount, min_amount);
 }
 
 #[test]

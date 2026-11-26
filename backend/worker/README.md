@@ -20,14 +20,24 @@ stable event type string:
 | `Create`   | `create`      | `BountyCreated`    | bounty ID, maintainer, amount 
 |CrtEvent	created	BountyCreatedEvent	bounty ID, maintainer, token, amount, repo, issue number, title, deadline, protocol fee bps, dispute window override, created at
 | `Reserv`   | `reserve`     | `BountyReserved`   | bounty ID, contributor                            |
+| `ReservEvt` | `reserve`     | `BountyReservedEvent` | bounty ID, contributor, reservedAt, bountyStatusAfterReserve |
 | `Submit`   | `submit`      | `BountySubmitted`  | bounty ID, contributor                            |
 | `Releas`   | `release`      | `BountyReleased`   | bounty ID, contributor, maintainer, amount           |
 | `Refund`   | `refunde`      | `BountyRefunded`   | bounty ID, maintainer, token, amount, refunded_at  |
 | `Dispt`    | `disputed`     | `BountyDisputed`    | bounty ID, contributor, arbiter                      |
 
+### Reserve event
+
+`reserve_bounty` emits two events:
+
+- A legacy lightweight event with the topic `(Bounty, Reserv)` and a `BountyReserved` payload containing `bounty_id` and `contributor`.
+- A structured event with the topic `(Bounty, ReservEvt)` and a `BountyReservedEvent` payload containing `bounty_id`, `contributor`, `reserved_at`, and `bounty_status_after_reserve`. The worker normalizes this into a record with `type: "reserve"`, the bounty ID, the contributor, the reservedAt timestamp, and the post-reservation status -- all derived from the event payload alone. No follow-up contract read is required to react to the reserve transition.
+
+The legacy `(Bounty, Reserv)` event is unchanged and still maps to `type: "reserve"`.
+
 ### Release event
 
-`Wrelease_bounty` emits a structured event with the topic `(Bounty, Releasa)` and a
+`release_bounty` emits a structured event with the topic `(Bounty, Releas)` and a
 `BountyReleased` payload containing `bounty_id`, `contributor`, `maintainer`, and `amount`.
 The worker normalizes this into a record with `type: "release"`, the bounty ID, the
 contributor, the maintainer, and the released amount -- all derived from the event
@@ -77,6 +87,37 @@ are neither lost nor duplicated.
 
 `backend/test/workerBackfill.test.ts` covers overlapping pages, a failure
 between pages, and resumption from the stored cursor.
+
+### Cursor input validation (#1932)
+
+Live polling treats checkpoint and RPC paging tokens as untrusted input. Tokens
+must be non-empty strings of at most 256 ASCII characters from
+`[A-Za-z0-9+/=_-]`, matching the operator backfill policy. Values are neither
+trimmed nor coerced. This applies to the response cursor and every event's
+`cursor`, `id`, `paging_token`, and `pagingToken` when present, before the page
+can write events or advance its checkpoint. A missing/non-array `events` page,
+a malformed event, or a JSON-RPC error also leaves both files unchanged.
+
+A missing checkpoint can resume from the last persisted event ID. An unreadable
+or invalid checkpoint can recover the same way, but only with a valid persisted
+ID; otherwise polling stops without an RPC call or falling back to a new ledger.
+Repair the checkpoint from trusted history before restarting. A fresh store
+requires a positive uint32 `SOROBAN_START_LEDGER` (a number or decimal digit
+string). Valid empty pages may advance the RPC cursor without rewriting events.
+
+The events-before-cursor write order and replay deduplication are unchanged:
+two distinct IDs in one ledger remain distinct across checkpoint write failure
+and restart. Diagnostics omit raw cursors, checkpoint contents, and error text
+from the provider or filesystem, which may contain secrets.
+
+This background worker has no public cursor-input endpoint. Its configuration
+and file paths are operator-controlled; filesystem permissions and the selected
+RPC provider remain trust boundaries. Operator-triggered backfill still requires
+its existing token authentication before request validation or RPC access.
+Cursor syntax validation does not authenticate an RPC provider or a local file.
+
+Regression coverage: `npm --prefix backend test -- test/indexerCursorValidation.test.ts`.
+All fixtures use temporary files and mocked RPC responses, with no live funds.
 
 ### Multi-event ledger cursor boundary behavior
 

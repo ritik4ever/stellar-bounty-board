@@ -69,6 +69,30 @@ test("mainnet passphrase combined with a Testnet fixture contract ID is rejected
   }), /SOROBAN_NETWORK_PASSPHRASE/);
 });
 
+test("mainnet mismatch has the same CLI failure signal with or without a wrapped command", () => {
+  const env = {
+    ...valid,
+    SOROBAN_NETWORK_PASSPHRASE: "Public Global Stellar Network ; September 2015",
+  };
+  for (const command of [[], ["--", process.execPath, "-e", "process.exit(99)"]]) {
+    const result = invoke(env, command);
+    assert.equal(result.error, undefined);
+    assert.equal(result.signal, null);
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, "", "a rejected configuration must not announce success or run the child");
+    assert.equal(result.stderr,
+      "[testnet-preflight] SOROBAN_NETWORK_PASSPHRASE does not match Stellar Testnet; stop before signing\n");
+  }
+});
+
+test("a valid preflight preserves a failing wrapped command's exit status", () => {
+  const result = invoke(valid, ["--", process.execPath, "-e", "process.exit(42)"]);
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 42);
+  assert.equal(result.stderr, "");
+  assert.match(result.stdout, /^\[testnet-preflight\] Local validation passed \(testnet\)\./);
+});
+
 test("non-Testnet network and RPC endpoints are rejected", () => {
   assert.throws(() => validateTestnetConfig({ ...valid, STELLAR_NETWORK: "public" }), /STELLAR_NETWORK/);
   assert.throws(() => validateTestnetConfig({ ...valid, SOROBAN_RPC_URL: "https://rpc-futurenet.stellar.org" }), /SOROBAN_RPC_URL/);
