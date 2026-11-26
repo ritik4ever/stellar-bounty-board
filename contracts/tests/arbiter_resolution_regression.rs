@@ -160,6 +160,11 @@ fn arbiter_resolution_release_to_contributor_enforces_destination_balances_event
             arbiter: f.arbiter.clone(),
             release: true,
             amount: BOUNTY_AMOUNT,
+            destination: f.contributor.clone(),
+            token: f.token.clone(),
+            net_amount: expected_net,
+            fee_amount: expected_fee,
+            resolved_at: f.env.ledger().timestamp(),
         }
     );
 
@@ -216,6 +221,11 @@ fn arbiter_resolution_refund_to_maintainer_enforces_destination_balances_events_
             arbiter: f.arbiter.clone(),
             release: false,
             amount: BOUNTY_AMOUNT,
+            destination: f.maintainer.clone(),
+            token: f.token.clone(),
+            net_amount: BOUNTY_AMOUNT,
+            fee_amount: 0,
+            resolved_at: f.env.ledger().timestamp(),
         }
     );
 
