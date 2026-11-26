@@ -125,7 +125,7 @@ Stellar Bounty Board provides an opt-in notification system to notify maintainer
 
 - **Webhook:** POSTs signed JSON payloads (`X-Bounty-Signature: sha256=...`) to `NOTIFICATION_WEBHOOK_URL`.
 - **Email:** Delivers templated alerts via SendGrid when `SENDGRID_API_KEY` and `NOTIFICATION_CHANNEL=EMAIL` are configured.
-- **Opt-In Preferences:** Users opt in or out via `POST /api/notifications/opt-in` and check status via `GET /api/notifications/opt-in/:address`.
+- **Opt-In Preferences:** Users opt in or out via `POST /api/notifications/opt-in` and check status via `GET /api/notifications/opt-in/:address` or `GET /api/notification-preferences/:address`. Preferences are keyed by address, so updating the same address replaces its stored opt-in and channel contact details. The POST response returns the updated preference under `data`; the preferences GET returns the address, current opt-in, derived channel availability, and supported transitions.
 
 ### Opt-out between enqueue and send
 
@@ -153,11 +153,11 @@ For detailed architecture diagrams and data flow documentation, see [docs/ARCHIT
 
 For the persistence decision (JSON vs database) see the ADR: [docs/adr/0001-json-file-persistence.md](docs/adr/0001-json-file-persistence.md).
 
-For integrating GitHub webhooks — including the HMAC-SHA256 algorithm, Node.js and Python verification examples, timing-safe comparison guidance, and troubleshooting — see [docs/webhook-signatures.md](docs/webhook-signatures.md).
+For integrating GitHub webhooks — including the HMAC-SHA256 algorithm, Node.js and Python verification examples, timing-safe comparison guidance, and troubleshooting — see [docs/webhook-signatures.md](docs/webhook-signatures.md). For delivery journal resumption, retry reliability, and input validation (#1942), see [docs/webhook-delivery-reliability.md](docs/webhook-delivery-reliability.md).
 
 ## Contract Event Indexer Worker
 
-The backend includes an isolated worker for indexing Soroban contract events. See [backend/worker/README.md](backend/worker/README.md) for details on running and extending the indexer.
+The backend includes an isolated worker for indexing Soroban contract events and an operator backfill tool. See [backend/worker/README.md](backend/worker/README.md) for details on running the indexer, backfill operations, and event replay and failure verification (#1939).
 
 ## API Overview
 

@@ -113,11 +113,21 @@ When an alert fires indicating a webhook was rejected with `revoked_secret` or H
 
 ## Focused deterministic tests
 
+Run from a clean checkout without live funds or network access:
+
 ```bash
 node --test scripts/webhook-secret-rotation.test.cjs
 # Optional, using the project's existing backend dependencies:
-cd backend && npx vitest run test/webhookSecretRotationReruns.test.ts
+cd backend && npx vitest run test/webhookSecretRotationReruns.test.ts test/webhookSecretValidation.test.ts
 ```
+
+Both suites exercise deterministic overlap fixtures (old + new secrets during the bounded grace window) and revoked-secret deliveries (after expiry).
+
+### Configuration Validation Guardrails (#1967)
+
+- **Fail-fast validation before signing/verification:** `verifyWithSecretRotation` calls `validateWebhookRotationConfig` before normalizing headers or computing HMACs, rejecting empty/whitespace `newSecret` or `previousSecret`, identical `previousSecret === newSecret`, missing/invalid `rotationStartedAt`, and `gracePeriodMs` outside `1..300_000` ms with HTTP 500 `WebhookSignatureError`.
+- **Environment overlap validation:** `validateWebhookSecretRotationEnv` (also invoked by `validateGitHubWebhookSecret` on startup) enforces that when rotation overlap variables (`GITHUB_WEBHOOK_SECRET_PREVIOUS`, `GITHUB_WEBHOOK_ROTATION_STARTED_AT`, `GITHUB_WEBHOOK_ROTATION_GRACE_MS`) are configured, the active and previous secrets are non-empty and distinct, the start timestamp is a non-negative integer, and the grace period does not exceed `300_000` ms.
+- **CLI secret hygiene:** `scripts/webhook-secret-rotation.cjs` rejects empty or whitespace-only secrets before creating or reading rotation state.
 
 Tests cover rerunning without shifting expiry, immutable parameters, current/previous HMAC signatures, boundary-time revocation, tampered payloads, invalid state and clock rollback. They use no external network or funds.
 

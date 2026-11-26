@@ -357,9 +357,28 @@ function readStore(): BountyRecord[] {
   }
 }
 
+function atomicWriteJson(targetPath: string, data: unknown): void {
+  const dir = path.dirname(targetPath);
+  const base = path.basename(targetPath);
+  const tempPath = path.join(dir, `.${base}.tmp-${process.pid}-${Date.now()}`);
+  try {
+    fs.writeFileSync(tempPath, JSON.stringify(data, null, 2));
+    fs.renameSync(tempPath, targetPath);
+  } catch (err) {
+    try {
+      if (fs.existsSync(tempPath)) {
+        fs.unlinkSync(tempPath);
+      }
+    } catch {
+      // Best-effort temp cleanup
+    }
+    throw err;
+  }
+}
+
 function writeStore(records: BountyRecord[]): void {
   try {
-    fs.writeFileSync(getStorePath(), JSON.stringify(records, null, 2));
+    atomicWriteJson(getStorePath(), records);
   } catch (err) {
     throw wrapServiceError('bounty_store.write_store', 'json-store', err);
   }
@@ -376,7 +395,7 @@ function readAuditStore(): BountyAuditLogRecord[] {
 
 function writeAuditStore(records: BountyAuditLogRecord[]): void {
   try {
-    fs.writeFileSync(getAuditStorePath(), JSON.stringify(records, null, 2));
+    atomicWriteJson(getAuditStorePath(), records);
   } catch (err) {
     throw wrapServiceError('bounty_store.write_audit_store', 'json-store', err);
   }
@@ -558,6 +577,39 @@ function persistUpdated(records: BountyRecord[], updated: BountyRecord): BountyR
   const next = records.map((record) => (record.id === updated.id ? updated : record));
   writeStore(next);
   return updated;
+}
+
+/**
+ * Atomically persists a bounty status/version/event update alongside its
+ * audit log append at the JSON store boundary. If the audit store is unreadable
+ * or fails to write, `bounties.json` is rolled back to `records` so one durable
+ * version and complete event history are preserved.
+ */
+function persistTransitionWithAudit(
+  records: BountyRecord[],
+  updated: BountyRecord,
+  auditInputs: CreateAuditLogInput[],
+): BountyRecord {
+  if (auditInputs.length > 0) {
+    readAuditStore();
+  }
+  const persisted = persistUpdated(records, updated);
+  if (auditInputs.length > 0) {
+    try {
+      appendAuditLogs(auditInputs);
+    } catch (err) {
+      try {
+        writeStore(records);
+      } catch (rollbackErr) {
+        logStructured('error', 'bounty_store_rollback_failed', {
+          bountyId: updated.id,
+          error: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+        });
+      }
+      throw err;
+    }
+  }
+  return persisted;
 }
 
 export interface ListBountiesOptions {
@@ -959,8 +1011,7 @@ export async function reserveBounty(
         events: [...bounty.events, { type: 'reserved', timestamp: now, actor: contributor }],
       };
 
-      const persisted = persistUpdated(records, updated);
-      appendAuditLogs([
+      const persisted = persistTransitionWithAudit(records, updated, [
         {
           bountyId: id,
           fromStatus: bounty.status,
@@ -1080,8 +1131,7 @@ export async function submitBounty(
         events: [...bounty.events, { type: 'submitted', timestamp: now, actor: contributor }],
       };
 
-      const persisted = persistUpdated(records, updated);
-      appendAuditLogs([
+      const persisted = persistTransitionWithAudit(records, updated, [
         {
           bountyId: id,
           fromStatus: bounty.status,
@@ -1198,8 +1248,7 @@ export async function releaseBounty(
         events: [...bounty.events, { type: 'released', timestamp: now, actor: maintainer }],
       };
 
-      const persisted = persistUpdated(records, updated);
-      appendAuditLogs([
+      const persisted = persistTransitionWithAudit(records, updated, [
         {
           bountyId: id,
           fromStatus: bounty.status,
@@ -1334,8 +1383,7 @@ export async function refundBounty(
         events: [...bounty.events, { type: 'refunded', timestamp: now, actor: maintainer }],
       };
 
-      const persisted = persistUpdated(records, updated);
-      appendAuditLogs([
+      const persisted = persistTransitionWithAudit(records, updated, [
         {
           bountyId: id,
           fromStatus: bounty.status,

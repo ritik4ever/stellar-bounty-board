@@ -92,4 +92,73 @@ describe('GitHub signature verification across repeated rotation checks', () => 
     // Revoked previous secret signature fails closed
     expect(() => checkSignature(previousSecret)).toThrow(WebhookSignatureError);
   });
+
+  it('verifies deterministic overlap and revoked-secret fixtures from a clean environment (#1969)', () => {
+    const cleanPayload = Buffer.from(
+      JSON.stringify({ action: 'closed', pull_request: { number: 1969, merged: true } }),
+      'utf8',
+    );
+    const oldSig = signWebhookPayload({
+      payload: cleanPayload,
+      secret: previousSecret,
+      algorithm: 'sha256',
+      prefix: 'sha256=',
+    });
+    const newSig = signWebhookPayload({
+      payload: cleanPayload,
+      secret: newSecret,
+      algorithm: 'sha256',
+      prefix: 'sha256=',
+    });
+
+    // During overlap window: both old and new secret signatures verify
+    vi.setSystemTime(startedAt + gracePeriodMs - 1);
+    expect(() =>
+      verifyWithSecretRotation({
+        ...githubWebhookSignatureProfile,
+        payload: cleanPayload,
+        signatureHeader: oldSig,
+        newSecret,
+        previousSecret,
+        gracePeriodMs,
+        rotationStartedAt: startedAt,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      verifyWithSecretRotation({
+        ...githubWebhookSignatureProfile,
+        payload: cleanPayload,
+        signatureHeader: newSig,
+        newSecret,
+        previousSecret,
+        gracePeriodMs,
+        rotationStartedAt: startedAt,
+      }),
+    ).not.toThrow();
+
+    // At exact expiry: old secret is revoked (401), new secret remains accepted
+    vi.setSystemTime(startedAt + gracePeriodMs);
+    expect(() =>
+      verifyWithSecretRotation({
+        ...githubWebhookSignatureProfile,
+        payload: cleanPayload,
+        signatureHeader: oldSig,
+        newSecret,
+        previousSecret,
+        gracePeriodMs,
+        rotationStartedAt: startedAt,
+      }),
+    ).toThrow(WebhookSignatureError);
+    expect(() =>
+      verifyWithSecretRotation({
+        ...githubWebhookSignatureProfile,
+        payload: cleanPayload,
+        signatureHeader: newSig,
+        newSecret,
+        previousSecret,
+        gracePeriodMs,
+        rotationStartedAt: startedAt,
+      }),
+    ).not.toThrow();
+  });
 });

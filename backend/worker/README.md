@@ -20,14 +20,24 @@ stable event type string:
 | `Create`   | `create`      | `BountyCreated`    | bounty ID, maintainer, amount 
 |CrtEvent	created	BountyCreatedEvent	bounty ID, maintainer, token, amount, repo, issue number, title, deadline, protocol fee bps, dispute window override, created at
 | `Reserv`   | `reserve`     | `BountyReserved`   | bounty ID, contributor                            |
+| `ReservEvt` | `reserve`     | `BountyReservedEvent` | bounty ID, contributor, reservedAt, bountyStatusAfterReserve |
 | `Submit`   | `submit`      | `BountySubmitted`  | bounty ID, contributor                            |
 | `Releas`   | `release`      | `BountyReleased`   | bounty ID, contributor, maintainer, amount           |
 | `Refund`   | `refunde`      | `BountyRefunded`   | bounty ID, maintainer, token, amount, refunded_at  |
 | `Dispt`    | `disputed`     | `BountyDisputed`    | bounty ID, contributor, arbiter                      |
 
+### Reserve event
+
+`reserve_bounty` emits two events:
+
+- A legacy lightweight event with the topic `(Bounty, Reserv)` and a `BountyReserved` payload containing `bounty_id` and `contributor`.
+- A structured event with the topic `(Bounty, ReservEvt)` and a `BountyReservedEvent` payload containing `bounty_id`, `contributor`, `reserved_at`, and `bounty_status_after_reserve`. The worker normalizes this into a record with `type: "reserve"`, the bounty ID, the contributor, the reservedAt timestamp, and the post-reservation status -- all derived from the event payload alone. No follow-up contract read is required to react to the reserve transition.
+
+The legacy `(Bounty, Reserv)` event is unchanged and still maps to `type: "reserve"`.
+
 ### Release event
 
-`Wrelease_bounty` emits a structured event with the topic `(Bounty, Releasa)` and a
+`release_bounty` emits a structured event with the topic `(Bounty, Releas)` and a
 `BountyReleased` payload containing `bounty_id`, `contributor`, `maintainer`, and `amount`.
 The worker normalizes this into a record with `type: "release"`, the bounty ID, the
 contributor, the maintainer, and the released amount -- all derived from the event
@@ -78,6 +88,37 @@ are neither lost nor duplicated.
 `backend/test/workerBackfill.test.ts` covers overlapping pages, a failure
 between pages, and resumption from the stored cursor.
 
+### Cursor input validation (#1932)
+
+Live polling treats checkpoint and RPC paging tokens as untrusted input. Tokens
+must be non-empty strings of at most 256 ASCII characters from
+`[A-Za-z0-9+/=_-]`, matching the operator backfill policy. Values are neither
+trimmed nor coerced. This applies to the response cursor and every event's
+`cursor`, `id`, `paging_token`, and `pagingToken` when present, before the page
+can write events or advance its checkpoint. A missing/non-array `events` page,
+a malformed event, or a JSON-RPC error also leaves both files unchanged.
+
+A missing checkpoint can resume from the last persisted event ID. An unreadable
+or invalid checkpoint can recover the same way, but only with a valid persisted
+ID; otherwise polling stops without an RPC call or falling back to a new ledger.
+Repair the checkpoint from trusted history before restarting. A fresh store
+requires a positive uint32 `SOROBAN_START_LEDGER` (a number or decimal digit
+string). Valid empty pages may advance the RPC cursor without rewriting events.
+
+The events-before-cursor write order and replay deduplication are unchanged:
+two distinct IDs in one ledger remain distinct across checkpoint write failure
+and restart. Diagnostics omit raw cursors, checkpoint contents, and error text
+from the provider or filesystem, which may contain secrets.
+
+This background worker has no public cursor-input endpoint. Its configuration
+and file paths are operator-controlled; filesystem permissions and the selected
+RPC provider remain trust boundaries. Operator-triggered backfill still requires
+its existing token authentication before request validation or RPC access.
+Cursor syntax validation does not authenticate an RPC provider or a local file.
+
+Regression coverage: `npm --prefix backend test -- test/indexerCursorValidation.test.ts`.
+All fixtures use temporary files and mocked RPC responses, with no live funds.
+
 ### Multi-event ledger cursor boundary behavior
 
 When multiple events occur within the same ledger (sharing the same `ledger` sequence number but possessing distinct event IDs and paging tokens):
@@ -87,6 +128,7 @@ When multiple events occur within the same ledger (sharing the same `ledger` seq
 - Deduplication against existing event IDs (`knownIds`) prevents duplicate entries.
 - The stored cursor (`nextCursor`) checkpoints to the latest event's paging token / ID (or `result.cursor`).
 - On restart or resumption from that cursor, subsequent polls begin strictly after that boundary, ensuring no events in the ledger are skipped or duplicated.
+- **Restart between event write and cursor persistence (#1934, SBB-2026-462):** Because `indexed-events.json` is written atomically before `indexed-events.cursor.json`, a crash or write failure between the two writes leaves the cursor at the previous checkpoint (or missing/unreadable, falling back to the last persisted event ID). Failed atomic writes clean up their unique temporary files, `startWorker` serializes overlapping poll ticks, and on restart replayed events are deduplicated by `id` or `(ledger, event_index)` chain position, ensuring each confirmed event is applied once in order and the cursor checkpoint heals on the next successful poll.
 
 ## Event backfill
 
@@ -135,6 +177,27 @@ SOROBAN_BACKFILL_TOKEN=... SOROBAN_CONTRACT_ID=C... node eventBackfill.js \
 The range is capped at 5,000 ledgers and 50 RPC pages per run so a single
 invocation stays bounded; use several runs for larger ranges.
 
+### Backfill boundary behavior (#1935)
+
+The first RPC page response includes a `latestLedger` value that reflects the
+network's current finalized tip. Backfill uses this to enforce a hard boundary:
+
+- **Effective end = min(endLedger, latestLedger − 1).** The ledger at
+  `latestLedger` may still be open to live polling, so it is excluded. This
+  prevents backfill and the live worker from writing the same ledger
+  concurrently, which would otherwise produce a race condition at the boundary.
+- **Warning on clamp.** When the requested `endLedger` is reduced, a
+  `[Backfill] endLedger clamped …` line is logged and the final result carries
+  `effectiveEndLedger` so callers can confirm which ledgers were actually
+  covered.
+- **Rejection when nothing to backfill.** If `startLedger > latestLedger − 1`
+  (the entire requested range is at or beyond the tip), the run is rejected with
+  `invalid_request` before any event is persisted. No partial state is written.
+- **Existing live-polled events are preserved.** The deduplication logic is
+  unchanged: events already in `indexed-events.json` (regardless of whether
+  they were written by live polling or a previous backfill run) are never
+  removed or rewritten. Only unseen events are appended.
+
 ### Overlap, retries and failure isolation
 
 - **Overlapping live polling:** events are deduplicated by chain identity
@@ -149,11 +212,27 @@ invocation stays bounded; use several runs for larger ranges.
 - **Crash between merge and cursor write:** the events are already durable and
   uniquely identified; the retry counts them as skipped and advances the
   cursor.
-- **Out-of-range events:** events newer than `endLedger` are not persisted.
+- **Out-of-range events:** events newer than `effectiveEndLedger` are not
+  persisted. The effective end is always at most `latestLedger − 1` (see
+  boundary behavior above).
 - The exit code is non-zero for any rejected or failed run, and the error
   message includes a stable code (`unauthorized`, `invalid_request`,
   `missing_rpc_page`, `malformed_rpc_response`, `malformed_event`,
   `store_error`).
+
+### Lifecycle replay and failure verification (#1939)
+
+- **Complete events without duplicate transitions:** Under concurrency between live polling and operator backfill, events across the full bounty lifecycle (`created`, `reserve`, `submit`, `release`) are verified. When live polling has already indexed initial transitions (e.g., `created` and `reserve` in ledger 100), and backfill subsequently processes an overlapping range (ledgers 100-101) containing `submit` and `release`, existing events are preserved and the remaining transitions are appended in strict chronological order with zero duplicate transitions.
+- **Missing RPC page and failure isolation:** If an RPC page fails or omits the `events` field, backfill rejects with `missing_rpc_page` or `malformed_rpc_response`. Partial or unverified events are never written to disk, and the sidecar cursor remains anchored at the last verified ledger boundary.
+- **Whole-ledger retry across restarts:** When retrying after a failure or process restart, backfill re-reads from the last committed ledger. Events already present in the store are deduplicated by chain position and event ID (`backfillEventKey`), allowing the remaining events to be merged safely without duplicating any lifecycle transition.
+
+### Backfill outcome tracing (#1938)
+
+`runEventBackfill` records structured `[BackfillTrace]` entries (returned in `result.traces`, emitted via `onTrace`, and logged via `logger`) so operators can distinguish pending events from committed transitions without exposing raw tokens or RPC secrets:
+
+- **`pending` (`whole_ledger_retry` / `page_fetched`):** Emitted before any store merge or cursor commit, recording redacted SHA-256 references (`redactBackfillRef`) for the paging cursor (`cursorRef`) and normalized event keys (`eventRefs`).
+- **`committed` (`page_committed` / `whole_ledger_retry_deduped`):** Emitted only after `store.merge` and `store.saveCursor` succeed, recording `eventsAdded`, `eventsSkipped`, and `committedCursor`.
+- **`failed` (`missing_rpc_page` / `rpc_request_failed` / `page_validation_failed`):** Emitted when an RPC page is missing or invalid, recording `errorCode`, `cursorRef`, and `storedCursor` before rejecting, so a missing page is never mistaken for a committed transition.
 
 ## Architecture
 

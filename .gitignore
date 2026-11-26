@@ -14,3 +14,4 @@ contracts/.stellar/
 issue.md
 pr.md
 frontend/storybook-static/
+*.zip

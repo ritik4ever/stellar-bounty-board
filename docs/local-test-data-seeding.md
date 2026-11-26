@@ -18,6 +18,8 @@ export LOCAL_SEED_CONTRIBUTOR='GAJ6XLOYGSLAY777ULNR6ASP6NKIVMKA43EIUDJNNMR26O5JG
 export LOCAL_SEED_ARBITER='GDD3QRG4NE6M53UXQXRZTD27P7WFW3QICDXY3C4ZRRSAYCHGQ22AU5WD'
 node scripts/local-seed-fixtures.cjs
 node --test scripts/local-seed-fixtures.test.cjs
+# Quick validation without environment setup:
+node scripts/verify-fixtures.cjs
 ```
 
 The addresses above are reproducible **public** fixture identifiers derived from fixed text hashes. They do not correspond to included signing keys. No wallet should be funded for these tests. Alternatively, use three distinct valid public addresses you control only as *public identifiers*.
@@ -33,16 +35,25 @@ The generator will print how many records it added and how many it found unchang
 
 ## Deterministic records and valid status histories
 
-| ID | Final status | Event history |
-|---|---|---|
-| `BNT-9501` | `open` | created |
-| `BNT-9502` | `reserved` | created → reserved |
-| `BNT-9503` | `submitted` | created → reserved → submitted |
-| `BNT-9504` | `disputed` | created → reserved → submitted → disputed |
-| `BNT-9505` | `refunded` | created → reserved → submitted → disputed → refunded (simulated resolution) |
-| `BNT-9506` | `released` | created → reserved → submitted → released |
+| ID | Final status | Event history | Test validation |
+|---|---|---|---|
+| `BNT-9501` | `open` | created | No contributor, no timestamps beyond creation |
+| `BNT-9502` | `reserved` | created → reserved | Has contributor, reservedAt timestamp set |
+| `BNT-9503` | `submitted` | created → reserved → submitted | Has submittedAt, submissionUrl present |
+| `BNT-9504` | `disputed` | created → reserved → submitted → disputed | Has disputedAt, disputeReason set |
+| `BNT-9505` | `refunded` | created → reserved → submitted → disputed → refunded | Has refundedAt timestamp (simulated resolution) |
+| `BNT-9506` | `released` | created → reserved → submitted → released | Has releasedAt timestamp (no live tx) |
 
-Identifiers, event timestamps, issue numbers and histories are stable across runs. The generator never recreates or advances an existing fixture and will not silently change an existing record's status or events. These are *offline sample histories*, not proof of past Stellar transactions. They intentionally omit real transaction hashes.
+**Validation guarantees (enforced by tests):**
+
+- Identifiers, event timestamps, issue numbers and histories are stable across runs
+- The generator never recreates or advances an existing fixture
+- Will not silently change an existing record's status or events
+- All fixtures use `tokenAddress: 'OFFLINE_FIXTURE_NO_TOKEN'` (never use for real transactions)
+- All fixtures include labels `['local-fixture', 'no-live-funds']`
+- Event timestamps are strictly monotonic within each record
+- Version numbers match the event count exactly
+- No transaction hashes (these are offline sample histories only)
 
 ## Partial JSON output: safe reruns and recovery
 
@@ -95,6 +106,29 @@ All lifecycle testing with local fixtures runs entirely in simulated offline env
 - **Event stream integrity:** Assert that `bounty.events.map(e => e.type)` matches the exact expected transition array (`['created', 'reserved', 'submitted', 'released']`).
 
 ## Verification and limitations
+
+### Quick verification workflow
+
+For rapid validation of fixture determinism without full environment setup:
+
+```bash
+# Verifies fixture generation logic (no file I/O)
+node scripts/verify-fixtures.cjs
+
+# Full test suite (includes file operations, reruns, edge cases)
+node --test scripts/local-seed-fixtures.test.cjs
+```
+
+The `verify-fixtures.cjs` script validates:
+- Exactly 6 fixtures with deterministic IDs (BNT-9501 through BNT-9506)
+- All required statuses present (open, reserved, submitted, disputed, refunded, released)
+- Event histories match status definitions exactly
+- No live token addresses (all use `OFFLINE_FIXTURE_NO_TOKEN`)
+- Safety labels present on all records (`local-fixture`, `no-live-funds`)
+- Strictly monotonic event timestamps within each record
+- Version numbers match event counts
+
+### Limitations
 
 - The standalone Node suite checks configuration fail-fast, invalid public keys and passphrases, deterministic statuses, duplicate IDs, reruns, partial valid output, malformed JSON, conflicting history and concurrent-run locks.
 - The Playwright file uses the existing `@playwright/test` framework and depends on a running frontend for browser execution.

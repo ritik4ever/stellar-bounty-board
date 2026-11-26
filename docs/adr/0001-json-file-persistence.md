@@ -69,9 +69,12 @@ reduces operational complexity for demos and teaching scenarios.
 
 ## Consequences
 
-- Concurrency: file-based store requires application-level locking for safe
-  concurrent writes. The current code tries to minimize race windows but is
-  not a replacement for a transactional DB under high contention.
+- **Write-concurrency guarantee:**
+  1. **Cross-process file locking (`proper-lockfile`):** Every mutating operation in `backend/src/services/bountyStore.ts` acquires an exclusive lock via `withStoreLock` on `getStorePath()` before reading or modifying state. Concurrent writers queue with randomized exponential backoff bounded by `STORE_LOCK_TIMEOUT_MS` (defaulting to a 503 lock-acquisition failure if the timeout is exhausted, with a 10s stale-lock guard).
+  2. **Optimistic locking (`version`):** Bounty records carry a monotonic `version` counter checked via `expectedVersion` so stale concurrent updates are rejected rather than silently overwriting newer state.
+  3. **Atomic file writes (temp-file-plus-rename):** `writeStore` and `writeAuditStore` serialize JSON to a unique sibling temporary file and atomically swap it into place via `fs.renameSync` (`atomicWriteJson`), preventing partial/truncated writes from corrupting `bounties.json` or `bounties.audit.json` on crash or concurrent read.
+  4. **Coupled status + event + audit boundary (`persistTransitionWithAudit`):** Status transitions (`reserve`, `submit`, `release`, `refund`) pre-validate the audit store, persist the new status, incremented `version`, and appended `events[]` entry together in `bounties.json`, and roll back `bounties.json` to the prior durable version if `appendAuditLogs` fails.
+  5. **Scope & limits:** This guarantees single-host, serialized read-modify-write atomicity for the JSON fallback; multi-instance horizontal scaling requires PostgreSQL ([ADR 0004](0004-postgres-persistence.md)).
 - Durability & integrity: moving to a DB improves atomicity and recovery
   properties; the JSON store is more fragile to partial writes or crashes.
 - Migrations: switching to SQL will require a migration path and tests to

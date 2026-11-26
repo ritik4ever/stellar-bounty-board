@@ -288,6 +288,152 @@ fn test_create_bounty_at_minimum_succeeds() {
     assert_eq!(bounty.amount, DEFAULT_MIN_BOUNTY_AMOUNT);
 }
 
+// ─── SBB-2026-406 (#1875): Bounty Escrow Funding Boundaries ────────────────
+//
+// Funding boundaries for `create_bounty`:
+//   * the minimum supported amount is accepted with exact token units and
+//     produces exactly one escrow balance keyed by the bounty ID;
+//   * the bounty ID returned by the call is the ID under which the escrow is
+//     recorded and is preserved across subsequent reads;
+//   * sub-minimum amounts are rejected before any state change: no bounty ID
+//     is consumed and no funding event is emitted.
+
+#[test]
+fn test_funding_at_minimum_amount_preserves_single_escrow_balance_and_bounty_id() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) =
+        setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    let token = TokenClient::new(&env, &token_id);
+
+    // Exact token units: fund the maintainer with exactly the minimum amount.
+    let amount = DEFAULT_MIN_BOUNTY_AMOUNT;
+    token_admin.mint(&maintainer, &amount);
+    assert_eq!(token.balance(&maintainer), amount);
+    assert_eq!(token.balance(&client.address), 0);
+
+    let deadline = env.ledger().timestamp() + 1_000;
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &amount,
+        &String::from_str(&env, "ritik4ever/stellar-bounty-board"),
+        &18751,
+        &String::from_str(&env, "Minimum funding boundary"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+
+    // The returned bounty ID is the first ID and is preserved by storage.
+    assert_eq!(bounty_id, 1);
+    assert_eq!(client.get_next_bounty_id(), 1);
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.amount, amount);
+    assert_eq!(bounty.token, token_id);
+    assert_eq!(bounty.status, BountyStatus::Open);
+
+    // Exactly one escrow balance, keyed by the bounty ID: the contract holds
+    // exactly the minimum amount and the maintainer was debited exactly once.
+    assert_eq!(token.balance(&client.address), amount);
+    assert_eq!(token.balance(&maintainer), 0);
+
+    // The funding event reports the same bounty ID and escrow balance.
+    let (count, payload) = collect_funding_events(&env, &client);
+    assert_eq!(count, 1);
+    assert_eq!(
+        payload,
+        Some(BountyFunded {
+            bounty_id,
+            token: token_id.clone(),
+            amount,
+            escrow_balance: amount,
+            status: BountyStatus::Open,
+        })
+    );
+
+    // Re-reading the bounty does not move funds or change the ID mapping.
+    let reread = client.get_bounty(&bounty_id);
+    assert_eq!(reread.amount, amount);
+    assert_eq!(token.balance(&client.address), amount);
+    assert_eq!(client.get_next_bounty_id(), 1);
+}
+
+#[test]
+fn test_funding_one_unit_below_minimum_rejected_without_consuming_id_or_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) =
+        setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    let token = TokenClient::new(&env, &token_id);
+
+    // Fund the maintainer with more than enough units so the rejection is
+    // caused by the minimum boundary, not by an insufficient balance.
+    let below_min = DEFAULT_MIN_BOUNTY_AMOUNT - 1;
+    token_admin.mint(&maintainer, &DEFAULT_MIN_BOUNTY_AMOUNT);
+
+    let deadline = env.ledger().timestamp() + 1_000;
+    let try_res = client.try_create_bounty(
+        &maintainer,
+        &token_id,
+        &below_min,
+        &String::from_str(&env, "ritik4ever/stellar-bounty-board"),
+        &18752,
+        &String::from_str(&env, "Sub-minimum funding boundary"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+    let err = try_res
+        .err()
+        .expect("sub-minimum funding should fail")
+        .expect("expected typed contract error");
+    assert_eq!(
+        err,
+        soroban_sdk::Error::from_contract_error(ContractError::AmountBelowMinimum as u32)
+    );
+
+    // No bounty ID consumed, no bounty stored, no escrow movement, no event.
+    assert_eq!(client.get_next_bounty_id(), 0);
+    assert!(client.try_get_bounty(&1).is_err());
+    assert_eq!(token.balance(&client.address), 0);
+    assert_eq!(token.balance(&maintainer), DEFAULT_MIN_BOUNTY_AMOUNT);
+    let (count, payload) = collect_funding_events(&env, &client);
+    assert_eq!(count, 0, "a rejected funding must emit no funding event");
+    assert_eq!(payload, None);
+
+    // The next valid funding at the minimum still receives bounty ID 1.
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &DEFAULT_MIN_BOUNTY_AMOUNT,
+        &String::from_str(&env, "ritik4ever/stellar-bounty-board"),
+        &18753,
+        &String::from_str(&env, "Minimum funding after rejection"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+    assert_eq!(bounty_id, 1);
+    assert_eq!(client.get_next_bounty_id(), 1);
+    assert_eq!(token.balance(&client.address), DEFAULT_MIN_BOUNTY_AMOUNT);
+    assert_eq!(token.balance(&maintainer), 0);
+    let (count_after, payload_after) = collect_funding_events(&env, &client);
+    assert_eq!(count_after, 1);
+    assert_eq!(
+        payload_after,
+        Some(BountyFunded {
+            bounty_id,
+            token: token_id.clone(),
+            amount: DEFAULT_MIN_BOUNTY_AMOUNT,
+            escrow_balance: DEFAULT_MIN_BOUNTY_AMOUNT,
+            status: BountyStatus::Open,
+        })
+    );
+}
+
 #[test]
 fn test_release_refreshes_near_expiry_bounty_before_payout() {
     let env = Env::default();
@@ -896,6 +1042,82 @@ fn test_submit_bounty_emits_event() {
 
     let bounty = client.get_bounty(&bounty_id);
     assert_eq!(bounty.status, BountyStatus::Submitted);
+    assert_eq!(bounty.contributor, Some(contributor));
+}
+
+#[test]
+fn test_reserve_bounty_emits_structured_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _admin, maintainer, contributor, token_id, fee_recipient, _arbiter) =
+        setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&maintainer, &1_000);
+    token_admin.mint(&contributor, &1_000);
+
+    let deadline = env.ledger().timestamp() + 1000;
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &500,
+        &String::from_str(&env, "repo"),
+        &1,
+        &String::from_str(&env, "title"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+
+    let before_timestamp = env.ledger().timestamp();
+    client.reserve_bounty(&bounty_id, &contributor);
+    let after_timestamp = env.ledger().timestamp();
+
+    let events = env.events().all().filter_by_contract(&client.address);
+    let event_list = events.events();
+
+    // The structured reserve event is the *last* event emitted by this call.
+    let structured_event = event_list.last().unwrap();
+    let soroban_sdk::xdr::ContractEventBody::V0(body) = &structured_event.body;
+    let t0 = soroban_sdk::Symbol::from_val(&env, &body.topics[0]);
+    let t1 = soroban_sdk::Symbol::from_val(&env, &body.topics[1]);
+    assert_eq!(t0, symbol_short!("Bounty"));
+    assert_eq!(t1, symbol_short!("ReservEvt"));
+    let structured_payload =
+        BountyReservedEvent::from_val(&env, &body.data);
+    assert_eq!(
+        structured_payload,
+        BountyReservedEvent {
+            bounty_id,
+            contributor: contributor.clone(),
+            reserved_at: after_timestamp,
+            bounty_status_after_reserve: BountyStatus::Reserved,
+        }
+    );
+    assert!(
+        structured_payload.reserved_at >= before_timestamp
+            && structured_payload.reserved_at <= after_timestamp,
+        "reserved_at should be within the observed ledger window"
+    );
+
+    // The legacy lightweight event is still emitted, just before the structured one.
+    let legacy_event = event_list.get(event_list.len() - 2).unwrap();
+    let soroban_sdk::xdr::ContractEventBody::V0(body) = &legacy_event.body;
+    let t0 = soroban_sdk::Symbol::from_val(&env, &body.topics[0]);
+    let t1 = soroban_sdk::Symbol::from_val(&env, &body.topics[1]);
+    assert_eq!(t0, symbol_short!("Bounty"));
+    assert_eq!(t1, symbol_short!("Reserv"));
+    let legacy_payload = BountyReserved::from_val(&env, &body.data);
+    assert_eq!(
+        legacy_payload,
+        BountyReserved {
+            bounty_id,
+            contributor: contributor.clone(),
+        }
+    );
+
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.status, BountyStatus::Reserved);
     assert_eq!(bounty.contributor, Some(contributor));
 }
 
@@ -4555,6 +4777,7 @@ fn test_resolve_dispute_emits_bounty_resolved_with_amount() {
     let t1 = soroban_sdk::Symbol::from_val(&env, &body.topics[1]);
     assert_eq!(t0, symbol_short!("Bounty"));
     assert_eq!(t1, symbol_short!("Reslv"));
+    let resolved_at = env.ledger().timestamp();
     let event_payload = BountyResolved::from_val(&env, &body.data);
     assert_eq!(
         event_payload,
@@ -4563,6 +4786,11 @@ fn test_resolve_dispute_emits_bounty_resolved_with_amount() {
             arbiter,
             release: true,
             amount: 500,
+            destination: contributor,
+            token: token_id,
+            net_amount: 500,
+            fee_amount: 0,
+            resolved_at,
         }
     );
 }
@@ -4773,4 +5001,1467 @@ fn test_escrow_asset_accounting_create_bounty_requires_maintainer_auth() {
         &0u32,
         &None,
     );
+}
+
+// ─── SBB-2026-443 (#1912): Escrow Asset Accounting Authority ──────────────────
+
+#[test]
+fn test_escrow_accounting_authority_signed_roles_two_tokens_different_precision() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarBountyBoardContract);
+    let client = StellarBountyBoardContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let maintainer = Address::generate(&env);
+    let contributor = Address::generate(&env);
+    let fee_recipient = Address::generate(&env);
+    let arbiter = Address::generate(&env);
+
+    // Token 1: 7-decimal precision (e.g. XLM-style)
+    let token_admin_1 = Address::generate(&env);
+    let token_id_1 = env
+        .register_stellar_asset_contract_v2(token_admin_1.clone())
+        .address();
+    let token_admin_client_1 = soroban_sdk::token::StellarAssetClient::new(&env, &token_id_1);
+    let token_client_1 = TokenClient::new(&env, &token_id_1);
+
+    // Token 2: 6-decimal precision (e.g. USDC-style)
+    let token_admin_2 = Address::generate(&env);
+    let token_id_2 = env
+        .register_stellar_asset_contract_v2(token_admin_2.clone())
+        .address();
+    let token_admin_client_2 = soroban_sdk::token::StellarAssetClient::new(&env, &token_id_2);
+    let token_client_2 = TokenClient::new(&env, &token_id_2);
+
+    // Initialize and configure allowlist with explicit admin auth
+    client.initialize(&admin, &fee_recipient, &arbiter, &600);
+
+    env.mock_auths(&[MockAuth {
+        address: &admin,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "set_allowlist_enabled",
+            args: (admin.clone(), true).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.set_allowlist_enabled(&admin, &true);
+
+    env.mock_auths(&[MockAuth {
+        address: &admin,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "add_allowed_token",
+            args: (admin.clone(), token_id_1.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.add_allowed_token(&admin, &token_id_1);
+
+    env.mock_auths(&[MockAuth {
+        address: &admin,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "add_allowed_token",
+            args: (admin.clone(), token_id_2.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.add_allowed_token(&admin, &token_id_2);
+
+    // Mint tokens to maintainer
+    env.mock_all_auths();
+    let mint_1 = 100_000_000i128; // 10.0 (7 decimals)
+    let mint_2 = 50_000_000i128; // 50.0 (6 decimals)
+    token_admin_client_1.mint(&maintainer, &mint_1);
+    token_admin_client_2.mint(&maintainer, &mint_2);
+    env.set_auths(&[]);
+
+    let deadline = env.ledger().timestamp() + 10_000;
+    let repo = String::from_str(&env, "ritik4ever/stellar-bounty-board");
+    let title_1 = String::from_str(&env, "Signed 7-decimal Bounty");
+    let title_2 = String::from_str(&env, "Signed 6-decimal Bounty");
+
+    let amount_1 = 25_000_000i128;
+    let fee_bps_1 = 200u32; // 2%
+    let amount_2 = 12_500_000i128;
+    let fee_bps_2 = 400u32; // 4%
+
+    // Maintainer creates Bounty 1 with explicit signed auth (and nested token transfer sub-invoke)
+    env.mock_auths(&[MockAuth {
+        address: &maintainer,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "create_bounty",
+            args: (
+                maintainer.clone(),
+                token_id_1.clone(),
+                amount_1,
+                repo.clone(),
+                301u32,
+                title_1.clone(),
+                deadline,
+                fee_bps_1,
+                Option::<u64>::None,
+            )
+                .into_val(&env),
+            sub_invokes: &[MockAuthInvoke {
+                contract: &token_id_1,
+                fn_name: "transfer",
+                args: (maintainer.clone(), client.address.clone(), amount_1).into_val(&env),
+                sub_invokes: &[],
+            }],
+        },
+    }]);
+    let b1_id = client.create_bounty(
+        &maintainer,
+        &token_id_1,
+        &amount_1,
+        &repo,
+        &301,
+        &title_1,
+        &deadline,
+        &fee_bps_1,
+        &None,
+    );
+
+    // Maintainer creates Bounty 2 with explicit signed auth
+    env.mock_auths(&[MockAuth {
+        address: &maintainer,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "create_bounty",
+            args: (
+                maintainer.clone(),
+                token_id_2.clone(),
+                amount_2,
+                repo.clone(),
+                302u32,
+                title_2.clone(),
+                deadline,
+                fee_bps_2,
+                Option::<u64>::None,
+            )
+                .into_val(&env),
+            sub_invokes: &[MockAuthInvoke {
+                contract: &token_id_2,
+                fn_name: "transfer",
+                args: (maintainer.clone(), client.address.clone(), amount_2).into_val(&env),
+                sub_invokes: &[],
+            }],
+        },
+    }]);
+    let b2_id = client.create_bounty(
+        &maintainer,
+        &token_id_2,
+        &amount_2,
+        &repo,
+        &302,
+        &title_2,
+        &deadline,
+        &fee_bps_2,
+        &None,
+    );
+
+    assert_eq!(token_client_1.balance(&client.address), amount_1);
+    assert_eq!(token_client_2.balance(&client.address), amount_2);
+
+    // Contributor reserves & submits Bounty 1 with explicit contributor auth
+    env.mock_auths(&[MockAuth {
+        address: &contributor,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "reserve_bounty",
+            args: (b1_id, contributor.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.reserve_bounty(&b1_id, &contributor);
+
+    env.mock_auths(&[MockAuth {
+        address: &contributor,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "submit_bounty",
+            args: (b1_id, contributor.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.submit_bounty(&b1_id, &contributor);
+
+    // Maintainer releases Bounty 1 with explicit maintainer auth
+    mock_release_auth(&env, &client, &maintainer, b1_id, &maintainer);
+    client.release_bounty(&b1_id, &maintainer);
+
+    let fee_1 = (amount_1 * fee_bps_1 as i128) / 10_000; // 500_000
+    let payout_1 = amount_1 - fee_1; // 24_500_000
+    assert_eq!(token_client_1.balance(&contributor), payout_1);
+    assert_eq!(token_client_1.balance(&fee_recipient), fee_1);
+    assert_eq!(token_client_1.balance(&client.address), 0);
+
+    // Contributor reserves, submits, and disputes Bounty 2 with explicit contributor auth
+    env.mock_auths(&[MockAuth {
+        address: &contributor,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "reserve_bounty",
+            args: (b2_id, contributor.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.reserve_bounty(&b2_id, &contributor);
+
+    env.mock_auths(&[MockAuth {
+        address: &contributor,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "submit_bounty",
+            args: (b2_id, contributor.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.submit_bounty(&b2_id, &contributor);
+
+    env.mock_auths(&[MockAuth {
+        address: &contributor,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "dispute_bounty",
+            args: (b2_id, arbiter.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.dispute_bounty(&b2_id, &arbiter);
+
+    // Advance past dispute window (600s) and resolve via signed arbiter auth
+    env.ledger().set_timestamp(env.ledger().timestamp() + 601);
+    env.mock_auths(&[MockAuth {
+        address: &arbiter,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "resolve_dispute",
+            args: (b2_id, true).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.resolve_dispute(&b2_id, &true);
+
+    let fee_2 = (amount_2 * fee_bps_2 as i128) / 10_000; // 500_000
+    let payout_2 = amount_2 - fee_2; // 12_000_000
+    assert_eq!(token_client_2.balance(&contributor), payout_2);
+    assert_eq!(token_client_2.balance(&fee_recipient), fee_2);
+    assert_eq!(token_client_2.balance(&client.address), 0);
+}
+
+#[test]
+fn test_escrow_accounting_unauthorized_caller_cannot_redirect_funds() {
+    let env = Env::default();
+    let (client, bounty_id, maintainer, contributor, token_id, _admin, arbiter) =
+        release_auth_fixture(&env);
+    let attacker = Address::generate(&env);
+    let token = TokenClient::new(&env, &token_id);
+
+    // 1. Contributor signing for themselves as maintainer fails MaintainerMismatch (#25)
+    mock_release_auth(&env, &client, &contributor, bounty_id, &contributor);
+    let err_contrib = client.try_release_bounty(&bounty_id, &contributor);
+    assert!(err_contrib.is_err());
+
+    // 2. Arbiter signing for maintainer fails Auth
+    mock_release_auth(&env, &client, &arbiter, bounty_id, &maintainer);
+    let err_arbiter = client.try_release_bounty(&bounty_id, &maintainer);
+    assert!(err_arbiter.is_err());
+
+    // 3. Attacker calling cancel_bounty fails MaintainerMismatch
+    env.mock_auths(&[MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "cancel_bounty",
+            args: (bounty_id, attacker.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    let err_cancel = client.try_cancel_bounty(&bounty_id, &attacker);
+    assert!(err_cancel.is_err());
+
+    // Escrow funds and bounty status are completely untouched
+    assert_eq!(token.balance(&client.address), 500);
+    assert_eq!(token.balance(&attacker), 0);
+    assert_eq!(token.balance(&contributor), 0);
+    assert_eq!(
+        client.get_bounty(&bounty_id).status,
+        BountyStatus::Submitted
+    );
+}
+
+#[test]
+fn test_escrow_accounting_unauthorized_caller_cannot_change_decisions() {
+    let env = Env::default();
+    let (client, bounty_id, maintainer, contributor, token_id, _admin, arbiter) =
+        release_auth_fixture(&env);
+    let attacker = Address::generate(&env);
+    let fake_arbiter = Address::generate(&env);
+    let token = TokenClient::new(&env, &token_id);
+
+    // Wrong arbiter address cannot open a dispute (#7 NotArbiter)
+    env.mock_auths(&[MockAuth {
+        address: &contributor,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "dispute_bounty",
+            args: (bounty_id, fake_arbiter.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    let err_fake_arb = client.try_dispute_bounty(&bounty_id, &fake_arbiter);
+    assert!(err_fake_arb.is_err());
+
+    // Legitimate contributor disputes using real arbiter
+    env.mock_auths(&[MockAuth {
+        address: &contributor,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "dispute_bounty",
+            args: (bounty_id, arbiter.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.dispute_bounty(&bounty_id, &arbiter);
+    env.ledger().set_timestamp(env.ledger().timestamp() + 601);
+
+    // Maintainer cannot resolve dispute (must be arbiter)
+    env.mock_auths(&[MockAuth {
+        address: &maintainer,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "resolve_dispute",
+            args: (bounty_id, false).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    let err_maint_resolve = client.try_resolve_dispute(&bounty_id, &false);
+    assert!(err_maint_resolve.is_err());
+
+    // Attacker cannot propose a resolution (must be arbiter)
+    env.mock_auths(&[MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "propose_resolution",
+            args: (bounty_id, 0u32).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    let err_propose = client.try_propose_resolution(&bounty_id, &0u32);
+    assert!(err_propose.is_err());
+
+    // Bounty remains Disputed and escrow balance untouched
+    assert_eq!(client.get_bounty(&bounty_id).status, BountyStatus::Disputed);
+    assert_eq!(token.balance(&client.address), 500);
+}
+
+#[test]
+fn test_escrow_accounting_signed_maintainer_rejects_unallowlisted_token_or_overflow() {
+    let env = Env::default();
+    let (client, admin, maintainer, _, allowed_token, _, _) = setup_test(&env);
+
+    let unallowed_admin = Address::generate(&env);
+    let unallowed_token = env
+        .register_stellar_asset_contract_v2(unallowed_admin)
+        .address();
+    let invalid_token = Address::generate(&env);
+
+    // Enable allowlist and add allowed_token only
+    env.mock_auths(&[MockAuth {
+        address: &admin,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "set_allowlist_enabled",
+            args: (admin.clone(), true).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.set_allowlist_enabled(&admin, &true);
+
+    env.mock_auths(&[MockAuth {
+        address: &admin,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "add_allowed_token",
+            args: (admin.clone(), allowed_token.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.add_allowed_token(&admin, &allowed_token);
+
+    let deadline = env.ledger().timestamp() + 10_000;
+    let repo = String::from_str(&env, "ritik4ever/stellar-bounty-board");
+    let title = String::from_str(&env, "Auth Validation Bounty");
+
+    // 1. Unallowlisted token rejected even when signed by maintainer (#16 TokenNotAllowed)
+    env.mock_auths(&[MockAuth {
+        address: &maintainer,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "create_bounty",
+            args: (
+                maintainer.clone(),
+                unallowed_token.clone(),
+                1_000i128,
+                repo.clone(),
+                303u32,
+                title.clone(),
+                deadline,
+                0u32,
+                Option::<u64>::None,
+            )
+                .into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(client
+        .try_create_bounty(
+            &maintainer,
+            &unallowed_token,
+            &1_000,
+            &repo,
+            &303,
+            &title,
+            &deadline,
+            &0,
+            &None,
+        )
+        .is_err());
+
+    // 2. Invalid/non-contract token address rejected (#16 or #42)
+    env.mock_auths(&[MockAuth {
+        address: &maintainer,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "create_bounty",
+            args: (
+                maintainer.clone(),
+                invalid_token.clone(),
+                1_000i128,
+                repo.clone(),
+                304u32,
+                title.clone(),
+                deadline,
+                0u32,
+                Option::<u64>::None,
+            )
+                .into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(client
+        .try_create_bounty(
+            &maintainer,
+            &invalid_token,
+            &1_000,
+            &repo,
+            &304,
+            &title,
+            &deadline,
+            &0,
+            &None,
+        )
+        .is_err());
+
+    // 3. Overflowed amount rejected (#11 InvalidAmount)
+    let overflow_amount = MAX_BOUNTY_AMOUNT + 1;
+    env.mock_auths(&[MockAuth {
+        address: &maintainer,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "create_bounty",
+            args: (
+                maintainer.clone(),
+                allowed_token.clone(),
+                overflow_amount,
+                repo.clone(),
+                305u32,
+                title.clone(),
+                deadline,
+                0u32,
+                Option::<u64>::None,
+            )
+                .into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(client
+        .try_create_bounty(
+            &maintainer,
+            &allowed_token,
+            &overflow_amount,
+            &repo,
+            &305,
+            &title,
+            &deadline,
+            &0,
+            &None,
+        )
+        .is_err());
+
+    // No bounty was created
+    assert_eq!(client.get_next_bounty_id(), 0);
+}
+
+// ─── SBB-2026-450 (#1919): Bounty Storage Lifetime Regression ─────────────────
+
+#[test]
+fn test_bounty_storage_lifetime_unresolved_bounty_near_ttl_expiry_recovers_through_settlement() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, maintainer, contributor, token_id, fee_recipient, arbiter) =
+        setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    let token = TokenClient::new(&env, &token_id);
+
+    let amount = 2_000i128;
+    let fee_bps = 500u32; // 5% -> fee = 100, net = 1900
+    token_admin.mint(&maintainer, &amount);
+
+    // Configure minimal persistent TTL so entries sit right near expiry.
+    env.ledger().set_min_persistent_entry_ttl(1);
+
+    let deadline = env.ledger().timestamp() + 5_000;
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &amount,
+        &String::from_str(&env, "ritik4ever/stellar-bounty-board"),
+        &450,
+        &String::from_str(&env, "Near-expiry unresolved bounty"),
+        &deadline,
+        &fee_bps,
+        &None,
+    );
+    client.reserve_bounty(&bounty_id, &contributor);
+    client.submit_bounty(&bounty_id, &contributor);
+    client.dispute_bounty(&bounty_id, &arbiter);
+
+    // Advance past dispute window (600s)
+    env.ledger().set_timestamp(env.ledger().timestamp() + 601);
+
+    // Confirm the unresolved bounty entry is near TTL expiry (<= 1 ledger)
+    let bounty_key = DataKey::Bounty(bounty_id);
+    let ttl_before = env.as_contract(&client.address, || {
+        env.storage().persistent().get_ttl(&bounty_key)
+    });
+    assert!(ttl_before <= 1);
+
+    // Unauthorized caller (maintainer) cannot settle the unresolved near-expiry bounty
+    env.mock_auths(&[MockAuth {
+        address: &maintainer,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "resolve_dispute",
+            args: (bounty_id, true).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(client.try_resolve_dispute(&bounty_id, &true).is_err());
+    assert_eq!(token.balance(&client.address), amount);
+    assert_eq!(client.get_bounty(&bounty_id).status, BountyStatus::Disputed);
+
+    // Signed arbiter settles the dispute: TTL refreshes, escrow clears, balances & events match
+    env.mock_auths(&[MockAuth {
+        address: &arbiter,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "resolve_dispute",
+            args: (bounty_id, true).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.resolve_dispute(&bounty_id, &true);
+
+    // Emitted resolution event matches settlement
+    let events = env.events().all().filter_by_contract(&client.address);
+    let last_event = events.events().last().unwrap();
+    let soroban_sdk::xdr::ContractEventBody::V0(body) = &last_event.body;
+    let t0 = soroban_sdk::Symbol::from_val(&env, &body.topics[0]);
+    let t1 = soroban_sdk::Symbol::from_val(&env, &body.topics[1]);
+    assert_eq!(t0, symbol_short!("Bounty"));
+    assert_eq!(t1, symbol_short!("Reslv"));
+
+    let ttl_after = env.as_contract(&client.address, || {
+        env.storage().persistent().get_ttl(&bounty_key)
+    });
+    assert!(ttl_after >= BOUNTY_STORAGE_TTL_EXTEND_TO);
+
+    let expected_fee = (amount * fee_bps as i128) / 10_000;
+    let expected_payout = amount - expected_fee;
+    assert_eq!(token.balance(&client.address), 0);
+    assert_eq!(token.balance(&contributor), expected_payout);
+    assert_eq!(token.balance(&fee_recipient), expected_fee);
+    assert_eq!(client.get_bounty(&bounty_id).status, BountyStatus::Released);
+}
+
+#[test]
+fn test_bounty_storage_lifetime_claim_after_related_entry_expires_fails_atomically() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, maintainer, contributor, token_id, _fee_recipient, arbiter) =
+        setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    let token = TokenClient::new(&env, &token_id);
+
+    let amount = 1_000i128;
+    let fee_bps = 200u32;
+    token_admin.mint(&maintainer, &(amount * 2));
+
+    let deadline = env.ledger().timestamp() + 5_000;
+    let b1 = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &amount,
+        &String::from_str(&env, "ritik4ever/stellar-bounty-board"),
+        &451,
+        &String::from_str(&env, "Expired FeeRecipient fixture"),
+        &deadline,
+        &fee_bps,
+        &None,
+    );
+    client.reserve_bounty(&b1, &contributor);
+    client.submit_bounty(&b1, &contributor);
+
+    let b2 = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &amount,
+        &String::from_str(&env, "ritik4ever/stellar-bounty-board"),
+        &452,
+        &String::from_str(&env, "Expired Arbiter fixture"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+    client.reserve_bounty(&b2, &contributor);
+    client.submit_bounty(&b2, &contributor);
+    client.dispute_bounty(&b2, &arbiter);
+    env.ledger().set_timestamp(env.ledger().timestamp() + 601);
+
+    // 1. Expire related DataKey::FeeRecipient entry before release_bounty claim on b1
+    env.as_contract(&client.address, || {
+        env.storage().persistent().remove(&DataKey::FeeRecipient);
+    });
+    assert!(client.try_release_bounty(&b1, &maintainer).is_err());
+    // Atomically rolled back: escrow intact, contributor paid 0, status still Submitted
+    assert_eq!(token.balance(&contributor), 0);
+    assert_eq!(token.balance(&client.address), amount * 2);
+    assert_eq!(client.get_bounty(&b1).status, BountyStatus::Submitted);
+
+    // 2. Expire related DataKey::Arbiter entry before resolve_dispute on b2
+    env.as_contract(&client.address, || {
+        env.storage().persistent().remove(&DataKey::Arbiter);
+    });
+    assert!(client.try_resolve_dispute(&b2, &true).is_err());
+    assert_eq!(token.balance(&contributor), 0);
+    assert_eq!(token.balance(&client.address), amount * 2);
+    assert_eq!(client.get_bounty(&b2).status, BountyStatus::Disputed);
+
+    // 3. Expire DataKey::Bounty(b1) itself -> claim fails with BountyNotFound, escrow untouched
+    env.as_contract(&client.address, || {
+        env.storage().persistent().remove(&DataKey::Bounty(b1));
+    });
+    assert!(client.try_release_bounty(&b1, &maintainer).is_err());
+    assert_eq!(token.balance(&contributor), 0);
+    assert_eq!(token.balance(&client.address), amount * 2);
+}
+
+// ─── SBB-2026-446 (#1915): Bounty Storage Lifetime Boundaries ────────────────
+
+#[test]
+fn test_bounty_storage_lifetime_boundary_exact_ledger_and_token_units() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, maintainer, contributor, token_id, fee_recipient, _) = setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    let token = TokenClient::new(&env, &token_id);
+
+    // Exact non-round token units (1_234_567) and 350 bps fee (3.5%)
+    let amount_release = 1_234_567i128;
+    let fee_bps = 350u32;
+    let amount_refund = 987_654i128;
+    token_admin.mint(&maintainer, &(amount_release + amount_refund));
+
+    // Set minimum persistent TTL to 1 ledger so both bounties sit at the TTL expiry boundary
+    env.ledger().set_min_persistent_entry_ttl(1);
+    let initial_seq = env.ledger().sequence();
+    let deadline = env.ledger().timestamp() + 2_000;
+
+    let release_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &amount_release,
+        &String::from_str(&env, "ritik4ever/stellar-bounty-board"),
+        &4461,
+        &String::from_str(&env, "Exact-unit near-TTL release"),
+        &deadline,
+        &fee_bps,
+        &None,
+    );
+    client.reserve_bounty(&release_id, &contributor);
+    client.submit_bounty(&release_id, &contributor);
+
+    let refund_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &amount_refund,
+        &String::from_str(&env, "ritik4ever/stellar-bounty-board"),
+        &4462,
+        &String::from_str(&env, "Exact-unit near-TTL refund"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+
+    // Verify both entries sit at <= 1 ledger TTL before settlement
+    let release_ttl_before = env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .get_ttl(&DataKey::Bounty(release_id))
+    });
+    let refund_ttl_before = env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .get_ttl(&DataKey::Bounty(refund_id))
+    });
+    assert!(release_ttl_before <= 1);
+    assert!(refund_ttl_before <= 1);
+    assert_eq!(env.ledger().sequence(), initial_seq);
+
+    // 1. Settle unresolved Submitted bounty near TTL expiry via release_bounty
+    client.release_bounty(&release_id, &maintainer);
+    let release_ttl_after = env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .get_ttl(&DataKey::Bounty(release_id))
+    });
+    assert!(release_ttl_after >= BOUNTY_STORAGE_TTL_EXTEND_TO);
+
+    let expected_fee = (amount_release * fee_bps as i128) / 10_000; // 43_209
+    let expected_payout = amount_release - expected_fee; // 1_191_358
+    assert_eq!(expected_fee, 43_209);
+    assert_eq!(expected_payout, 1_191_358);
+    assert_eq!(token.balance(&contributor), expected_payout);
+    assert_eq!(token.balance(&fee_recipient), expected_fee);
+    assert_eq!(token.balance(&client.address), amount_refund);
+    assert_eq!(
+        client.get_bounty(&release_id).status,
+        BountyStatus::Released
+    );
+
+    // 2. Advance timestamp to exact deadline + 1 and settle near-TTL Open bounty via refund_bounty
+    env.ledger().set_timestamp(deadline + 1);
+    client.refund_bounty(&refund_id, &maintainer);
+    let refund_ttl_after = env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .get_ttl(&DataKey::Bounty(refund_id))
+    });
+    assert!(refund_ttl_after >= BOUNTY_STORAGE_TTL_EXTEND_TO);
+    assert_eq!(token.balance(&maintainer), amount_refund);
+    assert_eq!(token.balance(&client.address), 0);
+    assert_eq!(client.get_bounty(&refund_id).status, BountyStatus::Refunded);
+}
+
+// ─── SBB-2026-416 (#1885): Contract Submission Boundaries ────────────────────
+
+#[test]
+fn test_contract_submission_boundary_exact_ledger_and_token_units() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, maintainer, contributor, token_id, _fee_recipient, _arbiter) =
+        setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    let token = TokenClient::new(&env, &token_id);
+
+    // Exact non-round token units to ensure no dust loss or balance drift
+    let amount_exact_1 = 1_234_567i128;
+    let amount_exact_2 = 987_654i128;
+    token_admin.mint(&maintainer, &(amount_exact_1 + amount_exact_2));
+
+    let initial_timestamp = 10_000u64;
+    env.ledger().set_timestamp(initial_timestamp);
+    let deadline_1 = initial_timestamp + 1_000; // 11_000
+    let deadline_2 = initial_timestamp + 2_000; // 12_000
+
+    // Create and fund Bounty 1
+    let bounty_1_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &amount_exact_1,
+        &String::from_str(&env, "ritik4ever/stellar-bounty-board"),
+        &18851,
+        &String::from_str(&env, "Exact-unit boundary submission at deadline"),
+        &deadline_1,
+        &250u32,
+        &None,
+    );
+
+    // Create and fund Bounty 2
+    let bounty_2_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &amount_exact_2,
+        &String::from_str(&env, "ritik4ever/stellar-bounty-board"),
+        &18852,
+        &String::from_str(&env, "Exact-unit boundary submission past deadline"),
+        &deadline_2,
+        &0u32,
+        &None,
+    );
+
+    // Both bounties are reserved by contributor
+    client.reserve_bounty(&bounty_1_id, &contributor);
+    client.reserve_bounty(&bounty_2_id, &contributor);
+
+    let initial_escrow_balance = amount_exact_1 + amount_exact_2;
+    assert_eq!(token.balance(&client.address), initial_escrow_balance);
+    assert_eq!(token.balance(&contributor), 0);
+    assert_eq!(token.balance(&maintainer), 0);
+
+    // 1. Advance timestamp to exact deadline: now == deadline_1 (11_000)
+    env.ledger().set_timestamp(deadline_1);
+
+    // An unauthorized outsider attempting submit_bounty at the deadline must fail with ContributorMismatch (#26)
+    let outsider = Address::generate(&env);
+    let outsider_res = client.try_submit_bounty(&bounty_1_id, &outsider);
+    let outsider_err = outsider_res
+        .err()
+        .expect("outsider submission should fail")
+        .expect("expected typed contract error");
+    assert_eq!(
+        outsider_err,
+        soroban_sdk::Error::from_contract_error(ContractError::ContributorMismatch as u32)
+    );
+
+    // Balance invariant check: escrow and participant balances remain exactly unchanged
+    assert_eq!(token.balance(&client.address), initial_escrow_balance);
+    assert_eq!(token.balance(&contributor), 0);
+    assert_eq!(token.balance(&maintainer), 0);
+    assert_eq!(client.get_bounty(&bounty_1_id).status, BountyStatus::Reserved);
+
+    // 2. Legitimate authorized contributor submits at exact deadline (now == deadline_1)
+    // expire_if_needed checks `now > deadline_1`. Since now == deadline_1, it does NOT expire.
+    client.submit_bounty(&bounty_1_id, &contributor);
+
+    // Event verification immediately after submission: BountySubmitted emitted with exact payload
+    let events = env.events().all().filter_by_contract(&client.address);
+    let event = events.events().last().unwrap();
+    let soroban_sdk::xdr::ContractEventBody::V0(body) = &event.body;
+    let t0 = soroban_sdk::Symbol::from_val(&env, &body.topics[0]);
+    let t1 = soroban_sdk::Symbol::from_val(&env, &body.topics[1]);
+    assert_eq!(t0, symbol_short!("Bounty"));
+    assert_eq!(t1, symbol_short!("Submit"));
+    let event_payload = BountySubmitted::from_val(&env, &body.data);
+    assert_eq!(
+        event_payload,
+        BountySubmitted {
+            bounty_id: bounty_1_id,
+            contributor: contributor.clone(),
+        }
+    );
+
+    // State assertions: status transitions to Submitted with contributor assigned
+    let submitted_bounty = client.get_bounty(&bounty_1_id);
+    assert_eq!(submitted_bounty.status, BountyStatus::Submitted);
+    assert_eq!(submitted_bounty.contributor, Some(contributor.clone()));
+
+    // Balance invariant check: escrow balance remains exactly unchanged (0 tokens moved)
+    assert_eq!(token.balance(&client.address), initial_escrow_balance);
+    assert_eq!(token.balance(&contributor), 0);
+    assert_eq!(token.balance(&maintainer), 0);
+
+    // 3. Subsequent timestamp advances past deadline do NOT expire the Submitted bounty
+    env.ledger().set_timestamp(deadline_1 + 500);
+    let bounty_1_after = client.get_bounty(&bounty_1_id);
+    assert_eq!(bounty_1_after.status, BountyStatus::Submitted);
+
+    // Resubmitting an already-submitted bounty at deadline_1 + 500 fails with BountyMustBeReserved (#19)
+    let resubmit_res = client.try_submit_bounty(&bounty_1_id, &contributor);
+    let resubmit_err = resubmit_res
+        .err()
+        .expect("resubmission should fail")
+        .expect("expected typed contract error");
+    assert_eq!(
+        resubmit_err,
+        soroban_sdk::Error::from_contract_error(ContractError::BountyMustBeReserved as u32)
+    );
+
+    // 4. Exercise Bounty 2 submitted past deadline: now == deadline_2 + 1 (12_001)
+    env.ledger().set_timestamp(deadline_2 + 1);
+
+    // Attempting submit_bounty strictly after deadline must fail with BountyExpired (#22)
+    let past_deadline_res = client.try_submit_bounty(&bounty_2_id, &contributor);
+    let past_deadline_err = past_deadline_res
+        .err()
+        .expect("past-deadline submission should fail")
+        .expect("expected typed contract error");
+    assert_eq!(
+        past_deadline_err,
+        soroban_sdk::Error::from_contract_error(ContractError::BountyExpired as u32)
+    );
+
+    // Balance invariant check: escrow balance remains 100% intact down to the token unit
+    assert_eq!(token.balance(&client.address), initial_escrow_balance);
+    assert_eq!(token.balance(&contributor), 0);
+    assert_eq!(token.balance(&maintainer), 0);
+
+    // Storage rollback on failure preserves status as Reserved
+    assert_eq!(client.get_bounty(&bounty_2_id).status, BountyStatus::Expired);
+}
+
+// ─── SBB-2026-407 (#1876): Bounty Escrow Funding Atomicity ─────────────────
+
+#[contract]
+struct MockFailingTransferToken;
+
+#[contractimpl]
+impl MockFailingTransferToken {
+    pub fn transfer(_env: Env, _from: Address, _to: Address, _amount: i128) {
+        panic!("simulated token transfer failure");
+    }
+}
+
+#[test]
+fn test_bounty_escrow_funding_failure_after_validation_preserves_storage_and_balances_atomically() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) =
+        setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    let token = TokenClient::new(&env, &token_id);
+
+    // Initial state: no bounties, zero escrow balance
+    assert_eq!(client.get_next_bounty_id(), 0);
+    assert_eq!(token.balance(&client.address), 0);
+
+    // 1. Legitimate funding of Bounty 1 succeeds and assigns ID 1
+    let amount_1 = 5_000i128;
+    token_admin.mint(&maintainer, &amount_1);
+    let deadline_1 = env.ledger().timestamp() + 3_600;
+    let repo = String::from_str(&env, "ritik4ever/stellar-bounty-board");
+    let title_1 = String::from_str(&env, "Bounty 1: successful initial escrow funding");
+
+    let bounty_1_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &amount_1,
+        &repo,
+        &18761,
+        &title_1,
+        &deadline_1,
+        &0u32,
+        &None,
+    );
+    assert_eq!(bounty_1_id, 1);
+    assert_eq!(client.get_next_bounty_id(), 1);
+    assert_eq!(token.balance(&client.address), amount_1);
+    assert_eq!(token.balance(&maintainer), 0);
+    let bounty_1 = client.get_bounty(&bounty_1_id);
+    assert_eq!(bounty_1.status, BountyStatus::Open);
+    assert_eq!(bounty_1.amount, amount_1);
+
+    // 2. Maintainer attempts to create Bounty 2 with all validations passing,
+    // but maintainer possesses 1 stroop LESS than the required escrow amount.
+    // Bounty validations (bounds, min_amount, deadline, allowlist, fee) all pass,
+    // and then token_client.try_transfer fails.
+    let amount_2 = 10_000i128;
+    token_admin.mint(&maintainer, &(amount_2 - 1)); // exactly 9_999 units
+    let deadline_2 = env.ledger().timestamp() + 7_200;
+    let title_2 = String::from_str(&env, "Bounty 2: failed escrow transfer atomic rollback");
+
+    let try_res = client.try_create_bounty(
+        &maintainer,
+        &token_id,
+        &amount_2,
+        &repo,
+        &18762,
+        &title_2,
+        &deadline_2,
+        &200u32,
+        &None,
+    );
+    let err = try_res
+        .err()
+        .expect("bounty creation should fail on token transfer")
+        .expect("expected typed contract error");
+    assert_eq!(
+        err,
+        soroban_sdk::Error::from_contract_error(ContractError::EscrowTransferFailed as u32)
+    );
+
+    // INVARIANT ASSERTIONS AFTER FAILURE:
+    // a. NextBountyId is NOT incremented; remains 1
+    assert_eq!(client.get_next_bounty_id(), 1);
+
+    // b. Bounty 2 was never stored in persistent storage
+    assert_eq!(
+        client.try_get_bounty(&2),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            ContractError::BountyNotFound as u32
+        )))
+    );
+
+    // c. Bounty 1 is completely invariant
+    let bounty_1_after = client.get_bounty(&bounty_1_id);
+    assert_eq!(bounty_1_after.status, BountyStatus::Open);
+    assert_eq!(bounty_1_after.amount, amount_1);
+
+    // d. Escrow funds cannot be stranded or multiplied:
+    // Contract balance remains strictly equal to Bounty 1's escrow (amount_1)
+    assert_eq!(token.balance(&client.address), amount_1);
+    // Maintainer balance is completely untouched (no partial debit)
+    assert_eq!(token.balance(&maintainer), amount_2 - 1);
+
+    // 3. Sequential Retry: Maintainer tops up the missing 1 stroop and retries.
+    // The retry MUST succeed and receive sequential ID 2, proving no ID counter leakage.
+    token_admin.mint(&maintainer, &1i128); // maintainer now has exact amount_2
+    let retry_bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &amount_2,
+        &repo,
+        &18762,
+        &title_2,
+        &deadline_2,
+        &200u32,
+        &None,
+    );
+    assert_eq!(retry_bounty_id, 2);
+    assert_eq!(client.get_next_bounty_id(), 2);
+
+    // Balances and storage reflect both bounties accurately:
+    assert_eq!(token.balance(&client.address), amount_1 + amount_2);
+    assert_eq!(token.balance(&maintainer), 0);
+    assert_eq!(client.get_bounty(&2).status, BountyStatus::Open);
+    assert_eq!(client.get_bounty(&2).amount, amount_2);
+}
+
+#[test]
+fn test_bounty_escrow_funding_failure_with_failing_token_contract_preserves_atomicity() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, maintainer, _contributor, valid_token, _fee_recipient, _arbiter) =
+        setup_test(&env);
+    let valid_asset = soroban_sdk::token::StellarAssetClient::new(&env, &valid_token);
+    let valid_token_client = TokenClient::new(&env, &valid_token);
+
+    // Fund Bounty 1 in valid_token
+    let amount_1 = 3_000i128;
+    valid_asset.mint(&maintainer, &amount_1);
+    let repo = String::from_str(&env, "ritik4ever/stellar-bounty-board");
+    let deadline = env.ledger().timestamp() + 5_000;
+    let b1 = client.create_bounty(
+        &maintainer,
+        &valid_token,
+        &amount_1,
+        &repo,
+        &18763,
+        &String::from_str(&env, "Valid token bounty"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+    assert_eq!(b1, 1);
+    assert_eq!(valid_token_client.balance(&client.address), amount_1);
+
+    // Register and allowlist MockFailingTransferToken
+    let failing_token = env.register(MockFailingTransferToken, ());
+    client.add_allowed_token(&admin, &failing_token);
+
+    // Attempt create_bounty with allowlisted failing token:
+    // All validations pass, but transfer fails.
+    let fail_res = client.try_create_bounty(
+        &maintainer,
+        &failing_token,
+        &DEFAULT_MIN_BOUNTY_AMOUNT,
+        &repo,
+        &18764,
+        &String::from_str(&env, "Failing token bounty"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+    let err = fail_res
+        .err()
+        .expect("should fail")
+        .expect("expected contract error");
+    assert_eq!(
+        err,
+        soroban_sdk::Error::from_contract_error(ContractError::EscrowTransferFailed as u32)
+    );
+
+    // Invariants preserved:
+    assert_eq!(client.get_next_bounty_id(), 1);
+    assert!(client.try_get_bounty(&2).is_err());
+    assert_eq!(valid_token_client.balance(&client.address), amount_1);
+}
+
+// ─── SBB-2026-409 (#1878): Bounty Escrow Funding Event ─────────────────────
+//
+// `create_bounty` commits the bounty entry and moves the escrow funds, then
+// emits exactly one funding event describing that committed change:
+//   topics: (Symbol("Bounty"), Symbol("Fund"))
+//   data:   BountyFunded { bounty_id, token, amount, escrow_balance, status }
+// where `escrow_balance` is the contract's token balance after the transfer
+// (i.e. the committed remaining escrow) and `status` is the committed status.
+// A rejected funding attempt (e.g. a failing token transfer) commits nothing
+// and therefore must emit no funding event.
+
+/// Counts `BountyFunded` events emitted by the contract and returns the last
+/// decoded payload, if any.
+fn collect_funding_events(
+    env: &Env,
+    client: &StellarBountyBoardContractClient<'static>,
+) -> (u32, Option<BountyFunded>) {
+    let events = env.events().all().filter_by_contract(&client.address);
+    let mut count = 0u32;
+    let mut payload = None;
+    for event in events.events().iter() {
+        let soroban_sdk::xdr::ContractEventBody::V0(body) = &event.body;
+        if body.topics.len() < 2 {
+            continue;
+        }
+        let t0 = soroban_sdk::Symbol::from_val(env, &body.topics[0]);
+        let t1 = soroban_sdk::Symbol::from_val(env, &body.topics[1]);
+        if t0 == symbol_short!("Bounty") && t1 == symbol_short!("Fund") {
+            count += 1;
+            payload = Some(BountyFunded::from_val(env, &body.data));
+        }
+    }
+    (count, payload)
+}
+
+#[test]
+fn test_create_bounty_emits_single_funding_event_matching_committed_state() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) =
+        setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    let token = TokenClient::new(&env, &token_id);
+
+    let amount = 1_234_567i128;
+    token_admin.mint(&maintainer, &amount);
+    let deadline = env.ledger().timestamp() + 1_000;
+
+    let bounty_id = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &amount,
+        &String::from_str(&env, "ritik4ever/stellar-bounty-board"),
+        &18781,
+        &String::from_str(&env, "Escrow funding event"),
+        &deadline,
+        &250u32,
+        &None,
+    );
+
+    // Committed state: bounty stored, escrow funded, maintainer debited.
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.status, BountyStatus::Open);
+    assert_eq!(bounty.amount, amount);
+    assert_eq!(token.balance(&client.address), amount);
+    assert_eq!(token.balance(&maintainer), 0);
+
+    // Exactly one funding event, with the documented topics and payload.
+    let (count, payload) = collect_funding_events(&env, &client);
+    assert_eq!(count, 1, "create_bounty must emit exactly one funding event");
+    assert_eq!(
+        payload,
+        Some(BountyFunded {
+            bounty_id,
+            token: token_id.clone(),
+            amount,
+            escrow_balance: amount,
+            status: BountyStatus::Open,
+        })
+    );
+
+    // The event is the last event emitted by the funding call and its payload
+    // matches the committed bounty entry field by field.
+    let events = env.events().all().filter_by_contract(&client.address);
+    let event = events.events().last().unwrap();
+    let soroban_sdk::xdr::ContractEventBody::V0(body) = &event.body;
+    let t0 = soroban_sdk::Symbol::from_val(&env, &body.topics[0]);
+    let t1 = soroban_sdk::Symbol::from_val(&env, &body.topics[1]);
+    assert_eq!(t0, symbol_short!("Bounty"));
+    assert_eq!(t1, symbol_short!("Fund"));
+    let decoded = BountyFunded::from_val(&env, &body.data);
+    assert_eq!(decoded.bounty_id, bounty_id);
+    assert_eq!(decoded.token, bounty.token);
+    assert_eq!(decoded.amount, bounty.amount);
+    assert_eq!(decoded.status, bounty.status);
+    assert_eq!(decoded.escrow_balance, token.balance(&client.address));
+}
+
+#[test]
+fn test_funding_events_accumulate_committed_escrow_balance_per_bounty() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) =
+        setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    let token = TokenClient::new(&env, &token_id);
+
+    let amount_1 = 500i128;
+    let amount_2 = 777i128;
+    token_admin.mint(&maintainer, &(amount_1 + amount_2));
+    let deadline = env.ledger().timestamp() + 1_000;
+    let repo = String::from_str(&env, "ritik4ever/stellar-bounty-board");
+
+    let b1 = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &amount_1,
+        &repo,
+        &18782,
+        &String::from_str(&env, "First funding"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+    let (count_after_first, first_payload) = collect_funding_events(&env, &client);
+    assert_eq!(count_after_first, 1);
+    assert_eq!(
+        first_payload,
+        Some(BountyFunded {
+            bounty_id: b1,
+            token: token_id.clone(),
+            amount: amount_1,
+            escrow_balance: amount_1,
+            status: BountyStatus::Open,
+        })
+    );
+
+    let b2 = client.create_bounty(
+        &maintainer,
+        &token_id,
+        &amount_2,
+        &repo,
+        &18783,
+        &String::from_str(&env, "Second funding"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+    let (count_after_second, second_payload) = collect_funding_events(&env, &client);
+    assert_eq!(count_after_second, 2);
+    assert_eq!(
+        second_payload,
+        Some(BountyFunded {
+            bounty_id: b2,
+            token: token_id.clone(),
+            amount: amount_2,
+            escrow_balance: amount_1 + amount_2,
+            status: BountyStatus::Open,
+        })
+    );
+
+    // Committed escrow balance equals the sum of both funded amounts.
+    assert_eq!(token.balance(&client.address), amount_1 + amount_2);
+    assert_eq!(client.get_bounty(&b1).amount, amount_1);
+    assert_eq!(client.get_bounty(&b2).amount, amount_2);
+}
+
+#[test]
+fn test_failed_escrow_funding_emits_no_funding_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, maintainer, _contributor, token_id, _fee_recipient, _arbiter) =
+        setup_test(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+    let token = TokenClient::new(&env, &token_id);
+
+    let amount = 10_000i128;
+    token_admin.mint(&maintainer, &(amount - 1)); // one stroop short
+    let deadline = env.ledger().timestamp() + 1_000;
+
+    let try_res = client.try_create_bounty(
+        &maintainer,
+        &token_id,
+        &amount,
+        &String::from_str(&env, "ritik4ever/stellar-bounty-board"),
+        &18784,
+        &String::from_str(&env, "Rejected funding"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+    let err = try_res
+        .err()
+        .expect("funding should fail")
+        .expect("expected typed contract error");
+    assert_eq!(
+        err,
+        soroban_sdk::Error::from_contract_error(ContractError::EscrowTransferFailed as u32)
+    );
+
+    // Nothing committed: no bounty, no escrow movement, no funding event.
+    assert_eq!(client.get_next_bounty_id(), 0);
+    assert!(client.try_get_bounty(&1).is_err());
+    assert_eq!(token.balance(&client.address), 0);
+    assert_eq!(token.balance(&maintainer), amount - 1);
+    let (count, payload) = collect_funding_events(&env, &client);
+    assert_eq!(count, 0, "a rejected funding must emit no funding event");
+    assert_eq!(payload, None);
+}
+
+#[test]
+fn test_failed_escrow_funding_with_failing_token_emits_no_funding_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, maintainer, _contributor, valid_token, _fee_recipient, _arbiter) =
+        setup_test(&env);
+    let valid_asset = soroban_sdk::token::StellarAssetClient::new(&env, &valid_token);
+    let valid_token_client = TokenClient::new(&env, &valid_token);
+
+    let amount = 3_000i128;
+    valid_asset.mint(&maintainer, &amount);
+    let deadline = env.ledger().timestamp() + 5_000;
+    let repo = String::from_str(&env, "ritik4ever/stellar-bounty-board");
+
+    let b1 = client.create_bounty(
+        &maintainer,
+        &valid_token,
+        &amount,
+        &repo,
+        &18785,
+        &String::from_str(&env, "Valid token funding"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+    let (count_after_valid, valid_payload) = collect_funding_events(&env, &client);
+    assert_eq!(count_after_valid, 1);
+    assert_eq!(
+        valid_payload,
+        Some(BountyFunded {
+            bounty_id: b1,
+            token: valid_token.clone(),
+            amount,
+            escrow_balance: amount,
+            status: BountyStatus::Open,
+        })
+    );
+
+    // Allowlist a token whose transfer always panics; funding must roll back
+    // and emit no funding event.
+    let failing_token = env.register(MockFailingTransferToken, ());
+    client.add_allowed_token(&admin, &failing_token);
+
+    let fail_res = client.try_create_bounty(
+        &maintainer,
+        &failing_token,
+        &DEFAULT_MIN_BOUNTY_AMOUNT,
+        &repo,
+        &18786,
+        &String::from_str(&env, "Failing token funding"),
+        &deadline,
+        &0u32,
+        &None,
+    );
+    let err = fail_res
+        .err()
+        .expect("funding should fail")
+        .expect("expected typed contract error");
+    assert_eq!(
+        err,
+        soroban_sdk::Error::from_contract_error(ContractError::EscrowTransferFailed as u32)
+    );
+
+    // Still exactly one funding event (from the valid bounty), unchanged.
+    let (count_after_failure, last_payload) = collect_funding_events(&env, &client);
+    assert_eq!(
+        count_after_failure, 1,
+        "a rejected funding must emit no funding event"
+    );
+    assert_eq!(last_payload, valid_payload);
+    assert_eq!(client.get_next_bounty_id(), 1);
+    assert!(client.try_get_bounty(&2).is_err());
+    assert_eq!(valid_token_client.balance(&client.address), amount);
+}
+
+// ─── SBB-2026-401 (#1870): Escrow Initialization Boundaries ─────────────────
+
+#[test]
+fn test_escrow_initialization_boundaries_valid_arbiter_exact_ledger_and_token_units() {
+    let env = Env::default();
+    let contract_id = env.register(StellarBountyBoardContract, ());
+    let client = StellarBountyBoardContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let fee_recipient = Address::generate(&env);
+    let arbiter = Address::generate(&env);
+
+    // Register test token and mint exact token units to exercise balance isolation
+    let token_admin = Address::generate(&env);
+    let token = env
+        .register_stellar_asset_contract_v2(token_admin.clone())
+        .address();
+    let token_admin_client = soroban_sdk::token::StellarAssetClient::new(&env, &token);
+    let token_client = TokenClient::new(&env, &token);
+
+    // Exact ledger setup: set timestamp and sequence number
+    let initial_timestamp = 1_700_000_000u64;
+    let initial_sequence = 123_456u32;
+    env.ledger().set_timestamp(initial_timestamp);
+    env.ledger().set_sequence_number(initial_sequence);
+
+    // Mint exact token units across accounts: admin = 10_000, arbiter = 5_000, fee_recipient = 0
+    env.mock_all_auths();
+    token_admin_client.mint(&admin, &10_000);
+    token_admin_client.mint(&arbiter, &5_000);
+    env.set_auths(&[]);
+
+    // Verify initial pre-initialization token units
+    assert_eq!(token_client.balance(&admin), 10_000);
+    assert_eq!(token_client.balance(&arbiter), 5_000);
+    assert_eq!(token_client.balance(&fee_recipient), 0);
+    assert_eq!(token_client.balance(&client.address), 0);
+
+    let dispute_window = 600u64;
+
+    // First initialize call with valid arbiter address under exact ledger and token units
+    client.initialize(&admin, &fee_recipient, &arbiter, &dispute_window);
+
+    // 1. Immutable arbiter identity & initialized contract state
+    assert_eq!(client.get_arbiter(), arbiter);
+    assert_eq!(client.get_fee_recipient(), fee_recipient);
+    assert_eq!(client.get_min_bounty_amount(), DEFAULT_MIN_BOUNTY_AMOUNT);
+    assert!(!client.get_paused_state());
+    assert_eq!(client.get_next_bounty_id(), 0);
+
+    // 2. Exact token unit preservation: zero funds moved, zero contract balance
+    assert_eq!(token_client.balance(&client.address), 0);
+    assert_eq!(token_client.balance(&admin), 10_000);
+    assert_eq!(token_client.balance(&arbiter), 5_000);
+    assert_eq!(token_client.balance(&fee_recipient), 0);
+
+    // 3. Zero events emitted during initialization
+    assert_eq!(env.events().all().events().len(), 0);
+
+    // 4. Exact ledger state preserved
+    assert_eq!(env.ledger().timestamp(), initial_timestamp);
+    assert_eq!(env.ledger().sequence(), initial_sequence);
+
+    // 5. Exclusive arbiter authority: valid arbiter can update min_bounty_amount
+    let new_min = 250i128;
+    env.mock_auths(&[MockAuth {
+        address: &arbiter,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "set_min_bounty_amount",
+            args: (&new_min,).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.set_min_bounty_amount(&new_min);
+    assert_eq!(client.get_min_bounty_amount(), new_min);
 }
