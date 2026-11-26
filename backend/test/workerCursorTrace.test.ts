@@ -198,9 +198,11 @@ describe('indexer cursor outcome tracing (#1933)', () => {
   it('leaves the interrupted events pending when the store write fails, then commits on replay', async () => {
     post.mockResolvedValue(rpcResult([{ id: 'event-a', ledger: 100 }], 'cursor-2'));
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    // Force the atomic write to fail after processing but before persistence.
-    const blockedTempPath = `${indexFile}.${process.pid}.tmp`;
-    fs.mkdirSync(blockedTempPath);
+    // Force the atomic write to fail after processing but before persistence
+    // by placing the events file under a path that cannot become a directory.
+    const blockedParent = path.join(directory, 'blocked');
+    fs.writeFileSync(blockedParent, 'not a directory');
+    indexFile = path.join(blockedParent, 'indexed-events.json');
 
     await poll();
 
@@ -209,7 +211,7 @@ describe('indexer cursor outcome tracing (#1933)', () => {
     expect(fs.existsSync(cursorFile)).toBe(false);
 
     // Restart: the blocking path is gone, so the replayed page commits.
-    fs.rmdirSync(blockedTempPath);
+    fs.rmSync(blockedParent);
     await poll();
 
     expect(records.map((record) => record.outcome)).toEqual(['pending', 'pending', 'committed']);

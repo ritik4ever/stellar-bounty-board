@@ -250,6 +250,7 @@ async function pollEvents(options = {}) {
   const rpcUrl = options.rpcUrl ?? SOROBAN_RPC_URL;
   const contractId = options.contractId ?? CONTRACT_ID;
   const maxRetries = options.maxRetries ?? MAX_RETRIES;
+  const trace = options.trace ?? createConsoleCursorTrace();
   try {
     const events = readEvents(indexFile);
     const cursor = loadCursor(cursorFile, events);
@@ -300,6 +301,7 @@ async function pollEvents(options = {}) {
       throw new Error("Missing page cursor");
     }
     const nextCursor = pageCursor ?? cursor;
+    const cursorAdvanced = Boolean(nextCursor) && nextCursor !== cursor;
 
     const knownKeys = new Set(events.map(eventDedupKey).filter(Boolean));
     const newEvents = page.map(normalizeEvent).filter((event) => {
@@ -309,6 +311,18 @@ async function pollEvents(options = {}) {
       knownKeys.add(key);
       return true;
     });
+    // `pending`: the page is processed but nothing is durable yet. Emitted
+    // before any write so a crash below leaves a trace that explains the
+    // replay of these events on restart.
+    for (const event of newEvents) {
+      trace.pending({
+        event,
+        cursorFrom: cursor,
+        cursorTo: nextCursor,
+        cursorAdvanced,
+      });
+    }
+
     const nextEvents = events.concat(newEvents);
     if (newEvents.length > 0) {
       writeJsonAtomic(indexFile, nextEvents);
