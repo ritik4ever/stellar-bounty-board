@@ -1020,6 +1020,14 @@ impl StellarBountyBoardContract {
     /// This function is part of the public contract ABI. A contributor claims the
     /// exclusive right to work on an open bounty before submitting a solution.
     ///
+    /// # Expiry Boundary
+    /// * Expiration is evaluated strictly after the deadline (`now > bounty.deadline`).
+    /// * A reservation at the exact expiry ledger (`now == bounty.deadline`) succeeds,
+    ///   locking the single `contributor` while leaving the escrowed token balance
+    ///   unchanged in the contract.
+    /// * Any reservation at `now > bounty.deadline` is rejected with
+    ///   [`ContractError::BountyExpired`].
+    ///
     /// # Parameters
     /// * `env` - The Soroban contract environment.
     /// * `bounty_id` - Unique identifier (`u64`) of the bounty to reserve.
