@@ -8,6 +8,7 @@ The contract uses named error codes for all invalid operations. These codes are 
 - `DeadlineMustBeInTheFuture` - a bounty deadline must be later than the current ledger timestamp.
 - `BountyNotOpen` - reserve is only allowed when a bounty is open; cancel is only allowed before reservation.
 - `BountyMustBeReserved` - submit is only allowed when a bounty is reserved.
+- `BountyExpired` - submit is rejected once the ledger timestamp passes the bounty deadline (`now > deadline`).
 - `ContributorMismatch` - the submitting contributor must match the reserved contributor.
 - `MaintainerMismatch` - the maintainer must match the bounty maintainer.
 - `BountyMustBeSubmitted` - release is only allowed when a bounty has been submitted.
