@@ -173,3 +173,43 @@ Untrusted input arriving at `POST /api/webhooks/github` is strictly validated to
 - `backend/test/githubPrWebhook.test.ts` — end-to-end PR auto-release and
   duplicate-delivery behaviour.
 - `backend/test/webhooks.comprehensive.test.ts` — handler and journal units.
+
+## Notification delivery worker input validation (#1947)
+
+The delivery worker (`src/services/notificationService.ts`) sits behind two trust
+boundaries: caller-supplied dispatch input, and the on-disk delivery journal that
+`resumePendingNotificationDeliveries()` re-plays on startup.
+
+### Schemas
+
+Inputs are validated against `src/validation/notification.ts` **before** any
+outbound HTTP call, journal write, or preference lookup:
+
+| Field | Rule |
+|---|---|
+| `recipients[].address` | non-empty, ≤254 chars, no control characters |
+| `recipients[].role` | non-empty, ≤64 chars, `^[a-zA-Z0-9_-]+$` |
+| `event` | non-empty, ≤64 chars, `^[a-z][a-z0-9_.]*$` (not enum-restricted) |
+| `payload` | JSON-serializable, serialized size ≤64 KiB |
+| `deliveryRef` | non-empty, ≤128 chars, `^[a-zA-Z0-9._:-]+$` |
+| `NOTIFICATION_WEBHOOK_URL` | must be a well-formed **https** URL |
+
+### Rejection semantics
+
+Invalid input produces per-recipient `{ status: 'failed', error: 'invalid_input' }`
+outcomes and a single `notification_input_rejected` structured log entry. The
+worker never throws: the resume loop relies on the no-throw contract.
+
+### Journal trust boundary
+
+`resumePendingNotificationDeliveries()` re-validates each pending entry against
+`notificationJournalEntrySchema` before replay. Invalid entries are logged
+(`notification_delivery_resume_rejected`), counted as `failed`, and left
+unmodified in the journal so operators can inspect them.
+
+### Outbound timeouts
+
+Both `fetch` calls pass `AbortSignal.timeout(NOTIFICATION_TIMEOUT_MS)`
+(default `10000`, max `60000`). A `429` from SendGrid is surfaced distinctly
+with the `Retry-After` header preserved in the error string; retries are handled
+by the existing resume loop, not in-place.

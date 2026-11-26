@@ -2,6 +2,11 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { logger, logStructured } from '../logger';
+import {
+  notificationJournalEntrySchema,
+  sendNotificationInputSchema,
+  webhookUrlSchema,
+} from '../validation/notification';
 
 export interface NotificationRecipient {
   role: string;
@@ -86,15 +91,49 @@ function getChannel(): NotificationChannel | null {
   return null;
 }
 
+// ── Delivery-worker hardening helpers (#1947) ────────────────────────────────
+
+const DEFAULT_NOTIFICATION_TIMEOUT_MS = 10_000;
+const MAX_TIMEOUT_MS = 60_000;
+
+/**
+ * Resolves the outbound HTTP timeout for both SendGrid and webhook calls.
+ * Bounded so that a misconfigured env value cannot disable the timeout or
+ * hold the worker open indefinitely.
+ */
+function getNotificationTimeoutMs(): number {
+  const raw = process.env.NOTIFICATION_TIMEOUT_MS?.trim();
+  if (raw) {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed) && parsed > 0 && parsed <= MAX_TIMEOUT_MS) {
+      return Math.floor(parsed);
+    }
+  }
+  return DEFAULT_NOTIFICATION_TIMEOUT_MS;
+}
+
+/**
+ * Strips control characters and bounds length for values that end up in an
+ * outbound email header (notably `Subject`). Prevents CRLF header injection
+ * from untrusted payload fields such as a bounty title.
+ */
+function sanitizeHeaderValue(value: string, maxLen = 200): string {
+  return value
+    .replace(/[\u0000-\u001F\u007F]/g, ' ')
+    .trim()
+    .slice(0, maxLen);
+}
+
 function buildEmailBody(
   event: string,
   recipient: NotificationRecipient,
   payload: Record<string, unknown>
 ): { subject: string; text: string } {
   const bountyId = String(payload.bountyId ?? '');
-  const title = String(payload.title ?? '');
+  const title = sanitizeHeaderValue(String(payload.title ?? ''));
   const amount = String(payload.amount ?? '');
   const token = String(payload.tokenSymbol ?? '');
+  const safeEvent = sanitizeHeaderValue(event, 64);
 
   switch (event) {
     case 'bounty_created':
@@ -134,7 +173,7 @@ function buildEmailBody(
       };
     default:
       return {
-        subject: `[Stellar Bounty Board] Notification: ${event}`,
+        subject: `[Stellar Bounty Board] Notification: ${safeEvent}`,
         text: `A bounty event (${event}) occurred for bounty ${bountyId}.\n\nDetails:\n${JSON.stringify(payload, null, 2)}`,
       };
   }
@@ -190,7 +229,7 @@ async function dispatchEmail(
     try {
       const { subject, text } = buildEmailBody(event, recipient, payload);
       const recipientPref = userOptInPreferences.get(recipient.address);
-      const toEmail = recipientPref?.email || recipient.address;
+      const toEmail = sanitizeHeaderValue(recipientPref?.email || recipient.address, 254);
 
       const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
         method: 'POST',
@@ -204,8 +243,16 @@ async function dispatchEmail(
           subject,
           content: [{ type: 'text/plain', value: text }],
         }),
+        signal: AbortSignal.timeout(getNotificationTimeoutMs()),
       });
 
+      if (response.status === 429) {
+        const retryAfter = response.headers.get('retry-after') ?? 'unset';
+        const body = await response.text();
+        throw new Error(
+          `SendGrid responded 429 (rate limited, retry-after=${retryAfter}): ${body}`,
+        );
+      }
       if (!response.ok) {
         const body = await response.text();
         throw new Error(`SendGrid responded ${response.status}: ${body}`);
@@ -236,6 +283,16 @@ async function dispatchWebhook(
     return skipAll(recipients, channel, 'not_configured');
   }
 
+  // Fail closed on misconfigured or downgraded webhook URLs (#1947).
+  const urlCheck = webhookUrlSchema.safeParse(webhookUrl);
+  if (!urlCheck.success) {
+    logger.warn(
+      { event, reason: urlCheck.error.issues[0]?.message },
+      'Invalid NOTIFICATION_WEBHOOK_URL; skipping webhook notification',
+    );
+    return skipAll(recipients, channel, 'not_configured');
+  }
+
   // Re-check at the send boundary, immediately before the request is built.
   const eligible = recipients.filter((r) => isNotificationOptedIn(r.address));
   const optedOut = recipients.filter((r) => !eligible.includes(r));
@@ -252,7 +309,12 @@ async function dispatchWebhook(
   }
 
   try {
-    const response = await fetch(webhookUrl, { method: 'POST', headers, body });
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers,
+      body,
+      signal: AbortSignal.timeout(getNotificationTimeoutMs()),
+    });
     if (!response.ok) {
       const responseBody = await response.text();
       throw new Error(`Webhook responded ${response.status}: ${responseBody}`);
@@ -389,6 +451,10 @@ export function getNotificationDelivery(deliveryId: string): NotificationDeliver
  * - Already sent recipients in an interrupted batch are never re-alerted (no duplicate alerts).
  * - Recipients who opted out between an initial attempt and replay are skipped at the send boundary.
  * - Remaining recipients are safely retried upon worker resumption.
+ *
+ * All caller-supplied input is validated at the worker trust boundary (#1947) before
+ * any outbound call, journal write, or preference lookup. Malformed input is rejected
+ * with per-recipient `failed` outcomes and never dispatched.
  */
 export async function sendNotification(
   recipients: NotificationRecipient[],
@@ -399,13 +465,46 @@ export async function sendNotification(
   const channel = getChannel();
   if (!channel) return { event, channel: null, outcomes: [] };
 
-  const deliveryId = options?.deliveryRef;
+  // Worker trust boundary (#1947): reject malformed input before any dispatch.
+  const validation = sendNotificationInputSchema.safeParse({
+    recipients,
+    event,
+    payload,
+    options,
+  });
+  if (!validation.success) {
+    const safeEvent = typeof event === 'string' ? sanitizeHeaderValue(event, 64) : '<invalid>';
+    const safeRecipients: NotificationRecipient[] = Array.isArray(recipients) ? recipients : [];
+    const failedOutcomes: NotificationOutcome[] = safeRecipients.length > 0
+      ? safeRecipients.map((r): NotificationOutcome => ({
+          address: typeof r?.address === 'string' ? r.address : '<invalid>',
+          channel,
+          status: 'failed',
+          error: 'invalid_input',
+        }))
+      : [{ address: '<invalid>', channel, status: 'failed', error: 'invalid_input' }];
+
+    logStructured('warn', 'notification_input_rejected', {
+      event: safeEvent,
+      issues: validation.error.issues.map((issue) => ({
+        path: issue.path.join('.'),
+        message: issue.message,
+      })),
+    });
+    return { event: safeEvent, channel, outcomes: failedOutcomes };
+  }
+
+  const validRecipients = validation.data.recipients;
+  const validEvent = validation.data.event;
+  const validPayload = validation.data.payload;
+  const deliveryId = validation.data.options?.deliveryRef;
+
   const journal = deliveryId ? readJournal() : null;
   const existing = deliveryId && journal ? journal.get(deliveryId) : null;
 
   // If this delivery already fully completed, return previous outcomes without sending duplicate alerts
   if (existing?.status === 'completed') {
-    return { event, channel, outcomes: existing.outcomes };
+    return { event: validEvent, channel, outcomes: existing.outcomes };
   }
 
   // Preserve previously successful outcomes from an interrupted batch
@@ -419,11 +518,11 @@ export async function sendNotification(
   }
 
   // Separate recipients that already received the alert from remaining recipients
-  const remainingRecipients = recipients.filter((r) => !previouslySent.has(r.address));
+  const remainingRecipients = validRecipients.filter((r) => !previouslySent.has(r.address));
   const outcomes: NotificationOutcome[] = [];
 
   // Add previously completed outcomes
-  for (const r of recipients) {
+  for (const r of validRecipients) {
     const prev = previouslySent.get(r.address);
     if (prev) {
       outcomes.push(prev);
@@ -439,8 +538,8 @@ export async function sendNotification(
   if (candidates.length > 0) {
     const dispatched =
       channel === 'EMAIL'
-        ? await dispatchEmail(candidates, event, payload)
-        : await dispatchWebhook(candidates, event, payload);
+        ? await dispatchEmail(candidates, validEvent, validPayload)
+        : await dispatchWebhook(candidates, validEvent, validPayload);
     outcomes.push(...dispatched);
   }
 
@@ -452,9 +551,9 @@ export async function sendNotification(
 
     const entry: NotificationDeliveryEntry = {
       deliveryId,
-      event,
-      payload,
-      recipients,
+      event: validEvent,
+      payload: validPayload,
+      recipients: validRecipients,
       channel,
       status,
       outcomes,
@@ -471,12 +570,12 @@ export async function sendNotification(
   const failed = outcomes.find((o) => o.status === 'failed');
   if (failed && failed.status === 'failed') {
     logger.error(
-      { event, deliveryId, err: failed.error },
+      { event: validEvent, deliveryId, err: failed.error },
       'Notification dispatch failed; delivery left pending for worker retry'
     );
   }
 
-  return { event, channel, outcomes };
+  return { event: validEvent, channel, outcomes };
 }
 
 /**
@@ -485,6 +584,11 @@ export async function sendNotification(
  * Run at startup or on scheduled worker ticks so that notifications interrupted by SendGrid 429
  * rate limits, webhook timeouts, or process restarts are resumed without duplicating alerts for
  * recipients who already received them.
+ *
+ * Each replayed entry is re-validated against the journal schema (#1947) before dispatch, so a
+ * tampered or corrupted journal cannot smuggle malformed recipients, events, or payloads through
+ * the outbound path. Invalid entries are logged and skipped without being modified, leaving them
+ * visible to operators.
  */
 export async function resumePendingNotificationDeliveries(): Promise<NotificationResumeSummary> {
   const pending = getPendingNotificationDeliveries();
@@ -492,6 +596,20 @@ export async function resumePendingNotificationDeliveries(): Promise<Notificatio
   let failed = 0;
 
   for (const entry of pending) {
+    const validated = notificationJournalEntrySchema.safeParse(entry);
+    if (!validated.success) {
+      failed++;
+      logStructured('warn', 'notification_delivery_resume_rejected', {
+        deliveryId:
+          typeof entry?.deliveryId === 'string' ? sanitizeHeaderValue(entry.deliveryId, 128) : '<invalid>',
+        issues: validated.error.issues.map((issue) => ({
+          path: issue.path.join('.'),
+          message: issue.message,
+        })),
+      });
+      continue;
+    }
+
     logStructured('info', 'notification_delivery_resume_attempt', {
       deliveryId: entry.deliveryId,
       attempts: entry.attempts,
