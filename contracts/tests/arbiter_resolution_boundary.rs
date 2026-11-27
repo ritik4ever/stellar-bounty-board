@@ -182,6 +182,11 @@ fn resolve_dispute_at_exact_window_boundary_releases_exact_token_units_to_contri
             arbiter: f.arbiter.clone(),
             release: true,
             amount: exact_amount,
+            destination: f.contributor.clone(),
+            token: f.token.clone(),
+            net_amount: expected_net,
+            fee_amount: expected_fee,
+            resolved_at: dispute_raised_at + GLOBAL_DISPUTE_WINDOW,
         }
     );
 
@@ -250,6 +255,11 @@ fn resolve_dispute_at_exact_override_window_boundary_refunds_exact_token_units_t
             arbiter: f.arbiter.clone(),
             release: false,
             amount: exact_amount,
+            destination: f.maintainer.clone(),
+            token: f.token.clone(),
+            net_amount: exact_amount,
+            fee_amount: 0,
+            resolved_at: dispute_raised_at + custom_window,
         }
     );
 
