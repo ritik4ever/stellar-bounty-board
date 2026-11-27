@@ -4,11 +4,26 @@ import { z } from 'zod';
 import { isValidStellarAddress, getTokenAddressMap } from '../utils';
 import { githubPrUrlSchema } from './prUrl';
 
+// Side effect: importing this module adds `.openapi()` to every zod schema.
 extendZodWithOpenApi(z);
 
 const REPO_REGEX = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 const TOKEN_REGEX = /^[A-Za-z0-9]{1,12}$/;
 
+/**
+ * Token symbols accepted for `tokenSymbol` when creating a bounty.
+ *
+ * Uses `ALLOWED_TOKEN_SYMBOLS` (comma-separated, trimmed, upper-cased, empty
+ * entries dropped) when it yields at least one symbol. Otherwise it falls back
+ * to the keys of `getTokenAddressMap()`: `XLM` and `USDC`, plus any symbols
+ * configured through `TOKEN_ADDRESS_MAP` / `TOKEN_ADDR_*` / `TOKEN_ADDRESS_*`.
+ *
+ * Reads the environment on every call; nothing is cached. Never throws. A
+ * malformed `TOKEN_ADDRESS_MAP` is logged by `getTokenAddressMap()` and
+ * ignored.
+ *
+ * @returns Upper-case symbols in configuration order, never empty.
+ */
 export function getAllowedTokenSymbols(): string[] {
   const configured = process.env.ALLOWED_TOKEN_SYMBOLS?.split(',')
     .map((symbol) => symbol.trim().toUpperCase())
@@ -24,6 +39,7 @@ export function getAllowedTokenSymbols(): string[] {
 const STELLAR_EXAMPLE = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
 const TX_HASH_REGEX = /^[0-9a-fA-F]{64}$/;
 
+/** Non-empty bounty id after trimming. The format (e.g. `BNT-0001`) is not checked. */
 export const bountyIdSchema = z
   .string()
   .trim()
@@ -41,6 +57,18 @@ const stellarAccountSchema = z
     description: 'A valid Stellar public key (starts with G, 56 characters, checksum verified).',
   });
 
+/**
+ * Request body for `POST /api/bounties`.
+ *
+ * `issueNumber`, `amount` and `deadlineDays` are coerced with `Number()`, so
+ * numeric strings are accepted. `""` and `null` coerce to `0` and then fail
+ * the positive/min checks. `tokenSymbol` is upper-cased and checked against
+ * {@link getAllowedTokenSymbols} **at parse time**, so allowlist changes in the
+ * environment apply without a restart. `labels` defaults to `[]`, and unknown
+ * keys are stripped.
+ *
+ * Amount limits and decimal precision are enforced by the route, not here.
+ */
 export const createBountySchema = z
   .object({
     repo: z
@@ -53,15 +81,10 @@ export const createBountySchema = z
       .int()
       .positive('Issue number must be positive.')
       .openapi({ example: 42, description: 'GitHub issue number this bounty is attached to.' }),
-    title: z
-      .string()
-      .trim()
-      .min(5)
-      .max(120)
-      .openapi({
-        example: 'Fix login redirect bug',
-        description: 'Short bounty title (5–120 chars).',
-      }),
+    title: z.string().trim().min(5).max(120).openapi({
+      example: 'Fix login redirect bug',
+      description: 'Short bounty title (5–120 chars).',
+    }),
     summary: z.string().trim().min(20).max(280).openapi({
       example:
         'The login page does not redirect after successful authentication. Fix the redirect logic.',
@@ -86,13 +109,10 @@ export const createBountySchema = z
         example: 'XLM',
         description: 'Stellar token symbol for payout (1–12 alphanumeric chars).',
       }),
-    amount: z.coerce
-      .number()
-      .positive()
-      .openapi({
-        example: 42.5,
-        description: 'Payout amount in the selected token.',
-      }),
+    amount: z.coerce.number().positive().openapi({
+      example: 42.5,
+      description: 'Payout amount in the selected token.',
+    }),
     deadlineDays: z.coerce
       .number()
       .int()
@@ -114,22 +134,54 @@ export const createBountySchema = z
   })
   .openapi('CreateBountyRequest');
 
+/**
+ * Request body for reserving a bounty. `expectedVersion`, when given, enables
+ * optimistic concurrency: the store rejects the reservation if the bounty's
+ * version has changed. It must be a positive integer.
+ */
 export const reserveBountySchema = z
   .object({
     contributor: stellarAccountSchema.openapi({
       description: 'Stellar public key of the contributor reserving the bounty.',
     }),
-    expectedVersion: z.number().int().optional().openapi({
+    expectedVersion: z.number().int().positive().optional().openapi({
       example: 1,
       description:
-        'Optional version number for race condition prevention. If provided, must match current bounty version.',
+        'Optional positive version number for race condition prevention. If provided, must match current bounty version.',
     }),
   })
+  .strict()
   .openapi('ReserveBountyRequest');
 
+/**
+ * Request for `POST /api/bounties/:id/reserve`.
+ *
+ * Validates the route ID, the empty query string, and the reservation body
+ * together so malformed input is rejected before idempotency or store logic.
+ */
+export const reserveBountyRequestSchema = z
+  .object({
+    params: z.object({ id: bountyIdSchema }).strict(),
+    query: z.object({}).strict(),
+    body: reserveBountySchema,
+  })
+  .strict();
+
+/**
+ * Exact-match pattern for `https://github.com/<owner>/<repo>/pull/<number>`.
+ * Same pattern as the one {@link githubPrUrlSchema} uses internally. Test it
+ * against a trimmed string; it does not trim.
+ */
 export const GITHUB_PR_URL_REGEX =
   /^https:\/\/github\.com\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+\/pull\/\d+$/;
 
+/**
+ * Request body for submitting work on a reserved bounty.
+ *
+ * `submissionUrl` is only checked to be a URL here. GitHub-specific checks
+ * (format, repository match, PR existence, issue reference) happen later, in
+ * `validateGithubPrUrlForRepo` in the store.
+ */
 export const submitBountySchema = z
   .object({
     contributor: stellarAccountSchema.openapi({
@@ -141,18 +193,14 @@ export const submitBountySchema = z
       description: 'GitHub pull request URL for the submission.',
     }),
 
-    notes: z
-      .string()
-      .trim()
-      .max(240)
-      .optional()
-      .openapi({
-        example: 'Fixed by updating the redirect handler.',
-        description: 'Optional notes (max 240 chars).',
-      }),
+    notes: z.string().trim().max(240).optional().openapi({
+      example: 'Fixed by updating the redirect handler.',
+      description: 'Optional notes (max 240 chars).',
+    }),
   })
   .openapi('SubmitBountyRequest');
 
+/** Request body for a contributor disputing a bounty; `reason` is 1–500 chars after trimming. */
 export const disputeBountySchema = z
   .object({
     contributor: stellarAccountSchema.openapi({
@@ -170,17 +218,19 @@ export const disputeBountySchema = z
   })
   .openapi('DisputeBountyRequest');
 
+/**
+ * Request body for an arbiter resolving a dispute. `release: true` pays the
+ * contributor; `false` resolves in the maintainer's favour.
+ */
 export const resolveDisputeBountySchema = z
   .object({
     arbiter: stellarAccountSchema.openapi({
       description: 'Stellar public key of the arbiter resolving the dispute.',
     }),
-    release: z
-      .boolean()
-      .openapi({
-        example: true,
-        description: 'Whether the arbiter resolves the dispute in favor of the contributor.',
-      }),
+    release: z.boolean().openapi({
+      example: true,
+      description: 'Whether the arbiter resolves the dispute in favor of the contributor.',
+    }),
     transactionHash: z
       .string()
       .trim()
@@ -193,6 +243,10 @@ export const resolveDisputeBountySchema = z
   })
   .openapi('ResolveDisputeBountyRequest');
 
+/**
+ * Request body for single-bounty maintainer actions (release, refund, cancel).
+ * The maintainer must also match the bounty record; the store checks that.
+ */
 export const maintainerActionSchema = z
   .object({
     maintainer: stellarAccountSchema.openapi({
@@ -210,22 +264,72 @@ export const maintainerActionSchema = z
   })
   .openapi('MaintainerActionRequest');
 
+/**
+ * Request body for `POST /api/bounties/:id/refund` (Issue #1925).
+ *
+ * Extends the maintainer action with an optional optimistic-concurrency
+ * version. When `expectedVersion` is present and the bounty has moved on (for
+ * example a reserve committed first), the store answers 409 with the version it
+ * currently holds so the caller can refresh and retry.
+ */
+export const refundBountyBodySchema = maintainerActionSchema
+  .extend({
+    expectedVersion: z.number().int().positive().optional().openapi({
+      example: 2,
+      description:
+        'Optional version read by the client. A mismatch is rejected with 409 and the current version.',
+    }),
+  })
+  .strict()
+  .openapi('RefundBountyRequest');
+
+/**
+ * Request for `POST /api/bounties/:id/release`.
+ *
+ * Validates the route param (`id`), any query string, and the body in one
+ * schema so invalid input is rejected with a 400 before the store or contract
+ * layer is touched. `transactionHash` is optional and, when present, must be a
+ * 64-character hex string.
+ */
+export const releaseBountySchema = z
+  .object({
+    id: bountyIdSchema.openapi({
+      description: 'Bounty ID from the route path.',
+    }),
+    maintainer: stellarAccountSchema.openapi({
+      description: 'Must match the maintainer address on the bounty.',
+    }),
+    transactionHash: z
+      .string()
+      .trim()
+      .regex(TX_HASH_REGEX, 'Transaction hash must be a 64 character hex string.')
+      .optional()
+      .openapi({
+        example: '0'.repeat(64),
+        description: 'Optional transaction hash for the release action (64-char hex).',
+      }),
+  })
+  .openapi('ReleaseBountyRequest');
+
+/** Request body for updating maintainer notes (0–2000 chars after trimming; an empty string is allowed). */
 export const updateNotesSchema = z
   .object({
     maintainer: stellarAccountSchema.openapi({
       description: 'Must match the maintainer address on the bounty.',
     }),
-    notes: z
-      .string()
-      .trim()
-      .max(2000, 'Notes must be at most 2000 characters.')
-      .openapi({
-        example: 'Added additional details about the bounty requirements.',
-        description: 'Maintainer notes for the bounty (max 2000 characters).',
-      }),
+    notes: z.string().trim().max(2000, 'Notes must be at most 2000 characters.').openapi({
+      example: 'Added additional details about the bounty requirements.',
+      description: 'Maintainer notes for the bounty (max 2000 characters).',
+    }),
   })
   .openapi('UpdateNotesRequest');
 
+/**
+ * Request body for extending a bounty deadline. Only checks for a positive
+ * integer (Unix seconds). The route or store checks that it is in the future
+ * and later than the current deadline. It is **not** coerced, so a numeric
+ * string is rejected.
+ */
 export const extendDeadlineSchema = z
   .object({
     maintainer: stellarAccountSchema.openapi({
@@ -244,15 +348,135 @@ export const extendDeadlineSchema = z
   .openapi('ExtendDeadlineRequest');
 
 // ---------------------------------------------------------------------------
+// GET /api/bounties input validation
+// ---------------------------------------------------------------------------
+
+/** Statuses accepted by the `status` filter on `GET /api/bounties`. */
+const BOUNTY_STATUS_VALUES = [
+  'open',
+  'reserved',
+  'submitted',
+  'released',
+  'refunded',
+  'expired',
+  'disputed',
+] as const;
+
+/** Fields accepted by the `sort` query parameter on `GET /api/bounties`. */
+const BOUNTY_SORT_FIELDS = ['amount', 'deadline', 'createdAt', 'status'] as const;
+
+/** Directions accepted by the `order` query parameter on `GET /api/bounties`. */
+const BOUNTY_SORT_ORDERS = ['asc', 'desc'] as const;
+
+/** Express parses `?q=` as an empty string; treat blank values as absent. */
+const emptyQueryValueToUndefined = (value: unknown): unknown =>
+  typeof value === 'string' && value.trim() === '' ? undefined : value;
+
+/** Makes a query-string schema optional while treating blank values as absent. */
+function optionalQueryValue<T extends z.ZodTypeAny>(schema: T) {
+  return z.preprocess(emptyQueryValueToUndefined, schema.optional());
+}
+
+/** Coerces a non-negative reward filter to a finite number. */
+const rewardQueryValueSchema = optionalQueryValue(z.coerce.number().finite().nonnegative());
+
+/** Coerces the 1-based page number, defaulting when absent. */
+const pageQueryValueSchema = z.preprocess(
+  emptyQueryValueToUndefined,
+  z.coerce.number().int().min(1, 'page must be greater than or equal to 1.').default(1)
+);
+
+/** Coerces a page size of 1–100; the route defaults to 20 when absent. */
+const pageSizeQueryValueSchema = optionalQueryValue(z.coerce.number().int().min(1).max(100));
+
+/**
+ * Converts an ISO 8601 deadline filter to Unix seconds. The route compares it
+ * against `deadlineAt`, which is stored in seconds.
+ */
+const deadlineQueryValueSchema = z.preprocess(
+  emptyQueryValueToUndefined,
+  z
+    .string()
+    .trim()
+    .refine((value) => !Number.isNaN(new Date(value).getTime()), {
+      message: 'Must be a valid ISO 8601 date string.',
+    })
+    .transform((value) => Math.floor(new Date(value).getTime() / 1000))
+    .optional()
+);
+
+/**
+ * Query string for `GET /api/bounties`.
+ *
+ * Covers every filter, sort, and pagination parameter the route accepts and
+ * rejects unknown parameters via `.strict()`. Repeated parameters arrive as
+ * arrays and therefore fail the scalar checks instead of being silently
+ * ignored. `limit` and `pageSize` are both accepted; the route prefers
+ * `limit`, matching the documented legacy alias. Blank values are treated as
+ * absent so `?q=&page=` behaves like an unfiltered request.
+ */
+export const listBountiesQuerySchema = z
+  .object({
+    q: optionalQueryValue(z.string().trim().min(1, 'q must not be empty.')),
+    repo: optionalQueryValue(
+      z.string().trim().regex(REPO_REGEX, 'Repo must look like owner/repository.')
+    ),
+    minReward: rewardQueryValueSchema,
+    maxReward: rewardQueryValueSchema,
+    contributor: optionalQueryValue(stellarAccountSchema),
+    maintainer: optionalQueryValue(stellarAccountSchema),
+    status: optionalQueryValue(z.enum(BOUNTY_STATUS_VALUES)),
+    tokenSymbol: optionalQueryValue(
+      z
+        .string()
+        .trim()
+        .regex(TOKEN_REGEX, 'Token symbol must be 1-12 letters or numbers.')
+        .transform((symbol) => symbol.toUpperCase())
+    ),
+    sort: z.preprocess(emptyQueryValueToUndefined, z.enum(BOUNTY_SORT_FIELDS).default('createdAt')),
+    order: z.preprocess(emptyQueryValueToUndefined, z.enum(BOUNTY_SORT_ORDERS).default('desc')),
+    page: pageQueryValueSchema,
+    limit: pageSizeQueryValueSchema,
+    pageSize: pageSizeQueryValueSchema,
+    deadlineBefore: deadlineQueryValueSchema,
+    deadlineAfter: deadlineQueryValueSchema,
+  })
+  .strict()
+  .refine(
+    (query) =>
+      query.minReward === undefined ||
+      query.maxReward === undefined ||
+      query.minReward <= query.maxReward,
+    {
+      message: 'minReward must be less than or equal to maxReward.',
+      path: ['minReward'],
+    }
+  );
+
+/**
+ * Complete input for `GET /api/bounties`: no path parameters, the validated
+ * query string, and no request body.
+ */
+export const listBountiesInputSchema = z.object({
+  params: z.object({}).strict().openapi({ description: 'No path parameters expected.' }),
+  query: listBountiesQuerySchema,
+  body: z
+    .union([z.undefined(), z.null(), z.object({}).strict()])
+    .openapi({ description: 'No request body expected.' }),
+});
+
+// ---------------------------------------------------------------------------
 // Shared response schemas
 // ---------------------------------------------------------------------------
 
+/** Shape of error responses, used for OpenAPI documentation. */
 export const errorResponseSchema = z
   .object({
     error: z.string().openapi({ example: 'Bounty not found.' }),
   })
   .openapi('ErrorResponse');
 
+/** One entry in a bounty's `events` history. `timestamp` is Unix seconds. */
 export const bountyEventSchema = z.object({
   type: z.enum(['created', 'reserved', 'submitted', 'released', 'refunded', 'expired', 'disputed']),
   timestamp: z.number(),
@@ -260,6 +484,10 @@ export const bountyEventSchema = z.object({
   details: z.record(z.any()).optional(),
 });
 
+/**
+ * A bounty as returned by the API. Used for OpenAPI docs and contract tests,
+ * not to validate input. Timestamps are Unix seconds.
+ */
 export const bountyRecordSchema = z
   .object({
     id: z.string().openapi({ example: 'BNT-0001' }),
@@ -272,7 +500,9 @@ export const bountyRecordSchema = z
     maintainer: z.string().openapi({ example: STELLAR_EXAMPLE }),
     contributor: z.string().optional().openapi({ example: STELLAR_EXAMPLE }),
     tokenSymbol: z.string().openapi({ example: 'XLM' }),
-    tokenAddress: z.string().openapi({ example: 'CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA' }),
+    tokenAddress: z
+      .string()
+      .openapi({ example: 'CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA' }),
     amount: z.number().openapi({ example: 100 }),
     labels: z.array(z.string()).openapi({ example: ['bug', 'help wanted'] }),
     status: z
@@ -321,22 +551,25 @@ export const bountyRecordSchema = z
   })
   .openapi('BountyRecord');
 
+/** A curated open issue returned by `GET /api/open-issues` (response schema). */
 export const openIssueSchema = z
   .object({
     id: z.string().openapi({ example: 'SBB-101' }),
     title: z.string().openapi({ example: 'Add Freighter wallet signing' }),
     labels: z.array(z.string()).openapi({ example: ['enhancement', 'help wanted'] }),
-    summary: z
-      .string()
-      .openapi({
-        example: 'Replace prompt-based demo actions with wallet-authenticated transactions.',
-      }),
+    summary: z.string().openapi({
+      example: 'Replace prompt-based demo actions with wallet-authenticated transactions.',
+    }),
     impact: z.enum(['starter', 'core', 'advanced']).openapi({ example: 'core' }),
   })
   .openapi('OpenIssue');
 
 const auditLogMetadataValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 
+/**
+ * One status-transition audit record (response schema). `metadata` values are
+ * restricted to primitives so logs stay flat and serialisable.
+ */
 export const bountyAuditLogSchema = z
   .object({
     id: z.string().openapi({ example: 'AUD-000001' }),
@@ -348,7 +581,16 @@ export const bountyAuditLogSchema = z
       .enum(['open', 'reserved', 'submitted', 'released', 'refunded', 'expired'])
       .openapi({ example: 'reserved' }),
     transition: z
-      .enum(['reserve', 'submit', 'release', 'refund', 'cancel', 'expire', 'dispute', 'update_notes'])
+      .enum([
+        'reserve',
+        'submit',
+        'release',
+        'refund',
+        'cancel',
+        'expire',
+        'dispute',
+        'update_notes',
+      ])
       .openapi({ example: 'reserve' }),
     actor: z.string().openapi({ example: STELLAR_EXAMPLE }),
     timestamp: z
@@ -364,6 +606,7 @@ export const bountyAuditLogSchema = z
   })
   .openapi('BountyAuditLogRecord');
 
+/** Offset pagination block for audit log responses. `nextOffset` is `null` on the last page. */
 export const bountyAuditLogPaginationSchema = z
   .object({
     limit: z.number().int().min(1).max(100).openapi({ example: 20 }),
@@ -374,6 +617,7 @@ export const bountyAuditLogPaginationSchema = z
   })
   .openapi('BountyAuditLogPagination');
 
+/** Paged audit log response (`page` is 1-based, `pageSize` 1–100). */
 export const bountyAuditLogListResponseSchema = z
   .object({
     data: z.array(bountyAuditLogSchema),
@@ -383,6 +627,29 @@ export const bountyAuditLogListResponseSchema = z
   })
   .openapi('BountyAuditLogListResponse');
 
+/**
+ * Input validation for `GET /api/health`.
+ *
+ * The health endpoint is a simple liveness probe that accepts no meaningful
+ * input. This schema enforces that callers do not send unexpected query
+ * parameters or a request body. Any extraneous input is rejected with a 400
+ * before the handler executes, preventing confusing downstream behaviour.
+ *
+ * - **params** – empty (the route has no path parameters).
+ * - **query** – must be empty; unknown keys are rejected.
+ * - **body** – must be `undefined`, `null`, or `{}`.
+ */
+export const healthInputSchema = z
+  .object({
+    params: z.object({}).strict().openapi({ description: 'No path parameters expected.' }),
+    query: z.object({}).strict().openapi({ description: 'No query parameters expected.' }),
+    body: z
+      .union([z.undefined(), z.null(), z.object({}).strict()])
+      .openapi({ description: 'No request body expected.' }),
+  })
+  .openapi('HealthInput');
+
+/** Response of the shallow health check. `timestamp` is an ISO-8601 string. */
 export const healthResponseSchema = z
   .object({
     service: z.string().openapi({ example: 'stellar-bounty-board-backend' }),
@@ -391,8 +658,13 @@ export const healthResponseSchema = z
   })
   .openapi('HealthResponse');
 
+/** Status of one dependency in the deep health check. */
 export const componentStatusSchema = z.enum(['up', 'down']);
 
+/**
+ * Response of the deep health check. `overall` is `down` if any component is
+ * `down`.
+ */
 export const deepHealthResponseSchema = z
   .object({
     overall: componentStatusSchema,
@@ -406,6 +678,48 @@ export const deepHealthResponseSchema = z
   })
   .openapi('DeepHealthResponse');
 
+/**
+ * Maintainer bulk-action payload (#829).
+ *
+ * Processes the same release/refund transitions as the single-bounty
+ * endpoints, but for many bounties in one admin-authenticated request.
+ * Per-item failures are reported individually instead of failing the
+ * whole batch, so partial success is always visible.
+ */
+export const bulkActionSchema = z
+  .object({
+    action: z.enum(['release', 'refund']).openapi({
+      example: 'release',
+      description: 'The maintainer transition to apply to every listed bounty.',
+    }),
+    bountyIds: z
+      .array(bountyIdSchema)
+      .min(1, 'At least one bounty ID is required.')
+      .max(100, 'A bulk action may target at most 100 bounties.')
+      .openapi({ example: ['BNT-0001', 'BNT-0002'] }),
+    maintainer: stellarAccountSchema,
+    transactionHash: z
+      .string()
+      .trim()
+      .regex(TX_HASH_REGEX, 'Transaction hash must be 64 hexadecimal characters.')
+      .optional()
+      .openapi({ example: 'a'.repeat(64), description: 'Optional Stellar transaction hash.' }),
+  })
+  .openapi('BulkAction');
+
+/**
+ * Flattens a `ZodError` into one human-readable line for API error responses,
+ * e.g. `"repo: Repo must look like owner/repository.; amount: Number must be greater than 0"`.
+ *
+ * Each issue becomes `<dotted.path>: <message>`. Issues with an empty path
+ * (the whole body failed, e.g. it was not an object) use `body` as the path.
+ * Issues are joined with `"; "` in Zod's order.
+ *
+ * Pure and stateless. Never throws. An error with no issues returns `""`.
+ *
+ * @param error - The error from a failed `parse`/`safeParse`.
+ * @returns A single-line summary suitable for a client response.
+ */
 export function zodErrorMessage(error: z.ZodError): string {
   return error.issues
     .map((issue) => `${issue.path.join('.') || 'body'}: ${issue.message}`)

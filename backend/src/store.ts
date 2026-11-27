@@ -10,6 +10,7 @@
 
 import fs from "fs";
 import path from "path";
+import { logger } from "./logger";
 
 // ---------------------------------------------------------------------------
 // Path resolution
@@ -32,16 +33,17 @@ export function resolveBackupPath(storePath: string): string {
 
 /**
  * Copy `src` to `dest` only when `src` exists and is non-empty.
- * Silently swallows errors so a missing / unreadable main file never
- * prevents the backup step from completing.
+ * Backup failures never abort the write, but are logged as warnings so a
+ * failing backup (disk full, permissions) is visible instead of silent.
  */
 function backupIfExists(src: string, dest: string): void {
   try {
     if (fs.existsSync(src) && fs.statSync(src).size > 0) {
       fs.copyFileSync(src, dest);
     }
-  } catch {
-    // Non-fatal – we proceed with the write regardless.
+  } catch (err) {
+    // Non-fatal – we proceed with the write regardless, but surface it.
+    logger.warn({ err, src, dest }, "store backup failed; continuing with write");
   }
 }
 
@@ -83,16 +85,16 @@ export function loadBounties<T = unknown>(storePath?: string): T[] {
   // Main file is missing or corrupt – try the backup.
   const bak = tryParse<T[]>(backup);
   if (bak !== null) {
-    console.warn(
-      `[store] WARNING: "${store}" is missing or contains invalid JSON. ` +
+    logger.warn(
+      `"${store}" is missing or contains invalid JSON. ` +
         `Restored ${bak.length} bounties from backup "${backup}".`
     );
     // Restore the main file from the backup so future reads succeed.
     try {
       fs.writeFileSync(store, JSON.stringify(bak, null, 2), "utf8");
     } catch (writeErr) {
-      console.warn(
-        `[store] WARNING: Could not restore main store from backup: ${writeErr}`
+      logger.warn(
+        `Could not restore main store from backup: ${writeErr}`
       );
     }
     return bak;
