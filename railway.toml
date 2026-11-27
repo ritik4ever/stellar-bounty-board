@@ -1,2 +1,45 @@
-[build]
+# ==============================================================================
+# Railway Deployment Configuration (`railway.toml`)
+# ==============================================================================
+# Architectural Overview & Deviations from Railway Platform Defaults
+# ==============================================================================
+#
+# 1. Builder Engine: builder = "DOCKERFILE"
+#    - Railway Default: "NIXPACKS"
+#    - Deliberate Deviation: Explicitly overrides Nixpacks with Dockerfile builds.
+#    - Rationale: Railway's default Nixpacks heuristic fails to resolve the monorepo
+#      dependency graph (where backend requires root dependencies and generated Soroban
+#      contract types). The multi-stage Dockerfile guarantees deterministic builds.
+#
+# 2. Dockerfile Resolution: dockerfilePath = "Dockerfile"
+#    - Railway Default: Auto-detected root or subdirectory Dockerfile.
+#    - Deliberate Deviation: Explicit path declaration prevents Railway from selecting
+#      a nested or test Dockerfile (such as frontend/Dockerfile) during backend deploys.
+#
+# 3. Crash Recovery Policy: restartPolicyType = "ON_FAILURE"
+#    - Railway Default: "NEVER"
+#    - Deliberate Deviation: Automatically restarts containers on non-zero exit codes
+#      to self-heal from transient Stellar RPC network timeouts or Futurenet restarts.
+#
+# 4. Restart Retry Cap: restartPolicyMaxRetries = 10
+#    - Railway Default: 10
+#    - Classification: Template default to prevent endless crash-loop resource consumption.
+# 5. Service Healthcheck Probe: healthcheckPath = "/api/health"
+#    - Verified App Route: Backend exposes `GET /api/health` returning 200 `{ status: "ok" }`.
+#    - Alignment: Matches Dockerfile HEALTHCHECK command (`http://localhost:3001/api/health`).
+#    - Timeout: Set to 100s to allow cold container boot and RPC simulation initialization.
+# ==============================================================================
 
+[build]
+# Deliberate deviation: Force multi-stage Dockerfile instead of Railway Nixpacks
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# Confirmed alignment: Service exposes GET /api/health for zero-downtime health verification
+healthcheckPath = "/api/health"
+healthcheckTimeout = 100
+
+# Deliberate deviation: Auto-restart on transient container exit vs default NEVER
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10

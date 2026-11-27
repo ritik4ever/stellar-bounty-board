@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import { listBounties } from './api';
+import { listAllBounties } from './api';
 import RecommendedBounties from './RecommendedBounties';
 import {
   createDefaultProfile,
@@ -10,6 +10,7 @@ import {
 import { useWallet } from './hooks';
 import type { Bounty } from './types';
 import { getContributorMetrics } from './utils';
+import DisconnectConfirmModal from './DisconnectConfirmModal';
 
 function shortAddress(value: string): string {
   return `${value.slice(0, 6)}...${value.slice(-4)}`;
@@ -25,8 +26,11 @@ export default function ContributorDashboard({
   loading: loadingProp,
 }: ContributorDashboardProps) {
   const { address, isConnected, connect, disconnect } = useWallet();
+  const [showDisconnectModal, setShowDisconnectModal] = useState(false);
   const [fetchedBounties, setFetchedBounties] = useState<Bounty[]>([]);
   const [fetchLoading, setFetchLoading] = useState(bountiesProp === undefined);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     if (bountiesProp !== undefined) {
@@ -35,16 +39,18 @@ export default function ContributorDashboard({
 
     let active = true;
     setFetchLoading(true);
+    setFetchError(null);
 
-    void listBounties()
+    void listAllBounties()
       .then((data) => {
         if (active) {
           setFetchedBounties(data);
         }
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (active) {
           setFetchedBounties([]);
+          setFetchError(error instanceof Error ? error.message : 'Failed to load bounties.');
         }
       })
       .finally(() => {
@@ -56,7 +62,7 @@ export default function ContributorDashboard({
     return () => {
       active = false;
     };
-  }, [bountiesProp]);
+  }, [bountiesProp, reloadToken]);
 
   const bounties = bountiesProp ?? fetchedBounties;
   const loading = loadingProp ?? fetchLoading;
@@ -98,7 +104,11 @@ export default function ContributorDashboard({
           {isConnected && address ? (
             <>
               <span className="wallet-chip">{shortAddress(address)}</span>
-              <button type="button" className="ghost-button" onClick={disconnect}>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => setShowDisconnectModal(true)}
+              >
                 Disconnect
               </button>
             </>
@@ -111,7 +121,10 @@ export default function ContributorDashboard({
       </header>
 
       {isConnected && (
-        <section className="metrics contributor-dashboard__metrics" aria-label="Contributor metrics">
+        <section
+          className="metrics contributor-dashboard__metrics"
+          aria-label="Contributor metrics"
+        >
           <div>
             <span className="meta-label">Released earnings</span>
             <strong>{releasedTotal || '0'}</strong>
@@ -127,11 +140,54 @@ export default function ContributorDashboard({
         </section>
       )}
 
-      <RecommendedBounties
-        recommendations={recommendations}
-        loading={loading && isConnected}
-        walletConnected={isConnected}
-      />
+      {loading && !isConnected ? (
+        <div
+          className="contributor-dashboard__state contributor-dashboard__state--loading"
+          role="status"
+          aria-live="polite"
+          data-testid="dashboard-loading"
+        >
+          Loading bounties...
+        </div>
+      ) : fetchError && bountiesProp === undefined ? (
+        <div
+          className="contributor-dashboard__state contributor-dashboard__state--error"
+          role="alert"
+          data-testid="dashboard-error"
+        >
+          <p>Something went wrong loading bounties: {fetchError}</p>
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={() => setReloadToken((token) => token + 1)}
+          >
+            Retry
+          </button>
+        </div>
+      ) : !loading && bounties.length === 0 ? (
+        <div
+          className="contributor-dashboard__state contributor-dashboard__state--empty"
+          data-testid="dashboard-empty"
+        >
+          No bounties available yet. Check back soon.
+        </div>
+      ) : (
+        <RecommendedBounties
+          recommendations={recommendations}
+          loading={loading && isConnected}
+          walletConnected={isConnected}
+        />
+      )}
+
+      {showDisconnectModal && (
+        <DisconnectConfirmModal
+          onConfirm={() => {
+            disconnect();
+            setShowDisconnectModal(false);
+          }}
+          onClose={() => setShowDisconnectModal(false)}
+        />
+      )}
     </div>
   );
 }

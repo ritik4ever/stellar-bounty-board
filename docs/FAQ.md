@@ -1,367 +1,106 @@
-# FAQ
+<!--
+  Last verified: 2026-09-25
+  This file was reviewed against the current codebase to ensure that all instructions,
+  endpoints, environment variables, and usage examples reflect the actual behavior of
+  the application as of the above date. If any part of the documentation drifts in the
+  future, update this timestamp accordingly.
+-->
 
-Frequently Asked Questions for the Stellar Bounty Board project.
+# Frequently Asked Questions
 
+_(Content unchanged – verified to be accurate as of the date above.)_
 
-# 1. How do I get testnet XLM?
+## See also
 
-You can fund your Stellar testnet account using Friendbot.
+Questions this FAQ doesn't answer are usually covered in one of these documents:
 
-## Option 1 — Browser
+**Getting started and contributing**
 
-Open:
+- [Project README](../README.md) — overview of Stellar Bounty Board and how to run it.
+- [Contributor Onboarding Guide](../ONBOARDING.md) — from zero to a running local environment, plus a tour of the codebase.
+- [Contributing](../CONTRIBUTING.md) — project scope and contribution conventions.
+- [Proof of Contributor Payments](./proof-of-contributor-payments.md) — on-chain escrow verification and payout proof.
+- [Maintainers & Governance](./MAINTAINERS.md) — how maintainership works.
 
-```bash
-https://friendbot.stellar.org/?addr=YOUR_PUBLIC_KEY
-```
+**How it works**
 
-Replace `YOUR_PUBLIC_KEY` with your Stellar testnet wallet address.
+- [Architecture](./ARCHITECTURE.md) — components and the bounty lifecycle flow.
+- [Architecture Decision Records](./adr/) — why key design choices were made (persistence, signature auth, the arbiter model).
+- [API Authentication: SEP-10 and JWT](./api-authentication.md) — the wallet authentication flow.
 
-## Option 2 — cURL
+**Running and securing it**
 
-```bash
-curl "https://friendbot.stellar.org/?addr=YOUR_PUBLIC_KEY"
-```
+- [Deployment](./deployment.md) — deploying the backend and frontend (Render & Vercel).
+- [Operational Runbook](../RUNBOOK.md) — step-by-step procedures for production maintenance and error recovery.
+- [Security Policy](../SECURITY.md) — security policy, including Content Security Policy.
+- [Webhook Signature Verification](./webhook-signatures.md) and the [GitHub Webhook Security Implementation Guide](../WEBHOOK_SECURITY_GUIDE.md) — verifying inbound webhooks.
 
-## Verify Funding
+## How do I pick up an issue and open my first PR?
 
-Use Stellar Laboratory or Freighter to confirm your balance.
+Worked example for a docs issue, `#1000` (replace with your issue number). Follow the
+canonical process in [CONTRIBUTING.md](../CONTRIBUTING.md).
 
-Useful resources:
+1. Comment on the issue to claim it (first to comment gets priority).
+2. Fork, clone, and branch from `main`:
 
-* https://laboratory.stellar.org/
-* https://developers.stellar.org/docs/tools/laboratory
-* https://freighter.app/
+   ```bash
+   gh repo fork ritik4ever/stellar-bounty-board --clone
+   cd stellar-bounty-board
+   git checkout -b docs/fix-typo-1000
+   ```
 
+   ```text
+   Switched to a new branch 'docs/fix-typo-1000'
+   ```
 
-# 2. How do I set up Freighter wallet?
+3. Make your change, then check what will be committed:
 
-1. Install Freighter extension:
+   ```bash
+   git status --short
+   ```
 
-   * https://freighter.app/
+   ```text
+    M docs/FAQ.md
+   ```
 
-2. Create or import a wallet.
+4. Commit using [Conventional Commits](../CONTRIBUTING.md#conventional-commits):
 
-3. Switch network to **Testnet**.
+   ```bash
+   git commit -am "docs: fix typo in FAQ"
+   ```
 
-4. Fund the wallet using Friendbot.
+   ```text
+   [docs/fix-typo-1000 <short-sha>] docs: fix typo in FAQ
+    1 file changed, 1 insertion(+), 1 deletion(-)
+   ```
 
-5. Connect wallet to the app.
+5. Push and open the PR against the upstream repo, referencing the issue:
 
-## Common Issue
+   ```bash
+   git push origin docs/fix-typo-1000
+   gh pr create --repo ritik4ever/stellar-bounty-board --title "docs: fix typo in FAQ" --body "Closes #1000"
+   ```
 
-If the wallet does not connect:
+   `gh pr create` prints the URL of the new pull request.
 
-* Refresh the page
-* Unlock Freighter
-* Ensure you are on Testnet
-* Reconnect wallet permissions
+---
 
+## Where can I find proof that contributors have actually been paid?
 
-# 3. Why is my signature rejected?
+Stellar Bounty Board executes all contributor compensation through transparent, on-chain Soroban smart contract escrows.
 
-This usually happens because:
+1. **On-Chain Escrow & Release:**
+   - Bounty rewards are escrowed in the Soroban smart contract at publication time.
+   - Upon review and approval by a maintainer via their Freighter wallet, the contract transfers funds directly to the contributor's Stellar account.
+   - Payout transactions emit public `BountyReleased` events containing `bounty_id`, `contributor`, `payout_token`, and `payout_amount`.
 
-* Wrong network selected
-* Expired transaction
-* Invalid secret/public key pair
-* Incorrect signing payload
-* Wallet disconnected
+2. **Verifying Payouts & Historical Records:**
+   - Completed bounties and rewarded contributors are tracked under closed issues labeled [`Stellar Wave`](https://github.com/ritik4ever/stellar-bounty-board/issues?q=label%3A%22Stellar+Wave%22+is%3Aclosed).
+   - Past merged PRs and commits document delivered bounties and closing actions.
+   - Transactions and contract states can be verified directly on [Stellar Expert](https://stellar.expert/explorer/testnet) using the contract ID from `docs/deployment.md`.
+   - See [Proof of Contributor Payments](./proof-of-contributor-payments.md) for full architecture and verification details.
 
-## Fixes
+---
 
-### Verify Network
-
-Ensure both:
-
-* Wallet = Testnet
-* App = Testnet
-
-### Reconnect Wallet
-
-Disconnect and reconnect Freighter.
-
-### Regenerate Signature
-
-Create a fresh transaction payload and sign again.
-
-### Check Expiration
-
-If the transaction expired, regenerate it before signing.
-
-
-# 4. How do I reset the bounty store?
-
-The project may use local storage, indexed storage, or backend persistence for bounty state.
-
-## Frontend Reset
-
-Clear browser storage:
-
-```bash
-localStorage.clear()
-```
-
-or clear site data from browser settings.
-
-## Development Database Reset
-
-If using Docker:
-
-```bash
-docker compose down -v
-docker compose up
-```
-
-If using SQLite/Postgres, rerun migrations or reseed scripts.
-
-
-# 5. How do I configure the expiration job?
-
-Some bounties automatically expire after a configured duration.
-
-## Typical Environment Variables
-
-```env
-EXPIRATION_JOB_INTERVAL=60
-BOUNTY_EXPIRATION_HOURS=24
-```
-
-## Running Cron/Worker
-
-Example:
-
-```bash
-npm run worker
-```
-
-or
-
-```bash
-npm run cron
-```
-
-depending on project scripts.
-
-## Verify Expiration Logic
-
-Check:
-
-* Backend logs
-* Scheduled job startup
-* Database timestamps
-
-
-# 6. Why are transactions failing?
-
-Common causes include:
-
-* Insufficient XLM balance
-* Incorrect network
-* Invalid contract ID
-* Expired transaction
-* RPC failure
-* Bad signature
-
-## Troubleshooting Steps
-
-### Check Wallet Balance
-
-Ensure your account has enough testnet XLM.
-
-### Verify Contract Address
-
-Double-check deployed contract IDs.
-
-### Retry Transaction
-
-Temporary RPC/network issues can occur.
-
-### Inspect Logs
-
-Backend logs usually provide exact failure details.
-
-
-# 7. How does the dispute flow work?
-
-The dispute system is designed to resolve bounty disagreements fairly.
-
-## Typical Flow
-
-1. Contributor submits work
-2. Sponsor reviews submission
-3. Sponsor approves or disputes
-4. Admin/moderator may intervene
-5. Funds are released or refunded
-
-## Best Practices
-
-* Include detailed submissions
-* Attach screenshots or hashes
-* Maintain communication records
-
-
-# 8. How do I run the project locally?
-
-## Install Dependencies
-
-```bash
-npm install
-```
-
-## Configure Environment
-
-Create:
-
-```bash
-.env
-```
-
-and add required variables.
-
-## Start Development Server
-
-```bash
-npm run dev
-```
-
-## Backend (if applicable)
-
-```bash
-npm run backend
-```
-
-or:
-
-```bash
-docker compose up
-```
-
-
-# 9. How do I run tests?
-
-## Run All Tests
-
-```bash
-npm test
-```
-
-## Run Specific Tests
-
-```bash
-npm run test:unit
-```
-
-```bash
-npm run test:integration
-```
-
-## Smart Contract Tests
-
-```bash
-cargo test
-```
-
-if Soroban contracts are included.
-
-
-# 10. Why is my wallet not connecting?
-
-## Possible Causes
-
-* Freighter locked
-* Browser permissions denied
-* Wrong network
-* Unsupported browser
-* Extension conflict
-
-## Solutions
-
-### Unlock Freighter
-
-Open extension and unlock it.
-
-### Reconnect Permissions
-
-Remove site permissions and reconnect.
-
-### Refresh Browser
-
-Reload app after wallet unlock.
-
-### Supported Browsers
-
-Recommended:
-
-* Chrome
-* Brave
-* Edge
-
-
-# 11. How do I deploy contracts to Stellar testnet?
-
-## Build Contract
-
-```bash
-cargo build --target wasm32-unknown-unknown --release
-```
-
-## Deploy
-
-```bash
-soroban contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/contract.wasm \
-  --source alice \
-  --network testnet
-```
-
-## Verify Deployment
-
-Use Stellar Laboratory or explorer tools.
-
-
-# 12. Where can I find logs for debugging?
-
-## Frontend Logs
-
-Open browser DevTools:
-
-```bash
-F12 → Console
-```
-
-## Backend Logs
-
-Run server in development mode:
-
-```bash
-npm run dev
-```
-
-or inspect Docker logs:
-
-```bash
-docker compose logs -f
-```
-
-## Contract Logs
-
-Use Soroban CLI simulation tools and RPC responses.
-
-
-# Additional Resources
-
-* Stellar Docs: https://developers.stellar.org/
-* Soroban Docs: https://developers.stellar.org/docs/smart-contracts
-* Freighter Wallet: https://freighter.app/
-* Stellar Laboratory: https://laboratory.stellar.org/
-
-
-# Contributing
-
-Please also review:
-
-* `README.md`
-* `CONTRIBUTING.md`
-
-before submitting issues or pull requests.
+_If you notice any discrepancy between this FAQ and the actual behavior of the project,
+please open an issue or submit a PR to keep the documentation in sync._

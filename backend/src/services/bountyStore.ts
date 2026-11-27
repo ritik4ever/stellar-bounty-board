@@ -1,16 +1,43 @@
-import fs from "node:fs";
-import path from "node:path";
-import lockfile from "proper-lockfile";
+import fs from 'node:fs';
+import path from 'node:path';
+import lockfile from 'proper-lockfile';
+import { getBountyArchivePath } from './bountyArchivePath';
+import { sendNotification, type NotificationRecipient } from './notificationService';
+import { logger, logStructured } from '../logger';
+import { getCache, type CacheAdapter } from './cache';
+import { getServicesConfig } from './config';
+import { BountyTransitionConflictError, wrapServiceError } from './errors';
+import { bountiesCreatedTotal, bountiesReleasedTotal } from '../metrics';
+import { validateGithubPrUrlForRepo } from '../validation/prUrl';
+import { resolveTokenAddress } from '../utils';
 import {
-  sendNotification,
-  type NotificationRecipient,
-} from "./notificationService";
-import { logStructured } from "../logger";
-import { getCache, type CacheAdapter } from "./cache";
- feat/concurrency-file-locking
-import { bountiesCreatedTotal, bountiesReleasedTotal } from "../metrics";
-import { validateGithubPrUrlForRepo } from "../validation/prUrl";
+  recordPostgresAuditEvent,
+  backfillAuditLogsFromLegacyStore,
+  getPostgresAuditLogs,
+} from './postgresAuditLog';
+import {
+  defaultStateUpdateTrace,
+  redactReference,
+  type TransitionOptions,
+} from './stateUpdateTrace';
 
+export type {
+  TransitionOptions,
+  StateUpdateTraceRecord,
+  StateUpdateTraceEmitter,
+  StateUpdateTraceInput,
+  StateUpdateOutcome,
+} from './stateUpdateTrace';
+export {
+  STATE_UPDATE_TRACE_EVENT,
+  STATE_UPDATE_OUTCOMES,
+  redactReference,
+  buildStateUpdateTrace,
+  createStateUpdateTrace,
+  defaultStateUpdateTrace,
+  setGlobalStateUpdateTraceSink,
+  getGlobalStateUpdateTraceSink,
+} from './stateUpdateTrace';
 
 /**
  * Represents the current state of a bounty.
@@ -25,14 +52,7 @@ import { validateGithubPrUrlForRepo } from "../validation/prUrl";
  * @typedef {"open" | "reserved" | "submitted" | "released" | "refunded" | "expired"} BountyStatus
  */
 export type BountyStatus =
-  | "open"
-  | "reserved"
-  | "submitted"
-  | "released"
-  | "refunded"
-  | "expired"
-  | "disputed";
-
+  'open' | 'reserved' | 'submitted' | 'released' | 'refunded' | 'expired' | 'disputed';
 
 /**
  * Supported value types for audit log metadata records.
@@ -45,23 +65,25 @@ export type AuditMetadataValue = string | number | boolean | null;
  * Types of state transitions that can be recorded in the audit log.
  */
 export type BountyTransitionType =
-  | "create"
-  | "reserve"
-  | "submit"
-  | "release"
-  | "refund"
-  | "cancel"
-  | "expire"
-  | "dispute"
-  | "update_notes"
-  | "extend_deadline";
+  | 'create'
+  | 'reserve'
+  | 'submit'
+  | 'release'
+  | 'refund'
+  | 'cancel'
+  | 'expire'
+  | 'dispute'
+  | 'resolve_dispute'
+  | 'update_notes'
+  | 'extend_deadline'
+  | 'pr_merged';
 
 /**
  * Represents a historical event in the lifecycle of a bounty.
  */
 export interface BountyEvent {
   /** The type of event (usually matches the resulting status or "created"). */
-  type: BountyStatus | "created" | "notes_updated" | "deadline_extended";
+  type: BountyStatus | 'created' | 'notes_updated' | 'deadline_extended' | 'archived' | 'pr_merged';
   /** Unix timestamp in seconds when the event occurred. */
   timestamp: number;
   /** Stellar public key of the actor who triggered the event. */
@@ -150,6 +172,12 @@ export interface BountyRecord {
   disputedAt?: number;
   /** Reason provided by the contributor for disputing the bounty. */
   disputeReason?: string;
+  /** Unix timestamp in seconds of the last admin alert sent for this stuck dispute. */
+  lastDisputeAlertAt?: number;
+  /** Whether the linked pull request has been confirmed merged via webhook. */
+  prMerged?: boolean;
+  /** Unix timestamp in seconds of when the linked PR was merged. */
+  prMergedAt?: number;
   // Race condition prevention
   /** Version number of the record used for optimistic locking. */
   version: number;
@@ -159,6 +187,11 @@ export interface BountyRecord {
   // Reservation timeout (in seconds from reservation)
   /** Number of seconds after reservation before it automatically times out. */
   reservationTimeoutSeconds?: number;
+  // Soft-archive flag
+  /** When true, the bounty has been archived and is excluded from active listings. */
+  archived?: boolean;
+  /** Unix timestamp in seconds of when the bounty was archived. */
+  archivedAt?: number;
 }
 
 /**
@@ -201,7 +234,7 @@ function getStorePath(): string {
   if (process.env.BOUNTY_STORE_PATH?.trim()) {
     return path.resolve(process.env.BOUNTY_STORE_PATH.trim());
   }
-  return path.resolve(__dirname, "../../data/bounties.json");
+  return path.resolve(__dirname, '../../data/bounties.json');
 }
 
 function getAuditStorePath(): string {
@@ -210,9 +243,7 @@ function getAuditStorePath(): string {
   }
 
   const base = getStorePath();
-  return base.endsWith(".json")
-    ? base.replace(/\.json$/i, ".audit.json")
-    : `${base}.audit.json`;
+  return base.endsWith('.json') ? base.replace(/\.json$/i, '.audit.json') : `${base}.audit.json`;
 }
 
 /**
@@ -233,50 +264,50 @@ function getLockTimeoutMs(): number {
 
 const sampleBounties: BountyRecord[] = [
   {
-    id: "BNT-0001",
-    repo: "ritik4ever/stellar-stream",
+    id: 'BNT-0001',
+    repo: 'ritik4ever/stellar-stream',
     issueNumber: 41,
-    title: "Add WebSocket updates for stream lifecycle changes",
+    title: 'Add WebSocket updates for stream lifecycle changes',
     summary:
-      "Push stream creation, cancel, and completion events to the dashboard without polling so recipients see updates instantly.",
-    maintainer: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
-    contributor: "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
-    tokenSymbol: "XLM",
-    tokenAddress: "CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA",
+      'Push stream creation, cancel, and completion events to the dashboard without polling so recipients see updates instantly.',
+    maintainer: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
+    contributor: 'GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
+    tokenSymbol: 'XLM',
+    tokenAddress: 'CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA',
     amount: 150,
-    labels: ["help wanted", "realtime"],
-    status: "reserved",
+    labels: ['help wanted', 'realtime'],
+    status: 'reserved',
     createdAt: 1710000000,
     deadlineAt: 1910000000,
     reservedAt: 1710003600,
     version: 1,
     events: [
-      { type: "created", timestamp: 1710000000 },
+      { type: 'created', timestamp: 1710000000 },
       {
-        type: "reserved",
+        type: 'reserved',
         timestamp: 1710003600,
-        actor: "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+        actor: 'GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
       },
     ],
     reservationTimeoutSeconds: 604800,
   },
   {
-    id: "BNT-0002",
-    repo: "ritik4ever/stellar-stream",
+    id: 'BNT-0002',
+    repo: 'ritik4ever/stellar-stream',
     issueNumber: 42,
-    title: "Build a recipient earnings export screen",
+    title: 'Build a recipient earnings export screen',
     summary:
-      "Create a contributor-facing export view for released payouts with CSV download and per-asset grouping.",
-    maintainer: "GCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
-    tokenSymbol: "USDC",
-    tokenAddress: "CCW677VKUVRVH25WJ3G7L2NKV6AEFBSFW4FG7L0XXXXXX",
+      'Create a contributor-facing export view for released payouts with CSV download and per-asset grouping.',
+    maintainer: 'GCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC',
+    tokenSymbol: 'USDC',
+    tokenAddress: 'CCW677VKUVRVH25WJ3G7L2NKV6AEFBSFW4FG7L0XXXXXX',
     amount: 220,
-    labels: ["frontend", "analytics"],
-    status: "open",
+    labels: ['frontend', 'analytics'],
+    status: 'open',
     createdAt: 1710500000,
     deadlineAt: 1910500000,
     version: 1,
-    events: [{ type: "created", timestamp: 1710500000 }],
+    events: [{ type: 'created', timestamp: 1710500000 }],
     reservationTimeoutSeconds: 604800,
   },
 ];
@@ -295,7 +326,7 @@ function ensureStore(): void {
     return;
   }
 
-  const raw = fs.readFileSync(storePath, "utf8").trim();
+  const raw = fs.readFileSync(storePath, 'utf8').trim();
   if (!raw) {
     fs.writeFileSync(storePath, JSON.stringify(sampleBounties, null, 2));
   }
@@ -310,51 +341,82 @@ function ensureAuditStore(): void {
     return;
   }
 
-  const raw = fs.readFileSync(storePath, "utf8").trim();
+  const raw = fs.readFileSync(storePath, 'utf8').trim();
   if (!raw) {
     fs.writeFileSync(storePath, JSON.stringify([], null, 2));
   }
 }
 
 function readStore(): BountyRecord[] {
-  ensureStore();
-  const storePath = getStorePath();
-  return JSON.parse(fs.readFileSync(storePath, "utf8")) as BountyRecord[];
+  try {
+    ensureStore();
+    const storePath = getStorePath();
+    return JSON.parse(fs.readFileSync(storePath, 'utf8')) as BountyRecord[];
+  } catch (err) {
+    throw wrapServiceError('bounty_store.read_store', 'json-store', err);
+  }
+}
+
+function atomicWriteJson(targetPath: string, data: unknown): void {
+  const dir = path.dirname(targetPath);
+  const base = path.basename(targetPath);
+  const tempPath = path.join(dir, `.${base}.tmp-${process.pid}-${Date.now()}`);
+  try {
+    fs.writeFileSync(tempPath, JSON.stringify(data, null, 2));
+    fs.renameSync(tempPath, targetPath);
+  } catch (err) {
+    try {
+      if (fs.existsSync(tempPath)) {
+        fs.unlinkSync(tempPath);
+      }
+    } catch {
+      // Best-effort temp cleanup
+    }
+    throw err;
+  }
 }
 
 function writeStore(records: BountyRecord[]): void {
-  fs.writeFileSync(getStorePath(), JSON.stringify(records, null, 2));
+  try {
+    atomicWriteJson(getStorePath(), records);
+  } catch (err) {
+    throw wrapServiceError('bounty_store.write_store', 'json-store', err);
+  }
 }
 
 function readAuditStore(): BountyAuditLogRecord[] {
-  ensureAuditStore();
-  return JSON.parse(
-    fs.readFileSync(getAuditStorePath(), "utf8"),
-  ) as BountyAuditLogRecord[];
+  try {
+    ensureAuditStore();
+    return JSON.parse(fs.readFileSync(getAuditStorePath(), 'utf8')) as BountyAuditLogRecord[];
+  } catch (err) {
+    throw wrapServiceError('bounty_store.read_audit_store', 'json-store', err);
+  }
 }
 
 function writeAuditStore(records: BountyAuditLogRecord[]): void {
-  fs.writeFileSync(getAuditStorePath(), JSON.stringify(records, null, 2));
+  try {
+    atomicWriteJson(getAuditStorePath(), records);
+  } catch (err) {
+    throw wrapServiceError('bounty_store.write_audit_store', 'json-store', err);
+  }
 }
 
 function nextAuditId(records: BountyAuditLogRecord[]): string {
   const highest = records.reduce((max, record) => {
-    const numeric = Number(record.id.replace("AUD-", ""));
+    const numeric = Number(record.id.replace('AUD-', ''));
     return Number.isFinite(numeric) ? Math.max(max, numeric) : max;
   }, 0);
-  return `AUD-${String(highest + 1).padStart(6, "0")}`;
+  return `AUD-${String(highest + 1).padStart(6, '0')}`;
 }
 
 function cleanAuditMetadata(
-  metadata?: Record<string, AuditMetadataValue | undefined>,
+  metadata?: Record<string, AuditMetadataValue | undefined>
 ): Record<string, AuditMetadataValue> | undefined {
   if (!metadata) {
     return undefined;
   }
 
-  const entries = Object.entries(metadata).filter(
-    ([, value]) => value !== undefined,
-  );
+  const entries = Object.entries(metadata).filter(([, value]) => value !== undefined);
   if (entries.length === 0) {
     return undefined;
   }
@@ -371,6 +433,8 @@ function appendAuditLogs(inputs: CreateAuditLogInput[]): void {
   const next = [...existing];
 
   for (const input of inputs) {
+    const timestamp = input.timestamp ?? nowInSeconds();
+    const metadata = cleanAuditMetadata(input.metadata);
     next.push({
       id: nextAuditId(next),
       bountyId: input.bountyId,
@@ -378,8 +442,28 @@ function appendAuditLogs(inputs: CreateAuditLogInput[]): void {
       toStatus: input.toStatus,
       transition: input.transition,
       actor: input.actor,
-      timestamp: input.timestamp ?? nowInSeconds(),
-      metadata: cleanAuditMetadata(input.metadata),
+      timestamp,
+      metadata,
+    });
+
+    // Dual-write: record to Postgres audit log alongside JSON store during migration
+    recordPostgresAuditEvent({
+      entityType: 'bounty',
+      entityId: input.bountyId,
+      action: input.transition,
+      actor: input.actor,
+      details: {
+        fromStatus: input.fromStatus,
+        toStatus: input.toStatus,
+        ...(metadata ? { metadata } : {}),
+      },
+      createdAt: timestamp,
+    }).catch((err) => {
+      logStructured('warn', 'postgres_audit_log_dual_write_failed', {
+        bountyId: input.bountyId,
+        transition: input.transition,
+        error: err instanceof Error ? err.message : String(err),
+      });
     });
   }
 
@@ -394,37 +478,37 @@ function normalizeRecords(records: BountyRecord[]): BountyRecord[] {
   const next = records.map((record) => {
     // Ensure events array exists (for backward compatibility)
     const events: BountyEvent[] = record.events || [
-      { type: "created" as const, timestamp: record.createdAt },
+      { type: 'created' as const, timestamp: record.createdAt },
     ];
 
     // Check for expired deadline
-    if (
-      (record.status === "open" || record.status === "reserved") &&
-      now > record.deadlineAt
-    ) {
+    if ((record.status === 'open' || record.status === 'reserved') && now > record.deadlineAt) {
       changed = true;
       auditEntries.push({
         bountyId: record.id,
         fromStatus: record.status,
-        toStatus: "expired",
-        transition: "expire",
-        actor: "system",
+        toStatus: 'expired',
+        transition: 'expire',
+        actor: 'system',
         timestamp: now,
         metadata: {
-          reason: "deadline_passed",
+          reason: 'deadline_passed',
           deadlineAt: record.deadlineAt,
         },
       });
       return {
         ...record,
-        status: "expired" as const,
-        events: [...events, { type: "expired" as const, timestamp: now }],
+        status: 'expired' as const,
+        // Every committed transition advances the version exactly once, so a
+        // caller holding the previous version is told its view is stale.
+        version: (record.version ?? 1) + 1,
+        events: [...events, { type: 'expired' as const, timestamp: now }],
       };
     }
 
     // Check for expired reservation (timeout without submission)
     if (
-      record.status === "reserved" &&
+      record.status === 'reserved' &&
       record.reservedAt &&
       record.reservationTimeoutSeconds &&
       now > record.reservedAt + record.reservationTimeoutSeconds
@@ -432,15 +516,16 @@ function normalizeRecords(records: BountyRecord[]): BountyRecord[] {
       changed = true;
       return {
         ...record,
-        status: "open" as const,
+        status: 'open' as const,
         contributor: undefined,
         reservedAt: undefined,
+        version: (record.version ?? 1) + 1,
         events: [
           ...events,
           {
-            type: "expired" as const,
+            type: 'expired' as const,
             timestamp: now,
-            details: { reason: "reservation_timeout" },
+            details: { reason: 'reservation_timeout' },
           },
         ],
       };
@@ -468,35 +553,74 @@ function normalizeRecords(records: BountyRecord[]): BountyRecord[] {
 }
 
 function nextId(records: BountyRecord[]): string {
-  const max = records.reduce((highest, record) => {
-    const numeric = Number(record.id.replace("BNT-", ""));
+  // Creation is a write path; public list reads never open the cold archive.
+  const archivePath = getBountyArchivePath(getStorePath());
+  const archived = fs.existsSync(archivePath)
+    ? (JSON.parse(fs.readFileSync(archivePath, 'utf8')) as BountyRecord[])
+    : [];
+  const max = [...records, ...archived].reduce((highest, record) => {
+    const numeric = Number(record.id.replace('BNT-', ''));
     return Number.isFinite(numeric) ? Math.max(highest, numeric) : highest;
   }, 0);
-  return `BNT-${String(max + 1).padStart(4, "0")}`;
+  return `BNT-${String(max + 1).padStart(4, '0')}`;
 }
 
 function findBounty(records: BountyRecord[], id: string): BountyRecord {
   const bounty = records.find((record) => record.id === id);
   if (!bounty) {
-    throw new Error("Bounty not found.");
+    throw new Error('Bounty not found.');
   }
   return bounty;
 }
 
-function persistUpdated(
-  records: BountyRecord[],
-  updated: BountyRecord,
-): BountyRecord {
-  const next = records.map((record) =>
-    record.id === updated.id ? updated : record,
-  );
+function persistUpdated(records: BountyRecord[], updated: BountyRecord): BountyRecord {
+  const next = records.map((record) => (record.id === updated.id ? updated : record));
   writeStore(next);
   return updated;
 }
 
+/**
+ * Atomically persists a bounty status/version/event update alongside its
+ * audit log append at the JSON store boundary. If the audit store is unreadable
+ * or fails to write, `bounties.json` is rolled back to `records` so one durable
+ * version and complete event history are preserved.
+ */
+function persistTransitionWithAudit(
+  records: BountyRecord[],
+  updated: BountyRecord,
+  auditInputs: CreateAuditLogInput[],
+): BountyRecord {
+  if (auditInputs.length > 0) {
+    readAuditStore();
+  }
+  const persisted = persistUpdated(records, updated);
+  if (auditInputs.length > 0) {
+    try {
+      appendAuditLogs(auditInputs);
+    } catch (err) {
+      try {
+        writeStore(records);
+      } catch (rollbackErr) {
+        logStructured('error', 'bounty_store_rollback_failed', {
+          bountyId: updated.id,
+          error: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+        });
+      }
+      throw err;
+    }
+  }
+  return persisted;
+}
+
 export interface ListBountiesOptions {
-  /** Case-insensitive substring filter applied to title, summary, and labels. */
+  /** Case-insensitive substring filter applied to bounty text and repository. */
   q?: string;
+  /** Exact repository filter. */
+  repo?: string;
+  /** Minimum bounty amount. */
+  minReward?: number;
+  /** Maximum bounty amount. */
+  maxReward?: number;
   /** Exact Stellar address filter applied to contributor. */
   contributor?: string;
   /** Exact Stellar address filter applied to maintainer. */
@@ -506,9 +630,9 @@ export interface ListBountiesOptions {
   /** Exact bounty status filter. */
   status?: BountyStatus;
   /** Sort field for the result set. */
-  sort?: "amount" | "deadline" | "createdAt" | "status";
+  sort?: 'amount' | 'deadline' | 'createdAt' | 'status';
   /** Sort direction for the result set. */
-  order?: "asc" | "desc";
+  order?: 'asc' | 'desc';
   /** Filter bounties with deadlineBefore (unix timestamp in seconds). */
   deadlineBefore?: number;
   /** Filter bounties with deadlineAfter (unix timestamp in seconds). */
@@ -518,6 +642,9 @@ export interface ListBountiesOptions {
 export function listBounties(options: ListBountiesOptions = {}): BountyRecord[] {
   const records = normalizeRecords(readStore());
   const q = options.q?.trim().toLowerCase();
+  const repo = options.repo?.trim().toLowerCase();
+  const minReward = options.minReward;
+  const maxReward = options.maxReward;
   const contributor = options.contributor?.trim();
   const maintainer = options.maintainer?.trim();
   const tokenSymbol = options.tokenSymbol?.trim().toUpperCase();
@@ -533,34 +660,49 @@ export function listBounties(options: ListBountiesOptions = {}): BountyRecord[] 
       !q ||
       b.title.toLowerCase().includes(q) ||
       b.summary.toLowerCase().includes(q) ||
+      b.repo.toLowerCase().includes(q) ||
+      b.status.toLowerCase().includes(q) ||
       b.labels.some((l) => l.toLowerCase().includes(q));
+    const passesRepo = !repo || b.repo.toLowerCase() === repo;
+    const passesMinReward = minReward === undefined || b.amount >= minReward;
+    const passesMaxReward = maxReward === undefined || b.amount <= maxReward;
     const passesContributor = !contributor || b.contributor === contributor;
     const passesMaintainer = !maintainer || b.maintainer === maintainer;
     const passesTokenSymbol = !tokenSymbol || b.tokenSymbol.toUpperCase() === tokenSymbol;
     const passesStatus = !status || b.status === status;
     const passesDeadlineBefore = deadlineBefore === undefined || b.deadlineAt < deadlineBefore;
     const passesDeadlineAfter = deadlineAfter === undefined || b.deadlineAt > deadlineAfter;
-    if (passesQ && passesContributor && passesMaintainer && passesTokenSymbol && passesStatus && passesDeadlineBefore && passesDeadlineAfter) {
+    if (
+      passesQ &&
+      passesRepo &&
+      passesMinReward &&
+      passesMaxReward &&
+      passesContributor &&
+      passesMaintainer &&
+      passesTokenSymbol &&
+      passesStatus &&
+      passesDeadlineBefore &&
+      passesDeadlineAfter
+    ) {
       result.push(b);
     }
   }
 
-  sortBounties(result, options.sort ?? "createdAt", options.order ?? "desc");
+  sortBounties(result, options.sort ?? 'createdAt', options.order ?? 'desc');
   return result;
 }
 
-
 function sortBounties(
   bounties: BountyRecord[],
-  sort: "amount" | "deadline" | "createdAt" | "status",
-  order: "asc" | "desc",
+  sort: 'amount' | 'deadline' | 'createdAt' | 'status',
+  order: 'asc' | 'desc'
 ): void {
-  const direction = order === "asc" ? 1 : -1;
+  const direction = order === 'asc' ? 1 : -1;
   bounties.sort((a, b) => {
     let comparison: number;
-    if (sort === "deadline") {
+    if (sort === 'deadline') {
       comparison = a.deadlineAt - b.deadlineAt;
-    } else if (sort === "status") {
+    } else if (sort === 'status') {
       comparison = a.status.localeCompare(b.status);
     } else {
       comparison = a[sort] - b[sort];
@@ -571,8 +713,8 @@ function sortBounties(
 
 // ── Cached list for the public board (#361) ──────────────────────────────────
 
-const BOUNTY_LIST_CACHE_KEY = "bounties:list";
-const BOUNTY_LIST_TTL_SECONDS = 5;
+const BOUNTY_LIST_CACHE_KEY = 'bounties:list';
+const BOUNTY_LIST_TTL_SECONDS = getServicesConfig().bountyListCacheTtlSeconds;
 
 /**
  * Cache-backed variant of {@link listBounties} for the hot `/api/bounties` read
@@ -586,7 +728,7 @@ const BOUNTY_LIST_TTL_SECONDS = 5;
  */
 export async function listBountiesCached(
   options: ListBountiesOptions = {},
-  cache: CacheAdapter = getCache(),
+  cache: CacheAdapter = getCache()
 ): Promise<BountyRecord[]> {
   let records: BountyRecord[];
   const cached = await cache.get(BOUNTY_LIST_CACHE_KEY);
@@ -598,6 +740,9 @@ export async function listBountiesCached(
   }
 
   const q = options.q?.trim().toLowerCase();
+  const repo = options.repo?.trim().toLowerCase();
+  const minReward = options.minReward;
+  const maxReward = options.maxReward;
   const contributor = options.contributor?.trim();
   const maintainer = options.maintainer?.trim();
   const tokenSymbol = options.tokenSymbol?.trim().toUpperCase();
@@ -610,17 +755,33 @@ export async function listBountiesCached(
       !q ||
       b.title.toLowerCase().includes(q) ||
       b.summary.toLowerCase().includes(q) ||
+      b.repo.toLowerCase().includes(q) ||
+      b.status.toLowerCase().includes(q) ||
       b.labels.some((l) => l.toLowerCase().includes(q));
+    const passesRepo = !repo || b.repo.toLowerCase() === repo;
+    const passesMinReward = minReward === undefined || b.amount >= minReward;
+    const passesMaxReward = maxReward === undefined || b.amount <= maxReward;
     const passesContributor = !contributor || b.contributor === contributor;
     const passesMaintainer = !maintainer || b.maintainer === maintainer;
     const passesTokenSymbol = !tokenSymbol || b.tokenSymbol.toUpperCase() === tokenSymbol;
     const passesStatus = !status || b.status === status;
     const passesDeadlineBefore = deadlineBefore === undefined || b.deadlineAt < deadlineBefore;
     const passesDeadlineAfter = deadlineAfter === undefined || b.deadlineAt > deadlineAfter;
-    return passesQ && passesContributor && passesMaintainer && passesTokenSymbol && passesStatus && passesDeadlineBefore && passesDeadlineAfter;
+    return (
+      passesQ &&
+      passesRepo &&
+      passesMinReward &&
+      passesMaxReward &&
+      passesContributor &&
+      passesMaintainer &&
+      passesTokenSymbol &&
+      passesStatus &&
+      passesDeadlineBefore &&
+      passesDeadlineAfter
+    );
   });
 
-  sortBounties(filtered, options.sort ?? "createdAt", options.order ?? "desc");
+  sortBounties(filtered, options.sort ?? 'createdAt', options.order ?? 'desc');
   return filtered;
 }
 
@@ -643,23 +804,99 @@ export async function invalidateBountyCache(cache: CacheAdapter = getCache()): P
  */
 async function withStoreLock<T>(fn: () => T | Promise<T>): Promise<T> {
   const storePath = getStorePath();
-  const timeout = getLockTimeoutMs();
-  const release = await lockfile.lock(storePath, {
-    stale: 10000,
-    update: 5000,
-    retries: 0, // Fail fast - concurrent requests get immediate error
-  });
+  let release: () => Promise<void>;
+  const lockTimeoutMs = getLockTimeoutMs();
+  try {
+    release = await lockfile.lock(storePath, {
+      stale: 10000,
+      update: 5000,
+      // Queue concurrent writers instead of failing them: a waiting caller must
+      // reach the status/version guard and get an answer (409 or 400), not a 503. The
+      // retry budget is bounded by STORE_LOCK_TIMEOUT_MS so a stuck lock still fails.
+      retries: {
+        retries: Math.max(1, Math.ceil(lockTimeoutMs / 25)),
+        factor: 1.2,
+        minTimeout: 10,
+        maxTimeout: 50,
+        randomize: true,
+      },
+    });
+  } catch (err) {
+    throw wrapServiceError(
+      'bounty_store.lock',
+      'file-lock',
+      err,
+      'Data store lock could not be acquired.',
+      503
+    );
+  }
 
   try {
     return await fn();
   } finally {
-    await release();
+    try {
+      await release();
+    } catch (releaseErr) {
+      logStructured('warn', 'bounty_store_lock_release_failed', {
+        message: releaseErr instanceof Error ? releaseErr.message : String(releaseErr),
+      });
+    }
   }
 }
 
-export async function createBounty(
-  input: CreateBountyInput,
-): Promise<BountyRecord> {
+/**
+ * Rejects a transition whose caller raced another writer (Issue #1925).
+ *
+ * `expectedVersion` is optional: callers that read a bounty and then act on it
+ * can pass the version they read, and a concurrent reserve/refund that already
+ * committed turns this request into a retryable 409 instead of a silent
+ * last-write-wins overwrite.
+ */
+function assertExpectedVersion(
+  bounty: BountyRecord,
+  expectedVersion?: number,
+  blockedReason?: string
+): void {
+  if (expectedVersion === undefined) {
+    return;
+  }
+
+  if (
+    typeof expectedVersion !== 'number' ||
+    !Number.isInteger(expectedVersion) ||
+    expectedVersion <= 0 ||
+    !Number.isFinite(expectedVersion)
+  ) {
+    throw new Error('expectedVersion must be a positive finite integer.');
+  }
+
+  if (bounty.version === expectedVersion) {
+    return;
+  }
+
+  const reason = blockedReason ? `${blockedReason} ` : '';
+  throw new BountyTransitionConflictError({
+    code: 'BOUNTY_VERSION_CONFLICT',
+    message:
+      `${reason}Bounty is at version ${bounty.version}, not the expected version ` +
+      `${expectedVersion}. Refresh the bounty and retry.`,
+    currentVersion: bounty.version,
+    currentStatus: bounty.status,
+  });
+}
+
+/**
+ * Create a new bounty record in the store.
+ *
+ * Allocates a unique bounty ID, resolves the token address, and records creation
+ * in the audit log. Sends a notification to the maintainer on success.
+ *
+ * @param {CreateBountyInput} input - Bounty creation parameters
+ * @returns {Promise<BountyRecord>} The created bounty record with assigned ID
+ * @throws {Error} If token resolution fails or store write encounters an error
+ * @throws {Error} When acquired store lock times out (concurrent access contention)
+ */
+export async function createBounty(input: CreateBountyInput): Promise<BountyRecord> {
   return withStoreLock(async () => {
     const records = listBounties();
     const createdAt = nowInSeconds();
@@ -674,11 +911,11 @@ export async function createBounty(
       tokenAddress: resolveTokenAddress(input.tokenSymbol),
       amount: Number(input.amount.toFixed(2)),
       labels: input.labels,
-      status: "open",
+      status: 'open',
       createdAt,
       deadlineAt: createdAt + input.deadlineDays * 24 * 60 * 60,
       version: 1,
-      events: [{ type: "created", timestamp: createdAt }],
+      events: [{ type: 'created', timestamp: createdAt }],
       reservationTimeoutSeconds: input.reservationTimeoutSeconds ?? 604800,
     };
 
@@ -686,12 +923,10 @@ export async function createBounty(
     await invalidateBountyCache();
 
     // Trigger notification on create
-    const recipients: NotificationRecipient[] = [
-      { role: "maintainer", address: input.maintainer },
-    ];
+    const recipients: NotificationRecipient[] = [{ role: 'maintainer', address: input.maintainer }];
 
     // Non-blocking: notifications fire-and-forget
-    sendNotification(recipients, "bounty_created", {
+    sendNotification(recipients, 'bounty_created', {
       bountyId: bounty.id,
       repo: bounty.repo,
       issueNumber: bounty.issueNumber,
@@ -701,77 +936,137 @@ export async function createBounty(
       amount: bounty.amount,
       tokenSymbol: bounty.tokenSymbol,
     }).catch((err) =>
-      logStructured("warn", "notification_failed", {
-        operation: "createBounty",
+      logStructured('warn', 'notification_failed', {
+        operation: 'createBounty',
         bountyId: bounty.id,
         message: err instanceof Error ? err.message : String(err),
-      }),
+      })
     );
 
     return bounty;
   });
 }
 
+/**
+ * Reserve a bounty for a contributor.
+ *
+ * Transitions an open bounty to "reserved" status, recording the contributor
+ * and timestamp. Implements optimistic locking via `expectedVersion` to detect
+ * concurrent reservations.
+ *
+ * @param {string} id - The bounty ID to reserve
+ * @param {string} contributor - Stellar address of the contributor claiming the bounty
+ * @param {number} [expectedVersion] - Optional version for optimistic locking; if provided
+ *   and doesn't match current version, throws error indicating concurrent modification
+ * @returns {Promise<BountyRecord>} The updated bounty record with "reserved" status
+ * @throws {Error} If bounty is not in "open" status
+ * @throws {Error} If expectedVersion is provided and doesn't match current record version
+ * @throws {Error} When store lock times out or bounty is not found
+ */
 export async function reserveBounty(
   id: string,
   contributor: string,
   expectedVersion?: number,
+  options?: TransitionOptions
 ): Promise<BountyRecord> {
+  const trace = options?.trace ?? defaultStateUpdateTrace;
+  const eventRef =
+    redactReference(options?.eventRef ?? options?.deliveryRef ?? options?.cursorRef) ??
+    redactReference(`${id}:reserve:${expectedVersion ?? 'none'}:${contributor}:${Date.now()}`);
+
+  trace.pending({
+    bountyId: id,
+    transition: 'reserve',
+    eventRef,
+    expectedVersion: expectedVersion ?? null,
+    actor: contributor,
+    deliveryRef: options?.deliveryRef,
+    cursorRef: options?.cursorRef,
+    workerId: options?.workerId,
+  });
+
   return withStoreLock(async () => {
-    const records = listBounties();
-    const bounty = findBounty(records, id);
+    try {
+      const records = listBounties();
+      const bounty = findBounty(records, id);
 
-    if (bounty.status !== "open") {
-      throw new Error("Only open bounties can be reserved.");
-    }
+      // Version first: a stale writer gets the defined 409 even if the winning
+      // transition (reserve or refund) also changed the status. The status
+      // reason is folded into the 409 so the caller sees why it cannot proceed.
+      const blockedReason =
+        bounty.status !== 'open' ? 'Only open bounties can be reserved.' : undefined;
+      assertExpectedVersion(bounty, expectedVersion, blockedReason);
 
-    // Race condition prevention: check version if provided
-    if (expectedVersion !== undefined && bounty.version !== expectedVersion) {
-      throw new Error(
-        "Bounty was just reserved by someone else. Please refresh and try again.",
-      );
-    }
+      if (blockedReason) {
+        throw new Error(blockedReason);
+      }
 
-    const now = nowInSeconds();
-    const updated: BountyRecord = {
-      ...bounty,
-      contributor,
-      status: "reserved",
-      reservedAt: now,
-      version: bounty.version + 1,
-      events: [
-        ...bounty.events,
-        { type: "reserved", timestamp: now, actor: contributor },
-      ],
-    };
+      const now = nowInSeconds();
+      const updated: BountyRecord = {
+        ...bounty,
+        contributor,
+        status: 'reserved',
+        reservedAt: now,
+        version: bounty.version + 1,
+        events: [...bounty.events, { type: 'reserved', timestamp: now, actor: contributor }],
+      };
 
-    const persisted = persistUpdated(records, updated);
-    appendAuditLogs([
-      {
-        bountyId: id,
-        fromStatus: bounty.status,
-        toStatus: "reserved",
-        transition: "reserve",
-        actor: contributor,
-      },
-    ]);
-    await invalidateBountyCache();
+      const persisted = persistTransitionWithAudit(records, updated, [
+        {
+          bountyId: id,
+          fromStatus: bounty.status,
+          toStatus: 'reserved',
+          transition: 'reserve',
+          actor: contributor,
+        },
+      ]);
+      await invalidateBountyCache();
 
-    sendNotification(
-      [{ role: "maintainer", address: bounty.maintainer }],
-      "bounty_reserved",
-      {
+      sendNotification([{ role: 'maintainer', address: bounty.maintainer }], 'bounty_reserved', {
         bountyId: id,
         title: bounty.title,
         amount: bounty.amount,
         tokenSymbol: bounty.tokenSymbol,
         contributor,
-      },
-    ).catch((err) =>
-      console.warn("[reserveBounty] Notification failed (non-blocking):", err),
-    );
+      }).catch((err) => logger.warn({ err, scope: 'reserveBounty' }, 'bounty_notification_failed'));
 
-    return persisted;
+      trace.committed({
+        bountyId: id,
+        transition: 'reserve',
+        eventRef,
+        expectedVersion: expectedVersion ?? null,
+        currentVersion: updated.version,
+        fromStatus: bounty.status,
+        toStatus: 'reserved',
+        actor: contributor,
+        deliveryRef: options?.deliveryRef,
+        cursorRef: options?.cursorRef,
+        workerId: options?.workerId,
+      });
+
+      return persisted;
+    } catch (err) {
+      trace.failed({
+        bountyId: id,
+        transition: 'reserve',
+        eventRef,
+        expectedVersion: expectedVersion ?? null,
+        currentVersion: err instanceof BountyTransitionConflictError ? err.currentVersion : null,
+        fromStatus: err instanceof BountyTransitionConflictError ? err.currentStatus : null,
+        error:
+          err instanceof BountyTransitionConflictError
+            ? err.code
+            : err instanceof Error
+              ? err.name
+              : 'UNKNOWN_ERROR',
+        reason: err instanceof Error ? err.message : String(err),
+        actor: contributor,
+        deliveryRef: options?.deliveryRef,
+        cursorRef: options?.cursorRef,
+        workerId: options?.workerId,
+      });
+      throw err;
+    }
   });
 }
 
@@ -794,66 +1089,101 @@ export async function submitBounty(
   contributor: string,
   submissionUrl: string,
   notes?: string,
+  options?: TransitionOptions
 ): Promise<BountyRecord> {
+  const trace = options?.trace ?? defaultStateUpdateTrace;
+  const eventRef =
+    redactReference(options?.eventRef ?? options?.deliveryRef ?? options?.cursorRef) ??
+    redactReference(`${id}:submit:${contributor}:${Date.now()}`);
+
+  trace.pending({
+    bountyId: id,
+    transition: 'submit',
+    eventRef,
+    actor: contributor,
+    deliveryRef: options?.deliveryRef,
+    cursorRef: options?.cursorRef,
+    workerId: options?.workerId,
+  });
+
   return withStoreLock(async () => {
-    const records = listBounties();
-    const bounty = findBounty(records, id);
+    try {
+      const records = listBounties();
+      const bounty = findBounty(records, id);
 
-    if (bounty.status !== "reserved") {
-      throw new Error("Only reserved bounties can be submitted.");
-    }
-    if (bounty.contributor !== contributor) {
-      throw new Error("Only the reserved contributor can submit this bounty.");
-    }
+      if (bounty.status !== 'reserved') {
+        throw new Error('Only reserved bounties can be submitted.');
+      }
+      if (bounty.contributor !== contributor) {
+        throw new Error('Only the reserved contributor can submit this bounty.');
+      }
 
-    validateGithubPrUrlForRepo(submissionUrl, bounty.repo);
+      await validateGithubPrUrlForRepo(submissionUrl, bounty.repo, bounty.issueNumber);
 
-    const now = nowInSeconds();
-    const updated: BountyRecord = {
-      ...bounty,
-      status: "submitted",
-      submittedAt: now,
-      submissionUrl,
-      notes,
-      version: bounty.version + 1,
-      events: [
-        ...bounty.events,
-        { type: "submitted", timestamp: now, actor: contributor },
-      ],
-    };
+      const now = nowInSeconds();
+      const updated: BountyRecord = {
+        ...bounty,
+        status: 'submitted',
+        submittedAt: now,
+        submissionUrl,
+        notes,
+        version: bounty.version + 1,
+        events: [...bounty.events, { type: 'submitted', timestamp: now, actor: contributor }],
+      };
 
-    const persisted = persistUpdated(records, updated);
-    appendAuditLogs([
-      {
-        bountyId: id,
-        fromStatus: bounty.status,
-        toStatus: "submitted",
-        transition: "submit",
-        actor: contributor,
-        metadata: {
-          submissionUrl,
-          hasNotes: Boolean(notes?.trim()),
+      const persisted = persistTransitionWithAudit(records, updated, [
+        {
+          bountyId: id,
+          fromStatus: bounty.status,
+          toStatus: 'submitted',
+          transition: 'submit',
+          actor: contributor,
+          metadata: {
+            submissionUrl,
+            hasNotes: Boolean(notes?.trim()),
+          },
         },
-      },
-    ]);
-    await invalidateBountyCache();
+      ]);
+      await invalidateBountyCache();
 
-    sendNotification(
-      [{ role: "maintainer", address: bounty.maintainer }],
-      "bounty_submitted",
-      {
+      sendNotification([{ role: 'maintainer', address: bounty.maintainer }], 'bounty_submitted', {
         bountyId: id,
         title: bounty.title,
         amount: bounty.amount,
         tokenSymbol: bounty.tokenSymbol,
         contributor,
         submissionUrl,
-      },
-    ).catch((err) =>
-      console.warn("[submitBounty] Notification failed (non-blocking):", err),
-    );
+      }).catch((err) => logger.warn({ err, scope: 'submitBounty' }, 'bounty_notification_failed'));
 
-    return persisted;
+      trace.committed({
+        bountyId: id,
+        transition: 'submit',
+        eventRef,
+        expectedVersion: bounty.version,
+        currentVersion: updated.version,
+        fromStatus: bounty.status,
+        toStatus: 'submitted',
+        actor: contributor,
+        deliveryRef: options?.deliveryRef,
+        cursorRef: options?.cursorRef,
+        workerId: options?.workerId,
+      });
+
+      return persisted;
+    } catch (err) {
+      trace.failed({
+        bountyId: id,
+        transition: 'submit',
+        eventRef,
+        error: err instanceof Error ? err.name : 'UNKNOWN_ERROR',
+        reason: err instanceof Error ? err.message : String(err),
+        actor: contributor,
+        deliveryRef: options?.deliveryRef,
+        cursorRef: options?.cursorRef,
+        workerId: options?.workerId,
+      });
+      throw err;
+    }
   });
 }
 
@@ -866,6 +1196,7 @@ export async function submitBounty(
  * @param {string} maintainer - The Stellar address of the maintainer releasing the bounty.
  * @param {string} [transactionHash] - Optional Stellar transaction hash for the payment.
  * @param {number} [protocolFeeCollected=0] - Protocol fee amount collected for this release.
+ * @param {TransitionOptions} [options] - Optional transition trace options.
  * @returns {Promise<BountyRecord>} A promise that resolves to the updated bounty record.
  * @throws {Error} If the bounty is not found.
  * @throws {Error} If the maintainer address does not match the maintainer who created the bounty.
@@ -876,51 +1207,105 @@ export async function releaseBounty(
   maintainer: string,
   transactionHash?: string,
   protocolFeeCollected = 0,
+  options?: TransitionOptions
 ): Promise<BountyRecord> {
+  const trace = options?.trace ?? defaultStateUpdateTrace;
+  const eventRef =
+    redactReference(options?.eventRef ?? options?.deliveryRef ?? options?.cursorRef) ??
+    redactReference(`${id}:release:${maintainer}:${Date.now()}`);
+
+  trace.pending({
+    bountyId: id,
+    transition: 'release',
+    eventRef,
+    actor: maintainer,
+    deliveryRef: options?.deliveryRef,
+    cursorRef: options?.cursorRef,
+    workerId: options?.workerId,
+  });
+
   return withStoreLock(async () => {
-    const records = listBounties();
-    const bounty = findBounty(records, id);
+    try {
+      const records = listBounties();
+      const bounty = findBounty(records, id);
 
-    if (bounty.maintainer !== maintainer) {
-      throw new Error("Maintainer address does not match this bounty.");
-    }
-    if (bounty.status !== "submitted") {
-      throw new Error("Only submitted bounties can be released.");
-    }
+      if (bounty.maintainer !== maintainer) {
+        throw new Error('Maintainer address does not match this bounty.');
+      }
+      if (bounty.status !== 'submitted') {
+        throw new Error('Only submitted bounties can be released.');
+      }
 
-    const now = nowInSeconds();
-    const updated: BountyRecord = {
-      ...bounty,
-      status: "released",
-      releasedAt: now,
-      releasedTxHash: transactionHash?.trim()
-        ? transactionHash.trim()
-        : bounty.releasedTxHash,
-      protocolFeeCollected: protocolFeeCollected > 0 ? protocolFeeCollected : (bounty.protocolFeeCollected ?? 0),
-      version: bounty.version + 1,
-      events: [
-        ...bounty.events,
-        { type: "released", timestamp: now, actor: maintainer },
-      ],
-    };
+      const now = nowInSeconds();
+      const updated: BountyRecord = {
+        ...bounty,
+        status: 'released',
+        releasedAt: now,
+        releasedTxHash: transactionHash?.trim() ? transactionHash.trim() : bounty.releasedTxHash,
+        protocolFeeCollected:
+          protocolFeeCollected > 0 ? protocolFeeCollected : (bounty.protocolFeeCollected ?? 0),
+        version: bounty.version + 1,
+        events: [...bounty.events, { type: 'released', timestamp: now, actor: maintainer }],
+      };
 
-    const persisted = persistUpdated(records, updated);
-    appendAuditLogs([
-      {
-        bountyId: id,
-        fromStatus: bounty.status,
-        toStatus: "released",
-        transition: "release",
-        actor: maintainer,
-        metadata: {
-          transactionHash: updated.releasedTxHash,
+      const persisted = persistTransitionWithAudit(records, updated, [
+        {
+          bountyId: id,
+          fromStatus: bounty.status,
+          toStatus: 'released',
+          transition: 'release',
+          actor: maintainer,
+          metadata: {
+            transactionHash: updated.releasedTxHash,
+          },
         },
-      },
-    ]);
-    await invalidateBountyCache();
+      ]);
+      await invalidateBountyCache();
 
+      if (persisted.contributor) {
+        sendNotification(
+          [{ role: 'contributor', address: persisted.contributor }],
+          'bounty_released',
+          {
+            bountyId: id,
+            title: bounty.title,
+            amount: bounty.amount,
+            tokenSymbol: bounty.tokenSymbol,
+          }
+        ).catch((err) =>
+          logger.warn({ err, scope: 'releaseBounty' }, 'bounty_notification_failed')
+        );
+      }
 
-    return persisted;
+      trace.committed({
+        bountyId: id,
+        transition: 'release',
+        eventRef,
+        expectedVersion: bounty.version,
+        currentVersion: updated.version,
+        fromStatus: bounty.status,
+        toStatus: 'released',
+        actor: maintainer,
+        deliveryRef: options?.deliveryRef,
+        cursorRef: options?.cursorRef,
+        workerId: options?.workerId,
+      });
+
+      return persisted;
+    } catch (err) {
+      trace.failed({
+        bountyId: id,
+        transition: 'release',
+        eventRef,
+        error: err instanceof Error ? err.name : 'UNKNOWN_ERROR',
+        reason: err instanceof Error ? err.message : String(err),
+        actor: maintainer,
+        deliveryRef: options?.deliveryRef,
+        cursorRef: options?.cursorRef,
+        workerId: options?.workerId,
+      });
+      throw err;
+    }
   });
 }
 
@@ -933,7 +1318,10 @@ export async function releaseBounty(
  * @param {string} id - The unique ID of the bounty.
  * @param {string} maintainer - The Stellar address of the maintainer requesting the refund.
  * @param {string} [transactionHash] - Optional Stellar transaction hash for the refund transaction.
+ * @param {number} [expectedVersion] - Optional version the caller read; a
+ *   mismatch is rejected with a retryable `BountyTransitionConflictError` (409).
  * @returns {Promise<BountyRecord>} A promise that resolves to the updated bounty record.
+ * @throws {BountyTransitionConflictError} If `expectedVersion` no longer matches.
  * @throws {Error} If the bounty is not found.
  * @throws {Error} If the maintainer address does not match the maintainer of the bounty.
  * @throws {Error} If the bounty is already finalized ("released" or "refunded").
@@ -943,67 +1331,241 @@ export async function refundBounty(
   id: string,
   maintainer: string,
   transactionHash?: string,
+  expectedVersion?: number,
+  options?: TransitionOptions
 ): Promise<BountyRecord> {
+  const trace = options?.trace ?? defaultStateUpdateTrace;
+  const eventRef =
+    redactReference(options?.eventRef ?? options?.deliveryRef ?? options?.cursorRef) ??
+    redactReference(`${id}:refund:${expectedVersion ?? 'none'}:${maintainer}:${Date.now()}`);
+
+  trace.pending({
+    bountyId: id,
+    transition: 'refund',
+    eventRef,
+    expectedVersion: expectedVersion ?? null,
+    actor: maintainer,
+    deliveryRef: options?.deliveryRef,
+    cursorRef: options?.cursorRef,
+    workerId: options?.workerId,
+  });
+
   return withStoreLock(async () => {
-    const records = listBounties();
-    const bounty = findBounty(records, id);
+    try {
+      const records = listBounties();
+      const bounty = findBounty(records, id);
 
-    if (bounty.maintainer !== maintainer) {
-      throw new Error("Maintainer address does not match this bounty.");
-    }
-    if (bounty.status === "released" || bounty.status === "refunded") {
-      throw new Error("This bounty is already finalized.");
-    }
-    if (bounty.status === "submitted") {
-      throw new Error("Submitted bounties must be reviewed before refund.");
-    }
+      if (bounty.maintainer !== maintainer) {
+        throw new Error('Maintainer address does not match this bounty.');
+      }
 
-    const now = nowInSeconds();
-    const updated: BountyRecord = {
-      ...bounty,
-      status: "refunded",
-      refundedAt: now,
-      refundedTxHash: transactionHash?.trim()
-        ? transactionHash.trim()
-        : bounty.refundedTxHash,
-      version: bounty.version + 1,
-      events: [
-        ...bounty.events,
-        { type: "refunded", timestamp: now, actor: maintainer },
-      ],
-    };
+      // Version check before the status guard so a reserve that committed first
+      // turns this refund into a 409 with the current version, not a stale view.
+      const blockedReason =
+        bounty.status === 'released' || bounty.status === 'refunded'
+          ? 'This bounty is already finalized.'
+          : bounty.status === 'submitted'
+            ? 'Submitted bounties must be reviewed before refund.'
+            : undefined;
+      assertExpectedVersion(bounty, expectedVersion, blockedReason);
 
-    const persisted = persistUpdated(records, updated);
-    appendAuditLogs([
-      {
-        bountyId: id,
-        fromStatus: bounty.status,
-        toStatus: "refunded",
-        transition: "refund",
-        actor: maintainer,
-        metadata: {
-          transactionHash: updated.refundedTxHash,
-        },
-      },
-    ]);
-    await invalidateBountyCache();
+      if (blockedReason) {
+        throw new Error(blockedReason);
+      }
 
-    if (persisted.contributor) {
-      sendNotification(
-        [{ role: "contributor", address: persisted.contributor }],
-        "bounty_refunded",
+      const now = nowInSeconds();
+      const updated: BountyRecord = {
+        ...bounty,
+        status: 'refunded',
+        refundedAt: now,
+        refundedTxHash: transactionHash?.trim() ? transactionHash.trim() : bounty.refundedTxHash,
+        version: bounty.version + 1,
+        events: [...bounty.events, { type: 'refunded', timestamp: now, actor: maintainer }],
+      };
+
+      const persisted = persistTransitionWithAudit(records, updated, [
         {
           bountyId: id,
-          title: bounty.title,
-          amount: bounty.amount,
-          tokenSymbol: bounty.tokenSymbol,
+          fromStatus: bounty.status,
+          toStatus: 'refunded',
+          transition: 'refund',
+          actor: maintainer,
+          metadata: {
+            transactionHash: updated.refundedTxHash,
+          },
         },
-      ).catch((err) =>
-        console.warn("[refundBounty] Notification failed (non-blocking):", err),
+      ]);
+      await invalidateBountyCache();
+
+      if (persisted.contributor) {
+        sendNotification(
+          [{ role: 'contributor', address: persisted.contributor }],
+          'bounty_refunded',
+          {
+            bountyId: id,
+            title: bounty.title,
+            amount: bounty.amount,
+            tokenSymbol: bounty.tokenSymbol,
+          }
+        ).catch((err) => logger.warn({ err, scope: 'refundBounty' }, 'bounty_notification_failed'));
+      }
+
+      trace.committed({
+        bountyId: id,
+        transition: 'refund',
+        eventRef,
+        expectedVersion: expectedVersion ?? null,
+        currentVersion: updated.version,
+        fromStatus: bounty.status,
+        toStatus: 'refunded',
+        actor: maintainer,
+        deliveryRef: options?.deliveryRef,
+        cursorRef: options?.cursorRef,
+        workerId: options?.workerId,
+      });
+
+      return persisted;
+    } catch (err) {
+      trace.failed({
+        bountyId: id,
+        transition: 'refund',
+        eventRef,
+        expectedVersion: expectedVersion ?? null,
+        currentVersion: err instanceof BountyTransitionConflictError ? err.currentVersion : null,
+        fromStatus: err instanceof BountyTransitionConflictError ? err.currentStatus : null,
+        error:
+          err instanceof BountyTransitionConflictError
+            ? err.code
+            : err instanceof Error
+              ? err.name
+              : 'UNKNOWN_ERROR',
+        reason: err instanceof Error ? err.message : String(err),
+        actor: maintainer,
+        deliveryRef: options?.deliveryRef,
+        cursorRef: options?.cursorRef,
+        workerId: options?.workerId,
+      });
+      throw err;
+    }
+  });
+}
+
+export interface ExpireReservationsResult {
+  /** IDs whose reservation was released back to `open` by this run. */
+  expiredBountyIds: string[];
+  /** Unix timestamp in seconds the run evaluated staleness against. */
+  checkedAt: number;
+}
+
+/**
+ * Expire reservations older than `ttlSeconds` (worker boundary, Issue #1925).
+ *
+ * Runs under the same file lock as reserve/refund and re-reads the store inside
+ * that lock, so a worker tick can never overwrite a bounty a request committed
+ * while the worker was deciding. Each expired record advances the version
+ * exactly once and appends one audit entry.
+ *
+ * @param ttlSeconds - Age after which a reservation is considered stale.
+ * @returns The IDs that were expired and the timestamp used for the decision.
+ */
+export async function expireStaleReservations(
+  ttlSeconds: number,
+  options?: TransitionOptions
+): Promise<ExpireReservationsResult> {
+  const trace = options?.trace ?? defaultStateUpdateTrace;
+  return withStoreLock(async () => {
+    const checkedAt = nowInSeconds();
+    // Raw read: listBounties() would also normalize unrelated records mid-run.
+    const records = readStore();
+    const expiredBountyIds: string[] = [];
+    const auditEntries: CreateAuditLogInput[] = [];
+
+    const next = records.map((bounty) => {
+      const isStaleReservation =
+        bounty.status === 'reserved' &&
+        typeof bounty.reservedAt === 'number' &&
+        checkedAt - bounty.reservedAt > ttlSeconds;
+
+      if (!isStaleReservation) {
+        return bounty;
+      }
+
+      const eventRef =
+        redactReference(options?.eventRef ?? options?.deliveryRef ?? options?.cursorRef) ??
+        redactReference(`${bounty.id}:expire:${bounty.version}:${checkedAt}`);
+
+      trace.pending({
+        bountyId: bounty.id,
+        transition: 'expire',
+        eventRef,
+        expectedVersion: bounty.version,
+        actor: 'system',
+        workerId: options?.workerId,
+        deliveryRef: options?.deliveryRef,
+        cursorRef: options?.cursorRef,
+      });
+
+      logger.info(
+        { bountyId: bounty.id, contributor: bounty.contributor },
+        '[ExpirationJob] Expiring stale reservation'
       );
+      expiredBountyIds.push(bounty.id);
+      auditEntries.push({
+        bountyId: bounty.id,
+        fromStatus: 'reserved',
+        toStatus: 'open',
+        transition: 'expire',
+        actor: 'system',
+        timestamp: checkedAt,
+        metadata: { reason: 'reservation_ttl_exceeded', ttlSeconds },
+      });
+
+      return {
+        ...bounty,
+        status: 'open' as const,
+        contributor: undefined,
+        reservedAt: undefined,
+        version: (bounty.version ?? 1) + 1,
+        events: [
+          ...(bounty.events ?? []),
+          {
+            type: 'expired' as const,
+            timestamp: checkedAt,
+            details: { reason: 'reservation_ttl_exceeded', ttlSeconds },
+          },
+        ],
+      };
+    });
+
+    if (expiredBountyIds.length === 0) {
+      return { expiredBountyIds, checkedAt };
     }
 
-    return persisted;
+    writeStore(next);
+    appendAuditLogs(auditEntries);
+    await invalidateBountyCache();
+
+    for (const bountyId of expiredBountyIds) {
+      const updatedBounty = next.find((b) => b.id === bountyId);
+      const eventRef =
+        redactReference(options?.eventRef ?? options?.deliveryRef ?? options?.cursorRef) ??
+        redactReference(`${bountyId}:expire:${(updatedBounty?.version ?? 2) - 1}:${checkedAt}`);
+      trace.committed({
+        bountyId,
+        transition: 'expire',
+        eventRef,
+        expectedVersion: (updatedBounty?.version ?? 2) - 1,
+        currentVersion: updatedBounty?.version ?? null,
+        fromStatus: 'reserved',
+        toStatus: 'open',
+        actor: 'system',
+        workerId: options?.workerId,
+        deliveryRef: options?.deliveryRef,
+        cursorRef: options?.cursorRef,
+      });
+    }
+
+    return { expiredBountyIds, checkedAt };
   });
 }
 
@@ -1024,53 +1586,107 @@ export async function cancelBounty(
   id: string,
   maintainer: string,
   transactionHash?: string,
+  options?: TransitionOptions
 ): Promise<BountyRecord> {
-  return withGlobalLock(async () => {
-    const records = listBounties();
-    const bounty = findBounty(records, id);
+  const trace = options?.trace ?? defaultStateUpdateTrace;
+  const eventRef =
+    redactReference(options?.eventRef ?? options?.deliveryRef ?? options?.cursorRef) ??
+    redactReference(`${id}:cancel:${maintainer}:${Date.now()}`);
 
-    if (bounty.maintainer !== maintainer) {
-      throw new Error("Maintainer address does not match this bounty.");
-    }
-    if (bounty.status !== "open") {
-      throw new Error("Only open bounties can be canceled.");
-    }
+  trace.pending({
+    bountyId: id,
+    transition: 'cancel',
+    eventRef,
+    actor: maintainer,
+    deliveryRef: options?.deliveryRef,
+    cursorRef: options?.cursorRef,
+    workerId: options?.workerId,
+  });
 
-    const now = nowInSeconds();
-    const updated: BountyRecord = {
-      ...bounty,
-      status: "refunded",
-      canceledAt: now,
-      canceledTxHash: transactionHash?.trim()
-        ? transactionHash.trim()
-        : bounty.canceledTxHash,
-      version: bounty.version + 1,
-      events: [
-        ...bounty.events,
+  // Cancelling refunds escrow, so it shares the store lock with reserve/refund:
+  // all writes to a record serialize on one cross-process boundary.
+  return withStoreLock(async () => {
+    try {
+      const records = listBounties();
+      const bounty = findBounty(records, id);
+
+      if (bounty.maintainer !== maintainer) {
+        throw new Error('Maintainer address does not match this bounty.');
+      }
+      if (bounty.status !== 'open') {
+        throw new Error('Only open bounties can be canceled.');
+      }
+
+      const now = nowInSeconds();
+      const updated: BountyRecord = {
+        ...bounty,
+        status: 'refunded',
+        canceledAt: now,
+        canceledTxHash: transactionHash?.trim() ? transactionHash.trim() : bounty.canceledTxHash,
+        version: bounty.version + 1,
+        events: [
+          ...bounty.events,
+          {
+            type: 'refunded',
+            timestamp: now,
+            actor: maintainer,
+            details: { reason: 'canceled' },
+          },
+        ],
+      };
+
+      const persisted = persistUpdated(records, updated);
+      appendAuditLogs([
         {
-          type: "refunded",
-          timestamp: now,
+          bountyId: id,
+          fromStatus: bounty.status,
+          toStatus: 'refunded',
+          transition: 'cancel',
           actor: maintainer,
-          details: { reason: "canceled" },
+          metadata: {
+            transactionHash: updated.canceledTxHash,
+          },
         },
-      ],
-    };
+      ]);
+      await invalidateBountyCache();
 
-    const persisted = persistUpdated(records, updated);
-    appendAuditLogs([
-      {
+      sendNotification([{ role: 'maintainer', address: maintainer }], 'bounty_refunded', {
         bountyId: id,
+        title: bounty.title,
+        amount: bounty.amount,
+        tokenSymbol: bounty.tokenSymbol,
+        reason: 'canceled',
+      }).catch((err) => logger.warn({ err, scope: 'cancelBounty' }, 'bounty_notification_failed'));
+
+      trace.committed({
+        bountyId: id,
+        transition: 'cancel',
+        eventRef,
+        expectedVersion: bounty.version,
+        currentVersion: updated.version,
         fromStatus: bounty.status,
-        toStatus: "refunded",
-        transition: "cancel",
+        toStatus: 'refunded',
         actor: maintainer,
-        metadata: {
-          transactionHash: updated.canceledTxHash,
-        },
-      },
-    ]);
-    await invalidateBountyCache();
-    return persisted;
+        deliveryRef: options?.deliveryRef,
+        cursorRef: options?.cursorRef,
+        workerId: options?.workerId,
+      });
+
+      return persisted;
+    } catch (err) {
+      trace.failed({
+        bountyId: id,
+        transition: 'cancel',
+        eventRef,
+        error: err instanceof Error ? err.name : 'UNKNOWN_ERROR',
+        reason: err instanceof Error ? err.message : String(err),
+        actor: maintainer,
+        deliveryRef: options?.deliveryRef,
+        cursorRef: options?.cursorRef,
+        workerId: options?.workerId,
+      });
+      throw err;
+    }
   });
 }
 
@@ -1091,30 +1707,30 @@ export async function cancelBounty(
 export async function disputeBounty(
   id: string,
   contributor: string,
-  reason: string,
+  reason: string
 ): Promise<BountyRecord> {
   return withStoreLock(async () => {
     const records = listBounties();
     const bounty = findBounty(records, id);
 
-    if (bounty.status !== "submitted") {
-      throw new Error("Only submitted bounties can be disputed.");
+    if (bounty.status !== 'submitted') {
+      throw new Error('Only submitted bounties can be disputed.');
     }
     if (bounty.contributor !== contributor) {
-      throw new Error("Only the contributor who submitted this bounty can dispute it.");
+      throw new Error('Only the contributor who submitted this bounty can dispute it.');
     }
 
     const now = nowInSeconds();
     const updated: BountyRecord = {
       ...bounty,
-      status: "disputed",
+      status: 'disputed',
       disputedAt: now,
       disputeReason: reason,
       version: bounty.version + 1,
       events: [
         ...bounty.events,
         {
-          type: "disputed",
+          type: 'disputed',
           timestamp: now,
           actor: contributor,
           details: { reason },
@@ -1127,8 +1743,8 @@ export async function disputeBounty(
       {
         bountyId: id,
         fromStatus: bounty.status,
-        toStatus: "disputed",
-        transition: "dispute",
+        toStatus: 'disputed',
+        transition: 'dispute',
         actor: contributor,
         metadata: {
           reason,
@@ -1139,40 +1755,151 @@ export async function disputeBounty(
 
     // Notify maintainer and arbiter about the dispute
     const recipients: NotificationRecipient[] = [
-      { role: "maintainer", address: bounty.maintainer },
+      { role: 'maintainer', address: bounty.maintainer },
     ];
     if (bounty.contributor) {
-      recipients.push({ role: "contributor", address: bounty.contributor });
+      recipients.push({ role: 'contributor', address: bounty.contributor });
     }
 
-    sendNotification(recipients, "bounty_disputed", {
+    sendNotification(recipients, 'bounty_disputed', {
       bountyId: id,
       contributor,
       reason,
       disputedAt: now,
     }).catch((err) =>
-      logStructured("warn", "notification_failed", {
-        operation: "disputeBounty",
+      logStructured('warn', 'notification_failed', {
+        operation: 'disputeBounty',
         bountyId: id,
         message: err instanceof Error ? err.message : String(err),
-      }),
+      })
     );
 
     return persisted;
   });
 }
 
+/**
+ * Resolve a disputed bounty by an arbiter.
+ *
+ * Transitions a disputed bounty to a final state (released or refunded) based on
+ * arbiter's decision. Records the resolution in the audit log and notifies involved parties.
+ *
+ * @param {string} id - The bounty ID to resolve
+ * @param {string} arbiter - Stellar address of the arbiter making the decision
+ * @param {string} resolution - The arbiter's decision: "release" or "refund"
+ * @param {string} [txHash] - Optional Stellar transaction hash for the payment
+ * @returns {Promise<BountyRecord>} The resolved bounty record with final status
+ * @throws {Error} If bounty is not in "disputed" status
+ * @throws {Error} If arbiter address is empty
+ * @throws {Error} If resolution is not "release" or "refund"
+ * @throws {Error} When store lock times out or bounty is not found
+ */
+export async function resolveDisputeBounty(
+  id: string,
+  arbiter: string,
+  release: boolean,
+  transactionHash?: string
+): Promise<BountyRecord> {
+  return withStoreLock(async () => {
+    const records = listBounties();
+    const bounty = findBounty(records, id);
+
+    if (bounty.status !== 'disputed') {
+      throw new Error('Only disputed bounties can be resolved.');
+    }
+
+    const configuredArbiter = process.env.ARBITER_ADDRESS?.trim();
+    if (configuredArbiter && arbiter !== configuredArbiter) {
+      throw new Error('Only the configured arbiter can resolve disputes.');
+    }
+
+    const now = nowInSeconds();
+    const updated: BountyRecord = {
+      ...bounty,
+      status: release ? 'released' : 'refunded',
+      releasedAt: release ? now : bounty.releasedAt,
+      releasedTxHash: release
+        ? transactionHash?.trim() || bounty.releasedTxHash
+        : bounty.releasedTxHash,
+      refundedAt: release ? bounty.refundedAt : now,
+      refundedTxHash: release
+        ? bounty.refundedTxHash
+        : transactionHash?.trim() || bounty.refundedTxHash,
+      version: bounty.version + 1,
+      events: [
+        ...bounty.events,
+        {
+          type: release ? 'released' : 'refunded',
+          timestamp: now,
+          actor: arbiter,
+          details: { resolution: release ? 'released' : 'refunded' },
+        },
+      ],
+    };
+
+    const persisted = persistUpdated(records, updated);
+    appendAuditLogs([
+      {
+        bountyId: id,
+        fromStatus: bounty.status,
+        toStatus: updated.status,
+        transition: 'resolve_dispute',
+        actor: arbiter,
+        metadata: {
+          release,
+          transactionHash: transactionHash?.trim() || undefined,
+        },
+      },
+    ]);
+    await invalidateBountyCache();
+
+    const recipients: NotificationRecipient[] = [
+      { role: 'maintainer', address: bounty.maintainer },
+    ];
+    if (bounty.contributor) {
+      recipients.push({ role: 'contributor', address: bounty.contributor });
+    }
+    sendNotification(recipients, release ? 'bounty_released' : 'bounty_refunded', {
+      bountyId: id,
+      title: bounty.title,
+      amount: bounty.amount,
+      tokenSymbol: bounty.tokenSymbol,
+      resolvedBy: arbiter,
+      resolution: release ? 'released' : 'refunded',
+    }).catch((err) =>
+      logger.warn({ err, scope: 'resolveDisputeBounty' }, 'bounty_notification_failed')
+    );
+
+    return persisted;
+  });
+}
+
+/**
+ * Update the submission notes for a bounty.
+ *
+ * Allows the contributor to modify notes attached to their submission. This is
+ * only possible while the bounty is in "submitted" status (before release/refund).
+ *
+ * @param {string} id - The bounty ID to update
+ * @param {string} maintainer - Stellar address of the maintainer (for authorization)
+ * @param {string} notes - The new notes content
+ * @returns {Promise<BountyRecord>} The updated bounty record
+ * @throws {Error} If bounty is not found
+ * @throws {Error} If bounty is not in "submitted" status
+ * @throws {Error} If maintainer address doesn't match the bounty creator
+ * @throws {Error} When store lock times out
+ */
 export async function updateBountyNotes(
   id: string,
   maintainer: string,
-  notes: string,
+  notes: string
 ): Promise<BountyRecord> {
   return withStoreLock(async () => {
     const records = listBounties();
     const bounty = findBounty(records, id);
 
     if (bounty.maintainer !== maintainer) {
-      throw new Error("Maintainer address does not match this bounty.");
+      throw new Error('Maintainer address does not match this bounty.');
     }
 
     const now = nowInSeconds();
@@ -1182,7 +1909,7 @@ export async function updateBountyNotes(
       version: bounty.version + 1,
       events: [
         ...bounty.events,
-        { type: "notes_updated", timestamp: now, actor: maintainer, details: { notes } },
+        { type: 'notes_updated', timestamp: now, actor: maintainer, details: { notes } },
       ],
     };
 
@@ -1192,7 +1919,7 @@ export async function updateBountyNotes(
         bountyId: id,
         fromStatus: bounty.status,
         toStatus: bounty.status, // same status, since we're just updating notes
-        transition: "update_notes",
+        transition: 'update_notes',
         actor: maintainer,
         metadata: { notes },
       },
@@ -1204,6 +1931,112 @@ export async function updateBountyNotes(
 }
 
 /**
+ * Mark a bounty's linked pull request as confirmed merged via GitHub webhook (Issue #1449).
+ *
+ * Transitions the bounty state toward release by setting `prMerged: true`,
+ * recording `prMergedAt` timestamp, logging a `pr_merged` event, and appending
+ * an audit entry. Does not automatically release funds if maintainer confirmation
+ * is required.
+ *
+ * @param {string} id - The bounty ID to update
+ * @param {string} prUrl - The merged PR HTML URL
+ * @returns {Promise<BountyRecord>} The updated bounty record
+ */
+export async function markBountyPrMerged(
+  id: string,
+  prUrl: string,
+  options?: TransitionOptions
+): Promise<BountyRecord> {
+  const trace = options?.trace ?? defaultStateUpdateTrace;
+  const eventRef =
+    redactReference(options?.eventRef ?? options?.deliveryRef ?? options?.cursorRef) ??
+    redactReference(`${id}:pr_merged:${Date.now()}`);
+
+  trace.pending({
+    bountyId: id,
+    transition: 'pr_merged',
+    eventRef,
+    actor: 'github-webhook',
+    deliveryRef: options?.deliveryRef,
+    cursorRef: options?.cursorRef,
+    workerId: options?.workerId,
+  });
+
+  return withStoreLock(async () => {
+    try {
+      const records = listBounties();
+      const bounty = findBounty(records, id);
+
+      // Re-check inside the lock: GitHub can deliver the same merged PR under
+      // different delivery IDs, and both handlers can read prMerged=false before
+      // either write. The second call must be a no-op, not a duplicate event.
+      if (bounty.prMerged) {
+        return bounty;
+      }
+
+      const now = nowInSeconds();
+      const updated: BountyRecord = {
+        ...bounty,
+        prMerged: true,
+        prMergedAt: now,
+        version: bounty.version + 1,
+        events: [
+          ...bounty.events,
+          {
+            type: 'pr_merged',
+            timestamp: now,
+            actor: 'github-webhook',
+            details: { prUrl, merged: true },
+          },
+        ],
+      };
+
+      const persisted = persistUpdated(records, updated);
+      appendAuditLogs([
+        {
+          bountyId: id,
+          fromStatus: bounty.status,
+          toStatus: bounty.status,
+          transition: 'pr_merged',
+          actor: 'github-webhook',
+          metadata: { prUrl },
+        },
+      ]);
+      await invalidateBountyCache();
+
+      trace.committed({
+        bountyId: id,
+        transition: 'pr_merged',
+        eventRef,
+        expectedVersion: bounty.version,
+        currentVersion: updated.version,
+        fromStatus: bounty.status,
+        toStatus: bounty.status,
+        actor: 'github-webhook',
+        deliveryRef: options?.deliveryRef,
+        cursorRef: options?.cursorRef,
+        workerId: options?.workerId,
+      });
+
+      return persisted;
+    } catch (err) {
+      trace.failed({
+        bountyId: id,
+        transition: 'pr_merged',
+        eventRef,
+        error: err instanceof Error ? err.name : 'UNKNOWN_ERROR',
+        reason: err instanceof Error ? err.message : String(err),
+        actor: 'github-webhook',
+        deliveryRef: options?.deliveryRef,
+        cursorRef: options?.cursorRef,
+        workerId: options?.workerId,
+      });
+      throw err;
+    }
+  });
+}
+
+/**
  * Extend a bounty's deadline. Only the bounty's maintainer may do this, and the
  * new deadline must be in the future and strictly later than the current one.
  * Records a `deadline_extended` event in the bounty's event log.
@@ -1211,22 +2044,22 @@ export async function updateBountyNotes(
 export async function extendDeadline(
   id: string,
   maintainer: string,
-  newDeadline: number,
+  newDeadline: number
 ): Promise<BountyRecord> {
-  return withGlobalLock(async () => {
+  return withStoreLock(async () => {
     const records = listBounties();
     const bounty = findBounty(records, id);
 
     if (bounty.maintainer !== maintainer) {
-      throw new Error("Maintainer address does not match this bounty.");
+      throw new Error('Maintainer address does not match this bounty.');
     }
 
     const now = nowInSeconds();
     if (newDeadline <= now) {
-      throw new Error("New deadline must be in the future.");
+      throw new Error('New deadline must be in the future.');
     }
     if (newDeadline <= bounty.deadlineAt) {
-      throw new Error("New deadline must be later than the current deadline.");
+      throw new Error('New deadline must be later than the current deadline.');
     }
 
     const previousDeadline = bounty.deadlineAt;
@@ -1237,7 +2070,7 @@ export async function extendDeadline(
       events: [
         ...bounty.events,
         {
-          type: "deadline_extended",
+          type: 'deadline_extended',
           timestamp: now,
           actor: maintainer,
           details: { previousDeadline, newDeadline },
@@ -1251,7 +2084,7 @@ export async function extendDeadline(
         bountyId: id,
         fromStatus: bounty.status,
         toStatus: bounty.status, // status is unchanged by a deadline extension
-        transition: "extend_deadline",
+        transition: 'extend_deadline',
         actor: maintainer,
         metadata: { previousDeadline, newDeadline },
       },
@@ -1270,58 +2103,237 @@ export interface AuditLogPage {
   data: BountyAuditLogRecord[];
   /** Pagination metadata. */
   pagination: {
-    /** Total number of audit log records. */
+    /** The limit applied to the query. */
+    limit: number;
+    /** The offset applied to the query. */
+    offset: number;
+    /** Total number of matching records in the system. */
     total: number;
-    /** Current page number (1-indexed). */
-    page: number;
-    /** Number of records per page. */
-    pageSize: number;
-    /** Total number of pages. */
-    totalPages: number;
+    /** Indicates if more records are available. */
+    hasMore: boolean;
+    /** The next offset to query, or null if there are no more records. */
+    nextOffset: number | null;
   };
 }
 
 /**
- * Retrieves a paginated list of audit log records for a specific bounty.
+ * Retrieves paginated audit logs for a specific bounty.
  *
- * @param {string} bountyId - The unique ID of the bounty to retrieve audit logs for.
- * @param {number} [page=1] - The page number to retrieve (1-indexed).
- * @param {number} [pageSize=20] - The number of records per page.
- * @returns {AuditLogPage} A promise that resolves to a paginated response of audit log records.
+ * @param {string} bountyId - The unique ID of the bounty.
+ * @param {Object} [options={}] - Pagination options.
+ * @param {number} [options.limit=20] - The maximum number of log records to return.
+ * @param {number} [options.offset=0] - The starting index for pagination.
+ * @returns {AuditLogPage} An object containing the requested page of audit logs and pagination metadata.
  */
 export function listBountyAuditLogs(
   bountyId: string,
-  page: number = 1,
-  pageSize: number = 20,
+  options: { limit?: number; offset?: number } = {}
 ): AuditLogPage {
-  const allLogs = readAuditStore();
-  const filtered = allLogs.filter((log) => log.bountyId === bountyId);
+  const { limit = 20, offset = 0 } = options;
+  const all = readAuditStore().filter((log) => log.bountyId === bountyId);
+  const total = all.length;
+  const data = all.slice(offset, offset + limit);
+  const hasMore = offset + limit < total;
+  return {
+    data,
+    pagination: {
+      limit,
+      offset,
+      total,
+      hasMore,
+      nextOffset: hasMore ? offset + limit : null,
+    },
+  };
+}
 
-  // Sort by timestamp descending (most recent first)
-  filtered.sort((a, b) => b.timestamp - a.timestamp);
+export interface ListAllAuditLogsOptions {
+  limit?: number;
+  offset?: number;
+  actor?: string;
+  transition?: string;
+  bountyId?: string;
+  fromStatus?: string;
+  toStatus?: string;
+}
 
-  const total = filtered.length;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const safePage = Math.min(Math.max(1, page), totalPages);
-  const start = (safePage - 1) * pageSize;
-  const end = start + pageSize;
-  const data = filtered.slice(start, end);
+/**
+ * Retrieves a paginated, filterable view of audit log records across every
+ * bounty. Intended for admin use only — protect this with
+ * `createAdminApiKeyAuthMiddleware`.
+ */
+export function listAllAuditLogs(options: ListAllAuditLogsOptions = {}): AuditLogPage {
+  const { limit = 50, offset = 0, actor, transition, bountyId, fromStatus, toStatus } = options;
 
+  let all = readAuditStore();
 
+  if (actor) {
+    all = all.filter((log) => log.actor === actor);
+  }
 
+  if (transition) {
+    all = all.filter((log) => log.transition === transition);
+  }
+
+  if (bountyId) {
+    all = all.filter((log) => log.bountyId === bountyId);
+  }
+
+  if (fromStatus) {
+    all = all.filter((log) => log.fromStatus === fromStatus);
+  }
+
+  if (toStatus) {
+    all = all.filter((log) => log.toStatus === toStatus);
+  }
+
+  const total = all.length;
+  const data = all.slice(offset, offset + limit);
+  const hasMore = offset + limit < total;
+  return {
+    data,
+    pagination: {
+      limit,
+      offset,
+      total,
+      hasMore,
+      nextOffset: hasMore ? offset + limit : null,
+    },
+  };
+}
+
+/**
+ * Retrieve event history for a specific bounty.
+ *
+ * Returns all state transition events recorded for a bounty, in chronological
+ * order from creation to present. Useful for audit trails and status tracking.
+ *
+ * @param {string} bountyId - The ID of the bounty to query
+ * @returns {BountyEvent[]} Array of events, empty if bounty has no recorded events
+ * @throws {Error} If bounty with given ID is not found
+ */
 export function getBountyEvents(bountyId: string): BountyEvent[] {
   const records = listBounties();
   const bounty = findBounty(records, bountyId);
   return bounty.events || [];
 }
 
+/**
+ * Aggregate metrics and performance tracking data for a maintainer.
+ */
+export interface MaintainerMetrics {
+  /** The total number of bounties created by the maintainer. */
+  totalBounties: number;
+  /** Count of bounties currently in "open" status. */
+  openCount: number;
+  /** Count of bounties currently in "reserved" status. */
+  reservedCount: number;
+  /** Count of bounties currently in "submitted" status. */
+  submittedCount: number;
+  /** Count of bounties successfully "released" status. */
+  releasedCount: number;
+  /** Count of bounties refunded. */
+  refundedCount: number;
+  /** Count of bounties that have expired. */
+  expiredCount: number;
+  /** Total value of rewards funded by this maintainer. */
+  totalFunded: number;
+  /** Total value of rewards paid out/released to contributors. */
+  totalReleased: number;
+  /** Average reward value for the maintainer's bounties. */
+  averageRewardAmount: number;
+}
 
+/**
+ * Computes and returns aggregated metrics for a specific maintainer.
+ *
+ * @param {string} maintainer - The Stellar address of the maintainer.
+ * @returns {MaintainerMetrics} An object containing counts, sums, and averages of the maintainer's bounties.
+ */
+export function getMaintainerMetrics(maintainer: string): MaintainerMetrics {
+  const bounties = listBounties().filter((b) => b.maintainer === maintainer);
+  const totalFunded = bounties.reduce((sum, b) => sum + b.amount, 0);
+  const released = bounties.filter((b) => b.status === 'released');
+  const totalReleased = released.reduce((sum, b) => sum + b.amount, 0);
+  return {
+    totalBounties: bounties.length,
+    openCount: bounties.filter((b) => b.status === 'open').length,
+    reservedCount: bounties.filter((b) => b.status === 'reserved').length,
+    submittedCount: bounties.filter((b) => b.status === 'submitted').length,
+    releasedCount: released.length,
+    refundedCount: bounties.filter((b) => b.status === 'refunded').length,
+    expiredCount: bounties.filter((b) => b.status === 'expired').length,
+    totalFunded,
+    totalReleased,
+    averageRewardAmount: bounties.length > 0 ? totalFunded / bounties.length : 0,
   };
 }
- feat/concurrency-file-locking
 
-const GLOBAL_METRICS_CACHE_KEY = "stats:global";
-const GLOBAL_METRICS_TTL_SECONDS = 30;
+/**
+ * Ecosystem-wide aggregate statistics across all platform activity.
+ */
+export interface GlobalMetrics {
+  /** Total number of bounties created across the platform. */
+  totalBounties: number;
+  /** Total count of open bounties. */
+  openCount: number;
+  /** Total count of reserved bounties. */
+  reservedCount: number;
+  /** Total count of submitted bounties. */
+  submittedCount: number;
+  /** Total count of released bounties. */
+  releasedCount: number;
+  /** Total count of refunded bounties. */
+  refundedCount: number;
+  /** Total count of expired bounties. */
+  expiredCount: number;
+  /** Total amount of tokens funded across the platform. */
+  totalFunded: number;
+  /** Total amount of tokens released to contributors. */
+  totalReleased: number;
+  /** Total number of unique maintainer addresses. */
+  uniqueMaintainers: number;
+  /** Total number of unique contributor addresses. */
+  uniqueContributors: number;
+  /**
+   * Cumulative protocol fees collected across all released bounties.
+   * Mirrors the on-chain FeeStats.total_collected value indexed by the backend.
+   */
+  protocolFeesCollected: number;
+}
+
+/**
+ * Computes and returns global ecosystem-wide metrics for all bounties.
+ *
+ * @returns {GlobalMetrics} An object summarizing total counts, funding, and unique actor metrics.
+ */
+export function getGlobalMetrics(): GlobalMetrics {
+  const bounties = listBounties();
+  const totalFunded = bounties.reduce((sum, b) => sum + b.amount, 0);
+  const released = bounties.filter((b) => b.status === 'released');
+  const totalReleased = released.reduce((sum, b) => sum + b.amount, 0);
+  const protocolFeesCollected = released.reduce((sum, b) => sum + (b.protocolFeeCollected ?? 0), 0);
+  const uniqueMaintainers = new Set(bounties.map((b) => b.maintainer)).size;
+  const uniqueContributors = new Set(
+    bounties.filter((b) => b.contributor).map((b) => b.contributor as string)
+  ).size;
+  return {
+    totalBounties: bounties.length,
+    openCount: bounties.filter((b) => b.status === 'open').length,
+    reservedCount: bounties.filter((b) => b.status === 'reserved').length,
+    submittedCount: bounties.filter((b) => b.status === 'submitted').length,
+    releasedCount: released.length,
+    refundedCount: bounties.filter((b) => b.status === 'refunded').length,
+    expiredCount: bounties.filter((b) => b.status === 'expired').length,
+    totalFunded,
+    totalReleased,
+    uniqueMaintainers,
+    uniqueContributors,
+    protocolFeesCollected,
+  };
+}
+
+const GLOBAL_METRICS_CACHE_KEY = 'stats:global';
+const GLOBAL_METRICS_TTL_SECONDS = getServicesConfig().globalMetricsCacheTtlSeconds;
 
 /**
  * Cache-backed variant of {@link getGlobalMetrics} with a 30-second TTL.
@@ -1330,7 +2342,7 @@ const GLOBAL_METRICS_TTL_SECONDS = 30;
  * @returns {Promise<GlobalMetrics>} A promise that resolves to the global metrics.
  */
 export async function getGlobalMetricsCached(
-  cache: CacheAdapter = getCache(),
+  cache: CacheAdapter = getCache()
 ): Promise<GlobalMetrics> {
   const cached = await cache.get(GLOBAL_METRICS_CACHE_KEY);
   if (cached) {
@@ -1375,7 +2387,7 @@ export function getLeaderboard(limit = 10): LeaderboardEntry[] {
   const entries = new Map<string, LeaderboardEntry>();
 
   for (const bounty of listBounties()) {
-    if (bounty.status !== "released" || !bounty.contributor) {
+    if (bounty.status !== 'released' || !bounty.contributor) {
       continue;
     }
 
@@ -1391,10 +2403,20 @@ export function getLeaderboard(limit = 10): LeaderboardEntry[] {
   }
 
   return Array.from(entries.values())
-    .sort(
-      (a, b) =>
-        b.totalXlm - a.totalXlm || b.bountiesCompleted - a.bountiesCompleted,
-    )
+    .sort((a, b) => b.totalXlm - a.totalXlm || b.bountiesCompleted - a.bountiesCompleted)
     .slice(0, limit);
 }
- main
+
+/**
+ * Backfills existing JSON-era history into the Postgres audit log.
+ * Ensures audit history from the JSON era is not silently lost during migration.
+ */
+export async function backfillBountiesToPostgresAuditLog(): Promise<{
+  backfilledCount: number;
+}> {
+  const records = readStore();
+  const result = await backfillAuditLogsFromLegacyStore(records);
+  return { backfilledCount: result.backfilledCount };
+}
+
+export { getPostgresAuditLogs };

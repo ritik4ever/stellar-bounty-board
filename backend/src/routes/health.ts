@@ -82,8 +82,8 @@ async function getContractVersion(): Promise<string> {
     throw new Error('Simulation returned no result');
   }
 
-  // Parse ScVal string
-  const scVal = xdr.ScVal.fromXDR(result.retval.toXDR(), 'base64');
+  // result.retval is already a decoded ScVal
+  const scVal = result.retval;
   if (scVal.switch() !== xdr.ScValType.scvString()) {
     throw new Error(`Expected string return value, got ${scVal.switch().name}`);
   }

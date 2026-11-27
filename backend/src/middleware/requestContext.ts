@@ -19,6 +19,18 @@ function resolveRequestId(req: Request): string {
  * Assigns a request id (honors X-Request-ID when valid), sets X-Request-ID on the response,
  * and logs one structured line per request on response finish (method, path, status, duration).
  * Does not log bodies or query strings (avoid accidental secret leakage).
+ *
+ * An incoming `X-Request-ID` is used only if, after trimming, it is 1–128
+ * characters of `[a-zA-Z0-9-]`. Anything else is replaced with a new UUID v4.
+ * Sets `req.requestId` and `req.log` (a pino child logger bound to
+ * `requestId`) before calling `next()`, so later middleware and routes can
+ * rely on both.
+ *
+ * Never throws. Stateless apart from the per-request `finish` listener.
+ *
+ * @param req - Incoming request; `requestId` and `log` are attached to it.
+ * @param res - Response; the `X-Request-ID` header and a `finish` listener are added.
+ * @param next - Always called, synchronously, with no arguments.
  */
 export function requestContextMiddleware(req: Request, res: Response, next: NextFunction): void {
   const requestId = resolveRequestId(req);

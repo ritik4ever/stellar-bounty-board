@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { ArrowUpRight, Star, TrendingUp } from 'lucide-react';
-import type { BountyRecommendation } from './recommendations';
+import { getAccessibleRecommendationLabel, type BountyRecommendation } from './recommendations';
 import { statusCopy } from './constants';
 import UsdAmount from './UsdAmount';
 
 interface RecommendedBountiesProps {
   recommendations: BountyRecommendation[];
   loading?: boolean;
+  error?: string | Error | null;
+  onRetry?: () => void;
   walletConnected?: boolean;
   onConnectWallet?: () => void;
 }
@@ -44,10 +46,14 @@ function BountyRecommendationCard({ recommendation }: { recommendation: BountyRe
   const { bounty, score, reasons } = recommendation;
 
   return (
-    <article className="bounty-card bounty-card--recommended">
+    <article
+      className="bounty-card bounty-card--recommended"
+      aria-label={getAccessibleRecommendationLabel(recommendation)}
+      tabIndex={0}
+    >
       <div className="bounty-card__recommended-header">
         <div className="recommendation-score">
-          <Star size={16} />
+          <Star size={16} aria-hidden="true" />
           <span>{Math.round(score * 100)}% match</span>
         </div>
         <div className="recommendation-reasons">
@@ -89,6 +95,7 @@ function BountyRecommendationCard({ recommendation }: { recommendation: BountyRe
               href={`https://github.com/${bounty.repo}/issues/${bounty.issueNumber}`}
               target="_blank"
               rel="noreferrer"
+              aria-label={`View issue #${bounty.issueNumber} on GitHub`}
             >
               {bounty.repo} #{bounty.issueNumber}
             </a>
@@ -114,7 +121,7 @@ function BountyRecommendationCard({ recommendation }: { recommendation: BountyRe
 
       <div className="recommendation-footer">
         <div className="recommendation-explanation">
-          <TrendingUp size={14} />
+          <TrendingUp size={14} aria-hidden="true" />
           <span>Recommended for you</span>
         </div>
         <a
@@ -122,8 +129,9 @@ function BountyRecommendationCard({ recommendation }: { recommendation: BountyRe
           href={`https://github.com/${bounty.repo}/issues/${bounty.issueNumber}`}
           target="_blank"
           rel="noreferrer"
+          aria-label={`View issue #${bounty.issueNumber} for ${bounty.title}`}
         >
-          View issue <ArrowUpRight size={16} />
+          View issue <ArrowUpRight size={16} aria-hidden="true" />
         </a>
       </div>
     </article>
@@ -133,6 +141,8 @@ function BountyRecommendationCard({ recommendation }: { recommendation: BountyRe
 export default function RecommendedBounties({
   recommendations,
   loading,
+  error,
+  onRetry,
   walletConnected = true,
   onConnectWallet,
 }: RecommendedBountiesProps) {
@@ -155,9 +165,9 @@ export default function RecommendedBounties({
             <span className="panel-kicker">Personalized for you</span>
             <h2>Recommended bounties</h2>
           </div>
-          <Star size={18} />
+          <Star size={18} aria-hidden="true" />
         </div>
-        <div className="empty-state">
+        <div className="empty-state" role="status" aria-live="polite">
           <p>Connect your wallet to see personalized bounty recommendations.</p>
           {onConnectWallet && (
             <button type="button" className="connect-wallet-btn" onClick={onConnectWallet}>
@@ -169,17 +179,47 @@ export default function RecommendedBounties({
     );
   }
 
-  if (loading) {
+  if (error) {
+    const errorMessage = typeof error === 'string' ? error : error.message;
     return (
-      <section className="panel recommendations-panel">
+      <section
+        className="panel recommendations-panel"
+        role="region"
+        aria-label="Recommended bounties error"
+      >
         <div className="panel-header">
           <div>
             <span className="panel-kicker">Personalized for you</span>
             <h2>Recommended bounties</h2>
           </div>
-          <Star size={18} />
+          <Star size={18} aria-hidden="true" />
         </div>
-        <div className="board-list">
+        <div className="error-state" role="alert">
+          <h3 className="error-state__heading">Unable to load recommendations</h3>
+          <p className="error-state__message">
+            {errorMessage || 'An error occurred while fetching personalized recommendations.'}
+          </p>
+          {onRetry && (
+            <button type="button" className="error-state__retry retry-button" onClick={onRetry}>
+              Retry loading recommendations
+            </button>
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  if (loading) {
+    return (
+      <section className="panel recommendations-panel" aria-busy="true">
+        <div className="panel-header">
+          <div>
+            <span className="panel-kicker">Personalized for you</span>
+            <h2>Recommended bounties</h2>
+          </div>
+          <Star size={18} aria-hidden="true" />
+        </div>
+        <div className="board-list" role="status" aria-live="polite">
           {Array.from({ length: 3 }).map((_, index) => (
             <div key={index} className="bounty-card bounty-card--skeleton">
               <div className="skeleton-line" style={{ width: '60%', height: '20px' }} />
@@ -200,9 +240,9 @@ export default function RecommendedBounties({
             <span className="panel-kicker">Personalized for you</span>
             <h2>Recommended bounties</h2>
           </div>
-          <Star size={18} />
+          <Star size={18} aria-hidden="true" />
         </div>
-        <div className="empty-state">
+        <div className="empty-state" role="status" aria-live="polite">
           <p>
             No recommendations available yet. Complete some bounties to get personalized
             suggestions!
@@ -220,7 +260,13 @@ export default function RecommendedBounties({
           <h2>Recommended bounties</h2>
           <p className="panel-description">Based on your contribution history and preferences</p>
         </div>
-        <Star size={18} />
+        <Star size={18} aria-hidden="true" />
+      </div>
+
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {activeTag === 'All'
+          ? `Showing all ${recommendations.length} recommendations`
+          : `Filtered by ${activeTag} tag: ${filteredRecommendations.length} recommendations available`}
       </div>
 
       <div className="tag-filter-row" role="group" aria-label="Filter recommendations by skill tag">
@@ -231,6 +277,7 @@ export default function RecommendedBounties({
             className={`filter-chip${activeTag === tag ? ' filter-chip--active' : ''}`}
             onClick={() => setActiveTag(tag)}
             aria-pressed={activeTag === tag}
+            aria-label={`Filter by ${tag} tag`}
           >
             {tag}
           </button>
@@ -238,7 +285,7 @@ export default function RecommendedBounties({
       </div>
 
       {filteredRecommendations.length === 0 ? (
-        <div className="empty-state">
+        <div className="empty-state" role="status" aria-live="polite">
           <p>
             No recommended bounties match the <strong>{activeTag}</strong> tag.{' '}
             <button type="button" className="ghost-button" onClick={() => setActiveTag('All')}>
@@ -247,7 +294,12 @@ export default function RecommendedBounties({
           </p>
         </div>
       ) : (
-        <div className="board-list">
+        <div
+          className="board-list"
+          role="region"
+          aria-label="Recommended bounties list"
+          aria-live="polite"
+        >
           {filteredRecommendations.map((recommendation) => (
             <BountyRecommendationCard
               key={recommendation.bounty.id}
