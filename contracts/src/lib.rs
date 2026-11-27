@@ -1220,9 +1220,13 @@ impl StellarBountyBoardContract {
 
     /// Releases an escrowed bounty payout to the assigned contributor after deducting protocol fees.
     ///
-    /// This function is part of the public contract ABI. The bounty maintainer approves
-    /// the submitted work, triggering token transfers from contract escrow: the net payout
-    /// goes to the contributor, and any protocol fee is transferred to the treasury address.
+    /// This function is part of the public contract ABI. Once a bounty has been submitted
+    /// (`BountyStatus::Submitted`), review eligibility begins immediately and remains open
+    /// even if the ledger timestamp advances past `bounty.deadline`. The bounty maintainer
+    /// approves the submitted work, triggering a single payout of the exact escrowed amount:
+    /// the net payout (`amount - fee_amount`) goes to the contributor, and any non-zero
+    /// protocol fee (`floor(amount * protocol_fee_bps / 10_000)`) is transferred to the
+    /// configured fee recipient so that `net_payout + fee_amount == bounty.amount`.
     ///
     /// # Parameters
     /// * `env` - The Soroban contract environment.
@@ -1235,7 +1239,7 @@ impl StellarBountyBoardContract {
     /// # Errors & Panic Paths
     /// * [`ContractError::BountyNotFound`] - If no bounty exists with the given `bounty_id` (via `read_bounty`).
     /// * [`ContractError::MaintainerMismatch`] - If the caller `maintainer` does not match the bounty's registered creator (`bounty.maintainer != maintainer`).
-    /// * [`ContractError::BountyMustBeSubmitted`] - If the bounty's current status is not [`BountyStatus::Submitted`].
+    /// * [`ContractError::BountyMustBeSubmitted`] - If the bounty's current status is not [`BountyStatus::Submitted`] (including already [`BountyStatus::Released`]).
     /// * [`ContractError::MissingContributor`] - If the bounty has no assigned contributor.
     /// * [`ContractError::FeeRecipientNotSet`] - If `fee_amount > 0` and no fee recipient is configured in storage.
     /// * [`ContractError::PayoutTransferFailed`] - If the net payout token transfer to the contributor fails.
