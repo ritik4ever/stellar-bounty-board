@@ -17,6 +17,15 @@ export interface ContributorProfile {
   skills: string[];
 }
 
+export type RecommendationStatus = 'idle' | 'loading' | 'empty' | 'error' | 'success';
+
+export interface RecommendationFetchState {
+  status: RecommendationStatus;
+  data: BountyRecommendation[];
+  error?: string | null;
+  onRetry?: () => void;
+}
+
 /**
  * Score how well a bounty matches a contributor's declared skill tags.
  * Compares the contributor's skills against the bounty's labels and (optionally) tags.
@@ -106,6 +115,7 @@ const STATUS_WEIGHTS: Record<BountyStatus, number> = {
   released: 0,
   refunded: 0,
   expired: 0,
+  disputed: 0,
 };
 
 export function calculateRecommendationScore(
@@ -207,10 +217,7 @@ function buildRecommendation(bounty: Bounty, overlap: number): BountyRecommendat
 /**
  * Return the highest-value open bounties when the contributor has no history.
  */
-export function getFallbackRecommendations(
-  bounties: Bounty[],
-  limit = 3
-): BountyRecommendation[] {
+export function getFallbackRecommendations(bounties: Bounty[], limit = 3): BountyRecommendation[] {
   return bounties
     .filter((bounty) => bounty.status === 'open')
     .sort((a, b) => b.amount - a.amount)
@@ -259,7 +266,7 @@ export function generateRecommendations(
 export function findSimilarBounties(
   target: Bounty,
   allBounties: Bounty[],
-  limit = 3,
+  limit = 3
 ): BountyRecommendation[] {
   const profile: ContributorProfile = {
     completedLabels: target.labels.map((l) => l.name.toLowerCase()),
@@ -272,10 +279,23 @@ export function findSimilarBounties(
       .map((l) => l.name)
       .filter((name) =>
         [
-          'React', 'TypeScript', 'JavaScript', 'Rust', 'Python',
-          'Solidity', 'Stellar', 'Frontend', 'Backend', 'Testing',
-          'Docs', 'CSS', 'HTML', 'Node.js', 'API', 'Docker',
-        ].includes(name),
+          'React',
+          'TypeScript',
+          'JavaScript',
+          'Rust',
+          'Python',
+          'Solidity',
+          'Stellar',
+          'Frontend',
+          'Backend',
+          'Testing',
+          'Docs',
+          'CSS',
+          'HTML',
+          'Node.js',
+          'API',
+          'Docker',
+        ].includes(name)
       ),
   };
 
@@ -374,4 +394,15 @@ export function updateProfileFromBounties(
   updatedProfile.skills = [...inferredSkills];
 
   return updatedProfile;
+}
+
+/**
+ * Generate an accessible label describing the recommendation match details
+ * for screen readers and assistive technology (#1291).
+ */
+export function getAccessibleRecommendationLabel(recommendation: BountyRecommendation): string {
+  const matchPercent = Math.round(recommendation.score * 100);
+  const reasonsText =
+    recommendation.reasons.length > 0 ? ` Reasons: ${recommendation.reasons.join(', ')}.` : '';
+  return `${matchPercent}% match for bounty ${recommendation.bounty.title}.${reasonsText}`;
 }

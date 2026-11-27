@@ -87,7 +87,7 @@ describe('ExpirationJob — partial failure recovery', () => {
     fs.writeFileSync(storeFile, JSON.stringify([bounty1, bounty2, bounty3], null, 2));
 
     const { expireStaleReservations } = await loadJob();
-    const result = expireStaleReservations(7 * 24 * 60 * 60);
+    const result = await expireStaleReservations(7 * 24 * 60 * 60);
 
     // The job should have expired the 2 valid ones and skipped the corrupt one
     expect(result.expiredCount).toBe(2);
@@ -145,7 +145,7 @@ describe('ExpirationJob — partial failure recovery', () => {
     fs.writeFileSync(storeFile, JSON.stringify([noReservedAt, validExpired], null, 2));
 
     const { expireStaleReservations } = await loadJob();
-    const result = expireStaleReservations(7 * 24 * 60 * 60);
+    const result = await expireStaleReservations(7 * 24 * 60 * 60);
 
     // Only the valid expired bounty should be expired
     expect(result.expiredCount).toBe(1);
@@ -187,7 +187,7 @@ describe('ExpirationJob — partial failure recovery', () => {
     fs.writeFileSync(storeFile, JSON.stringify([malformed, validStale], null, 2));
 
     const { expireStaleReservations } = await loadJob();
-    const result = expireStaleReservations(7 * 24 * 60 * 60);
+    const result = await expireStaleReservations(7 * 24 * 60 * 60);
 
     // Should have expired the valid stale bounty
     expect(result.expiredCount).toBe(1);

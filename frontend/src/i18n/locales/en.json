@@ -1,0 +1,19 @@
+{
+  "app.title": "Stellar Bounty Board",
+  "app.hero.title": "Fund GitHub issues with on-chain escrow",
+  "app.hero.subtitle": "A decentralized bounty platform powered by Stellar. Reserve tasks, submit solutions, and get paid instantly.",
+  "common.back": "Back",
+  "common.share": "Share",
+  "common.copied": "Copied!",
+  "common.print": "Print / Export PDF",
+  "common.retry": "Retry",
+  "common.loading": "Loading...",
+  "bounty.kicker": "Bounty",
+  "bounty.defaultTitle": "Bounty",
+  "bounty.loading": "Loading bounty...",
+  "bounty.notFound": "Bounty not found.",
+  "bounty.details": "Bounty details",
+  "language.select": "Language",
+  "language.en": "English",
+  "language.es": "Español"
+}

@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import { X } from "lucide-react";
+import { useEffect, useRef } from 'react';
+import { X } from 'lucide-react';
 
 interface Props {
   onConfirm: () => void;
@@ -39,16 +39,16 @@ export default function DisconnectConfirmModal({ onConfirm, onClose }: Props) {
 
   // Focus trap
   function handleKeyDown(e: React.KeyboardEvent<HTMLDialogElement>) {
-    if (e.key === "Escape") {
+    if (e.key === 'Escape') {
       e.preventDefault();
       onClose();
       return;
     }
 
-    if (e.key !== "Tab") return;
+    if (e.key !== 'Tab') return;
 
     const buttons = [cancelRef.current, confirmRef.current, closeBtnRef.current].filter(
-      (el): el is HTMLElement => Boolean(el),
+      (el): el is HTMLButtonElement => Boolean(el)
     );
 
     if (buttons.length === 0) {
@@ -89,17 +89,12 @@ export default function DisconnectConfirmModal({ onConfirm, onClose }: Props) {
         </div>
 
         <p className="disconnect-modal__body">
-          Are you sure you want to disconnect your wallet? You'll need to
-          reconnect to access your personalized dashboard and recommendations.
+          Are you sure you want to disconnect your wallet? You'll need to reconnect to access your
+          personalized dashboard and recommendations.
         </p>
 
         <div className="disconnect-modal__actions">
-          <button
-            ref={cancelRef}
-            type="button"
-            className="ghost-button"
-            onClick={onClose}
-          >
+          <button ref={cancelRef} type="button" className="ghost-button" onClick={onClose}>
             Cancel
           </button>
           <button

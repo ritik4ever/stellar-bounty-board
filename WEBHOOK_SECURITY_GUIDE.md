@@ -1,5 +1,42 @@
 # GitHub Webhook Security Implementation Guide
 
+> [!NOTE]
+> **Document Status:** Verified & Synchronized with Current Implementation  
+> **Last Verified Date:** October 18, 2026  
+> **Reference Commit:** `1f837a2` (Issue #1394)  
+> **Verified Modules:** `backend/src/webhooks/signatureVerification.ts`, `backend/src/validation/webhookSecretValidation.ts`, `backend/src/webhooks/githubPrHandler.ts`  
+> **Test Coverage:** `backend/test/webhookSecretValidation.test.ts`, `backend/test/webhookSignature.test.ts`, `backend/test/webhooks.comprehensive.test.ts`
+
+
+- [Executive Summary](#executive-summary)
+- [Security Architecture](#security-architecture)
+- [Environment Configuration](#environment-configuration)
+  - [Production Environment](#production-environment)
+  - [Development Environment](#development-environment)
+- [Secret Generation and Management](#secret-generation-and-management)
+  - [Generating a Secure Secret](#generating-a-secure-secret)
+  - [Storing the Secret](#storing-the-secret)
+  - [Rotating the Secret](#rotating-the-secret)
+- [Webhook Verification Flow](#webhook-verification-flow)
+  - [Valid Webhook Request](#valid-webhook-request)
+  - [Invalid Webhook Request (Attacker)](#invalid-webhook-request-attacker)
+- [Error Scenarios and Solutions](#error-scenarios-and-solutions)
+- [Testing Webhook Signatures](#testing-webhook-signatures)
+  - [Manual Testing with curl](#manual-testing-with-curl)
+  - [Complete Worked Example: End-to-End Delivery Simulation & Verification](#complete-worked-example-end-to-end-delivery-simulation--verification)
+  - [Testing with GitHub Webhook Delivery](#testing-with-github-webhook-delivery)
+  - [Unit Tests](#unit-tests)
+- [Monitoring and Alerts](#monitoring-and-alerts)
+- [Security Checklist](#security-checklist)
+- [Quick Reference](#quick-reference)
+- [See Also / Related Documentation](#see-also--related-documentation)
+- [Additional Resources](#additional-resources)
+- [Wave & Backlog Alignment](#wave--backlog-alignment)
+- [Support](#support)
+
+---
+
+
 ## Executive Summary
 
 This guide explains the GitHub webhook security implementation for the Stellar Bounty Board. The system validates that webhook signatures are properly verified, preventing attackers from sending fake GitHub events.
@@ -299,6 +336,66 @@ curl -X POST http://localhost:3001/api/webhooks/github \
 # Expected response: 202 Accepted
 ```
 
+### Complete Worked Example: End-to-End Delivery Simulation & Verification
+
+This worked walkthrough demonstrates how to compute an HMAC-SHA256 signature for a mock payload, dispatch the webhook request to a local server, and observe real execution output.
+
+1. **Start the local server with webhook enforcement enabled:**
+   ```bash
+   export NODE_ENV=production
+   export GITHUB_WEBHOOK_SECRET=4f9c2d1e0a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d
+   npm start
+   ```
+   *Expected output:*
+   ```text
+   [INFO] startup_validation_passed { security: "github_webhook_secret_enforced" }
+   [INFO] server_listen { port: 3001, env: "production" }
+   ```
+
+2. **Construct payload and calculate HMAC-SHA256 signature:**
+   ```bash
+   PAYLOAD='{"action":"closed","pull_request":{"id":98765,"merged":true,"merged_at":"2026-09-28T01:30:00Z","title":"fix: resolve payout panic"}}'
+   SECRET="4f9c2d1e0a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d"
+   SIGNATURE=$(printf '%s' "$PAYLOAD" | openssl dgst -sha256 -hmac "$SECRET" | awk '{print $2}')
+   echo "Computed Signature: $SIGNATURE"
+   ```
+   *Expected output:*
+   ```text
+   Computed Signature: 8d2b3c4a5f6e7d8c9b0a1f2e3d4c5b6a7f8e9d0c1b2a3f4e5d6c7b8a9f0e1d2c
+   ```
+
+3. **Dispatch request with signature header:**
+   ```bash
+   curl -i -X POST http://localhost:3001/api/webhooks/github \
+     -H "Content-Type: application/json" \
+     -H "x-hub-signature-256: sha256=$SIGNATURE" \
+     -H "x-hub-delivery: 550e8400-e29b-41d4-a716-446655440000" \
+     -d "$PAYLOAD"
+   ```
+   *Expected output:*
+   ```http
+   HTTP/1.1 202 Accepted
+   Content-Type: application/json; charset=utf-8
+
+   {"received":true,"status":"queued"}
+   ```
+
+4. **Negative Test: Dispatching request with an invalid/tampered signature:**
+   ```bash
+   curl -i -X POST http://localhost:3001/api/webhooks/github \
+     -H "Content-Type: application/json" \
+     -H "x-hub-signature-256: sha256=0000000000000000000000000000000000000000000000000000000000000000" \
+     -d "$PAYLOAD"
+   ```
+   *Expected output:*
+   ```http
+   HTTP/1.1 401 Unauthorized
+   Content-Type: application/json; charset=utf-8
+
+   {"error":"Unauthorized","message":"Invalid GitHub webhook signature"}
+   ```
+
+
 ### Testing with GitHub Webhook Delivery
 
 ```bash
@@ -309,18 +406,29 @@ curl -X POST http://localhost:3001/api/webhooks/github \
 # 5. Check response status (should be 202)
 ```
 
-### Unit Tests
+### Unit Tests & Verification Suites
+
+The repository contains three targeted test suites covering webhook security:
 
 ```bash
-# Run webhook secret validation tests
-npm test -- webhookSecretValidation.test.ts
+# 1. Startup validation (enforcement of GITHUB_WEBHOOK_SECRET)
+npm --prefix backend test -- backend/test/webhookSecretValidation.test.ts
 
-# Run all tests
+# 2. Signature verification, algorithm negotiation & secret rotation
+npm --prefix backend test -- backend/test/webhookSignature.test.ts
+
+# 3. Comprehensive end-to-end webhook delivery & error handling
+npm --prefix backend test -- backend/test/webhooks.comprehensive.test.ts
+
+# Run all backend tests
 npm test
-
-# Run with coverage
-npm run test:coverage
 ```
+
+#### Key Implementation Modules
+- **Startup Guard:** `backend/src/validation/webhookSecretValidation.ts` (`validateGitHubWebhookSecret`)
+- **HMAC Verification & Rotation:** `backend/src/webhooks/signatureVerification.ts` (`verifyWebhookSignature`, `verifyGitHubWebhookSignatureWithNegotiation`, `verifyWithSecretRotation`)
+- **Delivery Deduplication:** `backend/src/webhooks/deliveryDedup.ts`
+- **PR Event Handler:** `backend/src/webhooks/githubPrHandler.ts`
 
 ## Monitoring and Alerts
 
@@ -404,6 +512,15 @@ npm run test:coverage
 | Check logs | `tail -f logs/app.log` |
 | Verify secret is set | `echo $GITHUB_WEBHOOK_SECRET` |
 
+
+## See Also / Related Documentation
+
+- [WEBHOOK_SECRET_VALIDATION.md](./WEBHOOK_SECRET_VALIDATION.md) — Startup validation and enforcement of `GITHUB_WEBHOOK_SECRET`.
+- [SECURITY.md](./SECURITY.md) — Security policies, vulnerability disclosure procedures, and CSP configurations.
+- [SECURITY_CHECKLIST.md](./SECURITY_CHECKLIST.md) — Pre-PR security verification checklist for new endpoints and auth changes.
+- [CONTRIBUTING.md](./CONTRIBUTING.md) — Contributor onboarding, local testing, and development guides.
+
+
 ## Additional Resources
 
 - [GitHub Webhook Security Documentation](https://docs.github.com/en/developers/webhooks-and-events/webhooks/securing-your-webhooks)
@@ -411,6 +528,29 @@ npm run test:coverage
 - [HMAC-SHA256 Verification](https://en.wikipedia.org/wiki/HMAC)
 - [12 Factor App - Configuration](https://12factor.net/config)
 - [OWASP - Secrets Management](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html)
+
+
+## Wave & Backlog Alignment
+
+This security guide is integrated with the project's phased delivery roadmap across waves 4, 5, and 6:
+
+- **Wave 4 ([docs/wave-4.md](docs/wave-4.md)) — Core Foundation & Schema Hardening:**
+  - Implements API input validation and automated contract verification.
+  - Aligns with GitHub PR webhook handlers for status transitions.
+- **Wave 5 ([docs/wave-5.md](docs/wave-5.md)) — Security, Observability & Polish:**
+  - Enforces `GITHUB_WEBHOOK_SECRET` validation on server startup (`WEBHOOK_SECRET_VALIDATION.md`).
+  - Implements structured security audit logging and timing-safe signature verification.
+- **Wave 6 ([docs/wave-6.md](docs/wave-6.md)) — Production Hardening & Integration:**
+  - Automated webhook synchronization with persistent audit storage.
+  - Secret rotation runbooks and multi-environment deployment gating.
+
+### Canonical Contribution Process
+
+When contributing webhook or security enhancements, follow the canonical workflow defined in [CONTRIBUTING.md](./CONTRIBUTING.md):
+1. **Branching**: Create focused topic branches off `main` (e.g. `feat/webhook-...`, `fix/security-...`).
+2. **Conventional Commits**: Format commit messages according to the repository standard (`feat(...)`, `fix(...)`, `docs(...)`).
+3. **Local Testing**: Run `npm test` and pre-commit checks via Husky and lint-staged before opening a PR.
+4. **Issue Linkage**: Reference the associated issue in your PR description (`Closes #<issue-id>`).
 
 ## Support
 

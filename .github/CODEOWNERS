@@ -1,0 +1,19 @@
+# ==============================================================================
+# GitHub CODEOWNERS Configuration
+# ==============================================================================
+# This file defines individuals or teams responsible for code in this repository.
+# Rules defined later in the file take precedence over earlier ones.
+# Syntax: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Global Default Owner
+# By default, repository maintainers own all files across frontend, backend, and documentation.
+* @ritik4ever
+
+# ------------------------------------------------------------------------------
+# Smart Contracts & On-Chain Escrow Security Boundary
+# ------------------------------------------------------------------------------
+# Changes under contracts/ modify immutable Soroban WASM logic, escrow states,
+# fee policies, and arbiter slashing rules. Because deployed Soroban contracts
+# cannot be hotfixed without on-chain upgrade governance, changes in this directory
+# strictly require dedicated contract specialist sign-off before merge.
+contracts/** @ritik4ever

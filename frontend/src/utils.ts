@@ -178,7 +178,7 @@ export function sortBounties(bounties: Bounty[], sort: SortState): Bounty[] {
 export function getActiveRewardLabel(
   minReward: string,
   maxReward: string,
-  bounds: { lowest: number; highest: number },
+  bounds: { lowest: number; highest: number }
 ): string {
   const min = minReward === '' ? bounds.lowest : Number(minReward);
   const max = maxReward === '' ? bounds.highest : Number(maxReward);
@@ -264,7 +264,9 @@ export function getContributorMetrics(bounties: Bounty[], contributorAddress?: s
     };
   }
 
-  const contributorBounties = bounties.filter((bounty) => bounty.contributor === contributorAddress);
+  const contributorBounties = bounties.filter(
+    (bounty) => bounty.contributor === contributorAddress
+  );
   const countsByStatus = new Map<BountyStatus, number>();
   const releasedTotalsByAsset = new Map<string, number>();
 
@@ -323,4 +325,100 @@ export async function getXlmRate(): Promise<number | null> {
   })();
 
   return pendingRequest;
+}
+
+/**
+ * Generates an accessible, screen-reader friendly announcement string for filter query changes (#1275).
+ */
+export function getAccessibleFilterAnnouncement(filters: FilterState, matchCount: number): string {
+  const parts: string[] = [];
+  if (filters.statusFilter && filters.statusFilter !== 'all') {
+    parts.push(`status ${filters.statusFilter}`);
+  }
+  if (filters.repoFilter && filters.repoFilter.trim() !== '') {
+    parts.push(`repository ${filters.repoFilter}`);
+  }
+  if (filters.tokenFilter && filters.tokenFilter.trim() !== '') {
+    parts.push(`token ${filters.tokenFilter}`);
+  }
+  if (filters.searchQuery && filters.searchQuery.trim() !== '') {
+    parts.push(`query "${filters.searchQuery}"`);
+  }
+
+  const criteria = parts.length > 0 ? ` for ${parts.join(', ')}` : '';
+  const itemWord = matchCount === 1 ? 'bounty' : 'bounties';
+  return `${matchCount} ${itemWord} found${criteria}.`;
+}
+
+/**
+ * Returns an accessible summary description for a bounty card or item (#1275).
+ */
+export function getAccessibleBountySummary(bounty: Bounty): string {
+  return `Bounty #${bounty.issueNumber}: ${bounty.title}, reward ${formatAmount(
+    bounty.amount,
+    bounty.tokenSymbol
+  )}, status ${bounty.status}`;
+}
+
+/**
+ * Visual fetch status types for asynchronous data flows (#1273).
+ */
+export type AsyncFetchStatus = 'idle' | 'loading' | 'empty' | 'error' | 'success';
+
+/**
+ * Structured fetch state container with data, error, and retry affordance (#1273).
+ */
+export interface AsyncFetchState<T> {
+  status: AsyncFetchStatus;
+  data?: T;
+  error?: string | null;
+  onRetry?: () => void;
+}
+
+/**
+ * Determines the visual fetch state given loading flags, error details, and records (#1273).
+ */
+export function resolveFetchState<T>(
+  data: T[] | null | undefined,
+  loading: boolean,
+  error?: string | null,
+  onRetry?: () => void
+): AsyncFetchState<T[]> {
+  if (loading) {
+    return { status: 'loading', data: data ?? undefined, error: null, onRetry };
+  }
+  if (error) {
+    return { status: 'error', data: data ?? undefined, error, onRetry };
+  }
+  if (!data || data.length === 0) {
+    return { status: 'empty', data: [], error: null, onRetry };
+  }
+  return { status: 'success', data, error: null, onRetry };
+}
+
+/**
+ * Formats a raw number or string with thousands separators (commas) while preserving decimal values (#855).
+ */
+export function formatCurrencyInput(value: number | string): string {
+  if (value === '' || value === null || value === undefined) return '';
+  const str = String(value).replace(/[^0-9.]/g, '');
+  if (!str) return '';
+  const parts = str.split('.');
+  const integerPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return parts.length > 1 ? `${integerPart}.${parts[1]}` : integerPart;
+}
+
+/**
+ * Strips formatting, currency symbols ($ , XLM, etc.), and extracts clean numeric value (#855).
+ */
+export function parseCurrencyInput(value: string | number): number {
+  if (typeof value === 'number') return isNaN(value) ? 0 : value;
+  if (!value || typeof value !== 'string') return 0;
+  const cleaned = value.replace(/[^0-9.]/g, '');
+  if (!cleaned) return 0;
+  const parts = cleaned.split('.');
+  const integerPart = parts[0] || '0';
+  const decimalPart = parts.length > 1 ? `.${parts[1]}` : '';
+  const num = Number(`${integerPart}${decimalPart}`);
+  return isNaN(num) ? 0 : num;
 }
