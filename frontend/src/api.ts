@@ -5,6 +5,7 @@ import type {
   GlobalMetrics,
   MaintainerMetrics,
   OpenIssue,
+  NotificationPreferences,
 } from './types';
 import {
   BountyStatus as ContractBountyStatus,
@@ -24,6 +25,14 @@ type RequestOptions = RequestInit & {
   retry?: boolean;
   retryAttempts?: number;
   retryLabel?: string;
+};
+
+type SignedMaintainerActionPayload<Action extends 'release' | 'refund'> = {
+  maintainer: string;
+  transactionHash?: string;
+  action: Action;
+  bountyId: string;
+  timestamp: number;
 };
 
 async function parseResponse<T>(response: Response): Promise<T> {
@@ -74,6 +83,15 @@ function formatRetryError(label: string, attempts: number, reason?: string): Err
   );
 }
 
+function ensureRequestId(headers: Record<string, string>) {
+  if (!headers['X-Request-ID'] && !headers['x-request-id']) {
+    headers['X-Request-ID'] =
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : Math.random().toString(36).substring(2) + Date.now().toString(36);
+  }
+}
+
 async function requestJson<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const {
     retry = true,
@@ -83,11 +101,7 @@ async function requestJson<T>(path: string, options: RequestOptions = {}): Promi
   } = options;
 
   const headers = { ...((init.headers || {}) as Record<string, string>) };
-  if (!headers['X-Request-ID'] && !headers['x-request-id']) {
-    headers['X-Request-ID'] = typeof crypto !== 'undefined' && crypto.randomUUID 
-      ? crypto.randomUUID() 
-      : Math.random().toString(36).substring(2) + Date.now().toString(36);
-  }
+  ensureRequestId(headers);
   init.headers = headers;
 
   let lastError: unknown;
@@ -139,11 +153,7 @@ async function requestBlob(
   } = options;
 
   const headers = { ...((init.headers || {}) as Record<string, string>) };
-  if (!headers['X-Request-ID'] && !headers['x-request-id']) {
-    headers['X-Request-ID'] = typeof crypto !== 'undefined' && crypto.randomUUID 
-      ? crypto.randomUUID() 
-      : Math.random().toString(36).substring(2) + Date.now().toString(36);
-  }
+  ensureRequestId(headers);
   init.headers = headers;
 
   let lastError: unknown;
@@ -217,20 +227,76 @@ async function requestBlob(
   throw formatRetryError(retryLabel, retryAttempts, message);
 }
 
-export async function listBounties(signal?: AbortSignal): Promise<Bounty[]> {
-  const body = await requestJson<{ data: Bounty[] }>("/bounties", {
+export type BountyListOptions = {
+  page: number;
+  limit: number;
+  q?: string;
+  repo?: string;
+  contributor?: string;
+  maintainer?: string;
+  minReward?: string;
+  maxReward?: string;
+  status?: string;
+  tokenSymbol?: string;
+  sort?: string;
+  order?: string;
+};
+
+export type PaginatedBountyList = {
+  data: Bounty[];
+  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+};
+
+export async function listBounties(
+  options: BountyListOptions,
+  signal?: AbortSignal
+): Promise<PaginatedBountyList> {
+  const params = new URLSearchParams({ page: String(options.page), limit: String(options.limit) });
+  for (const key of [
+    'q',
+    'repo',
+    'contributor',
+    'maintainer',
+    'minReward',
+    'maxReward',
+    'status',
+    'tokenSymbol',
+    'sort',
+    'order',
+  ] as const) {
+    const value = options[key];
+    if (value) params.set(key, value);
+  }
+  const body = await requestJson<PaginatedBountyList>(`/bounties?${params.toString()}`, {
     retry: true,
-    retryLabel: "Loading bounties",
+    retryLabel: 'Loading bounties',
     signal,
   });
 
-  return body.data;
+  return body;
+}
+
+export async function listAllBounties(
+  options: Omit<BountyListOptions, 'page' | 'limit'> = {},
+  signal?: AbortSignal
+): Promise<Bounty[]> {
+  const bounties: Bounty[] = [];
+  let page = 1;
+
+  while (true) {
+    const response = await listBounties({ ...options, page, limit: 100 }, signal);
+    bounties.push(...response.data);
+    if (!response.hasMore) return bounties;
+    page += 1;
+  }
 }
 
 export async function getBounty(id: string, signal?: AbortSignal): Promise<Bounty> {
   const body = await requestJson<{ data: Bounty }>(`/bounties/${id}`, {
     retry: true,
-
     signal,
   });
 
@@ -276,6 +342,56 @@ export async function submitBounty(
   return body.data;
 }
 
+/**
+ * Signed release action - requires a Freighter signature.
+ * The caller must sign the exact payload sent in the request body.
+ */
+export async function releaseBountySigned(
+  id: string,
+  payload: SignedMaintainerActionPayload<'release'>,
+  signature: string,
+  publicKey: string
+): Promise<Bounty> {
+  const body = await requestJson<{ data: Bounty }>(`/bounties/${id}/release`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-stellar-signature': signature,
+      'x-stellar-public-key': publicKey,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return body.data;
+}
+
+/**
+ * Signed refund action - requires a Freighter signature.
+ * The caller must sign the exact payload sent in the request body.
+ */
+export async function refundBountySigned(
+  id: string,
+  payload: SignedMaintainerActionPayload<'refund'>,
+  signature: string,
+  publicKey: string
+): Promise<Bounty> {
+  const body = await requestJson<{ data: Bounty }>(`/bounties/${id}/refund`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-stellar-signature': signature,
+      'x-stellar-public-key': publicKey,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return body.data;
+}
+
+/**
+ * Legacy release function without Freighter signing.
+ * Use releaseBountySigned() for the signed flow.
+ */
 export async function releaseBounty(
   id: string,
   maintainer: string,
@@ -290,6 +406,39 @@ export async function releaseBounty(
   return body.data;
 }
 
+/**
+ * Legacy refund function without Freighter signing.
+ * Use refundBountySigned() for the signed flow.
+ */
+export async function disputeBounty(
+  id: string,
+  contributor: string,
+  reason: string
+): Promise<Bounty> {
+  const body = await requestJson<{ data: Bounty }>(`/bounties/${id}/dispute`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contributor, reason }),
+  });
+
+  return body.data;
+}
+
+export async function resolveDisputeBounty(
+  id: string,
+  arbiter: string,
+  release: boolean,
+  transactionHash?: string
+): Promise<Bounty> {
+  const body = await requestJson<{ data: Bounty }>(`/bounties/${id}/resolve-dispute`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ arbiter, release, transactionHash }),
+  });
+
+  return body.data;
+}
+
 export async function refundBounty(
   id: string,
   maintainer: string,
@@ -299,6 +448,50 @@ export async function refundBounty(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ maintainer, transactionHash }),
+  });
+
+  return body.data;
+}
+
+/** Per-item outcome for a bulk release/refund action (#829). */
+export type BulkActionResult = {
+  bountyId: string;
+  success: boolean;
+  status?: string;
+  error?: string;
+};
+
+export type BulkActionResponse = {
+  action: 'release' | 'refund';
+  results: BulkActionResult[];
+  succeeded: number;
+  failed: number;
+};
+
+/**
+ * Apply a maintainer `release` or `refund` transition to many bounties in one
+ * admin-authenticated request. The backend processes each bounty
+ * independently and returns per-item results, so partial failures never hide
+ * partial successes.
+ *
+ * @param adminKey Raw admin API key, sent via the `x-admin-api-key` header.
+ */
+export async function bulkBountyAction(
+  action: 'release' | 'refund',
+  bountyIds: string[],
+  maintainer: string,
+  adminKey: string,
+  transactionHash?: string
+): Promise<BulkActionResponse> {
+  const body = await requestJson<{ data: BulkActionResponse }>('/bounties/bulk-action', {
+    method: 'POST',
+    retry: false,
+    retryLabel: 'Bulk action',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-admin-api-key': adminKey,
+    },
+    body: JSON.stringify({ action, bountyIds, maintainer, transactionHash }),
   });
 
   return body.data;
@@ -390,4 +583,45 @@ export function toContractBountyStatus(status: Bounty['status']): ContractBounty
  */
 export function getContractErrorLabel(error: ContractError): string {
   return CONTRACT_ERROR_LABELS[error] ?? 'UnknownContractError';
+}
+
+/**
+ * Stellar test network configuration for Freighter.
+ */
+export const STELLAR_NETWORK_PASSPHRASE =
+  import.meta.env.VITE_STELLAR_NETWORK_PASSPHRASE ?? 'Test SDF Network ; September 2015';
+
+export async function getNotificationPreferences(
+  address: string
+): Promise<NotificationPreferences> {
+  const body = await requestJson<{ data: NotificationPreferences }>(
+    `/notification-preferences/${encodeURIComponent(address)}`,
+    {
+      retry: true,
+      retryLabel: 'Loading notification preferences',
+    }
+  );
+
+  return body.data;
+}
+
+export async function updateNotificationPreferences(
+  address: string,
+  payload: Partial<NotificationPreferences> & {
+    email?: string;
+    webhookUrl?: string;
+    optIn?: boolean;
+  }
+): Promise<NotificationPreferences> {
+  const body = await requestJson<{ data: NotificationPreferences }>(
+    `/notification-preferences/${encodeURIComponent(address)}`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address, ...payload }),
+      retry: false,
+    }
+  );
+
+  return body.data;
 }

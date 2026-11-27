@@ -13,7 +13,7 @@ If you found a security vulnerability, **DO NOT** post it here. Publicly disclos
 ### How to report correctly:
 Please follow the instructions in our [Security Policy](https://github.com/ritik4ever/stellar-bounty-board/main/SECURITY.md).
 
-1. **Email us privately** at [Insert Email].
+1. **Email us privately** at security@stellarbountyboard.com.
 2. Include a description of the vulnerability.
 3. Include steps to reproduce the issue (PoC).
 

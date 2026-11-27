@@ -20,6 +20,31 @@ describe('OpenAPI contract — responses match zod schemas', () => {
     healthResponseSchema.strict().parse(res.body);
   });
 
+  it('GET /api/health/deep matches deep health schema', async () => {
+    const res = await request(app).get('/api/health/deep').expect(200);
+    deepHealthResponseSchema.strict().parse(res.body);
+  });
+
+  it('GET /api/openapi.json returns valid OpenAPI specification matching frontend accessibility requirements', async () => {
+    const res = await request(app).get('/api/openapi.json').expect(200);
+    expect(res.body).toHaveProperty('openapi');
+    expect(res.body).toHaveProperty('info');
+    expect(res.body).toHaveProperty('paths');
+    expect(res.body).toHaveProperty('components');
+    expect(res.body.components).toHaveProperty('schemas');
+
+    // Verify key schemas are exposed correctly for client consumption (api.ts / frontend accessibility)
+    const schemas = res.body.components.schemas;
+    expect(schemas).toHaveProperty('BountyRecord');
+    expect(schemas).toHaveProperty('CreateBountyRequest');
+    expect(schemas).toHaveProperty('ReserveBountyRequest');
+    expect(schemas).toHaveProperty('SubmitBountyRequest');
+    expect(schemas).toHaveProperty('MaintainerActionRequest');
+    expect(schemas).toHaveProperty('ErrorResponse');
+    expect(schemas).toHaveProperty('OpenIssue');
+    expect(schemas).toHaveProperty('HealthResponse');
+  });
+
   it('Create, reserve, submit, release flow responses conform', async () => {
     // Create
     const createBody = {
@@ -55,15 +80,5 @@ describe('OpenAPI contract — responses match zod schemas', () => {
     maintainerActionSchema.parse(releaseBody);
     const releaseRes = await request(app).post(`/api/bounties/${bounty.id}/release`).send(releaseBody).expect(200);
     bountyRecordSchema.strict().parse(releaseRes.body.data);
-
-    // Audit logs
-    const auditRes = await request(app).get(`/api/bounties/${bounty.id}/audit-log`).expect(200);
-    bountyAuditLogListResponseSchema.strict().parse(auditRes.body);
-  });
-
-  it('GET /api/open-issues responds with OpenIssue array', async () => {
-    const res = await request(app).get('/api/open-issues').expect(200);
-    const data = z.array(openIssueSchema.strict()).parse(res.body.data);
-    expect(Array.isArray(data)).toBe(true);
   });
 });

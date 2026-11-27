@@ -605,7 +605,9 @@ describe("API — bounty lifecycle routes", () => {
     const id = created.data.id as string;
 
     const res = await request(app).post(`/api/bounties/${id}/reserve`).send({ contributor: "not-a-key" }).expect(400);
-    expect(res.body.error).toMatch(/contributor|public key|Must be valid/i);
+    expect(res.body.error).toBe("Validation failed");
+    const messages = res.body.details.map((d: { message: string }) => d.message).join(" ");
+    expect(messages).toMatch(/contributor|public key|Must be valid/i);
   });
 
   it("domain errors from store return 400 with message", async () => {

@@ -27,6 +27,7 @@ afterEach(() => {
   delete process.env.SOROBAN_CONTRACT_ID;
   delete process.env.CONTRACT_ID;
   delete process.env.SOROBAN_RPC_URL;
+  delete process.env.DEEP_HEALTH_CHECK_TIMEOUT_MS;
   delete process.env.NODE_ENV;
   globalThis.fetch = originalFetch;
   try {
@@ -54,6 +55,40 @@ async function getApp() {
 }
 
 describe("GET /api/health/deep", () => {
+  it("replays the original response without rerunning the health check for the same key", async () => {
+    const deepHealthService = await import("../src/services/deepHealth");
+    const runDeepHealthCheck = vi
+      .spyOn(deepHealthService, "runDeepHealthCheck")
+      .mockResolvedValue({
+        overall: "up",
+        components: {
+          store: "up",
+          soroban: "up",
+          contract: "up",
+          auth: "up",
+        },
+        timestamp: "2026-01-01T00:00:00.000Z",
+      });
+    const app = await getApp();
+    const idempotencyKey = `deep-health-${randomUUID()}`;
+
+    try {
+      const first = await request(app)
+        .get("/api/health/deep")
+        .set("Idempotency-Key", idempotencyKey)
+        .expect(200);
+      const second = await request(app)
+        .get("/api/health/deep")
+        .set("Idempotency-Key", idempotencyKey)
+        .expect(200);
+
+      expect(runDeepHealthCheck).toHaveBeenCalledTimes(1);
+      expect(second.body).toEqual(first.body);
+    } finally {
+      runDeepHealthCheck.mockRestore();
+    }
+  });
+
   it("returns 200 with all components up when dependencies are healthy", async () => {
     mockHealthyRpc();
     const app = await getApp();
@@ -106,6 +141,24 @@ describe("GET /api/health/deep", () => {
     expect(res.body.overall).toBe("down");
   });
 
+  it("marks a component down when its configurable check timeout expires", async () => {
+    process.env.DEEP_HEALTH_CHECK_TIMEOUT_MS = "25";
+    let rpcSignal: AbortSignal | null | undefined;
+    globalThis.fetch = vi.fn<typeof fetch>().mockImplementation((_input, init) => {
+      rpcSignal = init?.signal;
+      return new Promise<Response>(() => {});
+    });
+    vi.resetModules();
+
+    const app = await getApp();
+    const startedAt = Date.now();
+    const res = await request(app).get("/api/health/deep").expect(503);
+
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    expect(res.body.components.soroban).toBe("down");
+    expect(rpcSignal?.aborted).toBe(true);
+  });
+
   it("returns 503 when store is not readable JSON", async () => {
     mockHealthyRpc();
     fs.writeFileSync(storeFile, "not-json", "utf8");
@@ -127,5 +180,68 @@ describe("GET /api/health/deep", () => {
     for (let i = 0; i < 130; i++) {
       await request(app).get("/api/health/deep").expect(200);
     }
+  });
+});
+
+describe("GET /api/health/deep — Soroban RPC chaos (#908)", () => {
+  it("marks soroban degraded on a simulated connection timeout, while other checks stay independently healthy", async () => {
+    // Simulate what a real fetch abort (component timeout exceeded) produces,
+    // without waiting out the real timeout.
+    globalThis.fetch = vi
+      .fn()
+      .mockRejectedValue(new DOMException("The operation was aborted.", "AbortError")) as typeof fetch;
+    vi.resetModules();
+
+    const app = await getApp();
+    const res = await request(app).get("/api/health/deep").expect(503);
+
+    expect(res.body.overall).toBe("down");
+    expect(res.body.components.soroban).toBe("down");
+    expect(res.body.components.store).toBe("up");
+    expect(res.body.components.contract).toBe("up");
+    expect(res.body.components.auth).toBe("up");
+  });
+
+  it("marks soroban degraded on a simulated RPC error response, while other checks stay independently healthy", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: async () => ({ error: "Service Unavailable" }),
+    }) as typeof fetch;
+    vi.resetModules();
+
+    const app = await getApp();
+    const res = await request(app).get("/api/health/deep").expect(503);
+
+    expect(res.body.overall).toBe("down");
+    expect(res.body.components.soroban).toBe("down");
+    expect(res.body.components.store).toBe("up");
+    expect(res.body.components.contract).toBe("up");
+    expect(res.body.components.auth).toBe("up");
+  });
+
+  it("fully recovers once the simulated RPC outage ends", async () => {
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error("connection refused")) as typeof fetch;
+    vi.resetModules();
+
+    const app = await getApp();
+    const duringOutage = await request(app).get("/api/health/deep").expect(503);
+    expect(duringOutage.body.components.soroban).toBe("down");
+    expect(duringOutage.body.overall).toBe("down");
+
+    // End the simulated outage: RPC responds healthy again.
+    mockHealthyRpc();
+    vi.resetModules();
+
+    const appRecovered = await getApp();
+    const afterRecovery = await request(appRecovered).get("/api/health/deep").expect(200);
+
+    expect(afterRecovery.body.overall).toBe("up");
+    expect(afterRecovery.body.components).toEqual({
+      store: "up",
+      soroban: "up",
+      contract: "up",
+      auth: "up",
+    });
   });
 });

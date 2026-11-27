@@ -14,6 +14,7 @@ enum BountyStatus {
   released
   refunded
   expired
+  disputed
 }
 
 enum BountyTransition {
@@ -22,6 +23,7 @@ enum BountyTransition {
   release
   refund
   expire
+  dispute
 }
 
 model Bounty {

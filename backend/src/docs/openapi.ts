@@ -10,8 +10,11 @@ import {
   healthResponseSchema,
   deepHealthResponseSchema,
   maintainerActionSchema,
+  refundBountyBodySchema,
   openIssueSchema,
+  bountyIdSchema,
   reserveBountySchema,
+  resolveDisputeBountySchema,
   submitBountySchema,
   updateNotesSchema,
 } from '../validation/schemas';
@@ -29,6 +32,7 @@ registry.register("CreateBountyRequest", createBountySchema);
 registry.register("ReserveBountyRequest", reserveBountySchema);
 registry.register("SubmitBountyRequest", submitBountySchema);
 registry.register("MaintainerActionRequest", maintainerActionSchema);
+registry.register("RefundBountyRequest", refundBountyBodySchema);
 registry.register("UpdateNotesRequest", updateNotesSchema);
 registry.register("ErrorResponse", errorResponseSchema);
 registry.register("OpenIssue", openIssueSchema);
@@ -64,6 +68,36 @@ const errorResponse = (description: string) => ({
 const bountyDataResponse = (description: string) =>
   jsonResponse(description, z.object({ data: bountyRecordSchema }));
 
+const paginatedBountiesSchema = z.object({
+  data: z.array(bountyRecordSchema),
+  total: z.number().int(),
+  page: z.number().int(),
+  pageSize: z.number().int(),
+  hasMore: z.boolean(),
+});
+
+const bountyTemplateSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  amount: z.number(),
+  labels: z.array(z.string()),
+  deadlineDays: z.number().int(),
+  tokenSymbol: z.string(),
+});
+
+const recurringScheduleSchema = z.object({
+  id: z.string().uuid(),
+  cadence: z.enum(["daily", "weekly", "monthly"]),
+  templateId: z.string(),
+  targetRepo: z.string(),
+  bounty: z.record(z.unknown()),
+  active: z.boolean(),
+  createdAt: z.number().int(),
+  nextRunAt: z.number().int(),
+  lastRunAt: z.number().int().optional(),
+  createdBountyIds: z.array(z.string()),
+});
+
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
@@ -73,7 +107,16 @@ registry.registerPath({
   path: "/api/health",
   tags: ["System"],
   summary: "Health check",
-  description: "Returns the service name and current server timestamp. Use this to verify the API is reachable.",
+  description:
+    "Returns the service name and current server timestamp. Use this to verify the API is reachable. " +
+    "An optional `Idempotency-Key` header replays the original response for retries made with the same key.",
+  request: {
+    headers: z.object({
+      "Idempotency-Key": z.string().optional().openapi({
+        description: "Optional key used to replay the original response for repeated requests.",
+      }),
+    }),
+  },
   responses: {
     200: jsonResponse("Service is healthy.", healthResponseSchema),
   },
@@ -88,9 +131,35 @@ registry.registerPath({
     "Extended health check that verifies all external dependencies. " +
     "Checks JSON store read/write, Soroban RPC reachability, contract ID configuration, " +
     "and auth configuration (MAINTAINER_PUBLIC_KEY and ARBITER_ADDRESS). " +
-    "Excluded from rate limiting. Returns HTTP 503 when any critical component is down.",
+    "Each component check has a configurable timeout via DEEP_HEALTH_CHECK_TIMEOUT_MS " +
+    "(default 5000 ms); a timed-out component is reported as down. " +
+    "Limited to 10 requests per minute per IP by default (configurable with " +
+    "RATE_LIMIT_DEEP_HEALTH_MAX and RATE_LIMIT_DEEP_HEALTH_WINDOW_MS). " +
+    "Returns HTTP 503 when any critical component is down.",
   responses: {
     200: jsonResponse("All critical components are healthy.", deepHealthResponseSchema),
+    400: jsonResponse(
+      "Invalid input: the route accepts no path parameters, query string, or request body.",
+      errorResponseSchema
+    ),
+    429: {
+      description: "Rate limit exceeded. Retry after the number of seconds in Retry-After.",
+      headers: {
+        "Retry-After": {
+          description: "Seconds to wait before retrying.",
+          schema: { type: "string" },
+        },
+      },
+      content: {
+        "application/json": {
+          schema: z.object({
+            error: z.string(),
+            retryAfter: z.number(),
+            requestId: z.string().optional(),
+          }),
+        },
+      },
+    },
     503: jsonResponse("One or more critical components are down.", deepHealthResponseSchema),
   },
 });
@@ -102,12 +171,21 @@ registry.registerPath({
   summary: "List all bounties",
   description:
     "Returns bounty records sorted by `createdAt` descending by default, with optional maintainer/status/token filters and sort parameters. " +
-    "Bounties whose deadline has passed are automatically transitioned to `expired` before the list is returned.",
+    "Bounties whose deadline has passed are automatically transitioned to `expired` before the list is returned. " +
+    "An optional `Idempotency-Key` header replays the original response for retries made with the same key.",
   request: {
+    headers: z.object({
+      "Idempotency-Key": z.string().optional().openapi({
+        description: "Optional key used to replay the original response for repeated requests.",
+      }),
+    }),
     query: z.object({
       q: z.string().optional().openapi({
-        description: "Case-insensitive substring filter applied to title, summary, and labels.",
+        description: "Case-insensitive substring filter applied to bounty title, summary, repository, status, and labels.",
       }),
+      repo: z.string().optional().openapi({ description: "Exact repository filter (owner/repo)." }),
+      minReward: z.coerce.number().min(0).optional().openapi({ description: "Minimum bounty amount." }),
+      maxReward: z.coerce.number().min(0).optional().openapi({ description: "Maximum bounty amount." }),
       contributor: z.string().optional().openapi({
         description: "Exact Stellar public key filter applied to the bounty contributor.",
       }),
@@ -128,23 +206,108 @@ registry.registerPath({
       }),
       deadlineBefore: z.string().optional().openapi({
         description: "Filter bounties with deadline before this ISO 8601 date string.",
-        example: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        example: "2026-12-31T23:59:59.000Z",
       }),
       deadlineAfter: z.string().optional().openapi({
         description: "Filter bounties with deadline after this ISO 8601 date string.",
-        example: new Date().toISOString(),
+        example: "2026-01-01T00:00:00.000Z",
       }),
       page: z.number().int().min(1).optional().openapi({
         description: "Page number (starts at 1, default 1).",
       }),
       pageSize: z.number().int().min(1).max(100).optional().openapi({
+        description: "Legacy alias for limit (max 100, default 20).",
+      }),
+      limit: z.number().int().min(1).max(100).optional().openapi({
         description: "Number of items per page (max 100, default 20).",
       }),
     }),
   },
   responses: {
-    200: jsonResponse("Array of all bounty records.", z.object({ data: z.array(bountyRecordSchema) })),
+    200: jsonResponse("Paginated bounty records and total filtered count.", paginatedBountiesSchema),
     400: errorResponse("Invalid query parameters (e.g., invalid date string, maintainer address, sort field, or order)."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/bounties/search",
+  tags: ["Bounties"],
+  summary: "Search bounties",
+  description: "Free-text search across title, repository, and description, ranked in that order.",
+  request: { query: z.object({
+    q: z.string(),
+    page: z.coerce.number().int().min(1).optional(),
+    pageSize: z.coerce.number().int().min(1).max(100).optional(),
+  }) },
+  responses: {
+    200: jsonResponse("Ranked, paginated search results.", paginatedBountiesSchema),
+    400: errorResponse("Invalid pagination parameters."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/bounty-templates",
+  tags: ["Bounties"],
+  summary: "List bounty templates",
+  responses: { 200: jsonResponse("Available bounty presets.", z.object({ data: z.array(bountyTemplateSchema) })) },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/bounties/import",
+  tags: ["Admin"],
+  summary: "Import bounties from CSV",
+  description: "Admin-only CSV import. Validation failures are reported per data row.",
+  request: { body: { required: true, content: { "text/csv": { schema: z.string() } } } },
+  responses: {
+    201: jsonResponse("Import summary.", z.object({
+      data: z.array(z.object({ row: z.number().int(), id: z.string().optional(), errors: z.array(z.string()).optional() })),
+      created: z.number().int(), failed: z.number().int(), total: z.number().int(),
+    })),
+    401: errorResponse("Admin authentication required."),
+    415: errorResponse("A CSV content type is required."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/recurring-bounty-schedules",
+  tags: ["Admin"],
+  summary: "List recurring bounty schedules",
+  responses: {
+    200: jsonResponse("Recurring schedules.", z.object({ data: z.array(recurringScheduleSchema) })),
+    401: errorResponse("Admin authentication required."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/recurring-bounty-schedules",
+  tags: ["Admin"],
+  summary: "Create a recurring bounty schedule",
+  request: { body: jsonBody(z.object({
+    cadence: z.enum(["daily", "weekly", "monthly"]), templateId: z.string(), targetRepo: z.string(),
+    bounty: z.record(z.unknown()), startAt: z.number().int().positive().optional(),
+  })) },
+  responses: {
+    201: jsonResponse("Schedule created.", z.object({ data: recurringScheduleSchema })),
+    400: errorResponse("Invalid schedule."),
+    401: errorResponse("Admin authentication required."),
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/api/recurring-bounty-schedules/{id}",
+  tags: ["Admin"],
+  summary: "Cancel a recurring bounty schedule",
+  request: { params: z.object({ id: z.string().uuid() }) },
+  responses: {
+    200: jsonResponse("Schedule cancelled.", z.object({ data: recurringScheduleSchema })),
+    401: errorResponse("Admin authentication required."),
+    404: errorResponse("Schedule not found."),
   },
 });
 
@@ -185,8 +348,14 @@ registry.registerPath({
   description:
     "Creates a new open bounty and persists it. " +
     "Rate-limited to **5 requests per IP per minute**. " +
-    "The `deadlineAt` timestamp is computed as `now + deadlineDays * 86400`.",
+    "The `deadlineAt` timestamp is computed as `now + deadlineDays * 86400`. " +
+    "An optional `Idempotency-Key` header replays the original response for retries made with the same key, so a client retrying after a timeout does not create a duplicate bounty.",
   request: {
+    headers: z.object({
+      "Idempotency-Key": z.string().optional().openapi({
+        description: "Optional key used to replay the original response for repeated requests.",
+      }),
+    }),
     body: jsonBody(createBountySchema),
   },
   responses: {
@@ -203,14 +372,16 @@ registry.registerPath({
   description:
     "Assigns a contributor to an `open` bounty, transitioning its status to `reserved`. " +
     "Only one contributor can hold a reservation at a time. " +
-    "Rate-limited to **5 requests per IP per minute**.",
+    "Rate-limited to **10 requests per IP per minute**.",
   request: {
-    params: z.object({ id: z.string().openapi(bountyIdParam.schema) }),
+    params: z.object({ id: bountyIdSchema }),
     body: jsonBody(reserveBountySchema),
   },
   responses: {
     200: bountyDataResponse("Bounty successfully reserved."),
-    400: errorResponse("Bounty not found, not open, or validation failed."),
+    400: errorResponse(
+      "Bounty not found, not open, or request input is invalid (`BOUNTY_RESERVE_INVALID_INPUT`)."
+    ),
   },
 });
 
@@ -254,6 +425,21 @@ registry.registerPath({
 
 registry.registerPath({
   method: "post",
+  path: "/api/bounties/{id}/resolve-dispute",
+  tags: ["Bounties"],
+  summary: "Resolve a bounty dispute",
+  request: {
+    params: z.object({ id: z.string().openapi(bountyIdParam.schema) }),
+    body: jsonBody(resolveDisputeBountySchema),
+  },
+  responses: {
+    200: bountyDataResponse("Dispute resolved."),
+    400: errorResponse("Bounty is not disputed or the resolution is invalid."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
   path: "/api/bounties/:id/refund",
   tags: ["Bounties"],
   summary: "Refund a bounty",
@@ -261,14 +447,19 @@ registry.registerPath({
     "Transitions an `open` or `reserved` bounty to `refunded`. " +
     "Cannot be called on `submitted`, `released`, or already `refunded` bounties. " +
     "Only the maintainer address recorded on the bounty may call this endpoint. " +
+    "Send the version you read in `expectedVersion` to make a race with a " +
+    "reservation arrive as a defined `409` instead of a silent overwrite. " +
     "Rate-limited to **5 requests per IP per minute**.",
   request: {
     params: z.object({ id: z.string().openapi(bountyIdParam.schema) }),
-    body: jsonBody(maintainerActionSchema),
+    body: jsonBody(refundBountyBodySchema),
   },
   responses: {
     200: bountyDataResponse("Bounty refunded."),
     400: errorResponse("Bounty not found, already finalised, maintainer mismatch, or validation failed."),
+    409: errorResponse(
+      "`expectedVersion` no longer matches the stored bounty; the response carries the current version and status."
+    ),
   },
 });
 
@@ -385,6 +576,60 @@ registry.registerPath({
       "Top 10 contributors by XLM earned.",
       z.object({ data: z.array(leaderboardEntrySchema) }),
     ),
+  },
+});
+
+const publicConfigSchema = z
+  .object({
+    feeBps: z.number().int().min(0).max(10_000).openapi({
+      example: 250,
+      description: "Protocol fee in basis points (250 = 2.5%). 0 means no protocol fee.",
+    }),
+    disputeWindowSeconds: z.number().int().min(0).openapi({
+      example: 86400,
+      description: "Seconds that must elapse after a dispute is raised before an arbiter can resolve it.",
+    }),
+    minBountyAmount: z.number().positive().openapi({
+      example: 1,
+      description: "Minimum allowed bounty amount in the payment token.",
+    }),
+    maxBountyAmount: z.number().positive().openapi({
+      example: 10000,
+      description: "Maximum allowed bounty amount in the payment token.",
+    }),
+    supportedTokens: z.record(z.string()).openapi({
+      example: { XLM: "CAS3J7YBBURBV347V3UAEAOAT2IZU7QHWG7YWCOOOFLBEBGKND655DHA" },
+      description: "Allowed token symbols mapped to their Soroban contract addresses.",
+    }),
+    defaultReservationTtlSeconds: z.number().int().positive().openapi({
+      example: 604800,
+      description: "Default reservation TTL in seconds (7 days = 604800). After this window a reservation returns to open.",
+    }),
+    network: z.string().openapi({
+      example: "testnet",
+      description: "Stellar network the backend is connected to (mainnet, testnet, or futurenet).",
+    }),
+  })
+  .openapi("PublicConfig");
+
+registry.register("PublicConfig", publicConfigSchema);
+
+registry.registerPath({
+  method: "get",
+  path: "/api/config",
+  tags: ["System"],
+  summary: "Public runtime configuration",
+  description:
+    "Returns non-sensitive runtime values that the frontend and contract-interaction layer " +
+    "need to stay in sync with the backend without hardcoding anything.\n\n" +
+    "**Included:** fee bps, dispute window, min/max bounty amounts, supported token addresses, " +
+    "default reservation TTL, and network label.\n\n" +
+    "**Never included:** API keys, database connection strings, webhook secrets, " +
+    "maintainer public keys, or any other internal-only setting.\n\n" +
+    "Response is cached with `Cache-Control: public, max-age=300` (5 min) since these values rarely change.",
+  responses: {
+    200: jsonResponse("Public runtime configuration.", z.object({ data: publicConfigSchema })),
+    500: errorResponse("Failed to build configuration."),
   },
 });
 

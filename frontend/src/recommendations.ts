@@ -17,6 +17,15 @@ export interface ContributorProfile {
   skills: string[];
 }
 
+export type RecommendationStatus = 'idle' | 'loading' | 'empty' | 'error' | 'success';
+
+export interface RecommendationFetchState {
+  status: RecommendationStatus;
+  data: BountyRecommendation[];
+  error?: string | null;
+  onRetry?: () => void;
+}
+
 /**
  * Score how well a bounty matches a contributor's declared skill tags.
  * Compares the contributor's skills against the bounty's labels and (optionally) tags.
@@ -106,6 +115,7 @@ const STATUS_WEIGHTS: Record<BountyStatus, number> = {
   released: 0,
   refunded: 0,
   expired: 0,
+  disputed: 0,
 };
 
 export function calculateRecommendationScore(
@@ -207,10 +217,7 @@ function buildRecommendation(bounty: Bounty, overlap: number): BountyRecommendat
 /**
  * Return the highest-value open bounties when the contributor has no history.
  */
-export function getFallbackRecommendations(
-  bounties: Bounty[],
-  limit = 3
-): BountyRecommendation[] {
+export function getFallbackRecommendations(bounties: Bounty[], limit = 3): BountyRecommendation[] {
   return bounties
     .filter((bounty) => bounty.status === 'open')
     .sort((a, b) => b.amount - a.amount)
@@ -244,6 +251,64 @@ export function generateRecommendations(
     })
     .slice(0, limit)
     .map(({ bounty, overlap }) => buildRecommendation(bounty, overlap));
+}
+
+/**
+ * Find bounties similar to a given target bounty, using repo similarity,
+ * reward-range proximity, and label overlap. Excludes the target bounty
+ * from results and caps at the specified limit.
+ *
+ * @param target - The bounty to find similar bounties for
+ * @param allBounties - Complete list of bounties to search
+ * @param limit - Maximum number of suggestions (default 3)
+ * @returns Array of up to `limit` similar bounties with their score and reasons
+ */
+export function findSimilarBounties(
+  target: Bounty,
+  allBounties: Bounty[],
+  limit = 3
+): BountyRecommendation[] {
+  const profile: ContributorProfile = {
+    completedLabels: target.labels.map((l) => l.name.toLowerCase()),
+    preferredRepos: [target.repo],
+    averageRewardRange: {
+      min: Math.max(0, target.amount * 0.5),
+      max: target.amount * 2,
+    },
+    skills: target.labels
+      .map((l) => l.name)
+      .filter((name) =>
+        [
+          'React',
+          'TypeScript',
+          'JavaScript',
+          'Rust',
+          'Python',
+          'Solidity',
+          'Stellar',
+          'Frontend',
+          'Backend',
+          'Testing',
+          'Docs',
+          'CSS',
+          'HTML',
+          'Node.js',
+          'API',
+          'Docker',
+        ].includes(name)
+      ),
+  };
+
+  return allBounties
+    .filter((b) => b.id !== target.id && b.status === 'open')
+    .map((bounty) => ({
+      bounty,
+      ...calculateRecommendationScore(bounty, profile),
+    }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map(({ bounty, score, reasons }) => ({ bounty, score, reasons }));
 }
 
 export function createDefaultProfile(): ContributorProfile {
@@ -329,4 +394,15 @@ export function updateProfileFromBounties(
   updatedProfile.skills = [...inferredSkills];
 
   return updatedProfile;
+}
+
+/**
+ * Generate an accessible label describing the recommendation match details
+ * for screen readers and assistive technology (#1291).
+ */
+export function getAccessibleRecommendationLabel(recommendation: BountyRecommendation): string {
+  const matchPercent = Math.round(recommendation.score * 100);
+  const reasonsText =
+    recommendation.reasons.length > 0 ? ` Reasons: ${recommendation.reasons.join(', ')}.` : '';
+  return `${matchPercent}% match for bounty ${recommendation.bounty.title}.${reasonsText}`;
 }
