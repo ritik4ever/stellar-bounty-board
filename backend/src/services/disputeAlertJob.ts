@@ -87,20 +87,30 @@ function getStorePath(): string {
   return path.resolve(__dirname, "../../data/bounties.json");
 }
 
+import { wrapServiceError } from "./errors";
+
 function readBounties(): BountyRecord[] {
-  const storePath = getStorePath();
-  if (!fs.existsSync(storePath)) return [];
+  try {
+    const storePath = getStorePath();
+    if (!fs.existsSync(storePath)) return [];
 
-  const raw = fs.readFileSync(storePath, "utf8").trim();
-  if (!raw) return [];
+    const raw = fs.readFileSync(storePath, "utf8").trim();
+    if (!raw) return [];
 
-  return JSON.parse(raw) as BountyRecord[];
+    return JSON.parse(raw) as BountyRecord[];
+  } catch (err) {
+    throw wrapServiceError("dispute_alert_job.read_store", "json-store", err);
+  }
 }
 
 function writeBounties(records: BountyRecord[]): void {
-  const storePath = getStorePath();
-  fs.mkdirSync(path.dirname(storePath), { recursive: true });
-  fs.writeFileSync(storePath, JSON.stringify(records, null, 2));
+  try {
+    const storePath = getStorePath();
+    fs.mkdirSync(path.dirname(storePath), { recursive: true });
+    fs.writeFileSync(storePath, JSON.stringify(records, null, 2));
+  } catch (err) {
+    throw wrapServiceError("dispute_alert_job.write_store", "json-store", err);
+  }
 }
 
 // ─── Core logic ───────────────────────────────────────────────────────────────
@@ -195,14 +205,16 @@ export function scanAndAlertStuckDisputes(): DisputeAlertResult {
 
 // ─── Scheduler ────────────────────────────────────────────────────────────────
 
+import { getServicesConfig } from "./config";
+
 let disputeAlertTimer: ReturnType<typeof setInterval> | null = null;
 
 /**
  * Start the periodic dispute-alert scanner.
  *
- * @param intervalMs  How often to scan (default: every hour = 3 600 000 ms).
+ * @param intervalMs  How often to scan (default: every hour = 3 600 000 ms).
  */
-export function startDisputeAlertJob(intervalMs = 3_600_000): void {
+export function startDisputeAlertJob(intervalMs = getServicesConfig().disputeAlertIntervalMs): void {
   if (disputeAlertTimer) {
     logStructured("warn", "dispute_alert_already_running", {});
     return;

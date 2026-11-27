@@ -9,48 +9,55 @@ improving the contributor experience, and closing documentation gaps left by Wav
 
 ## Summary
 
-| Area | Issues | Focus |
-|------|--------|-------|
-| Backend (`backend/src/`) | 2 | Postgres migration, GitHub webhook sync |
-| Frontend (`frontend/src/`) | 2 | Contributor profile dashboard, wallet signing |
-| Integrations | 1 | GitHub PR → bounty state sync |
-| Docs / Security | 2 | Responsible disclosure timeline, security template |
-| **Total** | **7** | |
+| Area                       | Issues | Focus                                              |
+| -------------------------- | ------ | -------------------------------------------------- |
+| Backend (`backend/src/`)   | 2      | Postgres migration, GitHub webhook sync            |
+| Frontend (`frontend/src/`) | 2      | Contributor profile dashboard, wallet signing      |
+| Integrations               | 1      | GitHub PR → bounty state sync                      |
+| Docs / Security            | 2      | Responsible disclosure timeline, security template |
+| **Total**                  | **7**  |                                                    |
 
 ---
 
 ## Backend Issues (2)
 
-| # | Title | Draft |
-|---|-------|-------|
-| 1 | Replace JSON Persistence With Postgres And Audit Logs | [postgres-audit-log.md](issues/postgres-audit-log.md) |
-| 2 | Document the `reservationExpirationJob` Configuration Options | [reservation-expiration-config.md](issues/reservation-expiration-config.md) |
+| #   | Title                                                         | Draft                                                                       |
+| --- | ------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| 1   | Replace JSON Persistence With Postgres And Audit Logs         | [postgres-audit-log.md](issues/postgres-audit-log.md)                       |
+| 2   | Document the `reservationExpirationJob` Configuration Options | [reservation-expiration-config.md](issues/reservation-expiration-config.md) |
+
+> **Single migration target (Issue #1169).** PostgreSQL is the only target for the move off
+> the JSON store. The SQLite/Drizzle variant that appeared in Wave 4 item 33 and Wave 5 item 17
+> has been amended to point at [ADR 0004](adr/0004-postgres-persistence.md), so this item is
+> the single owner of the cutover. Existing `backend/data/bounties.json` rows are backfilled
+> by `scripts/migrate-to-postgres.mjs`; the dry-run rehearsal against a data copy is documented
+> in [postgres-migration.md](postgres-migration.md).
 
 ---
 
 ## Frontend Issues (2)
 
-| # | Title | Draft |
-|---|-------|-------|
-| 3 | Add Contributor Profile Dashboard | [contributor-profile-dashboard.md](issues/contributor-profile-dashboard.md) |
-| 4 | Add Freighter Wallet Signing For Maintainer Actions | [wallet-auth-release-flow.md](issues/wallet-auth-release-flow.md) |
+| #   | Title                                               | Draft                                                                       |
+| --- | --------------------------------------------------- | --------------------------------------------------------------------------- |
+| 3   | Add Contributor Profile Dashboard                   | [contributor-profile-dashboard.md](issues/contributor-profile-dashboard.md) |
+| 4   | Add Freighter Wallet Signing For Maintainer Actions | [wallet-auth-release-flow.md](issues/wallet-auth-release-flow.md)           |
 
 ---
 
 ## Integrations (1)
 
-| # | Title | Draft |
-|---|-------|-------|
-| 5 | Sync Bounty Submissions From GitHub Pull Requests | [github-pr-webhook-sync.md](issues/github-pr-webhook-sync.md) |
+| #   | Title                                             | Draft                                                         |
+| --- | ------------------------------------------------- | ------------------------------------------------------------- |
+| 5   | Sync Bounty Submissions From GitHub Pull Requests | [github-pr-webhook-sync.md](issues/github-pr-webhook-sync.md) |
 
 ---
 
 ## Docs / Security Issues (2)
 
-| # | Title | Draft |
-|---|-------|-------|
-| 6 | Update `SECURITY.md` With Full Responsible Disclosure Timeline | [security-disclosure-process.md](issues/security-disclosure-process.md) |
-| 7 | Security Disclosure issue template (reporter-facing) | [security-disclosure.md](issues/security-disclosure.md) |
+| #   | Title                                                          | Draft                                                                   |
+| --- | -------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| 6   | Update `SECURITY.md` With Full Responsible Disclosure Timeline | [security-disclosure-process.md](issues/security-disclosure-process.md) |
+| 7   | Security Disclosure issue template (reporter-facing)           | [security-disclosure.md](issues/security-disclosure.md)                 |
 
 ---
 
@@ -67,4 +74,4 @@ For questions, open a Discussion or ping the maintainer in the issue thread.
 
 ---
 
-*Wave 6 opened: 2026-07-25 · 7 issues across 4 areas*
+_Wave 6 opened: 2026-07-25 · 7 issues across 4 areas_

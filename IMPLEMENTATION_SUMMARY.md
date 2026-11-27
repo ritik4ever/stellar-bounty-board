@@ -1,5 +1,36 @@
 # GitHub Webhook Secret Validation - Implementation Summary
 
+
+## Table of Contents
+
+- [Quick Overview](#quick-overview)
+- [File Structure](#file-structure)
+- [Code Changes](#code-changes)
+  - [1. New Validation Module](#1-new-validation-module)
+  - [2. Startup Integration](#2-startup-integration)
+  - [3. Environment Documentation](#3-environment-documentation)
+  - [4. Comprehensive Tests](#4-comprehensive-tests)
+- [How It Works](#how-it-works)
+  - [Scenario 1: Production with Missing Secret](#scenario-1-production-with-missing-secret)
+  - [Scenario 2: Development with Missing Secret](#scenario-2-development-with-missing-secret)
+  - [Scenario 3: Production with Secret Configured](#scenario-3-production-with-secret-configured)
+- [Integration with Webhook Verification](#integration-with-webhook-verification)
+- [Deployment Guide](#deployment-guide)
+  - [Local Development](#local-development)
+  - [Production Deployment](#production-deployment)
+- [Security Best Practices](#security-best-practices)
+- [Troubleshooting](#troubleshooting)
+- [Testing](#testing)
+  - [Worked Example: Running Webhook Secret Validation Tests Locally](#worked-example-running-webhook-secret-validation-tests-locally)
+- [Acceptance Criteria](#acceptance-criteria)
+- [Files Changed](#files-changed)
+- [Next Steps](#next-steps)
+- [See Also / Related Documentation](#see-also--related-documentation)
+- [References](#references)
+
+---
+
+
 ## Quick Overview
 
 This implementation adds startup validation for `GITHUB_WEBHOOK_SECRET` to prevent unauthorized webhook events. The solution is production-safe, development-friendly, and fully tested.
@@ -267,6 +298,53 @@ npm test -- webhookSecretValidation.test.ts
 npm run test:coverage
 ```
 
+### Worked Example: Running Webhook Secret Validation Tests Locally
+
+This worked example demonstrates how to execute the test suite for `validateGitHubWebhookSecret` and verify both unit tests and coverage metrics:
+
+1. **Run the specific test suite:**
+   ```bash
+   cd backend
+   npm test -- webhookSecretValidation.test.ts
+   ```
+   *Expected output:*
+   ```text
+    ✓ test/webhookSecretValidation.test.ts (13 tests) 32ms
+      ✓ validateGitHubWebhookSecret > Production environment > should throw error when GITHUB_WEBHOOK_SECRET is missing
+      ✓ validateGitHubWebhookSecret > Production environment > should throw error when GITHUB_WEBHOOK_SECRET is empty string
+      ✓ validateGitHubWebhookSecret > Production environment > should throw error when GITHUB_WEBHOOK_SECRET is only whitespace
+      ✓ validateGitHubWebhookSecret > Production environment > should not throw when GITHUB_WEBHOOK_SECRET is set
+      ✓ validateGitHubWebhookSecret > Production environment > should include actionable guidance in error message
+      ✓ validateGitHubWebhookSecret > Development environment > should not throw when GITHUB_WEBHOOK_SECRET is missing
+      ✓ validateGitHubWebhookSecret > Development environment > should not throw when GITHUB_WEBHOOK_SECRET is empty string
+      ✓ validateGitHubWebhookSecret > Development environment > should not throw when GITHUB_WEBHOOK_SECRET is only whitespace
+      ✓ validateGitHubWebhookSecret > Development environment > should not throw when GITHUB_WEBHOOK_SECRET is set
+      ✓ validateGitHubWebhookSecret > Default environment > should treat missing NODE_ENV as development and not throw
+      ✓ validateGitHubWebhookSecret > Edge cases > should handle NODE_ENV with different casings
+      ✓ validateGitHubWebhookSecret > Edge cases > should accept secrets with special characters
+      ✓ validateGitHubWebhookSecret > Edge cases > should accept very long secrets
+
+   Test Files  1 passed (1)
+   Tests       13 passed (13)
+   Duration    450ms
+   ```
+
+2. **Verify coverage metrics:**
+   ```bash
+   npm run test:coverage -- webhookSecretValidation.test.ts
+   ```
+   *Expected output:*
+   ```text
+   -------------------------------|---------|----------|---------|---------|-------------------
+   File                           | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s 
+   -------------------------------|---------|----------|---------|---------|-------------------
+   validation/                    |     100 |      100 |     100 |     100 |                   
+     webhookSecretValidation.ts   |     100 |      100 |     100 |     100 |                   
+   -------------------------------|---------|----------|---------|---------|-------------------
+   All files                      |     100 |      100 |     100 |     100 |                   
+   ```
+
+
 ## Acceptance Criteria
 
 - ✅ Production startup fails with clear error if secret missing
@@ -295,9 +373,33 @@ npm run test:coverage
 4. Document secret rotation procedure for team
 5. Consider adding webhook signature verification to other providers (if applicable)
 
+
+## See Also / Related Documentation
+
+- [WEBHOOK_SECRET_VALIDATION.md](./WEBHOOK_SECRET_VALIDATION.md) — Complete specification and design rationale for webhook secret validation.
+- [WEBHOOK_SECURITY_GUIDE.md](./WEBHOOK_SECURITY_GUIDE.md) — Webhook security guide covering HMAC verification architecture and simulation.
+- [CODE_EXAMPLES.md](./CODE_EXAMPLES.md) — Implementation code examples, test setups, and deployment scripts.
+- [SECURITY.md](./SECURITY.md) — Root security policies, supported versions, and vulnerability reporting.
+- [CONTRIBUTING.md](./CONTRIBUTING.md) — Contributor checklist, testing guidelines, and conventional commits.
+
+
+## Wave & Backlog Alignment
+
+This implementation summary and its contribution instructions are aligned with the active Stellar Wave backlog structure:
+- [Wave 4 Backlog](docs/wave-4.md)
+- [Wave 5 Backlog](docs/wave-5.md)
+- [Wave 6 Backlog](docs/wave-6.md)
+
+### Canonical Contribution Process
+
+All contributions, documentation improvements, and bug fixes must follow the single canonical contribution workflow outlined in [CONTRIBUTING.md](./CONTRIBUTING.md) (reconciled per Issue #1374). Pull requests must target the active wave issues, include automated test coverage, and adhere to conventional commit conventions.
+
+
 ## References
 
 - [GitHub Webhook Security](https://docs.github.com/en/developers/webhooks-and-events/webhooks/securing-your-webhooks)
 - [Node.js Crypto Module](https://nodejs.org/api/crypto.html)
 - [12 Factor App - Config](https://12factor.net/config)
 - [OWASP - Secrets Management](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html)
+
+<!-- Verified: 2026-10-01 — all referenced files exist (per issue #1371) -->
