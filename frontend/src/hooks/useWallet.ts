@@ -12,12 +12,14 @@ export function useWallet() {
     try {
       const installed = await checkIsFreighterConnected();
       if (!installed) {
-        window.alert('Freighter wallet is not installed. Please install it from https://freighter.app/');
+        window.alert(
+          'Freighter wallet is not installed. Please install it from https://freighter.app/'
+        );
         return;
       }
 
       const publicKey = await requestAccess();
-      if (publicKey) {
+      if (publicKey && typeof publicKey === 'string') {
         setAddress(publicKey);
       }
     } catch (error) {

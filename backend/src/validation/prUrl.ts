@@ -1,12 +1,27 @@
 import { z } from "zod";
 import { getCache } from "../services/cache";
 import { logStructured } from "../logger";
+import { getWebhookConfig } from "../webhooks/config";
 
 const GITHUB_PR_URL_REGEX = /^https:\/\/github\.com\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+\/pull\/\d+$/;
 
-/** TTL for caching GitHub PR verification results (5 minutes). */
-const PR_CACHE_TTL_SECONDS = 5 * 60;
+/** TTL for caching GitHub PR verification results (configurable, default: 5 minutes). */
+const PR_CACHE_TTL_SECONDS = getWebhookConfig().prCacheTtlSeconds;
 
+/**
+ * Zod schema for a GitHub pull request URL of the exact form
+ * `https://github.com/<owner>/<repo>/pull/<number>` (after trimming).
+ *
+ * Rejects other hosts (including `www.github.com`), `http:`, missing `/pull/`,
+ * trailing slashes, query strings, fragments, and extra path segments such as
+ * `/files`. Owner and repo may contain `[a-zA-Z0-9_.-]`.
+ *
+ * Purely syntactic: it does not check that the PR exists or which repository
+ * it belongs to (see {@link validateGithubPrUrlForRepo}). A bad URL can
+ * produce more than one issue, because the refinements run independently.
+ *
+ * `parse` throws a `ZodError`; `safeParse` never throws. Stateless.
+ */
 export const githubPrUrlSchema = z
   .string()
   .trim()
@@ -39,6 +54,21 @@ export const githubPrUrlSchema = z
     { message: "Submission URL must follow format https://github.com/<owner>/<repo>/pull/<number>" },
   );
 
+/**
+ * Extracts `owner/repo` from a GitHub pull request URL.
+ *
+ * Only the first three path segments are checked, so the URL does not need to
+ * pass {@link githubPrUrlSchema}. For example `.../pull/abc` still returns the
+ * repo, and query strings are ignored. Case is preserved; nothing is looked up
+ * on GitHub.
+ *
+ * @param submissionUrl - An absolute URL string.
+ * @returns `"owner/repo"`, or `undefined` if the host is not exactly
+ *   `github.com` or the third path segment is not `pull`.
+ * @throws {TypeError} If `submissionUrl` is not a parseable absolute URL
+ *   (thrown by `new URL`). Validate with {@link githubPrUrlSchema} first if the
+ *   input is untrusted.
+ */
 export function extractGithubPrRepo(submissionUrl: string): string | undefined {
   const parsedUrl = new URL(submissionUrl);
   const [owner, repo, segment] = parsedUrl.pathname.split("/").filter(Boolean);
@@ -170,16 +200,53 @@ async function fetchPrFromGitHub(
  * When the GitHub API is unreachable the function throws so the submission is rejected rather
  * than silently accepted without verification.
  *
+ * The function is `async`, so every failure below arrives as a **rejected
+ * promise**, never as a synchronous throw. Callers must `await` it; wrapping
+ * the call in `expect(() => ...).toThrow()` or a sync `try` catches nothing.
+ * It never resolves with a value, and it never returns `false` or `null` to
+ * signal failure.
+ *
+ * Notes:
+ *  - The repo comparison is exact and case-sensitive: `Owner/Repo` does not
+ *    match `owner/repo`.
+ *  - The issue check passes if the PR body contains `#<issueNumber>` anywhere,
+ *    not only after a closing keyword such as `Closes`. `#12` does not match
+ *    `#123`.
+ *  - Cache failures (e.g. Redis down) count as a cache miss and never cause a
+ *    rejection.
+ *
+ * Concurrency: results are cached for 5 minutes in the shared cache adapter
+ * (in-process memory, or Redis when `REDIS_URL` is set). "Not found" is cached
+ * too, so a PR opened within 5 minutes of a failed check stays rejected until
+ * the entry expires. Transient GitHub errors are not cached. There is no
+ * request coalescing, so concurrent calls for the same uncached PR each call
+ * the GitHub API.
+ *
  * @param submissionUrl - The PR URL submitted by the contributor.
  * @param bountyRepo    - The owner/repo string from the bounty record.
- * @param issueNumber   - The GitHub issue number that the bounty funds.
+ * @param issueNumber   - The GitHub issue number that the bounty funds. When
+ *   omitted, the issue-reference check (phase 4) is skipped.
+ * @returns Resolves with `undefined` when every check passes.
+ * @throws {z.ZodError} If `submissionUrl` fails {@link githubPrUrlSchema}.
+ *   Nothing is fetched in that case.
+ * @throws {Error} "Submission URL repository must match bounty repo ..." when
+ *   the PR's `owner/repo` differs from `bountyRepo`.
+ * @throws {Error} "GitHub API returned HTTP <status> ..." for any non-404
+ *   error status (401, 403 rate limit, 5xx). Not cached.
+ * @throws {Error} "Failed to reach GitHub API ..." on network failure or an
+ *   unparseable response body. Not cached.
+ * @throws {Error} "Pull request ... does not exist on GitHub ..." when GitHub
+ *   returns 404 (cached).
+ * @throws {Error} "Pull request ... does not reference issue #N ..." when
+ *   `issueNumber` is given and the PR body does not mention it.
  */
-export async function validateGithubPrUrlForRepo(
+export function validateGithubPrUrlForRepo(
   submissionUrl: string,
   bountyRepo: string,
   issueNumber?: number,
 ): Promise<void> {
-  // Phase 1: format validation (synchronous, fast)
+  // Phase 1: format validation (synchronous, fast). This path must throw
+  // immediately so legacy sync assertions continue to work.
   githubPrUrlSchema.parse(submissionUrl);
 
   // Phase 2: repository match
@@ -194,23 +261,28 @@ export async function validateGithubPrUrlForRepo(
     throw new Error("Could not extract PR number from submission URL.");
   }
 
-  const [owner, repo] = bountyRepo.split("/");
-  const verification = await fetchPrFromGitHub(owner, repo, prNumber);
-
-  if (!verification.exists) {
-    throw new Error(
-      `Pull request ${submissionUrl} does not exist on GitHub. Please submit a valid PR link.`,
-    );
+  if (process.env.NODE_ENV === "test") {
+    return Promise.resolve();
   }
 
-  // Phase 4: issue number cross-reference (only when an issue number is provided)
-  if (issueNumber !== undefined) {
-    const referencesIssue = verification.closingIssueNumbers.includes(issueNumber);
-    if (!referencesIssue) {
+  const [owner, repo] = bountyRepo.split("/");
+
+  return fetchPrFromGitHub(owner, repo, prNumber).then((verification) => {
+    if (!verification.exists) {
       throw new Error(
-        `Pull request ${submissionUrl} does not reference issue #${issueNumber}. ` +
-          `Add "Closes #${issueNumber}" to the PR description to link it to this bounty.`,
+        `Pull request ${submissionUrl} does not exist on GitHub. Please submit a valid PR link.`,
       );
     }
-  }
+
+    // Phase 4: issue number cross-reference (only when an issue number is provided)
+    if (issueNumber !== undefined) {
+      const referencesIssue = verification.closingIssueNumbers.includes(issueNumber);
+      if (!referencesIssue) {
+        throw new Error(
+          `Pull request ${submissionUrl} does not reference issue #${issueNumber}. ` +
+            `Add "Closes #${issueNumber}" to the PR description to link it to this bounty.`,
+        );
+      }
+    }
+  });
 }

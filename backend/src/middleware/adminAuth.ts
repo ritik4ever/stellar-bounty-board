@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import type { RequestHandler } from "express";
+import { MiddlewareDependencyError } from "./errors";
 
 const HEADER_ADMIN_KEY = "x-admin-api-key";
 const ENV_ADMIN_KEY_HASH = "ADMIN_API_KEY_HASH";
@@ -14,9 +15,20 @@ const ENV_ADMIN_KEY_HASH = "ADMIN_API_KEY_HASH";
  * middleware compares it with `bcrypt.compare()` so the plaintext key is
  * never stored or logged.
  *
+ * Skipped entirely (calls `next()`) when `NODE_ENV === "test"`.
+ *
  * Responds with:
  *  - 500 if `ADMIN_API_KEY_HASH` is not configured on the server.
  *  - 401 if the header is missing or the key does not match the hash.
+ *
+ * Never throws. If `bcrypt.compare()` rejects (e.g. a malformed stored hash),
+ * it calls `next()` with a {@link MiddlewareDependencyError} (operation
+ * `admin_api_key.compare`, status 500); the terminal error handler renders it.
+ *
+ * Concurrency: stateless; `ADMIN_API_KEY_HASH` is read on every request, so
+ * rotating it takes effect without a restart.
+ *
+ * @returns An async Express middleware.
  */
 export function createAdminApiKeyAuthMiddleware(): RequestHandler {
   return async (req, res, next) => {
@@ -41,8 +53,18 @@ export function createAdminApiKeyAuthMiddleware(): RequestHandler {
     let match: boolean;
     try {
       match = await bcrypt.compare(incomingKey, storedHash);
-    } catch {
-      res.status(500).json({ error: "Failed to verify admin API key." });
+    } catch (err) {
+      // A malformed stored hash or bcrypt failure is a server fault; keep the
+      // cause for the logs and send the client a fixed message.
+      next(
+        new MiddlewareDependencyError({
+          operation: "admin_api_key.compare",
+          dependency: "bcrypt",
+          statusCode: 500,
+          publicMessage: "Failed to verify admin API key.",
+          cause: err,
+        }),
+      );
       return;
     }
 

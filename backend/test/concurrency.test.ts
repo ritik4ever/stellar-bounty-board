@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 import { CONTRIBUTOR, OTHER_ACCOUNT, validCreateBody } from "./fixtures";
+import { getOperationalConfig } from "../src/config";
 
 let storeFile: string;
 
@@ -37,11 +38,12 @@ async function getApp() {
 }
 
 describe("Bounty Reservation Concurrency", () => {
-  it("should only allow one successful reservation when 20 requests are simultaneous", async () => {
+  it("should only allow one successful reservation when CONCURRENCY_TEST_COUNT requests are simultaneous", async () => {
     const app = await getApp();
+    const config = getOperationalConfig();
     
     // Increase timeout for concurrent lock contention
-    vi.setConfig({ testTimeout: 60000 });
+    vi.setConfig({ testTimeout: config.testTimeoutMs });
     
     // 1. Create a bounty
     const createRes = await request(app)
@@ -51,11 +53,11 @@ describe("Bounty Reservation Concurrency", () => {
     
     const id = createRes.body.data.id;
 
-    // 2. Fire 20 simultaneous reserve requests
+    // 2. Fire CONCURRENCY_TEST_COUNT simultaneous reserve requests
     // We use Promise.all to fire them as close together as possible
     // Use the valid CONTRIBUTOR address from fixtures for all requests
     // Only one will succeed, the rest will fail with 400 (bounty already reserved)
-    const contributors = Array.from({ length: 20 }, () => CONTRIBUTOR);
+    const contributors = Array.from({ length: config.concurrencyTestCount }, () => CONTRIBUTOR);
     const requests = contributors.map(contributor =>
       request(app)
         .post(`/api/bounties/${id}/reserve`)
@@ -79,7 +81,7 @@ describe("Bounty Reservation Concurrency", () => {
     }
 
     expect(successes, `Expected exactly one 200 response, but got ${successes}. Statuses: ${JSON.stringify(statuses)}`).toBe(1);
-    expect(failures, `Expected 19 error responses (400 or 409), but got ${failures}. Statuses: ${JSON.stringify(statuses)}`).toBe(19);
+    expect(failures, `Expected ${config.concurrencyTestCount - 1} error responses (400 or 409), but got ${failures}. Statuses: ${JSON.stringify(statuses)}`).toBe(config.concurrencyTestCount - 1);
 
     // 4. Verify the state in the store
     const getRes = await request(app).get(`/api/bounties/${id}`).expect(200);
