@@ -1,21 +1,45 @@
 # GitHub Webhook Secret Validation - Quick Start
 
+> **Last verified:** September 27, 2026 · Content verified against current codebase
+
+## Table of Contents
+
+- [What Was Implemented](#what-was-implemented)
+- [Key Files](#key-files)
+- [How It Works](#how-it-works)
+- [Getting Started](#getting-started)
+- [Testing](#testing)
+- [Error Messages](#error-messages)
+- [Security Checklist](#security-checklist)
+- [Troubleshooting](#troubleshooting)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [Test Results](#test-results)
+- [Acceptance Criteria](#acceptance-criteria)
+- [Next Steps](#next-steps)
+- [Support](#support)
+
+**See also:** [CONTRIBUTING.md](CONTRIBUTING.md) (setup and PR checklist) ·
+[docs/MAINTAINERS.md](docs/MAINTAINERS.md) (maintainer procedures) ·
+[docs/wave-4.md](docs/wave-4.md) (wave backlog and "How to Contribute")
+
 ## What Was Implemented
 
 A startup validation system that ensures `GITHUB_WEBHOOK_SECRET` is configured before the application starts, preventing unauthorized webhook events.
 
 ## Key Files
 
-| File | Type | Purpose |
-|------|------|---------|
-| `backend/src/validation/webhookSecretValidation.ts` | NEW | Validation logic |
-| `backend/src/index.ts` | MODIFIED | Calls validation before startup |
-| `backend/test/webhookSecretValidation.test.ts` | NEW | 13 comprehensive tests |
-| `.env.example` | MODIFIED | Enhanced documentation |
+| File                                                | Type     | Purpose                         |
+| --------------------------------------------------- | -------- | ------------------------------- |
+| `backend/src/validation/webhookSecretValidation.ts` | NEW      | Validation logic                |
+| `backend/src/index.ts`                              | MODIFIED | Calls validation before startup |
+| `backend/test/webhookSecretValidation.test.ts`      | NEW      | 13 comprehensive tests          |
+| `.env.example`                                      | MODIFIED | Enhanced documentation          |
 
 ## How It Works
 
 ### Production (NODE_ENV=production)
+
 ```bash
 $ NODE_ENV=production npm start
 # If GITHUB_WEBHOOK_SECRET is missing:
@@ -24,6 +48,7 @@ $ NODE_ENV=production npm start
 ```
 
 ### Development (NODE_ENV=development or unset)
+
 ```bash
 $ npm run dev
 # If GITHUB_WEBHOOK_SECRET is missing:
@@ -58,6 +83,23 @@ echo "GITHUB_WEBHOOK_SECRET=test-secret-123" >> .env
 
 # 3. Start dev server
 npm run dev
+
+# 4. (Optional) Seed demo data for UI testing
+npm run seed:demo
+```
+
+### Seeding Demo Data
+
+To populate the local store with a realistic, curated set of bounties across every lifecycle state (`open`, `reserved`, `submitted`, `released`, `refunded`, `expired`), run:
+
+```bash
+npm run seed:demo
+```
+
+Unlike the throughput load-test seeder (`npm run load:test` which generates identical bounties for performance benchmarks), `seed:demo` is tailored for UI inspection, product demos, and manual QA with distinct tokens, amounts, labels, and event histories. Pass `--reset` if you wish to clear and re-initialize the store cleanly:
+
+```bash
+npm run seed:demo -- --reset
 ```
 
 ## Testing
@@ -72,14 +114,16 @@ npm test -- webhookSecretValidation.test.ts
 ## Error Messages
 
 ### Production Error
+
 ```
 Error: GITHUB_WEBHOOK_SECRET environment variable is not configured.
-This is required to verify GitHub webhook signatures and prevent 
-unauthorized webhook events. Set GITHUB_WEBHOOK_SECRET to a secure 
+This is required to verify GitHub webhook signatures and prevent
+unauthorized webhook events. Set GITHUB_WEBHOOK_SECRET to a secure
 random string (e.g., openssl rand -hex 20).
 ```
 
 ### Development Warning
+
 ```
 [WARN] startup_validation_warning
   reason: "missing_github_webhook_secret"
@@ -99,11 +143,11 @@ random string (e.g., openssl rand -hex 20).
 
 ## Troubleshooting
 
-| Problem | Solution |
-|---------|----------|
+| Problem                                | Solution                                                     |
+| -------------------------------------- | ------------------------------------------------------------ |
 | "GITHUB_WEBHOOK_SECRET not configured" | Set environment variable: `export GITHUB_WEBHOOK_SECRET=...` |
-| Webhook returns 401 | Verify secret matches GitHub webhook settings |
-| Webhook returns 500 | Check that secret is set at runtime |
+| Webhook returns 401                    | Verify secret matches GitHub webhook settings                |
+| Webhook returns 500                    | Check that secret is set at runtime                          |
 
 ## Documentation
 
@@ -112,9 +156,19 @@ random string (e.g., openssl rand -hex 20).
 - **WEBHOOK_SECURITY_GUIDE.md** - Visual guide with examples
 - **CODE_EXAMPLES.md** - Complete code reference
 
+## Contributing
+
+This document covers the webhook secret validation feature only. The contribution process is deliberately not repeated here — it has one home, so there is only one version of it:
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) — local setup, Conventional Commits format, and the pull request checklist
+- [docs/wave-4.md](docs/wave-4.md) — a wave backlog document, including its "How to Contribute" steps
+
+If you landed here looking for how to pick up work, start with the wave document and follow the checklist in CONTRIBUTING.md.
+
 ## Test Results
 
 ✅ All 13 tests passing:
+
 - Production environment: 5 tests
 - Development environment: 4 tests
 - Default environment: 1 test
@@ -142,7 +196,21 @@ random string (e.g., openssl rand -hex 20).
 ## Support
 
 For detailed information, see:
+
 - Technical details: `WEBHOOK_SECRET_VALIDATION.md`
 - Quick overview: `IMPLEMENTATION_SUMMARY.md`
 - Visual guide: `WEBHOOK_SECURITY_GUIDE.md`
 - Code reference: `CODE_EXAMPLES.md`
+
+---
+
+## See Also
+
+Related documentation that covers complementary topics:
+
+- **[ONBOARDING.md](./ONBOARDING.md)** — Contributor setup and first contribution workflow
+- **[CONTRIBUTING.md](./CONTRIBUTING.md)** — Contribution standards, conventional commits, and PR checklist
+- **[README.md](./README.md)** — Project overview, architecture, and API reference
+- **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** — Detailed system architecture and data flow
+- **[WEBHOOK_SECURITY_GUIDE.md](./WEBHOOK_SECURITY_GUIDE.md)** — Visual guide with examples and security best practices
+- **[WEBHOOK_SECRET_VALIDATION.md](./WEBHOOK_SECRET_VALIDATION.md)** — Complete technical documentation

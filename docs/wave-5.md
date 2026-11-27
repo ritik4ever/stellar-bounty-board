@@ -44,10 +44,15 @@ observability, and contributor-experience polish built on top of the Wave 4 foun
 | 14  | Add per-IP rate limiting using `express-rate-limit`                                             | `backend/src/middleware/`                          |
 | 15  | Add request-id propagation header (`X-Request-ID`)                                              | `backend/src/middleware/requestContext.ts`         |
 | 16  | Add integration test for concurrent reservation race condition                                  | `backend/test/`                                    |
-| 17  | Migrate JSON store to SQLite via Drizzle ORM                                                    | `backend/data/`                                    |
+| 17  | Migrate JSON store to PostgreSQL (amended: SQLite/Drizzle retired; see ADR 0004)                | `backend/data/`                                    |
 | 18  | Add `BOUNTY_STORE_PATH` env var support for volume-mounted stores                               | `backend/src/services/reservationExpirationJob.ts` |
 | 19  | Add graceful shutdown handler that calls `stopExpirationJob()`                                  | `backend/src/index.ts`                             |
 | 20  | Add Zod schema for `RESERVATION_TTL_DAYS` and `EXPIRATION_CRON_INTERVAL_MS` at startup          | `backend/src/services/reservationExpirationJob.ts` |
+
+> **Persistence target amended (Issue #1169).** Item 17 duplicated Wave 4 item 33 with a
+> different destination. [ADR 0004](adr/0004-postgres-persistence.md) selects **PostgreSQL**;
+> the SQLite/Drizzle wording was retired so the backlog names one target. Migration tooling
+> and the pre-cutover dry-run are described in [postgres-migration.md](postgres-migration.md).
 
 ---
 
@@ -91,6 +96,18 @@ observability, and contributor-experience polish built on top of the Wave 4 foun
 | 40  | Add `CODEOWNERS` file to enforce review requirements on sensitive paths | Root                       |
 
 ---
+
+## Security checklist cross-reference
+
+The detailed, item-by-item mapping for all 40 Wave 5 issues is maintained in
+[`SECURITY_CHECKLIST.md`](../SECURITY_CHECKLIST.md#wave-5-issue-cross-reference).
+Use that matrix during implementation and review; it distinguishes direct checklist
+coverage from related hardening work and items with no direct checklist equivalent.
+
+**Source of truth:** `SECURITY_CHECKLIST.md` is authoritative for security review
+criteria and checklist changes. This file remains authoritative for the Wave 5 backlog,
+issue titles, ownership areas, and implementation progress. A listed issue is planned
+work, not proof that a security control is already implemented or verified.
 
 ## How to Contribute
 

@@ -5,6 +5,9 @@ frontend/storybook-static/
 *.log
 .DS_Store
 backend/data/*.local.json
+backend/data/*.archive.json
+backend/data/*.webhook-deliveries.json
+backend/data/*.webhook-deliveries.json.*.tmp
 contracts/target/
 contracts/.stellar/
 
@@ -14,3 +17,4 @@ frontend/storybook-static/
 branch_structure.json
 temp_auto_push.bat
 temp_interactive_push.bat
+*.zip

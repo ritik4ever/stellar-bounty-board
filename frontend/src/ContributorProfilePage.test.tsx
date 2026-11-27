@@ -7,9 +7,10 @@ import type { Bounty } from "./types";
 
 vi.mock("./api", () => ({
   listBounties: vi.fn(),
+  listAllBounties: vi.fn(),
 }));
 
-import { listBounties } from "./api";
+import { listAllBounties, listBounties } from "./api";
 
 const mockBounties: Bounty[] = [
   {
@@ -71,7 +72,10 @@ const mockLeaderboard = [
 
 beforeEach(() => {
   window.localStorage.clear();
-  vi.mocked(listBounties).mockResolvedValue(mockBounties);
+  vi.mocked(listBounties).mockResolvedValue({
+    data: mockBounties, total: mockBounties.length, page: 1, pageSize: 10, hasMore: false,
+  });
+  vi.mocked(listAllBounties).mockResolvedValue(mockBounties);
   const globalAny: any = global;
   globalAny.fetch = vi.fn((url: string) => {
     if (url.includes("/api/bounties")) {

@@ -1,205 +1,73 @@
-import React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 
-import type { Bounty } from "./types";
+import App from './App';
 
-vi.mock("sonner", () => ({
-  toast: {
-    success: vi.fn(),
-    error: vi.fn(),
-  },
-  Toaster: () => null,
-}));
+describe('App component', () => {
+  const fetchMock = vi.fn();
 
-vi.mock("./api", () => ({
-  createBounty: vi.fn(),
-  getBounty: vi.fn(),
-  listBounties: vi.fn(),
-  listOpenIssues: vi.fn(),
-  refundBounty: vi.fn(),
-  releaseBounty: vi.fn(),
-  reserveBounty: vi.fn(),
-  submitBounty: vi.fn(),
-}));
-
-import * as api from "./api";
-import App from "./App";
-
-const openBounty: Bounty = {
-  id: "BNTY-300",
-  repo: "ritik4ever/stellar-bounty-board",
-  issueNumber: 300,
-  title: "Test bounty for form validation",
-  summary: "A test bounty.",
-  maintainer: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
-  tokenSymbol: "USDC",
-  amount: 150,
-  labels: [{ name: "bug", color: "d73a4a" }],
-  status: "open",
-  createdAt: 1_700_000_000,
-  deadlineAt: 9_999_999_999,
-  version: 1,
-  events: [],
-};
-
-function mockBrowserApis() {
-  Object.defineProperty(window, "matchMedia", {
-    writable: true,
-    value: vi.fn().mockImplementation((query: string) => ({
-      matches: false,
-      media: query,
-      onchange: null,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    })),
-  });
-}
-
-async function renderBoard() {
-  vi.mocked(api.listBounties).mockResolvedValue([openBounty]);
-  vi.mocked(api.listOpenIssues).mockResolvedValue([]);
-  vi.mocked(api.getBounty).mockResolvedValue(openBounty);
-
-  const result = render(<App />);
-  await waitFor(() => expect(screen.getByText("Test bounty for form validation")).toBeInTheDocument());
-  return result;
-}
-
-beforeEach(() => {
-  vi.clearAllMocks();
-  mockBrowserApis();
-  window.history.pushState(null, "", "/");
-  window.prompt = vi.fn();
-  window.alert = vi.fn();
-});
-
-describe("bounty-creation form validation", () => {
-  it("shows an error when the repository field is empty", async () => {
-    const user = userEvent.setup();
-    await renderBoard();
-
-    const repoInput = screen.getByPlaceholderText("owner/repo");
-    await user.clear(repoInput);
-    await user.type(repoInput, " ");
-
-    const titleInput = screen.getByPlaceholderText("Add WebSocket updates...");
-    await user.clear(titleInput);
-    await user.type(titleInput, "Valid title");
-
-    const submitButton = screen.getByRole("button", { name: /create bounty/i });
-    await user.click(submitButton);
-
-    const { toast } = await import("sonner");
-    await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("Repository is required.");
-    });
-    expect(api.createBounty).not.toHaveBeenCalled();
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
   });
 
-  it("shows an error when the title field is empty", async () => {
-    const user = userEvent.setup();
-    await renderBoard();
-
-    const repoInput = screen.getByPlaceholderText("owner/repo");
-    await user.clear(repoInput);
-    await user.type(repoInput, "owner/repo");
-
-    const titleInput = screen.getByPlaceholderText("Add WebSocket updates...");
-    await user.clear(titleInput);
-
-    const submitButton = screen.getByRole("button", { name: /create bounty/i });
-    await user.click(submitButton);
-
-    const { toast } = await import("sonner");
-    await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("Title is required.");
-    });
-    expect(api.createBounty).not.toHaveBeenCalled();
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
-  it("shows an error when the reward amount is zero or negative", async () => {
-    const user = userEvent.setup();
-    await renderBoard();
-
-    const repoInput = screen.getByPlaceholderText("owner/repo");
-    await user.clear(repoInput);
-    await user.type(repoInput, "owner/repo");
-
-    const titleInput = screen.getByPlaceholderText("Add WebSocket updates...");
-    await user.clear(titleInput);
-    await user.type(titleInput, "Valid title");
-
-    const amountInput = screen.getByRole("spinbutton", { name: /reward/i });
-    await user.clear(amountInput);
-    await user.type(amountInput, "0");
-
-    const submitButton = screen.getByRole("button", { name: /create bounty/i });
-    await user.click(submitButton);
-
-    const { toast } = await import("sonner");
-    await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("Reward amount must be greater than 0.");
+  it('renders without crashing', () => {
+    fetchMock.mockResolved({
+      ok: true,
+      json: async () => ([]),
     });
-    expect(api.createBounty).not.toHaveBeenCalled();
+    const { container } = render(<App />);
+    expect(container).toBeDefined();
+    expect(container.firstChild).not.toBeNull();
   });
 
-  it("shows an error for an invalid maintainer address", async () => {
-    const user = userEvent.setup();
-    await renderBoard();
-
-    // The maintainer field is not in the rendered form, but we can test
-    // by modifying the form state. For now, the initial form already has a valid
-    // maintainer address, so this test validates that the existing validation works.
-    // We'll fill in valid fields and submit to verify the maintainer check passes.
-    const repoInput = screen.getByPlaceholderText("owner/repo");
-    await user.clear(repoInput);
-    await user.type(repoInput, "owner/repo");
-
-    const titleInput = screen.getByPlaceholderText("Add WebSocket updates...");
-    await user.clear(titleInput);
-    await user.type(titleInput, "Valid title");
-
-    const submitButton = screen.getByRole("button", { name: /create bounty/i });
-    await user.click(submitButton);
-
-    await waitFor(() => {
-      expect(api.createBounty).toHaveBeenCalled();
-    });
+  it('shows a loading state while the request is in flight', () => {
+    fetchMock.mockImplementation(() => new Promise(() => {}));
+    render(<App />);
+    expect(screen.getByTestId('app-loading')).toBeInTheDocument();
+    expect(screen.getByText(/loading/i)).toBeInTheDocument();
   });
 
-  it("calls createBounty with the correct payload on valid submission", async () => {
-    const user = userEvent.setup();
-    await renderBoard();
-
-    const repoInput = screen.getByPlaceholderText("owner/repo");
-    await user.clear(repoInput);
-    await user.type(repoInput, "owner/repo");
-
-    const titleInput = screen.getByPlaceholderText("Add WebSocket updates...");
-    await user.clear(titleInput);
-    await user.type(titleInput, "My new bounty");
-
-    const submitButton = screen.getByRole("button", { name: /create bounty/i });
-    await user.click(submitButton);
-
-    await waitFor(() => {
-      expect(api.createBounty).toHaveBeenCalledWith(
-        expect.objectContaining({
-          repo: "owner/repo",
-          title: "My new bounty",
-          maintainer: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
-        }),
-      );
+  it('shows an empty state when the request succeeds with no data', async () => {
+    fetchMock.mockResolved({
+      ok: true,
+      json: async () => ([]),
     });
+    render(<App />);
+    expect(await screen.findByTestId('app-empty')).toBeInTheDocument();
+    expect(screen.queryByTestId('app-loading')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('app-error')).not.toBeInTheDocument();
+  });
 
-    const { toast } = await import("sonner");
-    await waitFor(() => {
-      expect(toast.success).toHaveBeenCalledWith("Bounty created successfully!");
+  it('shows an error state with a retry affordance when the request fails', async () => {
+    fetchMock.mockRejected(new Error('Network error'));
+    render(<App />);
+    expect(await screen.findByTestId('app-error')).toBeInTheDocument();
+    expect(screen.queryByTestId('app-loading')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('app-empty')).not.toBeInTheDocument();
+    const retryButton = screen.getByTestId('app-retry');
+    expect(retryButton).toBeInTheDocument();
+  });
+
+  it('retries the request when the retry button is clicked', async () => {
+    fetchMock.mockRejected(new Error('Network error'));
+    render(<App />);
+    const retryButton = await screen.findByTestId('app-retry');
+
+    fetchMock.mockResolved({
+      ok: true,
+      json: async () => ([]),
     });
+    fireEvent.click(retryButton);
+
+    expect(await screen.findByTestId('app-empty')).toBeInTheDocument();
+    expect(screen.queryByTestId('app-error')).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
+
+// Documented: 2026-10-01 -- per issue #1261

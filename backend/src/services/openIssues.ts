@@ -1,15 +1,27 @@
+/**
+ * Public interface for representing a GitHub issue available as an open bounty.
+ */
 export interface OpenIssue {
+  /** Unique GitHub issue identifier in "GH-{number}" format. */
   id: string;
+  /** GitHub issue title. */
   title: string;
+  /** Array of GitHub label strings assigned to the issue. */
   labels: string[];
+  /** First paragraph of the issue description (extracted from body). */
   summary: string;
+  /** Difficulty/complexity level of the issue ("starter", "core", or "advanced"). */
   impact: "starter" | "core" | "advanced";
 }
 
+import { getServicesConfig } from "./config";
+import { wrapServiceError } from "./errors";
+
 type FeedStatus = "up" | "rate-limited" | "stale";
 
-const DEFAULT_REPO = "ritik4ever/stellar-bounty-board";
-const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const servicesConfig = getServicesConfig();
+const DEFAULT_REPO = servicesConfig.openIssuesDefaultRepo;
+const CACHE_TTL_MS = servicesConfig.openIssuesCacheTtlMs;
 
 class LRUCache<K, V> {
   private max: number;
@@ -58,10 +70,33 @@ function mapIssueToOpenIssue(i: any): OpenIssue {
   };
 }
 
+/**
+ * Get the current health status of the open issues feed.
+ *
+ * Returns the status of the last fetch operation:
+ * - "up": Feed was successfully fetched and cached
+ * - "rate-limited": GitHub API rate limit was hit; stale cache (if any) is being used
+ * - "stale": Feed could not be fetched; returning cached data from a previous request
+ *
+ * @returns {FeedStatus} The current feed status ("up", "rate-limited", or "stale")
+ */
 export function getOpenIssuesStatus(): FeedStatus {
   return lastStatus;
 }
 
+/**
+ * Fetch and return a list of open GitHub issues from the configured repository.
+ *
+ * Issues are fetched from GitHub API and cached for 10 minutes. If the GitHub API
+ * is rate-limited or unreachable, a stale cached result (if available) is returned.
+ * Respects GITHUB_TOKEN and OPEN_ISSUES_REPO environment variables for authentication
+ * and repository selection.
+ *
+ * @returns {Promise<OpenIssue[]>} Array of open issues, or empty array if fetch fails
+ *   and no cache is available
+ * @throws {Error} Only if fetch fails AND no stale cache is available
+ * @note Call {@link getOpenIssuesStatus} after this to determine feed health
+ */
 export async function listOpenIssues(): Promise<OpenIssue[]> {
   const existing = cache.get(cachedKey);
   if (existing) return existing;
@@ -93,7 +128,13 @@ export async function listOpenIssues(): Promise<OpenIssue[]> {
         lastStatus = "stale";
         return fromCache;
       }
-      throw new Error(`GitHub API returned ${res.status}`);
+      throw wrapServiceError(
+        "open_issues.fetch_github",
+        "github-api",
+        new Error(`GitHub API returned HTTP ${res.status}`),
+        "Failed to fetch open issues from GitHub API.",
+        res.status >= 500 ? 502 : 500,
+      );
     }
 
     const json = await res.json();
@@ -107,10 +148,27 @@ export async function listOpenIssues(): Promise<OpenIssue[]> {
       lastStatus = "stale";
       return fromCache;
     }
-    throw err;
+    throw wrapServiceError(
+      "open_issues.fetch_github",
+      "github-api",
+      err,
+      "Failed to fetch open issues from GitHub API.",
+      502,
+    );
   }
 }
 
+/**
+ * Get the current health status of the open issues feed (alias for {@link getOpenIssuesStatus}).
+ *
+ * Returns the status of the last fetch operation:
+ * - "up": Feed was successfully fetched and cached
+ * - "rate-limited": GitHub API rate limit was hit; stale cache (if any) is being used
+ * - "stale": Feed could not be fetched; returning cached data from a previous request
+ *
+ * @returns {"up" | "rate-limited" | "stale"} The current feed status
+ * @deprecated Prefer {@link getOpenIssuesStatus} instead
+ */
 export function getOpenIssuesFeedStatus(): "up" | "rate-limited" | "stale" {
   return lastStatus;
 }
