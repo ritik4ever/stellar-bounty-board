@@ -1,6 +1,20 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
+const {
+  BASE_EPOCH_SECONDS,
+  DAY_SECONDS,
+  HOUR_SECONDS,
+  MAINTAINER,
+  CONTRIBUTOR_A,
+  CONTRIBUTOR_B,
+  BOUNTY_DEFS,
+  RESERVATION_TIMEOUT_SECONDS,
+  makeBountyId,
+  fixtureCreatedAt,
+  fixtureDeadlineAt,
+} = require("./seed-inputs");
+
 const STORE_PATH = path.resolve(__dirname, "../backend/data/bounties.json");
 const AUDIT_PATH = path.resolve(
   __dirname,
@@ -13,144 +27,11 @@ const COUNT =
   countFlag !== -1 ? Math.max(1, Number(args[countFlag + 1]) || 10) : 10;
 const RESET = args.includes("--reset");
 
-const MAINTAINER = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
-const CONTRIBUTOR_A =
-  "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
-const CONTRIBUTOR_B =
-  "GCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
-
-const BOUNTY_DEFS = [
-  {
-    title: "Implement wallet connection UI",
-    summary:
-      "Add Stellar wallet connection flow using Freighter and wallet SDK integration for user authentication.",
-    repo: "ritik4ever/stellar-bounty-board",
-    issueNumber: 101,
-    token: "XLM",
-    amount: 200,
-    labels: ["frontend", "help wanted"],
-    status: "open",
-    deadlineDays: 30,
-  },
-  {
-    title: "Add dark mode support",
-    summary:
-      "Implement system-aware dark mode toggle with persistent user preference saved to local storage.",
-    repo: "ritik4ever/stellar-bounty-board",
-    issueNumber: 102,
-    token: "XLM",
-    amount: 150,
-    labels: ["frontend", "ui"],
-    status: "open",
-    deadlineDays: 14,
-  },
-  {
-    title: "Build REST API for bounties",
-    summary:
-      "Create Express REST endpoints for bounty CRUD with Zod validation and OpenAPI documentation.",
-    repo: "ritik4ever/stellar-bounty-board",
-    issueNumber: 103,
-    token: "XLM",
-    amount: 300,
-    labels: ["backend", "api"],
-    status: "reserved",
-    deadlineDays: 21,
-  },
-  {
-    title: "Write integration tests",
-    summary:
-      "Add Vitest integration tests covering bounty lifecycle: create, reserve, submit, release, refund.",
-    repo: "ritik4ever/stellar-bounty-board",
-    issueNumber: 104,
-    token: "USDC",
-    amount: 180,
-    labels: ["testing", "help wanted"],
-    status: "submitted",
-    deadlineDays: 14,
-  },
-  {
-    title: "Fix pagination bug",
-    summary:
-      "Bounty list pagination returns duplicate entries when sorting by creation date. Fix offset calculation.",
-    repo: "ritik4ever/stellar-stream",
-    issueNumber: 55,
-    token: "XLM",
-    amount: 100,
-    labels: ["bug", "backend"],
-    status: "released",
-    deadlineDays: 7,
-  },
-  {
-    title: "Add search functionality",
-    summary:
-      "Implement full-text search across bounty titles, summaries, and labels with debounced input.",
-    repo: "ritik4ever/stellar-stream",
-    issueNumber: 56,
-    token: "XLM",
-    amount: 250,
-    labels: ["feature", "frontend"],
-    status: "released",
-    deadlineDays: 30,
-  },
-  {
-    title: "Refactor auth middleware",
-    summary:
-      "Extract Stellar address validation into reusable middleware with proper error handling and tests.",
-    repo: "ritik4ever/stellar-bounty-board",
-    issueNumber: 107,
-    token: "XLM",
-    amount: 120,
-    labels: ["refactor", "backend"],
-    status: "refunded",
-    deadlineDays: 10,
-  },
-  {
-    title: "Update npm dependencies",
-    summary:
-      "Audit and update all outdated npm packages across backend and frontend, resolving breaking changes.",
-    repo: "ritik4ever/stellar-bounty-board",
-    issueNumber: 108,
-    token: "USDC",
-    amount: 80,
-    labels: ["chore", "dependencies"],
-    status: "refunded",
-    deadlineDays: 7,
-  },
-  {
-    title: "Add CSV export feature",
-    summary:
-      "Export bounty list to CSV with configurable columns and date-range filter for maintainers.",
-    repo: "ritik4ever/stellar-stream",
-    issueNumber: 59,
-    token: "XLM",
-    amount: 160,
-    labels: ["feature", "analytics"],
-    status: "expired",
-    deadlineDays: 7,
-  },
-  {
-    title: "Create notification system",
-    summary:
-      "Build WebSocket-based notification system for bounty status changes using Server-Sent Events.",
-    repo: "ritik4ever/stellar-stream",
-    issueNumber: 60,
-    token: "XLM",
-    amount: 350,
-    labels: ["feature", "realtime"],
-    status: "expired",
-    deadlineDays: 14,
-  },
-];
-
-function nowSeconds() {
-  return Math.floor(Date.now() / 1000);
-}
-
 function makeBounty(index) {
   const def = BOUNTY_DEFS[index % BOUNTY_DEFS.length];
-  const id = `BNT-${String(1001 + index).padStart(4, "0")}`;
-  const createdAt = nowSeconds() - (BOUNTY_DEFS.length - index) * 86400;
-  const deadlineAt = createdAt + def.deadlineDays * 86400;
+  const id = makeBountyId(index);
+  const createdAt = fixtureCreatedAt(index);
+  const deadlineAt = fixtureDeadlineAt(index);
 
   const events = [{ type: "created", timestamp: createdAt }];
   const base = {
@@ -164,7 +45,7 @@ function makeBounty(index) {
     amount: def.amount,
     labels: def.labels,
     version: 1,
-    reservationTimeoutSeconds: 604800,
+    reservationTimeoutSeconds: RESERVATION_TIMEOUT_SECONDS,
   };
 
   switch (def.status) {
@@ -172,7 +53,7 @@ function makeBounty(index) {
       return { ...base, status: "open", createdAt, deadlineAt, events };
 
     case "reserved": {
-      const reservedAt = createdAt + 3600;
+      const reservedAt = createdAt + HOUR_SECONDS;
       return {
         ...base,
         status: "reserved",
@@ -189,8 +70,8 @@ function makeBounty(index) {
     }
 
     case "submitted": {
-      const reservedAt = createdAt + 3600;
-      const submittedAt = reservedAt + 7200;
+      const reservedAt = createdAt + HOUR_SECONDS;
+      const submittedAt = reservedAt + 2 * HOUR_SECONDS;
       return {
         ...base,
         status: "submitted",
@@ -211,10 +92,37 @@ function makeBounty(index) {
       };
     }
 
+    case "disputed": {
+      const reservedAt = createdAt + HOUR_SECONDS;
+      const submittedAt = reservedAt + 2 * HOUR_SECONDS;
+      const disputedAt = submittedAt + DAY_SECONDS;
+      return {
+        ...base,
+        status: "disputed",
+        createdAt,
+        deadlineAt,
+        contributor: CONTRIBUTOR_A,
+        reservedAt,
+        submittedAt,
+        disputedAt,
+        version: 4,
+        submissionUrl: `https://github.com/${def.repo}/pull/${def.issueNumber}`,
+        notes: "Maintainer disputed the submission; awaiting arbitration.",
+        disputeReason:
+          "Submitted work does not match the acceptance criteria in the issue.",
+        events: [
+          ...events,
+          { type: "reserved", timestamp: reservedAt, actor: CONTRIBUTOR_A },
+          { type: "submitted", timestamp: submittedAt, actor: CONTRIBUTOR_A },
+          { type: "disputed", timestamp: disputedAt, actor: MAINTAINER },
+        ],
+      };
+    }
+
     case "released": {
-      const reservedAt = createdAt + 3600;
-      const submittedAt = reservedAt + 7200;
-      const releasedAt = submittedAt + 86400;
+      const reservedAt = createdAt + HOUR_SECONDS;
+      const submittedAt = reservedAt + 2 * HOUR_SECONDS;
+      const releasedAt = submittedAt + DAY_SECONDS;
       return {
         ...base,
         status: "released",
@@ -237,8 +145,8 @@ function makeBounty(index) {
     }
 
     case "refunded": {
-      const reservedAt = createdAt + 3600;
-      const refundedAt = reservedAt + 86400;
+      const reservedAt = createdAt + HOUR_SECONDS;
+      const refundedAt = reservedAt + DAY_SECONDS;
       return {
         ...base,
         status: "refunded",
@@ -258,13 +166,12 @@ function makeBounty(index) {
     }
 
     case "expired": {
-      const deadlinePast = createdAt + def.deadlineDays * 86400;
-      const expiredAt = deadlinePast + 1;
+      const expiredAt = deadlineAt + 1;
       return {
         ...base,
         status: "expired",
         createdAt,
-        deadlineAt: deadlinePast,
+        deadlineAt,
         events: [...events, { type: "expired", timestamp: expiredAt }],
       };
     }
@@ -305,6 +212,7 @@ function seed() {
   for (const [status, count] of Object.entries(statusCounts)) {
     console.log(`  ${status}: ${count}`);
   }
+  console.log(`Base epoch (unix seconds): ${BASE_EPOCH_SECONDS}`);
 }
 
 seed();

@@ -9,6 +9,7 @@ Use the backend webhook signature utility whenever a third-party service sends d
 Every webhook request is authenticated using **HMAC-SHA256** (Hash-based Message Authentication Code with SHA-256).
 
 The sender (GitHub) computes:
+
 ```
 signature = "sha256=" + HMAC_SHA256(key=WEBHOOK_SECRET, message=RAW_REQUEST_BODY)
 ```
@@ -24,7 +25,7 @@ The receiver (this backend) independently computes the same signature from the r
 ## Example: Node.js (built-in `crypto`)
 
 ```js
-const crypto = require("crypto");
+const crypto = require('crypto');
 
 /**
  * Verify a GitHub-style HMAC-SHA256 webhook signature.
@@ -34,29 +35,23 @@ const crypto = require("crypto");
  * @returns {boolean}
  */
 function verifyGitHubSignature(secret, payload, header) {
-  if (!header || !header.startsWith("sha256=")) return false;
+  if (!header || !header.startsWith('sha256=')) return false;
 
-  const expected = crypto
-    .createHmac("sha256", secret)
-    .update(payload, "utf8")
-    .digest("hex");
+  const expected = crypto.createHmac('sha256', secret).update(payload, 'utf8').digest('hex');
 
-  const received = header.slice("sha256=".length);
+  const received = header.slice('sha256='.length);
 
   // Timing-safe comparison — never use === here
-  return crypto.timingSafeEqual(
-    Buffer.from(expected, "hex"),
-    Buffer.from(received, "hex")
-  );
+  return crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(received, 'hex'));
 }
 
 // Express usage
-app.post("/api/webhooks/github", express.raw({ type: "application/json" }), (req, res) => {
-  const sig = req.headers["x-hub-signature-256"];
-  if (!verifyGitHubSignature(process.env.GITHUB_WEBHOOK_SECRET, req.body.toString("utf8"), sig)) {
-    return res.status(401).json({ error: "Invalid signature" });
+app.post('/api/webhooks/github', express.raw({ type: 'application/json' }), (req, res) => {
+  const sig = req.headers['x-hub-signature-256'];
+  if (!verifyGitHubSignature(process.env.GITHUB_WEBHOOK_SECRET, req.body.toString('utf8'), sig)) {
+    return res.status(401).json({ error: 'Invalid signature' });
   }
-  res.json({ status: "ok" });
+  res.json({ status: 'ok' });
 });
 ```
 
@@ -122,9 +117,9 @@ Set `GITHUB_WEBHOOK_SECRET` in the backend environment, then protect the route w
 
 ```ts
 app.post(
-  "/api/webhooks/github",
+  '/api/webhooks/github',
   createGitHubWebhookSignatureMiddleware(() => process.env.GITHUB_WEBHOOK_SECRET),
-  handler,
+  handler
 );
 ```
 
@@ -216,6 +211,7 @@ Trigger a webhook event by:
 In the **Response** tab, you should see:
 
 **Success (200):**
+
 ```json
 {
   "status": "ok",
@@ -224,6 +220,7 @@ In the **Response** tab, you should see:
 ```
 
 **Failure (401):**
+
 ```json
 {
   "error": "Invalid signature"
@@ -248,6 +245,7 @@ Open `http://127.0.0.1:4040` in your browser to:
 **Problem:** ngrok URL returns `Connection refused`
 
 **Solution:**
+
 1. Make sure the backend is running on `localhost:3001`
 2. Restart ngrok and copy the new public URL
 3. Update your GitHub webhook Payload URL with the new ngrok address
@@ -257,12 +255,14 @@ Open `http://127.0.0.1:4040` in your browser to:
 **Problem:** All webhook requests fail with `Invalid signature`
 
 **Causes & fixes:**
+
 1. **Secret mismatch** — Verify the secret in `backend/.env` matches exactly what you set in GitHub (case-sensitive)
 2. **Raw body not captured** — The signature middleware must receive the raw request body; Express should not parse JSON before verification
 3. **Secret copied incorrectly** — Re-generate the secret in GitHub UI and update `.env`, restart backend
 4. **Whitespace in secret** — Ensure no leading/trailing spaces in `backend/.env`
 
 **Test the secret locally:**
+
 ```bash
 # Generate a test payload and verify signature
 node scripts/test-webhook-signature.js
@@ -273,6 +273,7 @@ node scripts/test-webhook-signature.js
 **Problem:** GitHub shows no recent deliveries
 
 **Fixes:**
+
 1. Verify the Payload URL is the current ngrok URL (it changes on restart)
 2. Make sure the webhook is set to trigger on the right events
 3. Check GitHub **webhook settings** → **Recent deliveries** tab — GitHub logs all attempts
@@ -285,10 +286,27 @@ node scripts/test-webhook-signature.js
 **Why:** ngrok tunnels expire and change when restarted or when the free session ends
 
 **Solution:**
+
 1. Restart ngrok: `ngrok http 3001`
 2. Copy the new public URL from the output
 3. Update GitHub webhook settings with the new URL
 4. Save changes
+
+---
+
+## PR Merge State Sync & Confirmation Flow
+
+When a pull request linked to a bounty is merged on GitHub, the `pull_request` webhook (`action: closed`, `merged: true`) triggers automatic state synchronization:
+
+1. **State Transition on Merge:** The webhook handler matches the pull request's `html_url` against submitted bounties. Upon matching, it records the merge transition:
+   - Sets `prMerged: true`
+   - Records `prMergedAt` timestamp
+   - Emits a `pr_merged` lifecycle event
+   - Records an immutable audit log entry
+
+2. **Maintainer Confirmation vs. Auto-Release:**
+   - **Confirmation Mode:** When `WEBHOOK_REQUIRE_MAINTAINER_CONFIRMATION=true` (or `WEBHOOK_AUTO_RELEASE=false`), the bounty transitions state to show PR merge confirmation, but funds remain safely in escrow until the maintainer explicitly approves release via the dashboard or API (`POST /api/bounties/:id/release`).
+   - **Direct Auto-Release Mode:** When `WEBHOOK_REQUIRE_MAINTAINER_CONFIRMATION=false`, the webhook directly executes `releaseBounty` to disburse funds upon PR merge.
 
 ---
 

@@ -10,10 +10,35 @@ import {
   startDisputeAlertJob,
   stopDisputeAlertJob,
 } from "./services/disputeAlertJob";
+import {
+  startRecurringBountyScheduler,
+  stopRecurringBountyScheduler,
+} from "./services/recurringBountySchedules";
+import { getOperationalConfig } from "./config";
+import { getMiddlewareConfig } from "./middleware/config";
+import { getServicesConfig } from "./services/config";
+import { getAppConfig } from "./appConfig";
+import { startArchiveJob, stopArchiveJob } from "./services/archiveScheduler";
+import { resumePendingDeliveries } from "./webhooks/githubPrHandler";
+import { resumePendingNotificationDeliveries } from "./services/notificationService";
 
 const port = Number(process.env.PORT ?? 3001);
 const keepAliveTimeout = Number(process.env.KEEP_ALIVE_TIMEOUT ?? 65000);
 const headersTimeout = Number(process.env.HEADERS_TIMEOUT ?? 66000);
+
+// Log effective operational configuration at startup for operator visibility
+const operationalConfig = getOperationalConfig();
+const middlewareConfig = getMiddlewareConfig();
+const servicesConfig = getServicesConfig();
+const appConfig = getAppConfig();
+logStructured("info", "operational_config", {
+  rateLimitWindowMs: operationalConfig.rateLimitWindowMs,
+  rateLimitReadMax: operationalConfig.rateLimitReadMax,
+  rateLimitMutationMax: operationalConfig.rateLimitMutationMax,
+});
+logStructured("info", "middleware_config", { ...middlewareConfig });
+logStructured("info", "services_config", { ...servicesConfig });
+logStructured("info", "app_config", { ...appConfig });
 
 const server = app.listen(port, () => {
   logStructured("info", "server_listen", { port, keepAliveTimeout, headersTimeout });
@@ -71,8 +96,26 @@ function startIndexerWorker() {
 // Only start the indexer and background jobs when running the main server (not in tests)
 if (process.env.NODE_ENV !== "test") {
   startIndexerWorker();
-  startExpirationJob();
+  void startExpirationJob();
   startDisputeAlertJob();
+  startRecurringBountyScheduler();
+  startArchiveJob();
+
+  // Re-drive GitHub webhook deliveries that were interrupted by a restart, or
+  // that arrived before the submission they reference (Issue #1941).
+  void resumePendingDeliveries().catch((err) => {
+    logStructured("warn", "webhook_delivery_resume_failed", {
+      message: err instanceof Error ? err.message : String(err),
+    });
+  });
+
+  // Re-drive notification deliveries that were interrupted by a restart,
+  // SendGrid rate limiting, or webhook timeout (Issue #1946).
+  void resumePendingNotificationDeliveries().catch((err) => {
+    logStructured("warn", "notification_delivery_resume_failed", {
+      message: err instanceof Error ? err.message : String(err),
+    });
+  });
 }
 
 async function shutdown(signal: string): Promise<void> {
@@ -84,6 +127,8 @@ async function shutdown(signal: string): Promise<void> {
   // Stop background jobs before draining connections
   stopExpirationJob();
   stopDisputeAlertJob();
+  stopRecurringBountyScheduler();
+  stopArchiveJob();
 
   // Stop the indexer worker
   if (indexerWorker) {

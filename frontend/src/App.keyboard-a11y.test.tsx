@@ -65,7 +65,9 @@ function mockBrowserApis() {
 }
 
 async function renderBoard(bounties: Bounty[] = [openBounty]) {
-  vi.mocked(api.listBounties).mockResolvedValue(bounties);
+  vi.mocked(api.listBounties).mockResolvedValue({
+    data: bounties, total: bounties.length, page: 1, pageSize: 10, hasMore: false,
+  });
   vi.mocked(api.listOpenIssues).mockResolvedValue([]);
   vi.mocked(api.getBounty).mockResolvedValue(bounties[0]);
 
@@ -135,5 +137,33 @@ describe("bounty card keyboard navigation", () => {
     const { container } = await renderBoard();
 
     expect(await axe(container)).toHaveNoViolations();
+  });
+});
+
+describe("jump-to-search keyboard shortcut", () => {
+  it("focuses the search input when / is pressed outside a text field", async () => {
+    const user = userEvent.setup();
+    await renderBoard();
+
+    const searchInput = screen.getByPlaceholderText("Search by repo, title, or label...");
+    expect(searchInput).not.toHaveFocus();
+
+    await user.keyboard("/");
+
+    expect(searchInput).toHaveFocus();
+  });
+
+  it("does not trigger the shortcut while typing inside a text input", async () => {
+    const user = userEvent.setup();
+    await renderBoard();
+
+    const searchInput = screen.getByPlaceholderText("Search by repo, title, or label...");
+    searchInput.focus();
+
+    await user.keyboard("/");
+
+    // The "/" should be typed into the input, not re-trigger the shortcut.
+    expect(searchInput).toHaveValue("/");
+    expect(searchInput).toHaveFocus();
   });
 });

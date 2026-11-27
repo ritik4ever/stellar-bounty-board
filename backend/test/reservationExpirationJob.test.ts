@@ -93,7 +93,7 @@ describe('expireStaleReservations', () => {
     await store.reserveBounty(bounty.id, CONTRIBUTOR);
 
     const { expireStaleReservations } = await loadJob();
-    const result = expireStaleReservations(7 * 24 * 60 * 60);
+    const result = await expireStaleReservations(7 * 24 * 60 * 60);
 
     expect(result.expiredCount).toBe(0);
     expect(result.expiredBountyIds).toHaveLength(0);
@@ -107,7 +107,7 @@ describe('expireStaleReservations', () => {
     fs.writeFileSync(storeFile, JSON.stringify([stale], null, 2));
 
     const { expireStaleReservations } = await loadJob();
-    const result = expireStaleReservations(7 * 24 * 60 * 60);
+    const result = await expireStaleReservations(7 * 24 * 60 * 60);
 
     expect(result.expiredCount).toBe(1);
     expect(result.expiredBountyIds).toContain(stale.id);
@@ -128,7 +128,7 @@ describe('expireStaleReservations', () => {
     fs.writeFileSync(storeFile, JSON.stringify([stale], null, 2));
 
     const { expireStaleReservations } = await loadJob();
-    const result = expireStaleReservations(7 * 24 * 60 * 60);
+    const result = await expireStaleReservations(7 * 24 * 60 * 60);
 
     expect(result.expiredBountyIds[0]).toBe(stale.id);
     expect(result.expiredCount).toBe(1);
@@ -142,7 +142,7 @@ describe('expireStaleReservations', () => {
     fs.writeFileSync(storeFile, JSON.stringify([stale1, stale2, fresh], null, 2));
 
     const { expireStaleReservations } = await loadJob();
-    const result = expireStaleReservations(7 * 24 * 60 * 60);
+    const result = await expireStaleReservations(7 * 24 * 60 * 60);
 
     expect(result.expiredCount).toBe(2);
     expect(result.expiredBountyIds).toContain(stale1.id);
@@ -162,7 +162,7 @@ describe('expireStaleReservations', () => {
     fs.writeFileSync(storeFile, JSON.stringify([stale], null, 2));
 
     const { expireStaleReservations } = await loadJob();
-    const result = expireStaleReservations();
+    const result = await expireStaleReservations();
 
     expect(result.expiredCount).toBe(1);
     expect(result.expiredBountyIds).toContain(stale.id);
@@ -185,7 +185,7 @@ describe('expireStaleReservations', () => {
     await store.submitBounty(bounty.id, CONTRIBUTOR, 'https://github.com/test/repo/pull/1');
 
     const { expireStaleReservations } = await loadJob();
-    const result = expireStaleReservations(0);
+    const result = await expireStaleReservations(0);
 
     const after = store.listBounties().find((item) => item.id === bounty.id);
 
@@ -196,7 +196,7 @@ describe('expireStaleReservations', () => {
   it('returns checkedAt timestamp', async () => {
     const before = nowSeconds();
     const { expireStaleReservations } = await loadJob();
-    const result = expireStaleReservations(7 * 24 * 60 * 60);
+    const result = await expireStaleReservations(7 * 24 * 60 * 60);
     const after = nowSeconds();
 
     expect(result.checkedAt).toBeGreaterThanOrEqual(before);
@@ -208,16 +208,16 @@ describe('startExpirationJob / stopExpirationJob', () => {
   it('starts and stops without throwing', async () => {
     const { startExpirationJob, stopExpirationJob } = await loadJob();
 
-    expect(() => startExpirationJob(9999999, 7 * 24 * 60 * 60)).not.toThrow();
+    await expect(startExpirationJob(9999999, 7 * 24 * 60 * 60)).resolves.toBeUndefined();
     expect(() => stopExpirationJob()).not.toThrow();
   });
 
   it('does not start twice', async () => {
     const { startExpirationJob, stopExpirationJob } = await loadJob();
 
-    startExpirationJob(9999999, 7 * 24 * 60 * 60);
+    await startExpirationJob(9999999, 7 * 24 * 60 * 60);
 
-    expect(() => startExpirationJob(9999999, 7 * 24 * 60 * 60)).not.toThrow();
+    await expect(startExpirationJob(9999999, 7 * 24 * 60 * 60)).resolves.toBeUndefined();
 
     stopExpirationJob();
   });
@@ -228,7 +228,7 @@ describe('startExpirationJob / stopExpirationJob', () => {
 
     const { startExpirationJob, stopExpirationJob } = await loadJob();
 
-    startExpirationJob(9999999, 7 * 24 * 60 * 60);
+    await startExpirationJob(9999999, 7 * 24 * 60 * 60);
     stopExpirationJob();
 
     const raw = JSON.parse(fs.readFileSync(storeFile, 'utf8'));

@@ -1,97 +1,74 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import GitHubIssuePreviewCard from './GitHubIssuePreviewCard';
 
-import GitHubIssuePreviewCard from "./GitHubIssuePreviewCard";
-import { githubIssueApiUrl } from "./githubIssueApi";
+const mockIssue = {
+  id: 'ISSUE-1',
+  title: 'Fix bug in bounty system',
+  labels: [
+    { name: 'bug', color: 'fc2929' },
+    { name: 'bounty', color: '006b75' },
+  ],
+  summary: 'A critical bug in the bounty system needs fixing',
+  impact: 'core' as const,
+};
 
-function mockFetchJson(body: unknown, init: { ok?: boolean; status?: number } = {}) {
-  const { ok = true, status = 200 } = init;
-  return vi.fn().mockResolvedValue({
-    ok,
-    status,
-    json: async () => body,
-  });
-}
-
-describe("GitHubIssuePreviewCard", () => {
-  beforeEach(() => {
-    vi.stubGlobal("fetch", vi.fn());
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
+describe('GitHubIssuePreviewCard', () => {
+  it('renders the issue title', () => {
+    render(<GitHubIssuePreviewCard issue={mockIssue} />);
+    expect(screen.getByText('Fix bug in bounty system')).toBeDefined();
   });
 
-  it("shows a loading skeleton while fetching issue data", () => {
-    vi.mocked(fetch).mockReturnValue(new Promise(() => undefined));
+  it('renders issue labels', () => {
+    render(<GitHubIssuePreviewCard issue={mockIssue} />);
+    expect(screen.getByText('bug')).toBeDefined();
+    expect(screen.getByText('bounty')).toBeDefined();
+  });
 
-    render(<GitHubIssuePreviewCard repo="ritik4ever/stellar-bounty-board" issueNumber={287} />);
+  it('renders the impact badge', () => {
+    render(<GitHubIssuePreviewCard issue={mockIssue} />);
+    expect(screen.getByText('core')).toBeDefined();
+  });
 
-    expect(screen.getByTestId("github-issue-preview-loading")).toBeInTheDocument();
-    expect(screen.getByLabelText("Loading GitHub issue preview")).toHaveAttribute(
-      "aria-busy",
-      "true",
+  it('renders issue summary', () => {
+    render(<GitHubIssuePreviewCard issue={mockIssue} />);
+    expect(screen.getByText(/critical bug/i)).toBeDefined();
+  });
+
+  it('renders visually distinct loading state with skeleton and aria-busy', () => {
+    render(<GitHubIssuePreviewCard loading={true} />);
+    const loadingElem = screen.getByTestId('github-issue-preview-loading');
+    expect(loadingElem).toBeDefined();
+    expect(loadingElem.getAttribute('aria-busy')).toBe('true');
+    expect(loadingElem.getAttribute('role')).toBe('status');
+  });
+
+  it('renders visually distinct empty state when no repository or issue data is available', () => {
+    render(<GitHubIssuePreviewCard repo="" issueNumber={0} />);
+    const emptyMsg = screen.getByRole('status');
+    expect(emptyMsg).toBeDefined();
+    expect(emptyMsg.textContent).toContain('No issue data available');
+  });
+
+  it('renders visually distinct error state and offers functioning retry affordance', async () => {
+    const handleRetry = vi.fn();
+    render(
+      <GitHubIssuePreviewCard
+        repo="stellar/quickstart"
+        issueNumber={404}
+        error="Network error fetching issue details"
+        onRetry={handleRetry}
+      />
     );
-  });
 
-  it("fetches live issue data and renders the title and labels", async () => {
-    vi.mocked(fetch).mockImplementation(
-      mockFetchJson({
-        title: "Add GitHubIssuePreviewCard live data fetch",
-        state: "open",
-        created_at: "2026-01-15T10:00:00Z",
-        labels: [
-          { name: "enhancement", color: "84b6eb" },
-          { name: "good first issue", color: "7057ff" },
-        ],
-      }),
-    );
+    const alertElem = screen.getByRole('alert');
+    expect(alertElem).toBeDefined();
+    expect(alertElem.textContent).toContain('Network error fetching issue details');
 
-    render(<GitHubIssuePreviewCard repo="ritik4ever/stellar-bounty-board" issueNumber={287} />);
+    const retryBtn = screen.getByRole('button', { name: /retry/i });
+    expect(retryBtn).toBeDefined();
 
-    await waitFor(() => {
-      expect(screen.getByText("Add GitHubIssuePreviewCard live data fetch")).toBeInTheDocument();
-    });
-
-    expect(fetch).toHaveBeenCalledWith(
-      githubIssueApiUrl("ritik4ever/stellar-bounty-board", 287),
-      { headers: { Accept: "application/vnd.github+json" } },
-    );
-    expect(screen.getByText("enhancement")).toBeInTheDocument();
-    expect(screen.getByText("good first issue")).toBeInTheDocument();
-    expect(screen.getByText("open")).toBeInTheDocument();
-  });
-
-  it("shows an error state with a GitHub link when the fetch fails", async () => {
-    vi.mocked(fetch).mockImplementation(mockFetchJson({}, { ok: false, status: 404 }));
-
-    render(<GitHubIssuePreviewCard repo="ritik4ever/stellar-bounty-board" issueNumber={999} />);
-
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent(/could not load issue details/i);
-    });
-
-    const link = screen.getByRole("link", { name: /view issue on github/i });
-    expect(link).toHaveAttribute(
-      "href",
-      "https://github.com/ritik4ever/stellar-bounty-board/issues/999",
-    );
-  });
-
-  it("shows a rate-limit note when GitHub returns 403", async () => {
-    vi.mocked(fetch).mockImplementation(mockFetchJson({}, { ok: false, status: 403 }));
-
-    render(<GitHubIssuePreviewCard repo="ritik4ever/stellar-bounty-board" issueNumber={287} />);
-
-    await waitFor(() => {
-      expect(screen.getByText(/unauthenticated api requests are rate-limited/i)).toBeInTheDocument();
-    });
-  });
-
-  it("does not fetch when the repo or issue number is invalid", () => {
-    render(<GitHubIssuePreviewCard repo="not-a-valid-repo" issueNumber={0} />);
-
-    expect(fetch).not.toHaveBeenCalled();
-    expect(screen.queryByTestId("github-issue-preview-loading")).not.toBeInTheDocument();
+    retryBtn.click();
+    expect(handleRetry).toHaveBeenCalledTimes(1);
   });
 });

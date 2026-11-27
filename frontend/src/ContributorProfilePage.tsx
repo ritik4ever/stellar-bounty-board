@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import CopyIcon from "./CopyIcons";
 import ContributorDashboard from "./ContributorDashboard";
-import { listBounties } from "./api";
+import { listAllBounties } from "./api";
 import type { Bounty } from "./types";
 
 function shortAddress(value: string): string {
@@ -9,10 +9,7 @@ function shortAddress(value: string): string {
 }
 
 async function fetchContributorBounties(address: string): Promise<Bounty[]> {
-  const res = await fetch(`/api/bounties?contributor=${encodeURIComponent(address)}`);
-  if (!res.ok) throw new Error("Failed to load contributor bounties");
-  const body = await res.json();
-  return body.data ?? [];
+  return listAllBounties({ contributor: address });
 }
 
 async function fetchLeaderboard(): Promise<any[]> {
@@ -44,7 +41,7 @@ export default function ContributorProfilePage({
         if (active) setError(err instanceof Error ? err.message : String(err));
       });
 
-    void listBounties()
+    void listAllBounties()
       .then((data) => {
         if (active) setAllBounties(data);
       })
