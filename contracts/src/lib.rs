@@ -1082,6 +1082,14 @@ impl StellarBountyBoardContract {
     ///   (`Submitted`, `Disputed`, `Released`, `Refunded`) fails with [`ContractError::BountyNotOpen`],
     ///   preventing unauthorized callers from overwriting `bounty.contributor` or redirecting funds.
     ///
+    /// # Atomicity Guarantees (SBB-2026-412)
+    /// * All validation checks (contributor auth, pause state, bounty existence, expiry, and `Open` status)
+    ///   execute before any storage write or event emission.
+    /// * No token transfers occur during reservation; escrowed funds remain locked in the contract vault.
+    /// * Any failed `reserve_bounty` invocation (including a racing second contributor) reverts atomically
+    ///   with zero storage mutations, zero emitted events, and zero token movements, ensuring escrow funds
+    ///   cannot be stranded or multiplied.
+    ///
     /// # Errors & Panic Paths
     /// * [`ContractError::ContractIsPaused`] - If the contract circuit-breaker is paused (`Self::get_paused_state`).
     /// * [`ContractError::BountyNotFound`] - If no bounty exists with the given `bounty_id` (raised in `read_bounty`).
