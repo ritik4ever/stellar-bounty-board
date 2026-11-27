@@ -125,6 +125,34 @@ enum DataKey {
     DisputeVotes(u64),
 }
 
+/// Payload for the `("Escrow", "Init")` event emitted by `initialize`.
+///
+/// Emitted exactly once in the contract's lifetime, strictly after all
+/// initial persistent storage entries (`Admin`, `FeeRecipient`, `Arbiter`,
+/// `DisputeWindow`, `MinBountyAmount`, `MinArbiterStake`) have been written.
+/// Because Soroban rolls back failed invocations atomically, a rejected
+/// re-initialization attempt emits zero events.
+///
+/// Fields, in deterministic order:
+/// - `admin`: initial contract administrator address.
+/// - `fee_recipient`: address that receives protocol fees on payouts.
+/// - `arbiter`: immutable initial arbiter identity persisted at initialization.
+/// - `dispute_window`: default dispute window in seconds.
+/// - `min_bounty_amount`: default minimum bounty funding amount (`DEFAULT_MIN_BOUNTY_AMOUNT`).
+/// - `min_arbiter_stake`: default minimum arbiter bond (`DEFAULT_MIN_ARBITER_STAKE`).
+/// - `initialized_at`: ledger timestamp at which initialization was committed.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EscrowInitialized {
+    pub admin: Address,
+    pub fee_recipient: Address,
+    pub arbiter: Address,
+    pub dispute_window: u64,
+    pub min_bounty_amount: i128,
+    pub min_arbiter_stake: i128,
+    pub initialized_at: u64,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BountyCreated {
@@ -636,8 +664,11 @@ impl StellarBountyBoardContract {
     /// - **Zero Token Movement**: Initialization requires zero initial deposit and moves
     ///   zero tokens. Token balances for admin, arbiter, fee recipient, and contract
     ///   remain strictly unchanged.
-    /// - **Zero Event Emission**: No lifecycle or escrow balance events are emitted during
-    ///   initialization, preventing spurious indexing.
+    /// - **Committed Initialization Event (SBB-2026-404)**: Emits exactly one
+    ///   `("Escrow", "Init")` event with an [`EscrowInitialized`] payload after all
+    ///   persistent storage writes succeed, and emits zero escrow funding or
+    ///   balance events. Rejected re-initialization attempts roll back atomically
+    ///   and emit zero events.
     /// - **Initialized State Defaults**: Configures `MinBountyAmount` to
     ///   [`DEFAULT_MIN_BOUNTY_AMOUNT`] (100) and `MinArbiterStake` to
     ///   [`DEFAULT_MIN_ARBITER_STAKE`]. `get_paused_state` defaults to `false` and
@@ -679,6 +710,19 @@ impl StellarBountyBoardContract {
         env.storage()
             .persistent()
             .set(&DataKey::MinArbiterStake, &DEFAULT_MIN_ARBITER_STAKE);
+
+        env.events().publish(
+            (symbol_short!("Escrow"), symbol_short!("Init")),
+            EscrowInitialized {
+                admin,
+                fee_recipient,
+                arbiter,
+                dispute_window,
+                min_bounty_amount: DEFAULT_MIN_BOUNTY_AMOUNT,
+                min_arbiter_stake: DEFAULT_MIN_ARBITER_STAKE,
+                initialized_at: env.ledger().timestamp(),
+            },
+        );
     }
 
     pub fn get_fee_recipient(env: Env) -> Address {

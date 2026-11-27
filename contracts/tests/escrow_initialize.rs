@@ -1,8 +1,9 @@
 //! Focused integration tests for escrow contract initialization and arbiter immutability.
 //!
 //! Verifies that:
-//! - The first `initialize` call configures a valid arbiter and initial contract state
-//!   without moving token balances or emitting spurious events.
+//! - The first `initialize` call configures a valid arbiter and initial contract state,
+//!   emits exactly one `("Escrow", "Init")` event aligned with committed state, and
+//!   moves no token balances or emits spurious funding events.
 //! - A second caller attempting to re-initialize and replace the arbiter is rejected,
 //!   leaving the original arbiter identity, initialized state, authorization rules,
 //!   token balances, and emitted events intact.
@@ -84,8 +85,9 @@ fn first_initialize_sets_valid_arbiter_and_contract_state() {
     f.client
         .initialize(&f.admin, &f.fee_recipient, &f.arbiter, &DISPUTE_WINDOW);
 
-    // No events are emitted by initialize.
-    assert_eq!(f.env.events().all().events().len(), 0);
+    // Exactly one initialization event is emitted by initialize, and no funding events.
+    assert_eq!(f.env.events().all().events().len(), 1);
+    assert!(!has_escrow_funding_event(&f.env));
 
     // Initialized contract state and arbiter identity.
     assert_eq!(f.client.get_arbiter(), f.arbiter);
@@ -248,8 +250,8 @@ fn initialize_emits_no_escrow_funding_events_and_moves_no_tokens() {
     f.client
         .initialize(&f.admin, &f.fee_recipient, &f.arbiter, &DISPUTE_WINDOW);
 
-    // No events at all, and specifically no escrow funding events.
-    assert_eq!(f.env.events().all().events().len(), 0);
+    // Exactly one initialization event, and specifically no escrow funding events.
+    assert_eq!(f.env.events().all().events().len(), 1);
     assert!(
         !has_escrow_funding_event(&f.env),
         "initialize must not emit escrow funding events"
@@ -294,8 +296,8 @@ fn initialize_does_not_fund_escrow_or_enforce_funding_boundary() {
     assert_eq!(token_client.balance(&f.admin), 10_000);
     assert_eq!(token_client.balance(&f.fee_recipient), 0);
 
-    // No funding events were emitted by initialization.
-    assert_eq!(f.env.events().all().events().len(), 0);
+    // Only the single initialization event was emitted; no funding events.
+    assert_eq!(f.env.events().all().events().len(), 1);
     assert!(
         !has_escrow_funding_event(&f.env),
         "initialize must not emit escrow funding events"
