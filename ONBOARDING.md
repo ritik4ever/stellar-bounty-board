@@ -330,6 +330,22 @@ These changes are self-contained, reviewable quickly, and help you learn the str
 
 ---
 
+### Waves and the backlog
+
+Work is organised into **waves**. Each wave has a backlog document listing its
+issues by area: [`docs/wave-4.md`](docs/wave-4.md), [`docs/wave-5.md`](docs/wave-5.md)
+and [`docs/wave-6.md`](docs/wave-6.md) (the current one). Individual issue
+drafts live in [`docs/issues/`](docs/issues/README.md). Check the newest wave
+document first when choosing an issue.
+
+### Worked example: your first documentation PR
+
+1. Pick a docs issue from the current wave backlog and comment to claim it.
+2. Create a branch off an up-to-date `main`: `git checkout -b docs/fix-onboarding-typo`.
+3. Edit the file (for example `ONBOARDING.md`) and preview it on GitHub.
+4. Commit with a conventional message: `docs: fix typo in onboarding guide`.
+5. Push to your fork and open a PR against upstream with `Closes #<issue>` in the body.
+
 ### If you are comfortable with the stack
 
 Look for issues tagged **`enhancement`** or **`help wanted`**. High-value areas include:
@@ -402,3 +418,17 @@ Issue drafts ready to be opened live in [`docs/issues/`](./docs/issues/). If you
 We want contributing here to feel approachable. If this guide is missing something that tripped you up, a PR to improve it is one of the most valuable contributions you can make.
 
 Happy building! 🚀
+
+---
+
+## See Also
+
+Related documentation that covers complementary topics:
+
+- **[CONTRIBUTING.md](./CONTRIBUTING.md)** — Contribution standards, conventional commits, PR checklist, and testing procedures
+- **[README.md](./README.md)** — Project overview, architecture diagrams, API reference, and deployment guide
+- **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** — Detailed system architecture, bounty lifecycle, data flow, and component breakdown
+- **[RUNBOOK.md](./RUNBOOK.md)** — Operational procedures for production maintenance and incident response
+- **[docs/MAINTAINERS.md](./docs/MAINTAINERS.md)** — Maintainer roles, expectations, and leadership process
+- **[docs/wave-4.md](./docs/wave-4.md)** — Current wave backlog with organized issues by area
+- **[docs/issues/](./docs/issues/)** — Pre-written issue drafts ready to open on GitHub

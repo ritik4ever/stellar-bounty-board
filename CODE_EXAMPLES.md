@@ -1,5 +1,31 @@
 # GitHub Webhook Secret Validation - Code Examples
 
+
+## Table of Contents
+
+- [Complete Implementation Reference](#complete-implementation-reference)
+- [1. Validation Module](#1-validation-module)
+- [2. Startup Integration](#2-startup-integration)
+- [3. Webhook Route (Existing)](#3-webhook-route-existing)
+- [4. Signature Verification (Existing)](#4-signature-verification-existing)
+- [5. Comprehensive Tests](#5-comprehensive-tests)
+- [6. Environment Configuration](#6-environment-configuration)
+- [7. Usage Examples](#7-usage-examples)
+  - [Example 1: Production Deployment](#example-1-production-deployment)
+  - [Example 2: Development Setup](#example-2-development-setup)
+  - [Example 5: Complete Worked Example — Local Secret Generation and Rejection Verification](#example-5-complete-worked-example--local-secret-generation-and-rejection-verification)
+  - [Example 3: Testing Webhook Signature](#example-3-testing-webhook-signature)
+  - [Example 4: Docker Deployment](#example-4-docker-deployment)
+- [8. Integration Test Example](#8-integration-test-example)
+- [9. Error Handling Examples](#9-error-handling-examples)
+- [10. Monitoring and Logging](#10-monitoring-and-logging)
+- [Summary](#summary)
+- [See Also / Related Documentation](#see-also--related-documentation)
+- [Wave & Backlog Alignment](#wave--backlog-alignment)
+
+---
+
+
 ## Complete Implementation Reference
 
 This document provides complete code examples for the GitHub webhook secret validation implementation.
@@ -449,6 +475,55 @@ npm run dev
 # [INFO] server_listen { port: 3001 }
 ```
 
+
+### Example 5: Complete Worked Example — Local Secret Generation and Rejection Verification
+
+Here is a full end-to-end worked example showing secret generation, launching the backend server, and executing automated verification using curl:
+
+1. **Generate a high-entropy secret and launch the server in production mode:**
+   ```bash
+   export GITHUB_WEBHOOK_SECRET=$(openssl rand -hex 20)
+   export NODE_ENV=production
+   export PORT=3001
+   npm start
+   ```
+   *Expected output:*
+   ```text
+   {"level":"info","event":"startup_validation_passed","environment":"production","timestamp":"2026-09-28T02:30:00.000Z"}
+   {"level":"info","event":"server_listen","port":3001,"timestamp":"2026-09-28T02:30:00.150Z"}
+   ```
+
+2. **Send a verified event with valid HMAC-SHA256 signature:**
+   ```bash
+   PAYLOAD='{"action":"opened","pull_request":{"number":101,"title":"feat: add escrow claim"}}'
+   SIGNATURE=$(printf '%s' "$PAYLOAD" | openssl dgst -sha256 -hmac "$GITHUB_WEBHOOK_SECRET" | awk '{print $2}')
+   curl -i -X POST http://localhost:3001/api/webhooks/github \
+     -H "Content-Type: application/json" \
+     -H "x-hub-signature-256: sha256=$SIGNATURE" \
+     -d "$PAYLOAD"
+   ```
+   *Expected output:*
+   ```http
+   HTTP/1.1 202 Accepted
+   Content-Type: application/json; charset=utf-8
+
+   {"data":{"authenticated":true,"provider":"github","received":true}}
+   ```
+
+3. **Send an invalid request without signature header (Tampering check):**
+   ```bash
+   curl -i -X POST http://localhost:3001/api/webhooks/github \
+     -H "Content-Type: application/json" \
+     -d "$PAYLOAD"
+   ```
+   *Expected output:*
+   ```http
+   HTTP/1.1 401 Unauthorized
+   Content-Type: application/json; charset=utf-8
+
+   {"error":"Missing GitHub webhook signature in x-hub-signature-256."}
+   ```
+
 ### Example 3: Testing Webhook Signature
 
 ```bash
@@ -662,3 +737,41 @@ This implementation provides:
 - ✅ Integration with existing webhook verification
 - ✅ Structured logging for monitoring
 - ✅ Production-ready deployment examples
+
+
+## See Also / Related Documentation
+
+- [WEBHOOK_SECRET_VALIDATION.md](./WEBHOOK_SECRET_VALIDATION.md) — Technical implementation specification for webhook secret validation.
+- [WEBHOOK_SECURITY_GUIDE.md](./WEBHOOK_SECURITY_GUIDE.md) — Architectural overview of HMAC-SHA256 signature verification.
+- [IMPLEMENTATION_SUMMARY.md](./IMPLEMENTATION_SUMMARY.md) — Component summaries, test execution instructions, and metrics.
+- [SECURITY.md](./SECURITY.md) — Security policies, vulnerability disclosure procedures, and arbiter assumptions.
+- [CONTRIBUTING.md](./CONTRIBUTING.md) — Contributor checklist, testing guidelines, and conventional commits.
+
+
+## Wave & Backlog Alignment
+
+The code examples in this guide directly reflect the architectural standards across waves 4, 5, and 6:
+
+- **Wave 4 ([docs/wave-4.md](docs/wave-4.md)) — Core Foundation & Schema Hardening:**
+  - Standardizes payload schemas and runtime type validation for webhooks.
+  - Documents expected event payload signatures for automated testing.
+- **Wave 5 ([docs/wave-5.md](docs/wave-5.md)) — Security, Observability & Polish:**
+  - Implements startup validation for `GITHUB_WEBHOOK_SECRET` ([Example 1 & 2](#7-usage-examples)).
+  - Provides structured logging patterns for security telemetry ([Section 10](#10-monitoring-and-logging)).
+- **Wave 6 ([docs/wave-6.md](docs/wave-6.md)) — Production Hardening & Integration:**
+  - Hardens production Docker deployments with environment isolation ([Example 4](#example-4-docker-deployment)).
+  - End-to-end delivery simulation and automated verification.
+
+### Canonical Contribution Process
+
+When contributing code examples, tests, or webhook handler enhancements, follow the single canonical contribution workflow defined across the Wave backlogs ([docs/wave-4.md](docs/wave-4.md)) and [CONTRIBUTING.md](./CONTRIBUTING.md):
+1. **Browse Backlog Issues:** Check open issues tagged `wave-4`, `wave-5`, `wave-6`, or `Stellar Wave`.
+2. **Claim Prior to Work:** Comment on the target issue to claim priority and prevent duplicate effort.
+3. **Branching:** Create a focused feature branch off `main` (`git checkout -b feat/...`, `fix/...`, or `docs/...`).
+4. **Conventional Commits & Verification:** Format commit messages according to conventional commits and verify all checks locally (`npm test`, `npm run validate:configs`, `npm run format:check`).
+5. **PR & Issue Linkage:** Open a PR referencing the issue (`Resolves #<issue>` or `Closes #<issue>`).
+
+---
+
+<!-- Verified: October 18, 2026 — reconciled with wave backlog structure and canonical contribution process (per issue #1367) -->
+
