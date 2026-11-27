@@ -9,6 +9,7 @@ import { fileURLToPath } from "url";
 import { isMainThread, parentPort } from "worker_threads";
 import { scValToNative, xdr } from "@stellar/stellar-sdk";
 import { loadIndexerConfig } from "./indexerConfig.js";
+import { createConsoleCursorTrace } from "./cursorTrace.js";
 
 // CONFIGURATION
 const CONTRACT_ID = process.env.SOROBAN_CONTRACT_ID || ""; // Set in env
@@ -255,12 +256,20 @@ function validatePage(result) {
 // The cursor is committed only after the page's events are on disk, so a
 // crash or RPC failure replays the page instead of skipping it. Replayed event
 // IDs are deduplicated, so the events file gains each effect at most once.
+//
+// Every newly indexed event is traced twice (#1933): `pending` before the
+// store is touched and `committed` only after the events file and cursor
+// checkpoint are durable. A restart after a crash therefore leaves the last
+// trace of the interrupted events as `pending`, which is precisely what the
+// next poll replays. `options.trace` lets tests capture records instead of
+// writing them to the console.
 async function pollEvents(options = {}) {
   const indexFile = options.indexFile ?? INDEX_FILE;
   const cursorFile = options.cursorFile ?? CURSOR_FILE;
   const rpcUrl = options.rpcUrl ?? SOROBAN_RPC_URL;
   const contractId = options.contractId ?? CONTRACT_ID;
   const maxRetries = options.maxRetries ?? MAX_RETRIES;
+  const trace = options.trace ?? createConsoleCursorTrace();
   try {
     const events = readEvents(indexFile);
     const cursor = loadCursor(cursorFile, events);
@@ -311,6 +320,7 @@ async function pollEvents(options = {}) {
       throw new Error("Missing page cursor");
     }
     const nextCursor = pageCursor ?? cursor;
+    const cursorAdvanced = Boolean(nextCursor) && nextCursor !== cursor;
 
     const knownKeys = new Set(events.map(eventDedupKey).filter(Boolean));
     const newEvents = page.map(normalizeEvent).filter((event) => {
@@ -320,12 +330,35 @@ async function pollEvents(options = {}) {
       knownKeys.add(key);
       return true;
     });
+    // `pending`: the page is processed but nothing is durable yet. Emitted
+    // before any write so a crash below leaves a trace that explains the
+    // replay of these events on restart.
+    for (const event of newEvents) {
+      trace.pending({
+        event,
+        cursorFrom: cursor,
+        cursorTo: nextCursor,
+        cursorAdvanced,
+      });
+    }
+
     const nextEvents = events.concat(newEvents);
     if (newEvents.length > 0) {
       writeJsonAtomic(indexFile, nextEvents);
     }
     if (nextCursor && nextCursor !== cursor) {
       writeJsonAtomic(cursorFile, { cursor: nextCursor });
+    }
+
+    // `committed`: the events file and (when it advanced) the cursor
+    // checkpoint are durable, so these effects survive a restart.
+    for (const event of newEvents) {
+      trace.committed({
+        event,
+        cursorFrom: cursor,
+        cursorTo: nextCursor,
+        cursorAdvanced,
+      });
     }
 
     if (parentPort) {
