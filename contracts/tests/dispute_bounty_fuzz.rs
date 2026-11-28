@@ -306,9 +306,13 @@ fn test_fuzz_dispute_bounty_numeric_inputs_and_invariants() {
         // One second past deadline: the first ineligible ledger.
         fix.env.ledger().set_timestamp(deadline + 1);
         let res_past_deadline = fix.client.try_dispute_bounty(&bounty_id, &fix.arbiter);
+        let error = res_past_deadline
+            .err()
+            .expect("dispute_bounty at deadline + 1 must fail")
+            .expect("expected a typed contract error, not a host abort");
         assert_eq!(
-            res_past_deadline,
-            Err(Ok(ContractError::BountyExpired)),
+            ContractError::try_from(error),
+            Ok(ContractError::BountyExpired),
             "dispute_bounty at deadline + 1 must fail with BountyExpired"
         );
 
@@ -342,9 +346,13 @@ fn test_fuzz_dispute_bounty_numeric_inputs_and_invariants() {
         let balance_after_release = soroban_sdk::token::TokenClient::new(&fix.env, &fix.token)
             .balance(&fix.client.address);
         let res_after_release = fix.client.try_dispute_bounty(&bounty_id, &fix.arbiter);
+        let error = res_after_release
+            .err()
+            .expect("dispute_bounty after release must fail")
+            .expect("expected a typed contract error, not a host abort");
         assert_eq!(
-            res_after_release,
-            Err(Ok(ContractError::BountyExpired)),
+            ContractError::try_from(error),
+            Ok(ContractError::BountyExpired),
             "dispute_bounty after release must fail with BountyExpired"
         );
         let bounty_after_release = fix.client.get_bounty(&bounty_id);
@@ -393,9 +401,13 @@ fn test_fuzz_dispute_bounty_numeric_inputs_and_invariants() {
 
         let res = fix.client.try_dispute_bounty(&bounty_id, &fix.arbiter);
         if test_timestamp > deadline {
+            let error = res
+                .err()
+                .expect("dispute after deadline must fail")
+                .expect("expected a typed contract error, not a host abort");
             assert_eq!(
-                res,
-                Err(Ok(ContractError::BountyExpired)),
+                ContractError::try_from(error),
+                Ok(ContractError::BountyExpired),
                 "Dispute after deadline must fail with BountyExpired"
             );
             let b = fix.client.get_bounty(&bounty_id);
@@ -430,10 +442,15 @@ fn count_events_named(env: &Env, name: &str) -> usize {
     let target = soroban_sdk::Symbol::new(env, name);
     env.events()
         .all()
+        .events()
         .iter()
-        .filter(|(_, topics, _)| {
-            topics.iter().any(|topic| {
-                soroban_sdk::Symbol::try_from_val(env, &topic).map_or(false, |s| s == target)
+        .filter(|event| {
+            let soroban_sdk::xdr::ContractEventBody::V0(body) = &event.body;
+            body.topics.iter().any(|topic| {
+                soroban_sdk::Val::try_from_val(env, topic)
+                    .ok()
+                    .and_then(|val| soroban_sdk::Symbol::try_from_val(env, &val).ok())
+                    .is_some_and(|symbol| symbol == target)
             })
         })
         .count()
